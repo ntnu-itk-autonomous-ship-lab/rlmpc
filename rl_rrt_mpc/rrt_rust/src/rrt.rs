@@ -1,10 +1,12 @@
-use anyhow::{Error, Result};
+use crate::enc::ENC;
 use config::Config;
 use nalgebra::Vector6;
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PySlice};
+use pyo3::FromPyObject;
+use rand::Rng;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
-use rand::Rng;
 
 #[derive(Debug, Clone)]
 pub struct RRTNode {
@@ -29,11 +31,11 @@ impl PointDistance for RRTNode {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(FromPyObject, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct RRTParams {
-    pub max_iter: usize,
+    pub max_iter: u32,
+    pub max_nodes: u32,
     pub max_time: f32,
-    pub max_nodes: usize,
     pub step_size: f32,
     pub alpha: f32,
 }
@@ -67,58 +69,68 @@ pub struct RRT {
     pub x_init: Vector6<f32>,
     pub x_goal: Vector6<f32>,
     pub tree: RTree<RRTNode>,
+    pub enc: Option<ENC>,
 }
-
-// impl IntoPy<PyObject> for RRT {
-//     fn into_py(self, py: Python<'_>) -> PyObject {
-//         // delegates to i32's IntoPy implementation.
-//         self.into_py(py)
-//     }
-// }
 
 #[pymethods]
 impl RRT {
     #[new]
-    pub fn new(params: RRTParams, x_init: Vector6<f32>, x_goal: Vector6<f32>) -> Self {
-        let mut tree = RTree::new();
-        tree.insert(RRTNode {
-            cost: 0.0,
-            d2land: 0.0,
-            state: x_init,
-        });
+    pub fn new(params: RRTParams) -> Self {
+        println!("RRT initialized with params: {:?}", params);
         Self {
-            params,
-            x_init,
-            x_goal,
-            tree,
+            params: params.clone(),
+            x_init: Vector6::zeros(),
+            x_goal: Vector6::zeros(),
+            tree: RTree::new(),
+            enc: None,
         }
     }
 
-    pub fn grow_towards_goal(flag: bool) -> PyResult<Vec<Vector6<f32>>> {
-
+    pub fn set_init_state(&mut self, x_init: &PySlice) {
+        let x_init_slice = x_init.extract::<[f32; 6]>().unwrap();
+        self.x_init = Vector6::from(x_init_slice);
+        self.tree.insert(RRTNode {
+            cost: 0.0,
+            d2land: 0.0,
+            state: Vector6::from(x_init_slice),
+        });
     }
 
-    pub fn set_init_state(&mut self, x_init: Vector6<f32>) {
-        self.x_init = x_init;
+    pub fn set_goal_state(&mut self, x_goal: &PySlice) {
+        let x_goal_slice = x_goal.extract::<[f32; 6]>().unwrap();
+        self.x_goal = Vector6::from(x_goal_slice);
     }
 
-    pub fn set_goal_state(&mut self, x_goal: Vector6<f32>) {
-        self.x_goal = x_goal;
+    pub fn update_parameters(&mut self, params: RRTParams) {
+        self.params = params.clone();
     }
 
-    pub fn step(&mut self) -> Result<()> {
-        let x_rand = self.sample();
-        let x_near = self.nearest_neighbor(&x_rand)?;
-        let x_new = self.steer(&x_near, &x_rand)?;
-        self.tree.insert(x_new);
-        Ok(())
+    pub fn transfer_enc_data(&mut self, enc_data: &PyAny) {
+        //self.enc = enc;
     }
 
-    pub fn sample(&self) -> Vector6<f32> {
-        let mut rng = rand::thread_rng();
-        let x_rand =
-    }
+    // pub fn grow_towards_goal(
+    //     flag: bool,
+    //     do_list: PyList,
+    //     enc: Option<PyObject>,
+    // ) -> PyResult<Vec<Vector6<f32>>> {
+    // }
+
+    // pub fn step(&mut self) -> Result<()> {
+    //     let x_rand = self.sample();
+    //     let x_near = self.nearest_neighbor(&x_rand)?;
+    //     let x_new = self.steer(&x_near, &x_rand)?;
+    //     self.tree.insert(x_new);
+    //     Ok(())
+    // }
+
+    // pub fn sample(&self) -> Vector6<f32> {
+    //     let mut rng = rand::thread_rng();
+    //     let x_rand = Vector6::zeros();
+    //     return x_rand;
+    // }
 }
+
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.

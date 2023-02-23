@@ -1,0 +1,55 @@
+rl:
+  required: True
+  type: dict
+  schema:
+    learning_rate:
+      required: True
+      type: float
+
+rrt:
+  required: True
+  type: dict
+  schema:
+    max_iter:
+      required: True
+      type: integer
+    max_nodes:
+      required: True
+      type: integer
+    max_time:
+      required: True
+      type: float
+    step_size:
+      required: True
+      type: float
+    alpha:
+      required: True
+      type: float
+
+mpc:
+  required: True
+  type: dict
+  schema:
+    T:
+      required: True
+      type: float
+    dt:
+      required: True
+      type: float
+    Q:
+      required: True
+      type: list
+      maxlength: 6
+      minlength: 6
+      schema:
+        type: float
+    R:
+      required: True
+      type: list
+      maxlength: 3
+      minlength: 3
+      schema:
+        type: float
+    gamma:
+      required: True
+      type: float

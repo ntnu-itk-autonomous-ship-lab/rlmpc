@@ -4,6 +4,9 @@ debug = true
 debuginfo-level = 2
 backtrace = true
 
+[term]
+verbose = false
+color = "auto"
 
 [target.x86_64-apple-darwin]
 rustflags = [
