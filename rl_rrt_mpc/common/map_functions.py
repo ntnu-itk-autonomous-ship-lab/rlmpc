@@ -1,0 +1,329 @@
+"""
+    map_functions.py
+
+    Summary:
+        Contains various commonly used map functions, including
+        latlon to local UTM (ENU) coordinate transformation functions etc..
+
+    Author: Trym Tengesdal
+"""
+
+import copy
+import math
+from typing import Optional, Tuple
+
+import geopy.distance
+import numpy as np
+import rl_rrt_mpc.common.math_functions as mf
+import seacharts.enc as senc
+import shapely.affinity as affinity
+import shapely.geometry as geometry
+import shapely.ops as ops
+from osgeo import osr
+from pandas import DataFrame
+
+
+def local2latlon(x: float | list | np.ndarray, y: float | list | np.ndarray, utm_zone: int) -> Tuple[float | list | np.ndarray, float | list | np.ndarray]:
+    """Transform coordinates from x (east), y (north) to latitude, longitude.
+
+    Args:
+        x (float | list): East coordinate(s) in a local UTM coordinate system.
+        y (float | list): North coordinate(s) in a local UTM coordinate system.
+        utm_zone (int): UTM zone.
+
+    Raises:
+        ValueError: If the input string is not correct.
+
+    Returns:
+        Tuple[float | list | np.ndarray, float | list | np.ndarray]: Tuple of latitude and longitude coordinates.
+    """
+    to_zone = 4326  # Latitude Longitude
+    if utm_zone == 32:
+        from_zone = 6172  # ETRS89 / UTM zone 32 + NN54 height Møre og Romsdal
+    elif utm_zone == 33:
+        from_zone = 6173  # ETRS89 / UTM zone 33 + NN54 height
+    else:
+        raise ValueError('Input "utm_zone" is not correct. Supported zones sofar are 32 and 33.')
+
+    src = osr.SpatialReference()
+    src.ImportFromEPSG(from_zone)
+    tgt = osr.SpatialReference()
+    tgt.ImportFromEPSG(to_zone)
+    transform = osr.CoordinateTransformation(src, tgt)
+
+    if isinstance(x, (list, np.ndarray)) and isinstance(y, (list, np.ndarray)):
+        coordinates = transform.TransformPoints(list(zip(x, y)))
+        lat = [coord[0] for coord in coordinates]
+        lon = [coord[1] for coord in coordinates]
+    else:
+        lat, lon, _ = transform.TransformPoint(x, y)
+
+    return lat, lon
+
+
+def latlon2local(lat: float | list | np.ndarray, lon: float | list | np.ndarray, utm_zone: int) -> Tuple[float | list | np.ndarray, float | list | np.ndarray]:
+    """Transform coordinates from latitude, longitude to UTM32 or UTM33
+
+    Args:
+        lat (float | list): Latitude coordinate(s)
+        lon (float | list): Longitude coordinate(s)
+        utm_zone (str): UTM zone.
+
+    Raises:
+        ValueError: If the input string is not correct.
+
+    Returns:
+        Tuple[float | list | np.ndarray, float | list | np.ndarray]: Tuple of east and north coordinates.
+    """
+    from_zone = 4326  # Latitude Longitude
+    if utm_zone == 32:
+        to_zone = 6172  # ETRS89 / UTM zone 32 + NN54 height Møre og Romsdal
+    elif utm_zone == 33:
+        to_zone = 6173  # ETRS89 / UTM zone 33 + NN54 height
+    else:
+        raise ValueError('Input "utm_zone" is not correct. Supported zones sofar are 32 and 33.')
+
+    src = osr.SpatialReference()
+    src.ImportFromEPSG(from_zone)
+    tgt = osr.SpatialReference()
+    tgt.ImportFromEPSG(to_zone)
+    transform = osr.CoordinateTransformation(src, tgt)
+
+    if isinstance(lat, (list, np.ndarray)) and isinstance(lon, (list, np.ndarray)):
+        coordinates = transform.TransformPoints(list(zip(lat, lon)))
+        x = [coord[0] for coord in coordinates]
+        y = [coord[1] for coord in coordinates]
+    else:
+        x, y, _ = transform.TransformPoint(lat, lon)
+
+    return x, y
+
+
+def dist_between_latlon_coords(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Computes the distance between two latitude, longitude coordinates.
+
+    Args:
+        lat1 (float): Latitude of first coordinate.
+        lon1 (float): Longitude of first coordinate.
+        lat2 (float): Latitude of second coordinate.
+        lon2 (float): Longitude of second coordinate.
+
+    Returns:
+        float: Distance between the two coordinates in meters
+    """
+    return geopy.distance.distance((lat1, lon1), (lat2, lon2)).m
+
+
+def latlon2local_haversine(lon0: float, lat0: float, lon1: float, lat1: float) -> list:
+    """Transform the coordinates from latitude, longitude to the local coordinate system using the Haversine formula.
+
+    :param lon0: Origon on the x-axis
+    :param lat0: 0rigon on the y-axis
+    :param lon1: longitude to transform
+    :param lat1: latitude to transform
+
+    :return  in metres"""
+    if lon0 < 0 or lat0 < 0 or lon1 < 0 or lat1 < 0:
+        raise ValueError("Input coordinates (lat lon) are negative!")
+
+    r = 6362132.0
+    lat0, lon0, lat1, lon1 = map(np.radians, [lat0, lon0, lat1, lon1])
+
+    dlon = lon1 - lon0
+    dlat = 0.0
+    # x-distance (longitude)
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat0) * np.cos(lat1) * np.sin(dlon / 2) ** 2
+    c = 2 * np.arctan2(a**0.5, (1 - a) ** 0.5)
+    x = r * c
+
+    dlon = 0.0
+    dlat = lat1 - lat0
+    # y-distance (latitude)
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat0) * np.cos(lat1) * np.sin(dlon / 2) ** 2
+    c = 2 * np.arctan2(a**0.5, (1 - a) ** 0.5)
+    y = r * c
+
+    return [x, y]
+
+
+def strip_uneccessary_coastline_points(coastline: DataFrame, lla_extent: list):
+    """Removes uneccessary points from the coastline.
+
+    Args:
+        coastline ():
+        lla_extent (list): Defines the extent of the vessel data considered
+    """
+    coastline = coastline.loc[
+        (coastline["lon"] > lla_extent[1]) & (coastline["lat"] > lla_extent[0]) & (coastline["lon"] < lla_extent[3]) & (coastline["lat"] < lla_extent[2])
+    ].reset_index(drop=True)
+    if not coastline.empty:
+        coastline["y"] = coastline.apply(
+            lambda row: dist_between_latlon_coords(lla_extent[0], lla_extent[1], lla_extent[0], row["lon"]),
+            axis=1,
+        )
+        coastline["x"] = coastline.apply(
+            lambda row: dist_between_latlon_coords(lla_extent[0], lla_extent[1], row["lat"], lla_extent[1]),
+            axis=1,
+        )
+
+
+def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, scale: float = 1.0) -> geometry.Polygon:
+    """Creates a ship polygon from the ship`s position, heading, length and width.
+
+    Args:
+        x (float): The ship`s north position
+        y (float): The ship`s east position
+        heading (float): The ship`s heading
+        length (float): Length of the ship
+        width (float): Width of the ship
+        scale (float, optional): Scale factor. Defaults to 1.0.
+
+    Returns:
+        np.ndarray: Ship polygon
+    """
+    eff_length = length * scale
+    eff_width = width * scale
+
+    x_min, x_max = x - eff_length / 2.0, x + eff_length / 2.0 - eff_width
+    y_min, y_max = y - eff_width / 2.0, y + eff_width / 2.0
+    left_aft, right_aft = (y_min, x_min), (y_max, x_min)
+    left_bow, right_bow = (y_min, x_max), (y_max, x_max)
+    coords = [left_aft, left_bow, (y, x + eff_length / 2.0), right_bow, right_aft]
+    poly = geometry.Polygon(coords)
+    return affinity.rotate(poly, -heading, origin=(y, x), use_radians=True)
+
+
+def find_minimum_depth(vessel_draft, enc: senc.ENC):
+    """Find the minimum seabed depth for the given vessel draft (for it to avoid grounding)
+
+    Args:
+        vessel_draft (float): The vessel`s draft.
+
+    Returns:
+        float: The minimum seabed depth required for a safe journey for the vessel.
+    """
+    lowest_possible_depth = 0
+    for depth in enc.seabed:
+        if vessel_draft <= depth:
+            lowest_possible_depth = depth
+            break
+    return lowest_possible_depth
+
+
+def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> list:
+    """Extracts the relevant grounding hazards from the ENC as a list of polygons.
+
+    This includes land, shore and seabed polygons that are below the vessel`s minimum depth.
+
+    Args:
+        vessel_min_depth (int): The minimum depth required for the vessel to avoid grounding.
+        enc (senc.ENC): The ENC to check for grounding.
+
+    Returns:
+        list: The relevant grounding hazards.
+    """
+    dangerous_seabed = enc.seabed[0].geometry.difference(enc.seabed[vessel_min_depth].geometry)
+    return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
+
+
+def linestring_to_ndarray(line: geometry.LineString) -> np.ndarray:
+    """Converts a shapely LineString to a numpy array
+
+    Args:
+        line (LineString): Any LineString object
+
+    Returns:
+        np.ndarray: Numpy array containing the coordinates of the LineString
+    """
+    return np.array(line.coords).transpose()
+
+
+def ndarray_to_linestring(array: np.ndarray) -> geometry.LineString:
+    """Converts a 2D numpy array to a shapely LineString
+
+    Args:
+        array (np.ndarray): Numpy array of 2 x n_samples, containing the coordinates of the LineString
+
+    Returns:
+        LineString: Any LineString object
+    """
+    assert array.shape[0] == 2 and array.shape[1] > 1, "Array must be 2 x n_samples with n_samples > 1"
+    return geometry.LineString(list(zip(array[0, :], array[1, :])))
+
+
+def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel_depth: int, enc: senc.ENC, show_enc: bool = False) -> Tuple[float, np.ndarray, int]:
+    """Computes the closest distance to grounding for the given vessel trajectory.
+
+    Args:
+        vessel_trajectory (np.ndarray): The vessel`s trajectory, 2 x n_samples.
+        minimum_vessel_depth (int): The minimum depth required for the vessel to avoid grounding.
+        enc (senc.ENC): The ENC to check for grounding.
+
+    Returns:
+        Tuple[float, int]: The closest distance to grounding, corresponding distance vector and the index of the trajectory point.
+    """
+    dangerous_seabed = extract_relevant_grounding_hazards(minimum_vessel_depth, enc)
+    vessel_traj_linestring = ndarray_to_linestring(vessel_trajectory)
+    if enc and show_enc:
+        enc.start_display()
+        for hazard in dangerous_seabed:
+            enc.draw_polygon(hazard, color="red")
+    # intersection_points = find_intersections_line_polygon(vessel_traj_linestring, dangerous_seabed, enc)
+
+    # Will find the first gronding point.
+    min_dist = 1e12
+    for idx, point in enumerate(vessel_traj_linestring.coords):
+        for hazard in dangerous_seabed:
+            dist = hazard.distance(geometry.Point(point))
+            if dist < min_dist:
+                min_dist = dist
+                min_idx = idx
+
+    closest_point = geometry.Point(vessel_traj_linestring.coords[min_idx])
+    nearest_poly_points = []
+    for hazard in dangerous_seabed:
+        nearest_point = ops.nearest_points(closest_point, hazard)[1]
+        nearest_poly_points.append(nearest_point)
+
+    epsilon = 0.01
+    for i, point in enumerate(nearest_poly_points):
+        points = [
+            (np.asarray(closest_point.coords.xy[0])[0], np.asarray(closest_point.coords.xy[1])[0]),
+            (np.asarray(point.coords.xy[0])[0], np.asarray(point.coords.xy[1])[0]),
+        ]
+
+        if enc and show_enc:
+            enc.draw_line(points, color="cyan", marker_type="o")
+
+        min_dist_vec = np.array([points[1][0] - points[0][0], points[1][1] - points[0][1]])
+        if np.linalg.norm(min_dist_vec) <= min_dist + epsilon and np.linalg.norm(min_dist_vec) >= min_dist - epsilon:
+            break
+
+    if enc and show_enc:
+        enc.close_display()
+    return min_dist, min_dist_vec, min_idx
+
+
+def find_intersections_line_polygon(line: geometry.LineString, polygon: geometry.Polygon | geometry.MultiPolygon, enc: Optional[senc.ENC] = None) -> np.ndarray:
+    """Finds the intersection points between a line and a polygon.
+
+    Args:
+        line (geometry.Linestring): Line to intersect with polygon
+        polygon (geometry.Polygon | geometry.MultiPolygon): Polygon to check for intersection with line
+
+    Returns:
+        list: List of intersection points
+    """
+
+    intersection_points = polygon.intersection(line)
+    coords = []
+    if intersection_points.type == "LineString":
+        x, y = intersection_points.coords.xy
+        coords = [list(x), list(y)]
+    elif intersection_points.type == "MultiLineString":
+        for line in intersection_points.geoms:
+            # if enc:
+            #     enc.draw_line(line.coords, color="red", marker_type="o")
+            x, y = line.coords.xy
+            coords.append([list(x), list(y)])
+    return np.array(coords, dtype=object)

@@ -13,6 +13,7 @@ from typing import Any, Optional, Tuple
 import colav_simulator.core.colav.colav_interface as ci
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
+import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc as mpc
 import rl_rrt_mpc.rl as rl
@@ -51,7 +52,6 @@ class RRTParams:
 
 @dataclass
 class Config:
-
     rl: rl.RLParams
     rrt: dict
     mpc: Any
@@ -96,14 +96,28 @@ class RLRRTMPC(ci.ICOLAV):
         do_list: list,
         enc: Optional[senc.ENC] = None,
         goal_pose: Optional[np.ndarray] = None,
+        **kwargs
     ) -> np.ndarray:
+        """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
+        in order to extract relevant grounding hazards.
+        """
         if not self._initialized:
             self._t_prev = t
             self._initialized = True
-            relevant_grounding_hazards = mapf.get_relevant_grounding_hazards(enc)
+            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(kwargs["os_length"], enc)
 
-        references = np.zeros(9)
+            if False and enc is not None:
+                enc.start_display()
+                for hazard in relevant_grounding_hazards:
+                    enc.draw_polygon(hazard, color="red")
+
+            self._rrt.transfer_enc_data(relevant_grounding_hazards)
+
+        references = np.zeros((9, 1))
         return references
 
     def get_current_plan(self) -> np.ndarray:
         return self._references
+
+
+# hazard.geoms[i].exterior.
