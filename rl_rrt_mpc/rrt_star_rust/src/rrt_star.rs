@@ -2,13 +2,14 @@
 //! Contains main RRT* functionality
 //!
 use crate::enc_hazards::ENCHazards;
+use crate::model::ShipModel;
 use crate::utils;
 use config::Config;
 use nalgebra::{Vector3, Vector6};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PySlice};
 use pyo3::FromPyObject;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
@@ -85,6 +86,7 @@ impl RRTParams {
 #[pyclass]
 pub struct RRTStar {
     pub params: RRTParams,
+    pub model: ShipModel,
     pub x_init: Vector6<f64>,
     pub x_goal: Vector6<f64>,
     pub tree: RTree<RRTNode>,
@@ -99,6 +101,7 @@ impl RRTStar {
         println!("RRTStar initialized with params: {:?}", params);
         Self {
             params: params.clone(),
+            model: ShipModel::new(),
             x_init: Vector6::zeros(),
             x_goal: Vector6::zeros(),
             tree: RTree::new(),
@@ -165,14 +168,14 @@ impl RRTStar {
             state: Vector6::zeros(),
         };
 
-        (x_new, u_new, T_new) =
-            self.model
-                .steer(&z_nearest.state, &z_rand.state, &self.params.step_size)?;
-        Ok((x_new, u_new, T_new))
+        // (x_new, u_new, T_new) =
+        //     self.model
+        //         .steer(&z_nearest.state, &z_rand.state, &self.params.step_size)?;
+        Ok((Vector6::zeros(), Vector3::zeros(), 0.0))
     }
 
-    pub fn sample(&self) -> PyResult<RRTNode> {
-        let p_rand = utils::sample_free_position(&self.enc, &self.rng);
+    pub fn sample(&mut self) -> PyResult<RRTNode> {
+        let p_rand = utils::sample_free_position(&self.enc, &mut self.rng);
         Ok(RRTNode {
             state: Vector6::new(p_rand[0], p_rand[1], 0.0, 0.0, 0.0, 0.0),
             cost: 0.0,
@@ -233,7 +236,7 @@ mod tests {
             step_size: 1.0,
             alpha: 1.0,
         });
-        let z_rand = rrt.sample();
+        let z_rand = rrt.sample().unwrap();
         assert_eq!(z_rand.state, Vector6::zeros());
     }
 }

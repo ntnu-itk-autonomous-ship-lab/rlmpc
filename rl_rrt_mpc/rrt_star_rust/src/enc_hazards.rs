@@ -63,7 +63,7 @@ impl ENCHazards {
 }
 
 impl ENCHazards {
-    pub fn compute_bbox(&self) -> PyResult<Rect<f64>> {
+    pub fn compute_bbox(&mut self) -> PyResult<Rect<f64>> {
         let land_bbox = self.land.bounding_rect().unwrap();
         let shore_bbox = self.shore.bounding_rect().unwrap();
         let seabed_bbox = self.seabed.bounding_rect().unwrap();
