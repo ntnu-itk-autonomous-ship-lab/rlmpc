@@ -136,6 +136,7 @@ impl RRTStar {
         self.enc.transfer_enc_data(enc_data)
     }
 
+    #[allow(non_snake_case)]
     pub fn grow_towards_goal(
         &mut self,
         ownship_state: &PySlice,

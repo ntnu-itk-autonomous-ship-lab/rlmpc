@@ -2,26 +2,25 @@
 //! Implements a 3DOF surface ship model as in Tengesdal et. al. 2021:
 //!
 //! eta_dot = Rpsi(eta) * nu
-//! (M_rb + M_a) * nu_dot + C(nu) * nu + (D_l(nu) + D_nl) * nu = tau
+//! M * nu_dot + C(nu) * nu + (D_l(nu) + D_nl) * nu = tau
 //!
 //! with eta = [x, y, psi]^T, nu = [u, v, r]^T and xs = [eta, nu]^T.
 //!
 //! Parameters:
-//!   M_rb: Rigid body mass matrix
-//!    M_a: Added mass matrix
+//!    M: Rigid body mass matrix
 //!    C: Coriolis matrix, computed from M = M_rb + M_a
 //!    D_l: Linear damping matrix
-//!    D_nl: Nonlinear damping matrix
+//!    D_q: Nonlinear damping matrix
+//!    D_c: Nonlinear damping matrix
 //!
 //! NOTE: When using Euler`s method, keep the time step small enough (e.g. around 0.1 or less) to ensure numerical stability.
 //!
 use crate::utils;
 use nalgebra::Vector6;
 use nalgebra::{Matrix3, Vector2, Vector3};
-use pyo3::prelude::*;
-use pyo3::FromPyObject;
 use std::f64::consts::PI;
 
+#[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct ShipModelParams {
     pub draft: f64,
@@ -40,6 +39,7 @@ pub struct ShipModelParams {
     pub U_min: f64,
 }
 
+#[allow(non_snake_case)]
 impl ShipModelParams {
     pub fn new() -> Self {
         let r_max = 15.0 * PI / 180.0;
@@ -78,6 +78,7 @@ impl ShipModel {
         }
     }
 
+    #[allow(non_snake_case)]
     pub fn dynamics(&self, xs: Vector6<f64>, tau: Vector3<f64>) -> Vector6<f64> {
         let eta: Vector3<f64> = xs.fixed_rows::<3>(0).into();
         let nu: Vector3<f64> = xs.fixed_rows::<3>(3).into();
@@ -91,5 +92,17 @@ impl ShipModel {
         xs_dot.fixed_rows_mut::<3>(0).copy_from(&eta_dot);
         xs_dot.fixed_rows_mut::<3>(3).copy_from(&nu_dot);
         xs_dot
+    }
+
+    pub fn erk4_step(&self, dt: f64, xs: Vector6<f64>, tau: Vector3<f64>) -> Vector6<f64> {
+        let k1 = self.dynamics(xs, tau);
+        let k2 = self.dynamics(xs + dt * k1 / 2.0, tau);
+        let k3 = self.dynamics(xs + dt * k2 / 2.0, tau);
+        let k4 = self.dynamics(xs + dt * k3, tau);
+        xs + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+    }
+
+    pub fn euler_step(&self, dt: f64, xs: Vector6<f64>, tau: Vector3<f64>) -> Vector6<f64> {
+        xs + dt * self.dynamics(xs, tau)
     }
 }
