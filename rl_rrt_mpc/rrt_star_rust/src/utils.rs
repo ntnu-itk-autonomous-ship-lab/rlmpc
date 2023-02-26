@@ -3,7 +3,7 @@
 //!
 use crate::enc_hazards::ENCHazards;
 use nalgebra::{Matrix2, Matrix3, Vector2, Vector3, Vector6};
-use plotters::{chart, prelude::*};
+use plotters::prelude::*;
 use rand::Rng;
 use rand_chacha::ChaChaRng;
 use std::f64::consts;

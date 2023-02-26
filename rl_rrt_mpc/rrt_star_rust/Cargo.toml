@@ -20,9 +20,9 @@ anyhow = "1.0.51"
 pyo3 = { version = "0.18.1", features = ["auto-initialize"]}
 rand = "0.8.5"
 nalgebra = "0.32.1"
-rstar = "0.10.0"
+kd-tree = "0.5.1"
 geo = "0.23.1"
 rand_chacha = "0.3.1"
 plotters = "0.3.4"
-
+typenum = "1.16.0"
 

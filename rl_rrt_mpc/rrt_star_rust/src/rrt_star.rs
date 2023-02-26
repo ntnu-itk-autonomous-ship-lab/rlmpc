@@ -7,26 +7,31 @@ use crate::utils;
 use config::Config;
 use nalgebra::{Vector2, Vector3, Vector6};
 use pyo3::prelude::*;
-use pyo3::types::{PyList, PySlice};
+use pyo3::types::PySlice;
 use pyo3::FromPyObject;
-use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
-use rstar::{PointDistance, RTree, RTreeObject, AABB};
+use kd_tree::{KdTree, KdPoint};
 use serde::{Deserialize, Serialize};
+use typenum;
+use rand::SeedableRng;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RRTNode {
+    pub id: usize,
+    pub parent: Option<usize>,
     pub cost: f64,
     pub d2land: f64,
     pub state: Vector6<f64>,
 }
 
 impl RRTNode {
-    pub fn new(state: Vector6<f64>, cost: f64, d2land: f64) -> Self {
+    pub fn new(id: usize, parent: Option<usize>, state: Vector6<f64>, cost: f64, d2land: f64) -> Self {
         Self {
-            state,
+            id,
+            parent,
             cost,
             d2land,
+            state,
         }
     }
 
@@ -37,23 +42,23 @@ impl RRTNode {
     pub fn vec2d(&self) -> Vector2<f64> {
         Vector2::new(self.state[0], self.state[1])
     }
-}
 
-impl RTreeObject for RRTNode {
-    type Envelope = AABB<[f64; 2]>;
-
-    fn envelope(&self) -> Self::Envelope {
-        AABB::from_point(self.point())
+    pub fn dist2other(&self, other: &Self) -> f64 {
+        let dx = self.state[0] - other.state[0];
+        let dy = self.state[1] - other.state[1];
+        f64::sqrt(dx * dx + dy * dy)
     }
 }
 
-impl PointDistance for RRTNode {
-    fn distance_2(&self, point: &[f64; 2]) -> f64 {
-        let x = self.state[0] - point[0];
-        let y = self.state[1] - point[1];
-        x * x + y * y
+impl KdPoint for RRTNode {
+    type Scalar = f64;
+    type Dim = typenum::U2;
+
+    fn at(&self, k: usize) -> f64 {
+        self.state[k]
     }
 }
+
 
 #[derive(FromPyObject, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct RRTParams {
@@ -94,7 +99,7 @@ pub struct RRTStar {
     pub steering: SimpleSteering,
     pub x_init: Vector6<f64>,
     pub x_goal: Vector6<f64>,
-    pub tree: RTree<RRTNode>,
+    pub tree: KdTree<RRTNode>,
     rng: ChaChaRng,
     pub enc: ENCHazards,
 }
@@ -109,7 +114,7 @@ impl RRTStar {
             steering: SimpleSteering::new(),
             x_init: Vector6::zeros(),
             x_goal: Vector6::zeros(),
-            tree: RTree::new(),
+            tree: KdTree::build_by_ordered_float(vec![]),
             rng: ChaChaRng::from_entropy(),
             enc: ENCHazards::py_new(),
         }
@@ -118,11 +123,14 @@ impl RRTStar {
     pub fn set_init_state(&mut self, x_init: &PySlice) -> PyResult<()> {
         let x_init_slice = x_init.extract::<[f64; 6]>()?;
         self.x_init = Vector6::from(x_init_slice);
-        self.tree.insert(RRTNode {
+        self.tree.fill(RRTNode {
+            id: 0,
+            parent: None,
             cost: 0.0,
             d2land: 0.0,
             state: Vector6::from(x_init_slice),
         });
+        self.tree.fill_with(f64::INFINITY, 1, self.params.max_nodes as usize);
         Ok(())
     }
 
@@ -161,6 +169,7 @@ impl RRTStar {
                 let z_min = self.choose_parent(&z_new, &Z_near)?;
                 self.rewire(&z_min, &Z_near)?;
                 self.tree.insert(z_min.clone());
+
                 if self.reached_goal(&z_min) {
                     return Ok(self.reconstruct_path(&z_min));
                 }
@@ -175,9 +184,11 @@ impl RRTStar {
     pub fn reconstruct_path(&self, z: &RRTNode) -> Vec<&PyAny> {
         let mut path = vec![];
         let mut z = z;
+        z.
         while z.parent.is_some() {
-            path.push(z);
-            z = z.parent.as_ref().unwrap();
+            let z_parent = z.parent.unwrap();
+            path.push(z_parent);
+            z = z_parent;
         }
         path.push(z);
         path.reverse();
@@ -319,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sample() {
+    fn test_sample() -> PyResult<()> {
         let mut rrt = RRTStar::py_new(RRTParams {
             max_iter: 1000,
             max_nodes: 1000,
@@ -328,7 +339,8 @@ mod tests {
             max_steering_time: 20.0,
             alpha: 1.0,
         });
-        let z_rand = rrt.sample().unwrap();
+        let z_rand = rrt.sample()?;
         assert_eq!(z_rand.state, Vector6::zeros());
+        Ok(())
     }
 }

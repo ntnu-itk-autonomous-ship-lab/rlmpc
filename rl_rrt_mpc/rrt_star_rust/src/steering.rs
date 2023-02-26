@@ -6,7 +6,6 @@ use crate::utils;
 use nalgebra::Vector3;
 use nalgebra::Vector6;
 use std::f64;
-use std::f64::consts;
 
 pub trait Steering {
     fn steer(
@@ -178,6 +177,7 @@ impl Steering for SimpleSteering {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f64::consts;
 
     #[test]
     pub fn test_steer() -> Result<(), Box<dyn std::error::Error>> {
