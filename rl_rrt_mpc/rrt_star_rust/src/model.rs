@@ -79,7 +79,7 @@ impl ShipModel {
     }
 
     #[allow(non_snake_case)]
-    pub fn dynamics(&self, xs: Vector6<f64>, tau: Vector3<f64>) -> Vector6<f64> {
+    pub fn dynamics(&self, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         let eta: Vector3<f64> = xs.fixed_rows::<3>(0).into();
         let nu: Vector3<f64> = xs.fixed_rows::<3>(3).into();
 
@@ -94,15 +94,15 @@ impl ShipModel {
         xs_dot
     }
 
-    pub fn erk4_step(&self, dt: f64, xs: Vector6<f64>, tau: Vector3<f64>) -> Vector6<f64> {
+    pub fn erk4_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         let k1 = self.dynamics(xs, tau);
-        let k2 = self.dynamics(xs + dt * k1 / 2.0, tau);
-        let k3 = self.dynamics(xs + dt * k2 / 2.0, tau);
-        let k4 = self.dynamics(xs + dt * k3, tau);
+        let k2 = self.dynamics(&(xs + dt * k1 / 2.0), tau);
+        let k3 = self.dynamics(&(xs + dt * k2 / 2.0), tau);
+        let k4 = self.dynamics(&(xs + dt * k3), tau);
         xs + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
     }
 
-    pub fn euler_step(&self, dt: f64, xs: Vector6<f64>, tau: Vector3<f64>) -> Vector6<f64> {
+    pub fn euler_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         xs + dt * self.dynamics(xs, tau)
     }
 }

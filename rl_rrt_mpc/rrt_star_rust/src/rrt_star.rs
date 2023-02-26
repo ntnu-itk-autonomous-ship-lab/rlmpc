@@ -2,7 +2,7 @@
 //! Contains main RRT* functionality
 //!
 use crate::enc_hazards::ENCHazards;
-use crate::model::ShipModel;
+use crate::steering::{SimpleSteering, Steering};
 use crate::utils;
 use config::Config;
 use nalgebra::{Vector3, Vector6};
@@ -53,11 +53,12 @@ impl PointDistance for RRTNode {
 
 #[derive(FromPyObject, Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct RRTParams {
-    pub max_iter: u32,
-    pub max_nodes: u32,
-    pub max_time: f32,
-    pub step_size: f32,
-    pub alpha: f32,
+    pub max_iter: u64,
+    pub max_nodes: u64,
+    pub max_time: f64,
+    pub step_size: f64,
+    pub max_steering_time: f64,
+    pub alpha: f64,
 }
 
 impl RRTParams {
@@ -86,7 +87,7 @@ impl RRTParams {
 #[pyclass]
 pub struct RRTStar {
     pub params: RRTParams,
-    pub model: ShipModel,
+    pub steering: SimpleSteering,
     pub x_init: Vector6<f64>,
     pub x_goal: Vector6<f64>,
     pub tree: RTree<RRTNode>,
@@ -101,7 +102,7 @@ impl RRTStar {
         println!("RRTStar initialized with params: {:?}", params);
         Self {
             params: params.clone(),
-            model: ShipModel::new(),
+            steering: SimpleSteering::new(),
             x_init: Vector6::zeros(),
             x_goal: Vector6::zeros(),
             tree: RTree::new(),
@@ -146,7 +147,7 @@ impl RRTStar {
         for i in 0..self.params.max_iter {
             let z_rand = self.sample()?;
             let z_nearest = self.nearest(&z_rand)?;
-            let (x_new, u_new, T_new) = self.steer(&z_nearest, &z_rand)?;
+            let (x_new, u_new, t_new) = self.steer(&z_nearest, &z_rand)?;
         }
         Ok(vec![])
     }
@@ -162,17 +163,14 @@ impl RRTStar {
         &self,
         z_nearest: &RRTNode,
         z_rand: &RRTNode,
-    ) -> PyResult<(Vector6<f64>, Vector3<f64>, f64)> {
-        let z_new = RRTNode {
-            cost: 0.0,
-            d2land: 0.0,
-            state: Vector6::zeros(),
-        };
-
-        // (x_new, u_new, T_new) =
-        //     self.model
-        //         .steer(&z_nearest.state, &z_rand.state, &self.params.step_size)?;
-        Ok((Vector6::zeros(), Vector3::zeros(), 0.0))
+    ) -> PyResult<(Vector6<f64>, Vec<Vector3<f64>>, f64)> {
+        let (xs_array, u_array, t_new) = self.steering.steer(
+            &z_nearest.state,
+            &z_rand.state,
+            self.params.step_size,
+            self.params.max_steering_time,
+        );
+        Ok((xs_array.last().copied().unwrap(), u_array, t_new))
     }
 
     pub fn sample(&mut self) -> PyResult<RRTNode> {
