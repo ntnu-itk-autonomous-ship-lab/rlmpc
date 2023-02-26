@@ -64,11 +64,23 @@ impl ENCHazards {
 
 impl ENCHazards {
     pub fn compute_bbox(&mut self) -> PyResult<Rect<f64>> {
-        let land_bbox = self.land.bounding_rect().unwrap();
-        let shore_bbox = self.shore.bounding_rect().unwrap();
-        let seabed_bbox = self.seabed.bounding_rect().unwrap();
-        if land_bbox.is_empty() || shore_bbox.is_empty() || seabed_bbox.is_empty() {
-            return Err(PyValueError::new_err("Bounding box is empty"));
+        let mut land_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
+        if !self.land.is_empty() {
+            land_bbox = self.land.bounding_rect().unwrap();
+        }
+
+        let mut shore_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
+        if !self.shore.is_empty() {
+            shore_bbox = self.shore.bounding_rect().unwrap();
+        }
+
+        let mut seabed_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
+        if !self.seabed.is_empty() {
+            seabed_bbox = self.seabed.bounding_rect().unwrap();
+        }
+
+        if land_bbox.is_empty() && shore_bbox.is_empty() && seabed_bbox.is_empty() {
+            return Err(PyValueError::new_err("ENC Hazard is empty"));
         }
         println!("Land bbox: {:?}", land_bbox);
         println!("Shore bbox: {:?}", shore_bbox);
@@ -117,6 +129,10 @@ impl ENCHazards {
 
     /// Calculate the distance from a point to the closest point on the ENC
     pub fn dist2point(&self, p: &Vector2<f64>) -> f64 {
+        if self.land.is_empty() || self.shore.is_empty() || self.seabed.is_empty() {
+            println!("ENCHazards is empty");
+            return -1.0;
+        }
         let point = point![x: p[0], y: p[1]];
         let dist2land = point.euclidean_distance(&self.land);
         let dist2shore = point.euclidean_distance(&self.shore);
@@ -161,12 +177,16 @@ impl ENCHazards {
         }
         Ok(MultiPolygon(poly_vec))
     }
+
+    pub fn set_land(&mut self, py_multipoly: &PyAny) -> PyResult<()> {
+        self.land = self.transfer_multipolygon(&py_multipoly)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use pyo3::types::PyList;
 
     #[test]
@@ -254,6 +274,113 @@ mod tests {
             assert_eq!(multipoly.0[1].exterior().0[4], coord!(x:2.0, y:2.0));
 
             println!("Polygon: {:?}", multipoly);
+        })
+    }
+
+    #[test]
+    fn test_dist2point() {
+        Python::with_gil(|py| {
+            let mut enc = ENCHazards::py_new();
+
+            let geometry = PyModule::import(py, "shapely.geometry").unwrap();
+            let poly_class = geometry.getattr("Polygon").unwrap();
+            let elements = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)];
+            let pytuple_coords = PyList::new(py, elements);
+            let args = (pytuple_coords,);
+            let polygon = poly_class.call1(args).unwrap();
+
+            let multipoly_class = geometry.getattr("MultiPolygon").unwrap();
+            let py_poly_list = PyList::new(py, vec![polygon.clone()]);
+            let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
+
+            enc.set_land(py_multipoly).unwrap();
+
+            let point = Vector2::new(0.5, 0.5);
+            println!("Point: {:?}", point);
+            println!("Polygon: {:?}", enc.land.0[0]);
+            assert_eq!(enc.dist2point(&point), 0.0);
+        })
+    }
+
+    #[test]
+    fn test_inside_hazards() {
+        Python::with_gil(|py| {
+            let mut enc = ENCHazards::py_new();
+
+            let geometry = PyModule::import(py, "shapely.geometry").unwrap();
+            let poly_class = geometry.getattr("Polygon").unwrap();
+            let elements = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)];
+            let pytuple_coords = PyList::new(py, elements);
+            let args = (pytuple_coords,);
+            let polygon = poly_class.call1(args).unwrap();
+
+            let multipoly_class = geometry.getattr("MultiPolygon").unwrap();
+            let py_poly_list = PyList::new(py, vec![polygon.clone()]);
+            let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
+
+            enc.set_land(py_multipoly).unwrap();
+
+            let point = Vector2::new(0.5, 0.5);
+
+            println!("Point: {:?}", point);
+            println!("Polygon: {:?}", enc.land.0[0]);
+            assert_eq!(enc.inside_hazards(&point), true);
+        })
+    }
+
+    #[test]
+    fn test_intersections() {
+        Python::with_gil(|py| {
+            let mut enc = ENCHazards::py_new();
+
+            let geometry = PyModule::import(py, "shapely.geometry").unwrap();
+            let poly_class = geometry.getattr("Polygon").unwrap();
+            let elements = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)];
+            let pytuple_coords = PyList::new(py, elements);
+            let args = (pytuple_coords,);
+            let polygon = poly_class.call1(args).unwrap();
+
+            let multipoly_class = geometry.getattr("MultiPolygon").unwrap();
+            let py_poly_list = PyList::new(py, vec![polygon.clone()]);
+            let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
+
+            enc.set_land(py_multipoly).unwrap();
+
+            let point1 = Vector2::new(-2.0, 2.0);
+            let point2 = Vector2::new(2.0, -2.0);
+
+            println!("Point1: {:?}", point1);
+            println!("Point2: {:?}", point2);
+            println!("Polygon: {:?}", enc.land.0[0]);
+            assert_eq!(enc.intersects_with_segment(&point1, &point2), true);
+
+            let linestring = LineString(vec![coord! {x: 0.0, y: 2.0}, coord! {x: 0.0, y: -2.0}]);
+            println!("Linestring: {:?}", linestring);
+            assert_eq!(enc.intersects_with_linestring(&linestring), true);
+        })
+    }
+
+    #[test]
+    fn test_compute_bbox() {
+        Python::with_gil(|py| {
+            let mut enc = ENCHazards::py_new();
+
+            let geometry = PyModule::import(py, "shapely.geometry").unwrap();
+            let poly_class = geometry.getattr("Polygon").unwrap();
+            let elements = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.0, 0.0)];
+            let pytuple_coords = PyList::new(py, elements);
+            let args = (pytuple_coords,);
+            let polygon = poly_class.call1(args).unwrap();
+
+            let multipoly_class = geometry.getattr("MultiPolygon").unwrap();
+            let py_poly_list = PyList::new(py, vec![polygon.clone()]);
+            let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
+
+            enc.set_land(py_multipoly).unwrap();
+
+            let bbox = enc.compute_bbox().unwrap();
+            assert_eq!(bbox.min(), coord! {x: 0.0, y: 0.0});
+            assert_eq!(bbox.max(), coord! {x: 1.0, y: 1.0});
         })
     }
 }

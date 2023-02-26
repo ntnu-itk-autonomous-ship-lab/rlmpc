@@ -5,7 +5,7 @@ use crate::enc_hazards::ENCHazards;
 use crate::steering::{SimpleSteering, Steering};
 use crate::utils;
 use config::Config;
-use nalgebra::{Vector3, Vector6};
+use nalgebra::{Vector2, Vector3, Vector6};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PySlice};
 use pyo3::FromPyObject;
@@ -14,15 +14,15 @@ use rand_chacha::ChaChaRng;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RRTNode {
-    pub cost: f32,
-    pub d2land: f32,
+    pub cost: f64,
+    pub d2land: f64,
     pub state: Vector6<f64>,
 }
 
 impl RRTNode {
-    pub fn new(state: Vector6<f64>, cost: f32, d2land: f32) -> Self {
+    pub fn new(state: Vector6<f64>, cost: f64, d2land: f64) -> Self {
         Self {
             state,
             cost,
@@ -33,13 +33,17 @@ impl RRTNode {
     pub fn point(&self) -> [f64; 2] {
         [self.state[0], self.state[1]]
     }
+
+    pub fn vec2d(&self) -> Vector2<f64> {
+        Vector2::new(self.state[0], self.state[1])
+    }
 }
 
 impl RTreeObject for RRTNode {
     type Envelope = AABB<[f64; 2]>;
 
     fn envelope(&self) -> Self::Envelope {
-        AABB::from_point([self.state[0], self.state[1]])
+        AABB::from_point(self.point())
     }
 }
 
@@ -137,7 +141,6 @@ impl RRTStar {
         self.enc.transfer_enc_data(enc_data)
     }
 
-    #[allow(non_snake_case)]
     pub fn grow_towards_goal(
         &mut self,
         ownship_state: &PySlice,
@@ -147,30 +150,119 @@ impl RRTStar {
         for i in 0..self.params.max_iter {
             let z_rand = self.sample()?;
             let z_nearest = self.nearest(&z_rand)?;
-            let (x_new, u_new, t_new) = self.steer(&z_nearest, &z_rand)?;
+            let (xs_array, _, _, _) = self.steer(&z_nearest, &z_rand)?;
+            let x_new = xs_array.last().copied().unwrap();
+            let is_collision_free = self
+                .enc
+                .intersects_with_segment(&z_nearest.vec2d(), &Vector2::new(x_new[0], x_new[1]));
+            if is_collision_free {
+                let z_new = RRTNode::new(x_new, z_nearest.cost, 0.0);
+                let Z_near = self.nearest_neighbors(&z_new)?;
+                let z_min = self.choose_parent(&z_new, &Z_near)?;
+                self.rewire(&z_min, &Z_near)?;
+                self.tree.insert(z_min.clone());
+                if self.reached_goal(&z_min) {
+                    return Ok(self.reconstruct_path(&z_min));
+                }
+            }
         }
         Ok(vec![])
     }
 }
 
+#[allow(non_snake_case)]
 impl RRTStar {
+    pub fn reconstruct_path(&self, z: &RRTNode) -> Vec<&PyAny> {
+        let mut path = vec![];
+        let mut z = z;
+        while z.parent.is_some() {
+            path.push(z);
+            z = z.parent.as_ref().unwrap();
+        }
+        path.push(z);
+        path.reverse();
+        path
+    }
+
+    pub fn reached_goal(&self, z: &RRTNode) -> bool {
+        let x = z.state[0];
+        let y = z.state[1];
+        let x_goal = self.x_goal[0];
+        let y_goal = self.x_goal[1];
+        let dist = ((x - x_goal) * (x - x_goal) + (y - y_goal) * (y - y_goal)).sqrt();
+        dist < 20.0
+    }
+
+    pub fn rewire(&mut self, z_min: &RRTNode, Z_near: &Vec<RRTNode>) -> PyResult<()> {
+        for z_near in Z_near {
+            let (xs_array, _, _, _) = self.steer(&z_near, &z_min)?;
+            let x_new = xs_array.last().copied().unwrap();
+            let is_collision_free = self
+                .enc
+                .intersects_with_segment(&Vector2::new(x_new[0], x_new[1]), &z_min.vec2d());
+            if is_collision_free {
+                let path_length = utils::compute_path_length(&xs_array);
+                let z_new = RRTNode::new(x_new, z_min.cost + path_length, 0.0);
+                if z_new.cost < z_near.cost {
+                    self.tree.remove(z_near);
+                    self.tree.insert(z_new);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn nearest(&self, z_rand: &RRTNode) -> PyResult<RRTNode> {
         let nearest = self.tree.nearest_neighbor(&z_rand.point()).unwrap().clone();
         Ok(nearest)
     }
 
+    pub fn nearest_neighbors(&self, z_new: &RRTNode) -> PyResult<Vec<RRTNode>> {
+        let mut Z_near = self
+            .tree
+            .nearest_neighbor_iter(&z_new.point())
+            .take_while(|z| z.distance_2(&z_new.point()) < self.params.alpha.powi(2))
+            .map(|z| z.clone())
+            .collect::<Vec<_>>();
+        Z_near.sort_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap());
+        Ok(Z_near)
+    }
+
+    /// Select parent here, and dont consider the z_nearest node in the iteration
+
+    pub fn choose_parent(&self, z_new: &RRTNode, Z_near: &[RRTNode]) -> PyResult<RRTNode> {
+        let mut z_min = z_new.clone();
+        let mut z_nearest = Z_near[0].clone();
+        for z_near in Z_near {
+            let (xs_array, _, _, _) = self.steer(&z_near, &z_new)?;
+            let x_new = xs_array.last().copied().unwrap();
+            let is_collision_free = self
+                .enc
+                .intersects_with_segment(&z_near.vec2d(), &Vector2::new(x_new[0], x_new[1]));
+            if is_collision_free {
+                let path_length = utils::compute_path_length(&xs_array);
+                let cost = z_near.cost + path_length;
+                if cost < z_min.cost {
+                    z_min = RRTNode::new(x_new, cost, 0.0);
+                    z_nearest = z_near.clone();
+                }
+            }
+        }
+        Ok(z_min)
+    }
+
     pub fn steer(
-        &self,
+        &mut self,
         z_nearest: &RRTNode,
         z_rand: &RRTNode,
-    ) -> PyResult<(Vector6<f64>, Vec<Vector3<f64>>, f64)> {
-        let (xs_array, u_array, t_new) = self.steering.steer(
+    ) -> PyResult<(Vec<Vector6<f64>>, Vec<Vector3<f64>>, Vec<(f64, f64)>, f64)> {
+        let (xs_array, u_array, refs_array, t_new) = self.steering.steer(
             &z_nearest.state,
             &z_rand.state,
             self.params.step_size,
             self.params.max_steering_time,
         );
-        Ok((xs_array.last().copied().unwrap(), u_array, t_new))
+        Ok((xs_array, u_array, refs_array, t_new))
     }
 
     pub fn sample(&mut self) -> PyResult<RRTNode> {
@@ -233,6 +325,7 @@ mod tests {
             max_nodes: 1000,
             max_time: 100.0,
             step_size: 1.0,
+            max_steering_time: 20.0,
             alpha: 1.0,
         });
         let z_rand = rrt.sample().unwrap();

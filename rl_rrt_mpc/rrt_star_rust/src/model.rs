@@ -69,6 +69,7 @@ pub struct ShipModel {
     pub n_u: usize,
 }
 
+#[allow(non_snake_case)]
 impl ShipModel {
     pub fn new() -> Self {
         Self {
@@ -78,16 +79,15 @@ impl ShipModel {
         }
     }
 
-    #[allow(non_snake_case)]
     pub fn dynamics(&self, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         let eta: Vector3<f64> = xs.fixed_rows::<3>(0).into();
         let nu: Vector3<f64> = xs.fixed_rows::<3>(3).into();
 
+        let Cmtrx = utils::Cmtrx(self.params.M, nu);
         let Dmtrx = utils::Dmtrx(self.params.D_l, self.params.D_q, self.params.D_c, nu);
 
         let eta_dot: Vector3<f64> = (utils::Rmtrx(eta[2]) * nu).into();
-        let nu_dot: Vector3<f64> =
-            (self.params.M_inv * (tau - utils::Cmtrx(self.params.M, nu) * nu - Dmtrx * nu)).into();
+        let nu_dot: Vector3<f64> = (self.params.M_inv * (tau - Cmtrx * nu - Dmtrx * nu)).into();
         let mut xs_dot: Vector6<f64> = Vector6::zeros();
         xs_dot.fixed_rows_mut::<3>(0).copy_from(&eta_dot);
         xs_dot.fixed_rows_mut::<3>(3).copy_from(&nu_dot);
@@ -95,14 +95,33 @@ impl ShipModel {
     }
 
     pub fn erk4_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
-        let k1 = self.dynamics(xs, tau);
-        let k2 = self.dynamics(&(xs + dt * k1 / 2.0), tau);
-        let k3 = self.dynamics(&(xs + dt * k2 / 2.0), tau);
-        let k4 = self.dynamics(&(xs + dt * k3), tau);
-        xs + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0
+        let k1: Vector6<f64> = self.dynamics(xs, tau);
+        let k2: Vector6<f64> = self.dynamics(&(xs + dt * k1 / 2.0), tau);
+        let k3: Vector6<f64> = self.dynamics(&(xs + dt * k2 / 2.0), tau);
+        let k4: Vector6<f64> = self.dynamics(&(xs + dt * k3), tau);
+        let mut xs_new: Vector6<f64> = xs + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0;
+        // println!("xs_new: {:?}", xs_new);
+        let U_new: f64 = (xs_new[3] * xs_new[3] + xs_new[4] * xs_new[4]).sqrt();
+        let chi: f64 = f64::atan2(xs_new[4], xs_new[3]);
+        xs_new[2] = utils::wrap_angle_to_pmpi(xs_new[2]);
+        xs_new[3] = utils::saturate(U_new, self.params.U_min, self.params.U_max) * f64::cos(chi);
+        xs_new[4] = utils::saturate(U_new, self.params.U_min, self.params.U_max) * f64::sin(chi);
+        xs_new[5] = utils::saturate(xs_new[5], -self.params.r_max, self.params.r_max);
+        //println!("xs_new after sat: {:?}", xs_new);
+        xs_new
     }
 
     pub fn euler_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
-        xs + dt * self.dynamics(xs, tau)
+        let mut xs_new: Vector6<f64> = xs + dt * self.dynamics(xs, tau);
+        // println!("xs_new: {:?}", xs_new);
+
+        let U_new: f64 = (xs_new[3] * xs_new[3] + xs_new[4] * xs_new[4]).sqrt();
+        let chi: f64 = f64::atan2(xs_new[4], xs_new[3]);
+        xs_new[2] = utils::wrap_angle_to_pmpi(xs_new[2]);
+        xs_new[3] = utils::saturate(U_new, self.params.U_min, self.params.U_max) * f64::cos(chi);
+        xs_new[4] = utils::saturate(U_new, self.params.U_min, self.params.U_max) * f64::sin(chi);
+        xs_new[5] = utils::saturate(xs_new[5], -self.params.r_max, self.params.r_max);
+        //println!("xs_new after sat: {:?}", xs_new);
+        xs_new
     }
 }
