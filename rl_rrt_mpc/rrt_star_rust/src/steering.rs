@@ -156,8 +156,8 @@ impl Steering for SimpleSteering {
             let refs: (f64, f64) = self
                 .los_guidance
                 .compute_refs(&xs_next, xs_start, xs_goal, time_step);
-            // Break if the desired speed is 0 => we are at the goal
-            if refs.0 <= 0.001 {
+            // Break if the desired speed is 0 and current speed is 0 => we are at the goal
+            if refs.0 <= 0.001 && xs_next[3] <= 0.001 {
                 break;
             }
             let tau: Vector3<f64> =

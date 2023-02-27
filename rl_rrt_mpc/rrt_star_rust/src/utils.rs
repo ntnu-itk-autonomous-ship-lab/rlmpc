@@ -3,11 +3,15 @@
 //!
 use crate::enc_hazards::ENCHazards;
 use nalgebra::{Matrix2, Matrix3, Vector2, Vector3, Vector6};
+use num::cast::AsPrimitive;
 use plotters::prelude::*;
+use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyList};
 use rand::Rng;
 use rand_chacha::ChaChaRng;
 use std::f64::consts;
 use std::iter;
+use std::ops::Add;
 
 pub fn sample_free_position(enc: &ENCHazards, rng: &mut ChaChaRng) -> Vector2<f64> {
     loop {
@@ -107,8 +111,24 @@ pub fn compute_path_length(xs_array: &Vec<Vector6<f64>>) -> f64 {
     xs_array
         .iter()
         .zip(xs_array.iter().skip(1))
-        .map(|(x1, x2)| (Vector2::new(x1[0], x1[1]) - Vector2::new(x2[0], x2[1])).norm())
+        .map(|(x1, x2)| {
+            //println!("x1: {:?} | xs: {:?}", x1, x2);
+            (Vector2::new(x1[0], x1[1]) - Vector2::new(x2[0], x2[1])).norm()
+        })
         .sum()
+}
+
+pub fn vector6_to_pylist<T>(py: Python<'_>, v: &Vector6<T>) -> PyResult<Py<PyList>>
+where
+    T: Copy + AsPrimitive<T> + 'static + Add<Output = T> + Into<f64>,
+{
+    let mut elements: Vec<f64> = Vec::new();
+    for i in 0..6 {
+        elements.push(v[i].into());
+    }
+    let pyany = elements.into_py(py);
+    let pyslice = pyany.downcast::<PyList>(py)?.into_py(py);
+    Ok(pyslice)
 }
 
 pub fn draw_north_east_chart(
@@ -262,5 +282,18 @@ mod tests {
         let Mmtrx = Matrix3::from_partial_diagonal(&[3000.0, 3000.0, 19000.0]);
         let Cmtrx_res = Cmtrx(Mmtrx, nu);
         println!("Cmtrx_res: {:?}", Cmtrx_res);
+    }
+
+    #[test]
+    fn test_vector6_to_pylist() -> PyResult<()> {
+        let vec = Vector6::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+        Python::with_gil(|py| {
+            let pylist: Py<PyList> = vector6_to_pylist::<f64>(py, &vec)?.into();
+            println!("pylist: {:?}", pylist);
+            let vec6: Vec<f64> = pylist.extract(py)?;
+            let nalg_vec6 = Vector6::new(vec6[0], vec6[1], vec6[2], vec6[3], vec6[4], vec6[5]);
+            assert_eq!(vec, nalg_vec6);
+            Ok(())
+        })
     }
 }

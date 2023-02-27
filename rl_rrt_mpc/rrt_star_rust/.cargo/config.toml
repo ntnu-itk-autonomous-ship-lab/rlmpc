@@ -8,10 +8,10 @@ backtrace = true
 verbose = false
 color = "auto"
 
-[build]
-rustflags = [
-  "-C", "link-args=-Wl,-rpath, /Library/Developer/CommandLineTools/Library/Frameworks",
-]
+# [build]
+# rustflags = [
+#   "-C", "link-args=-Wl,-rpath, /Library/Developer/CommandLineTools/Library/Frameworks",
+# ]
 
 [target.x86_64-apple-darwin]
 rustflags = [

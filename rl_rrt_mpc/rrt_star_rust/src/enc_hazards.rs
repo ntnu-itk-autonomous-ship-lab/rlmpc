@@ -37,6 +37,10 @@ impl ENCHazards {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.land.is_empty() && self.shore.is_empty() && self.seabed.is_empty()
+    }
+
     /// Transfer hazardous ENC data from python to rust. The ENC data is a list on the form:
     /// [land, shore, (dangerous)seabed]
     pub fn transfer_enc_data(&mut self, enc_data: Vec<&PyAny>) -> PyResult<()> {
