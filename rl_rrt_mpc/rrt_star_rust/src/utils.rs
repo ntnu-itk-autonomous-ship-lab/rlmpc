@@ -2,7 +2,6 @@
 //! Contains utility functions for the RRT* algorithm
 //!
 use crate::enc_hazards::ENCHazards;
-use geo::HasDimensions;
 use nalgebra::{Matrix2, Matrix3, Vector2, Vector3, Vector6};
 use num::cast::AsPrimitive;
 use plotters::prelude::*;
@@ -28,6 +27,7 @@ pub fn uniform_sample(enc: &ENCHazards, rng: &mut ChaChaRng) -> Vector2<f64> {
     }
 }
 
+#[allow(non_snake_case)]
 pub fn informed_sample(
     p_start: &Vector2<f64>,
     p_goal: &Vector2<f64>,

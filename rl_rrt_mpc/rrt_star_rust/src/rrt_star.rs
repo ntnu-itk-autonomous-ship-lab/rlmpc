@@ -276,7 +276,16 @@ impl RRTStar {
     }
 
     pub fn rewire(&mut self, z_new: &RRTNode, Z_near: &Vec<RRTNode>) -> PyResult<()> {
-        for z_near in Z_near {
+        let z_new_parent_id = self
+            .bookkeeping_tree
+            .get(&z_new.clone().id.unwrap())
+            .unwrap()
+            .parent()
+            .unwrap();
+        for z_near in Z_near.iter() {
+            if z_new_parent_id.eq(&z_near.clone().id.unwrap()) {
+                continue;
+            }
             let (xs_array, _, _, t_new) = self.steer(&z_new, &z_near)?;
             let x_new_near: Vector6<f64> = xs_array.last().copied().unwrap();
             if self.is_collision_free(&z_new, &x_new_near) {
@@ -613,7 +622,6 @@ mod tests {
         Python::with_gil(|py| -> PyResult<()> {
             let x_start_pyany = x_start.into_py(py);
             let x_start_py = x_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
-            rrt.set_init_state(x_start_py)?;
             let x_goal_pyany = x_goal.into_py(py);
             let x_goal_py = x_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
             rrt.set_goal_state(x_goal_py)?;

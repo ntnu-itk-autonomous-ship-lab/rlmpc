@@ -39,7 +39,6 @@ impl ENCHazards {
 
     pub fn is_empty(&self) -> bool {
         let empty = self.bbox.min() == self.bbox.max();
-        println!("Is empty: {:?}", empty);
         empty
     }
 
