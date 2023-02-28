@@ -38,7 +38,9 @@ impl ENCHazards {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.land.is_empty() && self.shore.is_empty() && self.seabed.is_empty()
+        let empty = self.bbox.min() == self.bbox.max();
+        println!("Is empty: {:?}", empty);
+        empty
     }
 
     /// Transfer hazardous ENC data from python to rust. The ENC data is a list on the form:
@@ -62,6 +64,7 @@ impl ENCHazards {
             }
             println!("Multipolygon length: {:?}", self.land.0.len());
         }
+        self.compute_bbox()?;
         Ok(())
     }
 }

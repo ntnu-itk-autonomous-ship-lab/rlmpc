@@ -2,23 +2,61 @@
 //! Contains utility functions for the RRT* algorithm
 //!
 use crate::enc_hazards::ENCHazards;
+use geo::HasDimensions;
 use nalgebra::{Matrix2, Matrix3, Vector2, Vector3, Vector6};
 use num::cast::AsPrimitive;
 use plotters::prelude::*;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyList};
+use pyo3::types::PyList;
 use rand::Rng;
 use rand_chacha::ChaChaRng;
 use std::f64::consts;
 use std::iter;
 use std::ops::Add;
 
-pub fn sample_free_position(enc: &ENCHazards, rng: &mut ChaChaRng) -> Vector2<f64> {
+pub fn uniform_sample(enc: &ENCHazards, rng: &mut ChaChaRng) -> Vector2<f64> {
+    if enc.is_empty() {
+        return sample_from_unit_ball(rng);
+    }
     loop {
         let x = rng.gen_range(enc.bbox.min().x..enc.bbox.max().x);
         let y = rng.gen_range(enc.bbox.min().y..enc.bbox.max().y);
         let p = Vector2::new(x, y);
         if !enc.inside_hazards(&p) {
+            return p;
+        }
+    }
+}
+
+pub fn informed_sample(
+    p_start: &Vector2<f64>,
+    p_goal: &Vector2<f64>,
+    c_max: f64,
+    enc: &ENCHazards,
+    rng: &mut ChaChaRng,
+) -> Vector2<f64> {
+    assert!(c_max < f64::INFINITY);
+    let c_min = (p_start - p_goal).norm();
+    let p_centre = (p_start + p_goal) / 2.0;
+    let r_1 = c_max / 2.0;
+    let ball_radius = (c_max.powi(2) - c_min.powi(2)).sqrt() / 2.0;
+    let L = Matrix2::from_partial_diagonal(&[ball_radius, ball_radius]);
+
+    loop {
+        let x_ball: Vector2<f64> = sample_from_unit_ball(rng);
+        let p_rand: Vector2<f64> = L * x_ball + p_centre;
+        if !enc.inside_hazards(&p_rand) {
+            return p_rand;
+        }
+    }
+}
+
+pub fn sample_from_unit_ball(rng: &mut ChaChaRng) -> Vector2<f64> {
+    let mut p = Vector2::zeros();
+    loop {
+        p[0] = rng.gen_range(-1.0..1.0);
+        p[1] = rng.gen_range(-1.0..1.0);
+        if p.norm() <= 1.0 {
             return p;
         }
     }

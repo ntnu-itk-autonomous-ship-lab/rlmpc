@@ -1,22 +1,20 @@
 //! # RRT*
 //! Contains main RRT* functionality
 //!
-use std::thread::current;
-
 use crate::enc_hazards::ENCHazards;
 use crate::steering::{SimpleSteering, Steering};
 use crate::utils;
 use config::Config;
+use id_tree::InsertBehavior::*;
+use id_tree::*;
 use nalgebra::{Vector2, Vector3, Vector6};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyList, PySlice};
+use pyo3::types::{PyAny, PyList};
 use pyo3::FromPyObject;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
-use slab_tree::{NodeId, NodeRef, Tree};
-use typenum::Pow;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RRTNode {
@@ -102,9 +100,11 @@ impl RRTParams {
 
 #[pyclass]
 pub struct RRTStar {
+    pub c_best: f64,
+    pub solutions: Vec<(Vec<Vector6<f64>>, Vec<f64>, f64)>, // (states, times, cost) for each solution
     pub params: RRTParams,
     pub steering: SimpleSteering,
-    pub x_init: Vector6<f64>,
+    pub x_start: Vector6<f64>,
     pub x_goal: Vector6<f64>,
     pub rtree: RTree<RRTNode>,
     bookkeeping_tree: Tree<RRTNode>,
@@ -118,9 +118,11 @@ impl RRTStar {
     pub fn py_new(params: RRTParams) -> Self {
         println!("RRTStar initialized with params: {:?}", params);
         Self {
+            c_best: std::f64::INFINITY,
+            solutions: Vec::new(),
             params: params.clone(),
             steering: SimpleSteering::new(),
-            x_init: Vector6::zeros(),
+            x_start: Vector6::zeros(),
             x_goal: Vector6::zeros(),
             rtree: RTree::new(),
             bookkeeping_tree: Tree::new(),
@@ -129,25 +131,26 @@ impl RRTStar {
         }
     }
 
-    pub fn set_init_state(&mut self, x_init: &PyList) -> PyResult<()> {
-        let x_init_vec = x_init.extract::<Vec<f64>>()?;
-        self.x_init = Vector6::from_vec(x_init_vec);
-        self.bookkeeping_tree.set_root(RRTNode {
+    pub fn set_init_state(&mut self, x_start: &PyList) -> PyResult<()> {
+        let x_start_vec = x_start.extract::<Vec<f64>>()?;
+        self.x_start = Vector6::from_vec(x_start_vec);
+
+        let root_node = Node::new(RRTNode {
             id: None,
             cost: 0.0,
             d2land: 0.0,
-            state: self.x_init.clone(),
+            state: self.x_start.clone(),
             time: 0.0,
         });
-        let mut root = self.bookkeeping_tree.root_mut().unwrap();
-        let root_id = root.node_id();
-        root.data().set_id(root_id);
+        let root_id = self.bookkeeping_tree.insert(root_node, AsRoot).unwrap();
+        let root = self.bookkeeping_tree.get_mut(&root_id).unwrap();
+        root.data_mut().set_id(root_id.clone());
 
         self.rtree.insert(RRTNode {
             id: Some(root_id),
             cost: 0.0,
             d2land: 0.0,
-            state: self.x_init.clone(),
+            state: self.x_start.clone(),
             time: 0.0,
         });
         Ok(())
@@ -175,7 +178,12 @@ impl RRTStar {
         do_list: &PyList,
         flag: bool,
     ) -> PyResult<Vec<&PyAny>> {
+        self.set_init_state(ownship_state)?;
+        self.c_best = std::f64::INFINITY;
+        self.solutions = Vec::new();
         for _ in 0..self.params.max_iter {
+            //self.c_best = self.solutions.iter().fold(std::f64::INFINITY, |acc, x| (acc).min(x.2));
+            println!("c_best: {}", self.c_best);
             self.print_tree()?;
             let z_rand = self.sample()?;
             let z_nearest = self.nearest(&z_rand)?;
@@ -196,7 +204,9 @@ impl RRTStar {
                 self.insert(&z_new, &z_parent)?;
                 self.rewire(&z_new, &Z_near)?;
                 if self.reached_goal(&z_new) {
-                    return Ok(self.reconstruct_trajectory(&z_new));
+                    let soln = self.reconstruct_trajectory(&z_new);
+                    self.solutions.push(soln.clone());
+                    self.c_best = self.c_best.min(soln.2);
                 }
             }
         }
@@ -206,19 +216,24 @@ impl RRTStar {
 
 #[allow(non_snake_case)]
 impl RRTStar {
-    pub fn reconstruct_trajectory(&self, z: &RRTNode) -> Vec<&PyAny> {
-        let mut path = vec![(z.state, z.time)];
-        let mut z_current = self.bookkeeping_tree.get(z.id.unwrap()).unwrap();
+    pub fn reconstruct_trajectory(&self, z: &RRTNode) -> (Vec<Vector6<f64>>, Vec<f64>, f64) {
+        let mut states = vec![z.state];
+        let mut times = vec![z.time];
+        let mut z_current = self.bookkeeping_tree.get(&z.clone().id.unwrap()).unwrap();
+        let cost = z_current.data().cost;
         while z_current.parent().is_some() {
             println!("State: {:?}", z_current.data().state);
-            let z_parent = z_current.parent().unwrap();
-            let parent_id = z_parent.node_id();
-            path.push((z_parent.data().state, z_parent.data().time));
-            z_current = self.bookkeeping_tree.get(parent_id).unwrap();
+            let parent_id = z_current.parent().unwrap();
+            let z_parent = self.bookkeeping_tree.get(&parent_id).unwrap();
+            states.push(z_parent.data().state);
+            times.push(z_parent.data().time);
+            z_current = z_parent;
         }
-        path.push((z_current.data().state, z_current.data().time));
-        path.reverse();
-        vec![]
+        states.push(z_current.data().state);
+        times.push(z_current.data().time);
+        states.reverse();
+        times.reverse();
+        (states, times, cost)
     }
 
     pub fn is_collision_free(&self, z_nearest: &RRTNode, x_new: &Vector6<f64>) -> bool {
@@ -244,14 +259,17 @@ impl RRTStar {
     /// Since we have two trees (RTree for nearest neighbor search and Tree for keeping track of parents/children),
     /// we need to keep track of the node id in both trees. This is done by setting the id of the node in the Tree
     pub fn insert(&mut self, z: &RRTNode, z_parent: &RRTNode) -> PyResult<NodeId> {
-        let mut parent_node = self.bookkeeping_tree.get_mut(z_parent.id.unwrap()).unwrap();
-        parent_node.append(z.clone());
-
-        let z_id = parent_node.last_child().unwrap().node_id();
-        parent_node.last_child().unwrap().data().set_id(z_id);
+        let z_parent_id = z_parent.clone().id.unwrap();
+        let z_node = Node::new(z.clone());
+        let z_id = self
+            .bookkeeping_tree
+            .insert(z_node, UnderNode(&z_parent_id))
+            .unwrap();
+        let z_node = self.bookkeeping_tree.get_mut(&z_id).unwrap();
+        z_node.data_mut().set_id(z_id.clone());
 
         let mut z_copy = z.clone();
-        z_copy.set_id(z_id);
+        z_copy.set_id(z_id.clone());
         self.rtree.insert(z_copy);
 
         Ok(z_id)
@@ -259,18 +277,49 @@ impl RRTStar {
 
     pub fn rewire(&mut self, z_new: &RRTNode, Z_near: &Vec<RRTNode>) -> PyResult<()> {
         for z_near in Z_near {
-            let (xs_array, _, _, t_new) = self.steer(&z_near, &z_new)?;
-            let x_new: Vector6<f64> = xs_array.last().copied().unwrap();
-            if self.is_collision_free(&z_near, &x_new) {
+            let (xs_array, _, _, t_new) = self.steer(&z_new, &z_near)?;
+            let x_new_near: Vector6<f64> = xs_array.last().copied().unwrap();
+            if self.is_collision_free(&z_new, &x_new_near) {
                 let path_length = utils::compute_path_length(&xs_array);
-                let z_new_ =
-                    RRTNode::new(x_new, z_min.cost + path_length, 0.0, z_near.time + t_new);
-                if z_new_.cost < z_near.cost {
-                    // self.tree.remove(z_near);
-                    // self.tree.insert(z_new);
+                let z_new_near = RRTNode::new(
+                    x_new_near,
+                    z_new.cost + path_length,
+                    0.0,
+                    z_new.time + t_new,
+                );
+                if z_new_near.cost < z_near.cost {
+                    let z_near_id = z_near.clone().id.unwrap();
+                    self.transfer_node_data(&z_near_id, &z_new)?;
+
+                    self.move_node(&z_near_id, &z_new.clone().id.unwrap())?;
+
+                    self.rtree.remove(z_near);
+                    self.rtree.insert(
+                        self.bookkeeping_tree
+                            .get(&z_near_id)
+                            .unwrap()
+                            .data()
+                            .clone(),
+                    );
                 }
             }
         }
+        Ok(())
+    }
+
+    fn transfer_node_data(&mut self, z_recipient_id: &NodeId, z_new: &RRTNode) -> PyResult<()> {
+        let z_recipient = self.bookkeeping_tree.get_mut(&z_recipient_id).unwrap();
+        z_recipient.data_mut().state = z_new.state;
+        z_recipient.data_mut().cost = z_new.cost;
+        z_recipient.data_mut().time = z_new.time;
+        z_recipient.data_mut().d2land = z_new.d2land;
+        Ok(())
+    }
+
+    fn move_node(&mut self, z_id: &NodeId, z_parent_id: &NodeId) -> PyResult<()> {
+        self.bookkeeping_tree
+            .move_node(&z_id, MoveBehavior::ToParent(&z_parent_id))
+            .unwrap();
         Ok(())
     }
 
@@ -286,7 +335,8 @@ impl RRTStar {
     pub fn nearest_neighbors(&self, z_new: &RRTNode) -> PyResult<Vec<RRTNode>> {
         let ball_radius = self.compute_ball_radius();
         if self.rtree.size() == 1 {
-            let z = self.bookkeeping_tree.root().unwrap().data().clone();
+            let root_id = self.bookkeeping_tree.root_node_id().unwrap();
+            let z = self.bookkeeping_tree.get(root_id).unwrap().data().clone();
             return Ok(vec![z]);
         }
 
@@ -313,7 +363,7 @@ impl RRTStar {
         z_new: &RRTNode,
         Z_near: &Vec<RRTNode>,
     ) -> PyResult<(RRTNode, RRTNode)> {
-        let mut z_new_ = z_new.clone();
+        let mut z_new_ = z_new.clone(); // Contains the current minimum cost for the new node
         let mut z_parent = Z_near[0].clone();
         for z_near in Z_near {
             let (xs_array, _, _, t_new) = self.steer(&z_near, &z_new)?;
@@ -321,7 +371,7 @@ impl RRTStar {
             if self.is_collision_free(&z_near, &x_new) {
                 let path_length = utils::compute_path_length(&xs_array);
                 let cost = z_near.cost + path_length;
-                if cost < z_parent.cost + path_length {
+                if cost < z_new_.cost {
                     z_new_ = RRTNode::new(x_new, cost, 0.0, z_near.time + t_new);
                     z_parent = z_near.clone();
                 }
@@ -345,7 +395,15 @@ impl RRTStar {
     }
 
     pub fn sample(&mut self) -> PyResult<RRTNode> {
-        let p_rand = utils::sample_free_position(&self.enc, &mut self.rng);
+        let mut p_rand = Vector2::zeros();
+        if self.c_best < f64::INFINITY {
+            let p_start: Vector2<f64> = self.x_start.fixed_rows::<2>(0).into();
+            let p_goal: Vector2<f64> = self.x_goal.fixed_rows::<2>(0).into();
+            p_rand =
+                utils::informed_sample(&p_start, &p_goal, self.c_best, &self.enc, &mut self.rng);
+        } else {
+            p_rand = utils::uniform_sample(&self.enc, &mut self.rng);
+        }
         Ok(RRTNode {
             id: None,
             state: Vector6::new(p_rand[0], p_rand[1], 0.0, 0.0, 0.0, 0.0),
@@ -415,42 +473,64 @@ mod tests {
     #[test]
     fn test_bookkeeping_tree() {
         let mut tree = Tree::new();
-        tree.set_root(RRTNode {
-            id: None,
-            cost: 0.0,
-            d2land: 0.0,
-            state: Vector6::zeros(),
-            time: 0.0,
-        });
-        let mut root = tree.root_mut().unwrap();
-        let root_id = root.node_id();
-        root.data().set_id(root_id);
+        tree.insert(
+            Node::new(RRTNode {
+                id: None,
+                cost: 0.0,
+                d2land: 0.0,
+                state: Vector6::zeros(),
+                time: 0.0,
+            }),
+            AsRoot,
+        )
+        .unwrap();
 
-        let mut node = tree.get_mut(root_id).unwrap();
-        println!("Tree root id: {:?}", node.node_id());
+        let root_id = tree.root_node_id().unwrap().clone();
 
-        node.append(RRTNode {
-            id: None,
-            cost: 2.0,
-            d2land: 40.0,
-            state: Vector6::new(50.0, 50.0, 0.0, 0.0, 0.0, 0.0),
-            time: 20.0,
-        });
+        tree.get_mut(&root_id)
+            .unwrap()
+            .data_mut()
+            .set_id(root_id.clone());
 
-        let z_new = RRTNode {
-            id: None,
-            cost: 2.0,
-            d2land: 40.0,
-            state: Vector6::new(1000.0, 50.0, 0.0, 0.0, 0.0, 0.0),
-            time: 40.0,
-        };
-        let mut child = node.first_child().unwrap();
-        let child_id = child.node_id();
-        child.data().set_id(child_id);
-        child.append(z_new.clone());
+        println!("Tree root id: {:?}", root_id);
 
-        // let found = tree.get_mut(z_new).unwrap();
-        println!("Root child id: {:?}", child_id);
+        let child1_id = tree
+            .insert(
+                Node::new(RRTNode {
+                    id: None,
+                    cost: 2.0,
+                    d2land: 40.0,
+                    state: Vector6::new(50.0, 50.0, 0.0, 0.0, 0.0, 0.0),
+                    time: 20.0,
+                }),
+                UnderNode(&root_id),
+            )
+            .unwrap();
+
+        let child1_child1_id = tree
+            .insert(
+                Node::new(RRTNode {
+                    id: None,
+                    cost: 2.0,
+                    d2land: 40.0,
+                    state: Vector6::new(1000.0, 50.0, 0.0, 0.0, 0.0, 0.0),
+                    time: 40.0,
+                }),
+                UnderNode(&child1_id),
+            )
+            .unwrap();
+
+        tree.get_mut(&child1_id)
+            .unwrap()
+            .data_mut()
+            .set_id(child1_id.clone());
+        tree.get_mut(&child1_child1_id)
+            .unwrap()
+            .data_mut()
+            .set_id(child1_child1_id.clone());
+
+        println!("Root child id: {:?}", child1_id);
+        println!("Root child of child1 id: {:?}", child1_child1_id);
 
         let mut s = String::new();
         tree.write_formatted(&mut s).unwrap();
@@ -473,6 +553,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn test_choose_parent_and_insert() -> PyResult<()> {
         let mut rrt = RRTStar::py_new(RRTParams {
             max_iter: 1000,
@@ -483,12 +564,12 @@ mod tests {
             alpha: 1.0,
         });
 
-        let x_init = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
+        let x_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
         let x_goal = [100.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         Python::with_gil(|py| -> PyResult<()> {
-            let x_init_pyany = x_init.into_py(py);
-            let x_init_py = x_init_pyany.as_ref(py).downcast::<PyList>().unwrap();
-            rrt.set_init_state(&x_init_py)?;
+            let x_start_pyany = x_start.into_py(py);
+            let x_start_py = x_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
+            rrt.set_init_state(&x_start_py)?;
             let x_goal_pyany = x_goal.into_py(py);
             let x_goal_py = x_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
             rrt.set_goal_state(x_goal_py)?;
@@ -505,42 +586,41 @@ mod tests {
         let Z_near = rrt.nearest_neighbors(&z_new)?;
         println!("Z_near: {:?}", Z_near);
 
-        let (z_min, z_parent) = rrt.choose_parent(&z_new, &Z_near)?;
-        println!("z_min: {:?}", z_min);
+        let (z_new, z_parent) = rrt.choose_parent(&z_new, &Z_near)?;
+        println!("z_new: {:?}", z_new);
         println!("z_parent: {:?}", z_parent);
 
         rrt.print_tree()?;
-        let z_min_id = rrt.insert(&z_min, &z_parent)?;
+        let z_new_id = rrt.insert(&z_new, &z_parent)?;
         rrt.print_tree()?;
-        println!("z_min_id: {:?}", z_min_id);
-
+        println!("z_new_id: {:?}", z_new_id);
         Ok(())
     }
 
     #[test]
     fn test_grow_towards_goal() -> PyResult<()> {
         let mut rrt = RRTStar::py_new(RRTParams {
-            max_iter: 1000,
-            max_nodes: 1000,
+            max_iter: 10,
+            max_nodes: 100000,
             goal_radius: 20.0,
             step_size: 0.1,
             max_steering_time: 20.0,
             alpha: 1.0,
         });
 
-        let x_init = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
+        let x_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
         let x_goal = [300.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         Python::with_gil(|py| -> PyResult<()> {
-            let x_init_pyany = x_init.into_py(py);
-            let x_init_py = x_init_pyany.as_ref(py).downcast::<PyList>().unwrap();
-            rrt.set_init_state(&x_init_py)?;
+            let x_start_pyany = x_start.into_py(py);
+            let x_start_py = x_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
+            rrt.set_init_state(x_start_py)?;
             let x_goal_pyany = x_goal.into_py(py);
             let x_goal_py = x_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
             rrt.set_goal_state(x_goal_py)?;
 
             let do_list = Vec::<[f64; 6]>::new().into_py(py);
             let do_list = do_list.as_ref(py).downcast::<PyList>().unwrap();
-            rrt.grow_towards_goal(x_init_py, do_list, false)?;
+            rrt.grow_towards_goal(x_start_py, do_list, false)?;
             Ok(())
         })
     }

@@ -21,7 +21,7 @@ pyo3 = { version = "0.18.1", features = ["auto-initialize"]}
 rand = "0.8.5"
 nalgebra = "0.32.1"
 rstar = "0.10.0"
-slab_tree = "0.3.2"
+id_tree = "1.8.0"
 num = "0.4.0"
 geo = "0.23.1"
 rand_chacha = "0.3.1"
