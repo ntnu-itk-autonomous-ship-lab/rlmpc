@@ -14,6 +14,7 @@ pub trait Steering {
         xs_goal: &Vector6<f64>,
         time_step: f64,
         max_steering_time: f64,
+        goal_radius: f64,
     ) -> (Vec<Vector6<f64>>, Vec<Vector3<f64>>, Vec<(f64, f64)>, f64);
 }
 
@@ -22,7 +23,6 @@ pub trait Steering {
 pub struct LOSGuidance {
     K_p: f64,
     K_i: f64,
-    R_a: f64,
     max_cross_track_error_int: f64,
     cross_track_error_int: f64,
 }
@@ -33,7 +33,6 @@ impl LOSGuidance {
         Self {
             K_p: 0.025,
             K_i: 0.0,
-            R_a: 20.0,
             max_cross_track_error_int: 100.0,
             cross_track_error_int: 0.0,
         }
@@ -46,8 +45,6 @@ impl LOSGuidance {
         xs_goal: &Vector6<f64>,
         dt: f64,
     ) -> (f64, f64) {
-        let dist2goal =
-            ((xs_goal[0] - xs_now[0]).powi(2) + (xs_goal[1] - xs_now[1]).powi(2)).sqrt();
         let U_start = f64::sqrt(xs_start[3].powi(2) + xs_start[4].powi(2));
         let alpha = f64::atan2(xs_goal[1] - xs_start[1], xs_goal[0] - xs_start[0]);
         let cross_track_error = -(xs_now[0] - xs_goal[0]) * f64::sin(alpha)
@@ -63,10 +60,6 @@ impl LOSGuidance {
             f64::atan(-self.K_p * cross_track_error - self.K_i * self.cross_track_error_int);
         let psi_d = utils::wrap_angle_to_pmpi(alpha + chi_r);
         let U_d = U_start;
-        if dist2goal < self.R_a {
-            return (0.0, psi_d);
-        }
-
         (U_d, psi_d)
     }
 }
@@ -146,6 +139,7 @@ impl Steering for SimpleSteering {
         xs_goal: &Vector6<f64>,
         time_step: f64,
         max_steering_time: f64,
+        goal_radius: f64,
     ) -> (Vec<Vector6<f64>>, Vec<Vector3<f64>>, Vec<(f64, f64)>, f64) {
         let mut time = 0.0;
         let mut xs_array: Vec<Vector6<f64>> = vec![xs_start.clone()];
@@ -156,10 +150,7 @@ impl Steering for SimpleSteering {
             let refs: (f64, f64) = self
                 .los_guidance
                 .compute_refs(&xs_next, xs_start, xs_goal, time_step);
-            // Break if the desired speed is 0 and current speed is 0 => we are at the goal
-            if refs.0 <= 0.001 && xs_next[3] <= 0.001 {
-                break;
-            }
+
             let tau: Vector3<f64> =
                 self.flsh_controller
                     .compute_inputs(&refs, &xs_next, &self.ship_model.params);
@@ -169,6 +160,13 @@ impl Steering for SimpleSteering {
             xs_array.push(xs_next);
             u_array.push(tau);
             time += time_step;
+
+            // Break if the desired speed is 0 and current speed is 0 => we are at the goal
+            let dist2goal =
+                ((xs_goal[0] - xs_next[0]).powi(2) + (xs_goal[1] - xs_next[1]).powi(2)).sqrt();
+            if dist2goal < goal_radius {
+                break;
+            }
         }
         (xs_array, u_array, refs_array, time)
     }
@@ -184,7 +182,8 @@ mod tests {
         let mut steering = SimpleSteering::new();
         let xs_start = Vector6::new(0.0, 0.0, consts::PI / 2.0, 5.0, 0.0, 0.0);
         let xs_goal = Vector6::new(100.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let (xs_array, u_array, refs_array, time) = steering.steer(&xs_start, &xs_goal, 0.1, 50.0);
+        let (xs_array, u_array, refs_array, time) =
+            steering.steer(&xs_start, &xs_goal, 0.1, 50.0, 20.0);
         println!("time: {:?}", time);
         assert!(xs_array.len() > 0);
         assert!(u_array.len() > 0);

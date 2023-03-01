@@ -2,8 +2,16 @@
 //! Contains utility functions for the RRT* algorithm
 //!
 use crate::enc_hazards::ENCHazards;
-use nalgebra::{Matrix2, Matrix3, Vector2, Vector3, Vector6};
+use crate::informed_rrt_star::RRTNode;
+use geo::{coord, Rect};
+use id_tree::*;
+use nalgebra::{
+    ClosedAdd, ClosedMul, Matrix2, Matrix3, SMatrix, Scalar, Vector2, Vector3, Vector6,
+};
 use num::cast::AsPrimitive;
+use num::traits::{One, Zero};
+use plotters::coord::types::RangedCoordf32;
+use plotters::coord::Shift;
 use plotters::prelude::*;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -13,18 +21,31 @@ use std::f64::consts;
 use std::iter;
 use std::ops::Add;
 
-pub fn uniform_sample(enc: &ENCHazards, rng: &mut ChaChaRng) -> Vector2<f64> {
-    if enc.is_empty() {
-        return sample_from_unit_ball(rng);
-    }
-    loop {
-        let x = rng.gen_range(enc.bbox.min().x..enc.bbox.max().x);
-        let y = rng.gen_range(enc.bbox.min().y..enc.bbox.max().y);
-        let p = Vector2::new(x, y);
-        if !enc.inside_hazards(&p) {
-            return p;
+pub fn bbox_from_corner_points(p1: &Vector2<f64>, p2: &Vector2<f64>, buffer: f64) -> Rect {
+    let p_min = Vector2::new(p1[0].min(p2[0]) - buffer, p1[1].min(p2[1]) - buffer);
+    let p_max = Vector2::new(p1[0].max(p2[0]) + buffer, p1[1].max(p2[1]) + buffer);
+    Rect::new(
+        coord! { x: p_min[0], y: p_min[1] },
+        coord! { x: p_max[0], y: p_max[1]},
+    )
+}
+pub fn uniform_sample(
+    p_start: &Vector2<f64>,
+    p_goal: &Vector2<f64>,
+    enc: &ENCHazards,
+    rng: &mut ChaChaRng,
+) -> Vector2<f64> {
+    if !enc.is_empty() {
+        loop {
+            let p_rand = sample_from_bbox(&enc.bbox, rng);
+            if !enc.inside_hazards(&p_rand) {
+                return p_rand;
+            }
         }
     }
+    let buffer = 100.0;
+    let alt_bbox = bbox_from_corner_points(p_start, p_goal, buffer);
+    sample_from_bbox(&alt_bbox, rng)
 }
 
 #[allow(non_snake_case)]
@@ -35,16 +56,15 @@ pub fn informed_sample(
     enc: &ENCHazards,
     rng: &mut ChaChaRng,
 ) -> Vector2<f64> {
-    assert!(c_max < f64::INFINITY);
+    assert!(c_max < f64::INFINITY && c_max > 0.0);
     let c_min = (p_start - p_goal).norm();
     let p_centre = (p_start + p_goal) / 2.0;
     let r_1 = c_max / 2.0;
     let ball_radius = (c_max.powi(2) - c_min.powi(2)).sqrt() / 2.0;
-    let L = Matrix2::from_partial_diagonal(&[ball_radius, ball_radius]);
-
+    let L = Matrix2::from_partial_diagonal(&[r_1, ball_radius]);
     loop {
         let x_ball: Vector2<f64> = sample_from_unit_ball(rng);
-        let p_rand: Vector2<f64> = L * x_ball + p_centre;
+        let p_rand: Vector2<f64> = transform_standard_sample(x_ball, L, p_centre);
         if !enc.inside_hazards(&p_rand) {
             return p_rand;
         }
@@ -60,6 +80,23 @@ pub fn sample_from_unit_ball(rng: &mut ChaChaRng) -> Vector2<f64> {
             return p;
         }
     }
+}
+
+pub fn sample_from_bbox(bbox: &Rect, rng: &mut ChaChaRng) -> Vector2<f64> {
+    let x = rng.gen_range(bbox.min().x..bbox.max().x);
+    let y = rng.gen_range(bbox.min().y..bbox.max().y);
+    Vector2::new(x, y)
+}
+
+pub fn transform_standard_sample<T, const S: usize>(
+    x_rand: SMatrix<T, S, 1>,
+    mtrx: SMatrix<T, S, S>,
+    offset: SMatrix<T, S, 1>,
+) -> SMatrix<T, S, 1>
+where
+    T: Scalar + Zero + One + ClosedAdd + ClosedMul,
+{
+    mtrx * x_rand + offset
 }
 
 #[allow(non_snake_case)]
@@ -106,16 +143,6 @@ pub fn Rmtrx(psi: f64) -> Matrix3<f64> {
     Rmtrx
 }
 
-#[allow(non_snake_case)]
-pub fn Rmtrx2D(psi: f64) -> Matrix2<f64> {
-    let mut Rmtrx = Matrix2::zeros();
-    Rmtrx[(0, 0)] = psi.cos();
-    Rmtrx[(0, 1)] = -psi.sin();
-    Rmtrx[(1, 0)] = psi.sin();
-    Rmtrx[(1, 1)] = psi.cos();
-    Rmtrx
-}
-
 pub fn wrap_min_max(x: f64, x_min: f64, x_max: f64) -> f64 {
     x_min + (x - x_min) % (x_max - x_min)
 }
@@ -124,9 +151,9 @@ pub fn wrap_angle_to_pmpi(x: f64) -> f64 {
     wrap_min_max(x, -consts::PI, consts::PI)
 }
 
-pub fn wrap_angle_to_02pi(x: f64) -> f64 {
-    wrap_min_max(x, 0.0, 2.0 * consts::PI)
-}
+// pub fn wrap_angle_to_02pi(x: f64) -> f64 {
+//     wrap_min_max(x, 0.0, 2.0 * consts::PI)
+// }
 
 pub fn wrap_angle_diff_to_pmpi(x: f64, y: f64) -> f64 {
     let diff = wrap_angle_to_pmpi(x) - wrap_angle_to_pmpi(y);
@@ -167,6 +194,84 @@ where
     let pyany = elements.into_py(py);
     let pyslice = pyany.downcast::<PyList>(py)?.into_py(py);
     Ok(pyslice)
+}
+
+pub fn map_err_to_pyerr<E>(e: E) -> PyErr
+where
+    E: std::fmt::Display,
+{
+    PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())
+}
+
+pub fn draw_tree(
+    filename: &str,
+    tree: &Tree<RRTNode>,
+    p_start: &Vector2<f64>,
+    p_goal: &Vector2<f64>,
+    enc_hazards: &ENCHazards,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let drawing_area = BitMapBackend::new(filename, (640, 480)).into_drawing_area();
+    drawing_area.fill(&WHITE)?;
+    let mut bbox = enc_hazards.bbox;
+    if enc_hazards.is_empty() {
+        bbox = bbox_from_corner_points(p_start, p_goal, 100.0);
+    }
+    let mut chart = ChartBuilder::on(&drawing_area)
+        .caption("Tree", ("sans-serif", 40).into_font())
+        .x_label_area_size(50)
+        .y_label_area_size(50)
+        .build_cartesian_2d(
+            bbox.min().y as f32..bbox.max().y as f32,
+            bbox.min().x as f32..bbox.max().x as f32,
+        )?;
+
+    chart
+        .configure_mesh()
+        .x_labels(10)
+        .y_labels(10)
+        .x_label_formatter(&|x| format!("{:.1}", x))
+        .y_label_formatter(&|x| format!("{:.1}", x))
+        .draw()?;
+
+    let root_node_id = tree.root_node_id().unwrap();
+    draw_tree_lines(&drawing_area, &mut chart, tree, &root_node_id)?;
+    drawing_area.present()?;
+    Ok(())
+}
+
+pub fn draw_tree_lines(
+    drawing_area: &DrawingArea<BitMapBackend, Shift>,
+    chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
+    tree: &Tree<RRTNode>,
+    node_id: &NodeId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let node = tree.get(node_id).unwrap();
+    let mut children_ids = tree.children_ids(node_id).unwrap();
+    loop {
+        let child_id = match children_ids.next() {
+            Some(id) => id,
+            None => break,
+        };
+
+        let child_node = tree.get(child_id).unwrap();
+
+        let points = vec![
+            (node.data().state[1] as f32, node.data().state[0] as f32),
+            (
+                child_node.data().state[1] as f32,
+                child_node.data().state[0] as f32,
+            ),
+        ];
+
+        chart.draw_series(LineSeries::new(points.clone(), &BLACK))?;
+        chart.draw_series(PointSeries::of_element(points, 2, &RED, &|c, s, st| {
+            EmptyElement::at(c) + Circle::new((0, 0), s, st.filled())
+        }))?;
+
+        drawing_area.present()?;
+        draw_tree_lines(drawing_area, chart, tree, child_id)?;
+    }
+    Ok(())
 }
 
 pub fn draw_north_east_chart(

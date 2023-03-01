@@ -118,6 +118,9 @@ impl ENCHazards {
 
     /// Check if a point is inside the ENC Hazards
     pub fn inside_hazards(&self, p: &Vector2<f64>) -> bool {
+        if self.is_empty() {
+            return false;
+        }
         let point = point![x: p[0], y: p[1]];
         self.land.contains(&point) || self.shore.contains(&point) || self.seabed.contains(&point)
     }
