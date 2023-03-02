@@ -29,46 +29,23 @@ pub fn bbox_from_corner_points(p1: &Vector2<f64>, p2: &Vector2<f64>, buffer: f64
         coord! { x: p_max[0], y: p_max[1]},
     )
 }
-pub fn uniform_sample(
-    p_start: &Vector2<f64>,
-    p_goal: &Vector2<f64>,
-    enc: &ENCHazards,
-    rng: &mut ChaChaRng,
-) -> Vector2<f64> {
-    if !enc.is_empty() {
-        loop {
-            let p_rand = sample_from_bbox(&enc.bbox, rng);
-            if !enc.inside_hazards(&p_rand) {
-                return p_rand;
-            }
-        }
-    }
-    let buffer = 100.0;
-    let alt_bbox = bbox_from_corner_points(p_start, p_goal, buffer);
-    sample_from_bbox(&alt_bbox, rng)
-}
 
 #[allow(non_snake_case)]
 pub fn informed_sample(
     p_start: &Vector2<f64>,
     p_goal: &Vector2<f64>,
     c_max: f64,
-    enc: &ENCHazards,
     rng: &mut ChaChaRng,
 ) -> Vector2<f64> {
     assert!(c_max < f64::INFINITY && c_max > 0.0);
     let c_min = (p_start - p_goal).norm();
     let p_centre = (p_start + p_goal) / 2.0;
     let r_1 = c_max / 2.0;
-    let ball_radius = (c_max.powi(2) - c_min.powi(2)).sqrt() / 2.0;
-    let L = Matrix2::from_partial_diagonal(&[r_1, ball_radius]);
-    loop {
-        let x_ball: Vector2<f64> = sample_from_unit_ball(rng);
-        let p_rand: Vector2<f64> = transform_standard_sample(x_ball, L, p_centre);
-        if !enc.inside_hazards(&p_rand) {
-            return p_rand;
-        }
-    }
+    let r_2 = (c_max.powi(2) - c_min.powi(2)).abs().sqrt() / 2.0;
+    let L = Matrix2::from_partial_diagonal(&[r_1, r_2]);
+    let x_ball: Vector2<f64> = sample_from_unit_ball(rng);
+    let p_rand: Vector2<f64> = transform_standard_sample(x_ball, L, p_centre);
+    p_rand
 }
 
 pub fn sample_from_unit_ball(rng: &mut ChaChaRng) -> Vector2<f64> {

@@ -12,9 +12,9 @@ pub trait Steering {
         &mut self,
         xs_start: &Vector6<f64>,
         xs_goal: &Vector6<f64>,
+        U_d: f64,
         time_step: f64,
         max_steering_time: f64,
-        goal_radius: f64,
     ) -> (Vec<Vector6<f64>>, Vec<Vector3<f64>>, Vec<(f64, f64)>, f64);
 }
 
@@ -25,6 +25,8 @@ pub struct LOSGuidance {
     K_i: f64,
     max_cross_track_error_int: f64,
     cross_track_error_int: f64,
+    cross_track_error_int_threshold: f64,
+    acceptance_radius: f64,
 }
 
 #[allow(non_snake_case)]
@@ -32,9 +34,11 @@ impl LOSGuidance {
     pub fn new() -> Self {
         Self {
             K_p: 0.025,
-            K_i: 0.0,
-            max_cross_track_error_int: 100.0,
+            K_i: 0.001,
+            max_cross_track_error_int: 30.0,
             cross_track_error_int: 0.0,
+            cross_track_error_int_threshold: 5.0,
+            acceptance_radius: 50.0,
         }
     }
 
@@ -43,6 +47,7 @@ impl LOSGuidance {
         xs_now: &Vector6<f64>,
         xs_start: &Vector6<f64>,
         xs_goal: &Vector6<f64>,
+        U_d: f64,
         dt: f64,
     ) -> (f64, f64) {
         let U_start = f64::sqrt(xs_start[3].powi(2) + xs_start[4].powi(2));
@@ -52,14 +57,14 @@ impl LOSGuidance {
 
         if cross_track_error.abs() > self.max_cross_track_error_int {
             self.cross_track_error_int = 0.0;
-        } else {
+        }
+        if cross_track_error.abs() <= self.cross_track_error_int_threshold {
             self.cross_track_error_int += cross_track_error * dt;
         }
 
         let chi_r =
             f64::atan(-self.K_p * cross_track_error - self.K_i * self.cross_track_error_int);
         let psi_d = utils::wrap_angle_to_pmpi(alpha + chi_r);
-        let U_d = U_start;
         (U_d, psi_d)
     }
 }
@@ -69,6 +74,10 @@ struct FLSHController {
     K_p_u: f64,
     K_p_psi: f64,
     K_d_psi: f64,
+    K_i_psi: f64,
+    max_psi_error_int: f64,
+    psi_error_int_threshold: f64,
+    psi_error_int: f64,
 }
 
 #[allow(non_snake_case)]
@@ -76,20 +85,31 @@ impl FLSHController {
     pub fn new() -> Self {
         Self {
             K_p_u: 5.0,
-            K_p_psi: 6.0,
-            K_d_psi: 12.0,
+            K_p_psi: 5.0,
+            K_d_psi: 10.0,
+            K_i_psi: 0.5,
+            max_psi_error_int: 15.0 * f64::consts::PI / 180.0,
+            psi_error_int_threshold: 5.0 * f64::consts::PI / 180.0,
+            psi_error_int: 0.0,
         }
     }
 
     fn compute_inputs(
-        &self,
+        &mut self,
         refs: &(f64, f64),
         xs: &Vector6<f64>,
+        dt: f64,
         model_params: &ShipModelParams,
     ) -> Vector3<f64> {
         let psi: f64 = xs[2];
         let psi_d: f64 = refs.1;
         let psi_diff: f64 = utils::wrap_angle_diff_to_pmpi(psi_d, psi);
+        if psi_diff.abs() > self.max_psi_error_int {
+            self.psi_error_int = 0.0;
+        }
+        if psi_diff.abs() <= self.psi_error_int_threshold {
+            self.psi_error_int += psi_diff * dt;
+        }
 
         let u: f64 = xs[3];
         let u_d: f64 = refs.0;
@@ -102,7 +122,7 @@ impl FLSHController {
         let Fx: f64 = Cvv[0] + Dvv[0] + model_params.M[(0, 0)] * self.K_p_u * (u_d - u);
         let Fx = utils::saturate(Fx, model_params.Fx_limits[0], model_params.Fx_limits[1]);
         let Fy: f64 = (model_params.M[(2, 2)] / model_params.l_r)
-            * (self.K_p_psi * psi_diff - self.K_d_psi * r);
+            * (self.K_p_psi * psi_diff - self.K_d_psi * r + self.K_i_psi * self.psi_error_int);
         let Fy = utils::saturate(Fy, model_params.Fy_limits[0], model_params.Fy_limits[1]);
         let tau: Vector3<f64> = Vector3::new(Fx, Fy, Fy * model_params.l_r);
 
@@ -137,9 +157,9 @@ impl Steering for SimpleSteering {
         &mut self,
         xs_start: &Vector6<f64>,
         xs_goal: &Vector6<f64>,
+        U_d: f64,
         time_step: f64,
         max_steering_time: f64,
-        goal_radius: f64,
     ) -> (Vec<Vector6<f64>>, Vec<Vector3<f64>>, Vec<(f64, f64)>, f64) {
         let mut time = 0.0;
         let mut xs_array: Vec<Vector6<f64>> = vec![xs_start.clone()];
@@ -149,11 +169,14 @@ impl Steering for SimpleSteering {
         while time <= max_steering_time {
             let refs: (f64, f64) = self
                 .los_guidance
-                .compute_refs(&xs_next, xs_start, xs_goal, time_step);
+                .compute_refs(&xs_next, xs_start, xs_goal, U_d, time_step);
 
-            let tau: Vector3<f64> =
-                self.flsh_controller
-                    .compute_inputs(&refs, &xs_next, &self.ship_model.params);
+            let tau: Vector3<f64> = self.flsh_controller.compute_inputs(
+                &refs,
+                &xs_next,
+                time_step,
+                &self.ship_model.params,
+            );
             xs_next = self.ship_model.erk4_step(time_step, &xs_next, &tau);
 
             refs_array.push(refs);
@@ -161,10 +184,10 @@ impl Steering for SimpleSteering {
             u_array.push(tau);
             time += time_step;
 
-            // Break if the desired speed is 0 and current speed is 0 => we are at the goal
+            // Break if inside final waypoint acceptance radius
             let dist2goal =
                 ((xs_goal[0] - xs_next[0]).powi(2) + (xs_goal[1] - xs_next[1]).powi(2)).sqrt();
-            if dist2goal < goal_radius {
+            if dist2goal < self.los_guidance.acceptance_radius {
                 break;
             }
         }
@@ -183,7 +206,7 @@ mod tests {
         let xs_start = Vector6::new(0.0, 0.0, consts::PI / 2.0, 5.0, 0.0, 0.0);
         let xs_goal = Vector6::new(100.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let (xs_array, u_array, refs_array, time) =
-            steering.steer(&xs_start, &xs_goal, 0.1, 50.0, 20.0);
+            steering.steer(&xs_start, &xs_goal, 0.1, 6.0, 70.0);
         println!("time: {:?}", time);
         assert!(xs_array.len() > 0);
         assert!(u_array.len() > 0);
