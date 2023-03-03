@@ -133,8 +133,12 @@ pub fn wrap_angle_to_pmpi(x: f64) -> f64 {
 // }
 
 pub fn wrap_angle_diff_to_pmpi(x: f64, y: f64) -> f64 {
-    let diff = wrap_angle_to_pmpi(x) - wrap_angle_to_pmpi(y);
+    let diff = x - y;
     wrap_angle_to_pmpi(diff)
+}
+
+pub fn unwrap_angle(x_prev: f64, x: f64) -> f64 {
+    x_prev + wrap_angle_diff_to_pmpi(x, x_prev)
 }
 
 pub fn rad2deg(x: f64) -> f64 {
@@ -180,11 +184,55 @@ where
     PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())
 }
 
+pub fn draw_steering_results(
+    xs_start: &Vector6<f64>,
+    xs_goal: &Vector6<f64>,
+    refs_array: &Vec<(f64, f64)>,
+    xs_array: &Vec<Vector6<f64>>,
+    acceptance_radius: f64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    draw_north_east_chart(
+        "steer.png",
+        &xs_array,
+        &vec![xs_start.clone(), xs_goal.clone()],
+    )?;
+
+    // Draw psi vs psi_d
+    let mut psi_array: Vec<f64> = xs_array.iter().map(|xs| rad2deg(xs[2])).collect();
+    psi_array.remove(0);
+    let psi_d_array: Vec<f64> = refs_array.iter().map(|refs| rad2deg(refs.1)).collect();
+
+    let psi_error_array: Vec<f64> = psi_array
+        .iter()
+        .zip(psi_d_array.iter())
+        .map(|(psi, psi_d)| wrap_angle_diff_to_pmpi(*psi_d, *psi))
+        .collect();
+    let ref_error_array: Vec<f64> = psi_error_array.iter().map(|_| 0.0).collect();
+
+    draw_variable_vs_reference("psi_comp.png", "psi error", &psi_array, &psi_d_array)?;
+
+    // Draw u vs u_d
+    let mut u_array: Vec<f64> = xs_array
+        .iter()
+        .map(|xs| (xs[3] * xs[3] + xs[4] * xs[4]).sqrt())
+        .collect();
+    u_array.remove(0);
+    let u_d_array: Vec<f64> = refs_array.iter().map(|refs| refs.0).collect();
+    let u_error_array: Vec<f64> = u_array
+        .iter()
+        .zip(u_d_array.iter())
+        .map(|(u, u_d)| u_d - u)
+        .collect();
+    draw_variable_vs_reference("u_comp.png", "u error", &u_array, &u_d_array)?;
+    Ok(())
+}
+
 pub fn draw_tree(
     filename: &str,
     tree: &Tree<RRTNode>,
     p_start: &Vector2<f64>,
     p_goal: &Vector2<f64>,
+    xs_soln_array: Option<&Vec<[f64; 6]>>,
     enc_hazards: &ENCHazards,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let drawing_area = BitMapBackend::new(filename, (640, 480)).into_drawing_area();
@@ -198,7 +246,7 @@ pub fn draw_tree(
         .x_label_area_size(50)
         .y_label_area_size(50)
         .build_cartesian_2d(
-            bbox.min().y as f32..bbox.max().y as f32,
+            -500 as f32..500 as f32,
             bbox.min().x as f32..bbox.max().x as f32,
         )?;
 
@@ -212,6 +260,17 @@ pub fn draw_tree(
 
     let root_node_id = tree.root_node_id().unwrap();
     draw_tree_lines(&drawing_area, &mut chart, tree, &root_node_id)?;
+
+    match xs_soln_array {
+        Some(xs_soln_array) => {
+            let p_soln_array = xs_soln_array
+                .iter()
+                .map(|xs| (xs[1] as f32, xs[0] as f32))
+                .collect::<Vec<(f32, f32)>>();
+            chart.draw_series(LineSeries::new(p_soln_array, &BLUE))?;
+        }
+        None => {}
+    }
     drawing_area.present()?;
     Ok(())
 }
@@ -243,6 +302,11 @@ pub fn draw_tree_lines(
         chart.draw_series(LineSeries::new(points.clone(), &BLACK))?;
         chart.draw_series(PointSeries::of_element(points, 2, &RED, &|c, s, st| {
             EmptyElement::at(c) + Circle::new((0, 0), s, st.filled())
+            // + Text::new(
+            //     format!("({:.1}, {:.1})", c.0, c.1),
+            //     (0, 15),
+            //     ("sans-serif", 12),
+            // )
         }))?;
 
         drawing_area.present()?;
@@ -256,6 +320,32 @@ pub fn draw_north_east_chart(
     xs_array: &Vec<Vector6<f64>>,
     waypoints: &Vec<Vector6<f64>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let buffer = 100.0;
+    let min_wp_y = waypoints
+        .iter()
+        .map(|x| x[1])
+        .min_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap()
+        - buffer;
+    let min_wp_x = waypoints
+        .iter()
+        .map(|x| x[0])
+        .min_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap()
+        - buffer;
+    let max_wp_y = waypoints
+        .iter()
+        .map(|x| x[1])
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap()
+        + buffer;
+    let max_wp_x = waypoints
+        .iter()
+        .map(|x| x[0])
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap()
+        + buffer;
+
     let root = BitMapBackend::new(filename, (640, 480)).into_drawing_area();
     root.fill(&WHITE)?;
     let root = root.margin(12, 12, 12, 12);
@@ -263,7 +353,10 @@ pub fn draw_north_east_chart(
         .caption("NE Plot", ("sans-serif", 40).into_font())
         .x_label_area_size(25)
         .y_label_area_size(25)
-        .build_cartesian_2d(-100f32..100f32, -100f32..200f32)?;
+        .build_cartesian_2d(
+            min_wp_y as f32..max_wp_y as f32,
+            min_wp_x as f32..max_wp_x as f32,
+        )?;
 
     chart
         .configure_mesh()
@@ -283,6 +376,8 @@ pub fn draw_north_east_chart(
         .iter()
         .map(|x| (x[1] as f32, x[0] as f32))
         .collect::<Vec<(f32, f32)>>();
+
+    chart.draw_series(LineSeries::new(ne_waypoints.clone(), &BLUE))?;
     chart.draw_series(PointSeries::of_element(
         ne_waypoints,
         5,
@@ -335,11 +430,11 @@ pub fn draw_variable_vs_reference(
         .y_label_formatter(&|x| format!("{:.1}", x))
         .draw()?;
 
-    let lineseries_data = iter::zip(samples.clone(), ref_points).collect::<Vec<(f32, f32)>>();
-    chart.draw_series(LineSeries::new(lineseries_data, &RED))?;
+    let ref_lineseries_data = iter::zip(samples.clone(), ref_points).collect::<Vec<(f32, f32)>>();
+    chart.draw_series(LineSeries::new(ref_lineseries_data, &RED))?;
 
-    let lineseries_data = iter::zip(samples, var_points).collect::<Vec<(f32, f32)>>();
-    chart.draw_series(LineSeries::new(lineseries_data, &BLUE))?;
+    let var_lineseries_data = iter::zip(samples, var_points).collect::<Vec<(f32, f32)>>();
+    chart.draw_series(LineSeries::new(var_lineseries_data, &BLUE))?;
 
     root.present()?;
     Ok(())
