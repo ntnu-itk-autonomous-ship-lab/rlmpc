@@ -6,7 +6,7 @@
 
     Author: Trym Tengesdal
 """
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -23,31 +23,24 @@ import seacharts.enc as senc
 
 @dataclass
 class RRTParams:
-    max_iter: int = 1000
-    max_nodes: int = 10000
-    max_time: float = 10.0
+    max_nodes: int = 2000
+    max_iter: int = 10000
+    iter_between_direct_goal_growth: int = 100
+    min_node_dist: float = 5.0
+    goal_radius: float = 100.0
     step_size: float = 0.1
-    alpha: float = 1.0
+    max_steering_time: float = 20.0
+    steering_acceptance_radius: float = 5.0
+    max_node_dist: float = 300.0
+    gamma: float = 1000.0
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        config = RRTParams(
-            max_iter=config_dict["max_iter"],
-            max_nodes=config_dict["max_nodes"],
-            max_time=config_dict["max_time"],
-            step_size=config_dict["step_size"],
-            alpha=config_dict["alpha"],
-        )
+        config = cls(**config_dict)
         return config
 
     def to_dict(self):
-        return {
-            "max_iter": self.max_iter,
-            "max_nodes": self.max_nodes,
-            "max_time": self.max_time,
-            "step_size": self.step_size,
-            "alpha": self.alpha,
-        }
+        return asdict(self)
 
 
 @dataclass
@@ -64,11 +57,10 @@ class Config:
 
 class RLRRTMPCBuilder:
     @classmethod
-    def build(cls, config: Config) -> Tuple[rl.RL, rrt.RRT, mpc.MPC]:
+    def build(cls, config: Config) -> Tuple[rl.RL, rrt.InformedRRTStar, mpc.MPC]:
 
         rl_obj = rl.RL(config.rl)
-        print(config.rrt)
-        rrt_obj = rrt.RRT(config.rrt)
+        rrt_obj = rrt.InformedRRTStar(config.rrt)
         mpc_obj = mpc.MPC(config.mpc)
         return rl_obj, rrt_obj, mpc_obj
 
@@ -104,14 +96,16 @@ class RLRRTMPC(ci.ICOLAV):
         if not self._initialized:
             self._t_prev = t
             self._initialized = True
-            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(kwargs["os_length"], enc)
+            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(kwargs["os_min_depth"], enc)
 
-            if False and enc is not None:
+            if enc is not None:
                 enc.start_display()
                 for hazard in relevant_grounding_hazards:
                     enc.draw_polygon(hazard, color="red")
 
             self._rrt.transfer_enc_data(relevant_grounding_hazards)
+            self._rrt.set_init_state(ownship_state.tolist())
+            self._rrt.set_goal_state(goal_csog_state.tolist())
 
         references = np.zeros((9, 1))
         return references

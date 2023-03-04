@@ -16,13 +16,28 @@ rrt:
     max_nodes:
       required: True
       type: integer
-    max_time:
+    iter_between_direct_goal_growth:
+      required: True
+      type: integer
+    min_node_dist:
+      required: True
+      type: float
+    goal_radius:
       required: True
       type: float
     step_size:
       required: True
       type: float
-    alpha:
+    max_steering_time:
+      required: True
+      type: float
+    steering_acceptance_radius:
+      required: True
+      type: float
+    max_node_dist:
+      required: True
+      type: float
+    gamma:
       required: True
       type: float
 

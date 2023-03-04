@@ -70,7 +70,7 @@ impl PointDistance for RRTNode {
 pub struct RRTParams {
     pub max_nodes: u64,
     pub max_iter: u64,
-    pub iter_between_direct_goal_checks: u64,
+    pub iter_between_direct_goal_growth: u64,
     pub min_node_dist: f64,
     pub goal_radius: f64,
     pub step_size: f64,
@@ -85,7 +85,7 @@ impl RRTParams {
         Self {
             max_nodes: 10000,
             max_iter: 100000,
-            iter_between_direct_goal_checks: 100,
+            iter_between_direct_goal_growth: 100,
             min_node_dist: 10.0,
             goal_radius: 100.0,
             step_size: 0.2,
@@ -379,7 +379,7 @@ impl InformedRRTStar {
     }
 
     pub fn attempt_direct_goal_growth(&mut self, num_iter: u64, c_best: f64) -> PyResult<bool> {
-        if num_iter % self.params.iter_between_direct_goal_checks != 0 {
+        if num_iter % self.params.iter_between_direct_goal_growth != 0 {
             return Ok(false);
         }
         let z_goal = RRTNode::new(self.x_goal.clone(), 0.0, 0.0, 0.0);
@@ -797,7 +797,7 @@ mod tests {
         let mut rrt = InformedRRTStar::py_new(RRTParams {
             max_nodes: 1000,
             max_iter: 100000,
-            iter_between_direct_goal_checks: 100,
+            iter_between_direct_goal_growth: 100,
             min_node_dist: 20.0,
             goal_radius: 100.0,
             step_size: 1.0,
@@ -817,7 +817,7 @@ mod tests {
         let mut rrt = InformedRRTStar::py_new(RRTParams {
             max_nodes: 1000,
             max_iter: 100000,
-            iter_between_direct_goal_checks: 100,
+            iter_between_direct_goal_growth: 100,
             min_node_dist: 50.0,
             goal_radius: 100.0,
             step_size: 0.1,
@@ -863,7 +863,7 @@ mod tests {
         let mut rrt = InformedRRTStar::py_new(RRTParams {
             max_nodes: 1000,
             max_iter: 10000,
-            iter_between_direct_goal_checks: 100,
+            iter_between_direct_goal_growth: 100,
             min_node_dist: 5.0,
             goal_radius: 100.0,
             step_size: 0.5,
