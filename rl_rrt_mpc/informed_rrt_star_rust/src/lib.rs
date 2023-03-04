@@ -15,7 +15,7 @@ mod utils;
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
 #[pymodule]
-fn rrt_star_rust(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn informed_rrt_star_rust(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<crate::informed_rrt_star::InformedRRTStar>()?;
     Ok(())
 }

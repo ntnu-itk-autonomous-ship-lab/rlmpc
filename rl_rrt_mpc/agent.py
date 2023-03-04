@@ -11,13 +11,13 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import colav_simulator.core.colav.colav_interface as ci
+import informed_rrt_star_rust as rrt
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc as mpc
 import rl_rrt_mpc.rl as rl
-import rrt_rust as rrt
 import seacharts.enc as senc
 
 
