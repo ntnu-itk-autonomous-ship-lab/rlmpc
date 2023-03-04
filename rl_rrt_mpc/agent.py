@@ -74,7 +74,7 @@ class RLRRTMPCBuilder:
 
 
 class RLRRTMPC(ci.ICOLAV):
-    def __init__(self, config: Config | None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
+    def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
 
         if config:
             self._config: Config = config
@@ -95,7 +95,7 @@ class RLRRTMPC(ci.ICOLAV):
         ownship_state: np.ndarray,
         do_list: list,
         enc: Optional[senc.ENC] = None,
-        goal_pose: Optional[np.ndarray] = None,
+        goal_csog_state: Optional[np.ndarray] = None,
         **kwargs
     ) -> np.ndarray:
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth

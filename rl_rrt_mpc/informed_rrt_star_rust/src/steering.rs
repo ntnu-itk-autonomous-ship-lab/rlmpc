@@ -103,7 +103,7 @@ impl FLSHController {
             K_i_psi: 0.005,
             max_U_error_int: 0.75,
             U_error_int: 0.0,
-            U_error_int_threshold: 0.1,
+            U_error_int_threshold: 0.2,
             max_psi_error_int: 20.0 * f64::consts::PI / 180.0,
             psi_error_int_threshold: 10.0 * f64::consts::PI / 180.0,
             psi_error_int: 0.0,
@@ -132,7 +132,7 @@ impl FLSHController {
         // );
         self.psi_prev = psi;
         self.psi_d_prev = psi_d;
-        if psi_error.abs() > self.max_psi_error_int {
+        if self.psi_error_int.abs() > self.max_psi_error_int {
             self.psi_error_int -= psi_error * dt;
         }
         if psi_error.abs() <= self.psi_error_int_threshold {
@@ -146,7 +146,7 @@ impl FLSHController {
         let U: f64 = f64::sqrt(xs[3].powi(2) + xs[4].powi(2));
         let U_d: f64 = refs.0;
         let U_error: f64 = U_d - U;
-        if U_error.abs() > self.max_U_error_int {
+        if self.U_error_int.abs() > self.max_U_error_int {
             self.U_error_int -= U_error * dt;
         }
         if U_error.abs() <= self.U_error_int_threshold {
