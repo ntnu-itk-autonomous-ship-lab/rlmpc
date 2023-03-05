@@ -241,12 +241,13 @@ pub fn draw_tree(
     if enc_hazards.is_empty() {
         bbox = bbox_from_corner_points(p_start, p_goal, 100.0);
     }
+    println!("Map bbox: {:?}", bbox);
     let mut chart = ChartBuilder::on(&drawing_area)
         .caption("Tree", ("sans-serif", 40).into_font())
         .x_label_area_size(50)
         .y_label_area_size(50)
         .build_cartesian_2d(
-            -500 as f32..500 as f32,
+            bbox.min().y as f32..bbox.max().y as f32,
             bbox.min().x as f32..bbox.max().x as f32,
         )?;
 

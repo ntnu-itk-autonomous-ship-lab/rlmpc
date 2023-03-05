@@ -78,6 +78,8 @@ class RLRRTMPC(ci.ICOLAV):
         self._references = np.empty(9)
         self._initialized = False
         self._t_prev = 0.0
+        self._min_depth: int = 0
+        self._plan = np.empty(9)
 
     def plan(
         self,
@@ -87,16 +89,18 @@ class RLRRTMPC(ci.ICOLAV):
         ownship_state: np.ndarray,
         do_list: list,
         enc: Optional[senc.ENC] = None,
-        goal_csog_state: Optional[np.ndarray] = None,
+        goal_state: Optional[np.ndarray] = None,
         **kwargs
     ) -> np.ndarray:
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
         in order to extract relevant grounding hazards.
         """
+        assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
         if not self._initialized:
+            self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             self._t_prev = t
             self._initialized = True
-            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(kwargs["os_min_depth"], enc)
+            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
 
             if enc is not None:
                 enc.start_display()
@@ -105,7 +109,9 @@ class RLRRTMPC(ci.ICOLAV):
 
             self._rrt.transfer_enc_data(relevant_grounding_hazards)
             self._rrt.set_init_state(ownship_state.tolist())
-            self._rrt.set_goal_state(goal_csog_state.tolist())
+            self._rrt.set_goal_state(goal_state.tolist())
+
+            rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), ownship_state[2], [])
 
         references = np.zeros((9, 1))
         return references

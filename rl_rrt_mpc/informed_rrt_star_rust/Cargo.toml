@@ -29,7 +29,7 @@ plotters = "0.3.4"
 typenum = "1.16.0"
 
 [profile.dev]
-opt-level = 0
+opt-level = 3
 
 [profile.release]
 opt-level = 3

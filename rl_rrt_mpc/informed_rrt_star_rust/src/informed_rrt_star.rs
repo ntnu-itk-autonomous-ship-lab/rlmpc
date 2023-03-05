@@ -41,6 +41,11 @@ impl RRTNode {
         self.id = Some(id);
     }
 
+    pub fn get_id(&self) -> i64 {
+        assert!(self.id.is_none());
+        self.id.unwrap().index as i64
+    }
+
     pub fn point(&self) -> [f64; 2] {
         [self.state[0], self.state[1]]
     }
@@ -167,8 +172,8 @@ pub struct InformedRRTStar {
     pub solutions: Vec<RRTResult>, // (states, times, cost) for each solution
     pub params: RRTParams,
     pub steering: SimpleSteering,
-    pub x_start: Vector6<f64>,
-    pub x_goal: Vector6<f64>,
+    pub xs_start: Vector6<f64>,
+    pub xs_goal: Vector6<f64>,
     pub U_d: f64,
     pub num_nodes: u64,
     pub rtree: RTree<RRTNode>,
@@ -187,8 +192,8 @@ impl InformedRRTStar {
             solutions: Vec::new(),
             params: params.clone(),
             steering: SimpleSteering::new(),
-            x_start: Vector6::zeros(),
-            x_goal: Vector6::zeros(),
+            xs_start: Vector6::zeros(),
+            xs_goal: Vector6::zeros(),
             U_d: 5.0,
             num_nodes: 0,
             rtree: RTree::new(),
@@ -203,15 +208,15 @@ impl InformedRRTStar {
         Ok(self.U_d = U_d)
     }
 
-    pub fn set_init_state(&mut self, x_start: &PyList) -> PyResult<()> {
-        let x_start_vec = x_start.extract::<Vec<f64>>()?;
-        self.x_start = Vector6::from_vec(x_start_vec);
+    pub fn set_init_state(&mut self, xs_start: &PyList) -> PyResult<()> {
+        let xs_start_vec = xs_start.extract::<Vec<f64>>()?;
+        self.xs_start = Vector6::from_vec(xs_start_vec);
 
         let root_node = Node::new(RRTNode {
             id: None,
             cost: 0.0,
             d2land: 0.0,
-            state: self.x_start.clone(),
+            state: self.xs_start.clone(),
             time: 0.0,
         });
         let root_id = self.bookkeeping_tree.insert(root_node, AsRoot).unwrap();
@@ -222,15 +227,15 @@ impl InformedRRTStar {
             id: Some(root_id),
             cost: 0.0,
             d2land: 0.0,
-            state: self.x_start.clone(),
+            state: self.xs_start.clone(),
             time: 0.0,
         });
         Ok(())
     }
 
-    pub fn set_goal_state(&mut self, x_goal: &PyList) -> PyResult<()> {
-        let x_goal_vec = x_goal.extract::<Vec<f64>>()?;
-        self.x_goal = Vector6::from_vec(x_goal_vec);
+    pub fn set_goal_state(&mut self, xs_goal: &PyList) -> PyResult<()> {
+        let xs_goal_vec = xs_goal.extract::<Vec<f64>>()?;
+        self.xs_goal = Vector6::from_vec(xs_goal_vec);
         Ok(())
     }
 
@@ -243,6 +248,13 @@ impl InformedRRTStar {
         self.enc.transfer_enc_data(enc_data)
     }
 
+    pub fn get_tree_as_list_of_dicts(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let node_list = PyList::empty(py);
+        let root_node_id = self.bookkeeping_tree.root_node_id().unwrap();
+        self.append_subtree_to_list(&mut node_list, &root_node_id, py)?;
+        Ok(node_list.into_py(py))
+    }
+
     #[allow(non_snake_case)]
     pub fn grow_towards_goal(
         &mut self,
@@ -253,17 +265,26 @@ impl InformedRRTStar {
     ) -> PyResult<PyObject> {
         self.set_speed_reference(U_d)?;
         self.set_init_state(ownship_state)?;
+        println!("Ownship state: {:?}", ownship_state);
+        println!("Goal state: {:?}", self.xs_goal);
+        println!("U_d: {:?}", U_d);
+        println!("Do list: {:?}", do_list);
+
         self.c_best = std::f64::INFINITY;
         self.solutions = Vec::new();
         let mut z_new = self.get_root_node();
         let mut num_iter = 0;
         while self.num_nodes < self.params.max_nodes && num_iter < self.params.max_iter {
-            // if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
-            //     break;
-            // }
+            if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
+                break;
+            }
 
             if self.goal_reachable(&z_new) {
                 self.attempt_goal_insertion(&z_new, self.c_best, self.params.max_steering_time)?;
+                println!(
+                    "Num iter: {} | Num nodes: {} | c_best: {}",
+                    num_iter, self.num_nodes, self.c_best
+                );
             }
 
             z_new = RRTNode::default();
@@ -301,10 +322,6 @@ impl InformedRRTStar {
                 self.rewire(&z_new, &Z_near)?;
                 //self.draw_tree(None)?;
             }
-            println!(
-                "Num iter: {} | Num nodes: {} | c_best: {}",
-                num_iter, self.num_nodes, self.c_best
-            );
             num_iter += 1;
         }
         let opt_soln = self.extract_best_solution();
@@ -315,6 +332,43 @@ impl InformedRRTStar {
 
 #[allow(non_snake_case)]
 impl InformedRRTStar {
+    fn append_subtree_to_list(
+        &self,
+        list: &mut PyList,
+        node_id: &NodeId,
+        py: Python<'_>,
+    ) -> PyResult<()> {
+        let node = self.bookkeeping_tree.get(node_id).unwrap();
+        let node_data = node.data().clone();
+        let node_dict = PyDict::new(py);
+        node_dict
+            .set_item("state", node_data.state.into())
+            .expect("Node state should be set");
+        node_dict
+            .set_item("cost", node_data.cost)
+            .expect("Node cost should be set");
+        node_dict
+            .set_item("d2land", node_data.d2land)
+            .expect("Node d2land should be set");
+        node_dict
+            .set_item("time", node_data.time)
+            .expect("Node time should be set");
+        node_dict
+            .set_item("id", node_data.id)
+            .expect("Node id should be set");
+
+        list.append(node_dict);
+        let mut children_ids = self.bookkeeping_tree.children_ids(node_id).unwrap();
+        loop {
+            let child_id = match children_ids.next() {
+                Some(id) => id,
+                None => break,
+            };
+            self.append_subtree_to_list(list, &child_id, py)?;
+        }
+        Ok(())
+    }
+
     // Add a solution if one is found and is better than the current best
     pub fn add_solution(&mut self, z: &RRTNode, z_goal_attempt: &RRTNode) -> PyResult<()> {
         let z_goal_ = self.insert(&z_goal_attempt.clone(), &z)?;
@@ -371,8 +425,8 @@ impl InformedRRTStar {
     pub fn goal_reachable(&self, z: &RRTNode) -> bool {
         let x = z.state[0];
         let y = z.state[1];
-        let x_goal = self.x_goal[0];
-        let y_goal = self.x_goal[1];
+        let x_goal = self.xs_goal[0];
+        let y_goal = self.xs_goal[1];
         let dist_squared = (x - x_goal).powi(2) + (y - y_goal).powi(2);
 
         dist_squared < self.params.goal_radius.powi(2)
@@ -382,7 +436,7 @@ impl InformedRRTStar {
         if num_iter % self.params.iter_between_direct_goal_growth != 0 {
             return Ok(false);
         }
-        let z_goal = RRTNode::new(self.x_goal.clone(), 0.0, 0.0, 0.0);
+        let z_goal = RRTNode::new(self.xs_goal.clone(), 0.0, 0.0, 0.0);
         let z_nearest = self.nearest(&z_goal)?;
         self.attempt_goal_insertion(&z_nearest, c_best, 10.0 * 60.0)
     }
@@ -393,7 +447,7 @@ impl InformedRRTStar {
         c_best: f64,
         max_steering_time: f64,
     ) -> PyResult<bool> {
-        let mut z_goal_ = RRTNode::new(self.x_goal.clone(), 0.0, 0.0, 0.0);
+        let mut z_goal_ = RRTNode::new(self.xs_goal.clone(), 0.0, 0.0, 0.0);
         let (xs_array, _, _, t_new, reached) =
             self.steer(&z, &z_goal_, max_steering_time, self.params.min_node_dist)?;
         let x_new: Vector6<f64> = xs_array.last().copied().unwrap();
@@ -497,7 +551,7 @@ impl InformedRRTStar {
             let z = self.bookkeeping_tree.get(root_id).unwrap().data().clone();
             return Ok(vec![z]);
         }
-        println!("Ball radius: {}", ball_radius);
+        // println!("Ball radius: {}", ball_radius);
 
         let mut Z_near = self
             .rtree
@@ -578,12 +632,13 @@ impl InformedRRTStar {
 
     pub fn sample(&mut self) -> PyResult<RRTNode> {
         let mut p_rand = Vector2::zeros();
-        let p_start: Vector2<f64> = self.x_start.fixed_rows::<2>(0).into();
-        let p_goal: Vector2<f64> = self.x_goal.fixed_rows::<2>(0).into();
+        let p_start: Vector2<f64> = self.xs_start.fixed_rows::<2>(0).into();
+        let p_goal: Vector2<f64> = self.xs_goal.fixed_rows::<2>(0).into();
         let mut map_bbox = self.enc.bbox.clone();
         if self.enc.is_empty() {
             map_bbox = utils::bbox_from_corner_points(&p_start, &p_goal, 100.0);
         }
+        // println!("Map bbox: {:?}", map_bbox);
         loop {
             if self.c_best < f64::INFINITY {
                 p_rand = utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng);
@@ -591,8 +646,9 @@ impl InformedRRTStar {
             } else {
                 p_rand = utils::sample_from_bbox(&map_bbox, &mut self.rng);
             }
-
+            println!("Sampled: {:?}", p_rand);
             if !self.enc.inside_hazards(&p_rand) {
+                // println!("Sampled outside hazard");
                 return Ok(RRTNode {
                     id: None,
                     state: Vector6::new(p_rand[0], p_rand[1], 0.0, 0.0, 0.0, 0.0),
@@ -600,13 +656,15 @@ impl InformedRRTStar {
                     d2land: 0.0,
                     time: 0.0,
                 });
+            } else {
+                // println!("Sampled inside hazard");
             }
         }
     }
 
     pub fn draw_tree(&self, soln: Option<&RRTResult>) -> PyResult<()> {
-        let p_start = self.x_start.fixed_rows::<2>(0).into();
-        let p_goal = self.x_goal.fixed_rows::<2>(0).into();
+        let p_start = self.xs_start.fixed_rows::<2>(0).into();
+        let p_goal = self.xs_goal.fixed_rows::<2>(0).into();
 
         let xs_soln_array = match soln {
             Some(s) => Some(s.states.as_ref()),
@@ -827,15 +885,15 @@ mod tests {
             max_node_dist: 150.0,
         });
 
-        let x_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
-        let x_goal = [100.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let xs_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
+        let xs_goal = [100.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         Python::with_gil(|py| -> PyResult<()> {
-            let x_start_pyany = x_start.into_py(py);
-            let x_start_py = x_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
-            rrt.set_init_state(&x_start_py)?;
-            let x_goal_pyany = x_goal.into_py(py);
-            let x_goal_py = x_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
-            rrt.set_goal_state(x_goal_py)?;
+            let xs_start_pyany = xs_start.into_py(py);
+            let xs_start_py = xs_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
+            rrt.set_init_state(&xs_start_py)?;
+            let xs_goal_pyany = xs_goal.into_py(py);
+            let xs_goal_py = xs_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
+            rrt.set_goal_state(xs_goal_py)?;
             Ok(())
         })?;
 
@@ -873,19 +931,19 @@ mod tests {
             max_node_dist: 300.0,
         });
 
-        let x_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
-        let x_goal = [1000.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let xs_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
+        let xs_goal = [1000.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         Python::with_gil(|py| -> PyResult<()> {
-            let x_start_pyany = x_start.into_py(py);
-            let x_start_py = x_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
-            let x_goal_pyany = x_goal.into_py(py);
-            let x_goal_py = x_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
-            rrt.set_goal_state(x_goal_py)?;
+            let xs_start_pyany = xs_start.into_py(py);
+            let xs_start_py = xs_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
+            let xs_goal_pyany = xs_goal.into_py(py);
+            let xs_goal_py = xs_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
+            rrt.set_goal_state(xs_goal_py)?;
             rrt.set_speed_reference(6.0)?;
 
             let do_list = Vec::<[f64; 6]>::new().into_py(py);
             let do_list = do_list.as_ref(py).downcast::<PyList>().unwrap();
-            let result = rrt.grow_towards_goal(x_start_py, 6.0, do_list, py)?;
+            let result = rrt.grow_towards_goal(xs_start_py, 6.0, do_list, py)?;
             let pydict = result.as_ref(py).downcast::<PyDict>().unwrap();
             println!("rrtresult states: {:?}", pydict.get_item("states"));
             Ok(())
