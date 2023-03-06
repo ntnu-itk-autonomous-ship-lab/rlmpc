@@ -280,9 +280,9 @@ impl InformedRRTStar {
         let mut z_new = self.get_root_node();
         let mut num_iter = 0;
         while self.num_nodes < self.params.max_nodes && num_iter < self.params.max_iter {
-            // if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
-            //     break;
-            // }
+            if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
+                break;
+            }
 
             if self.goal_reachable(&z_new) {
                 self.attempt_goal_insertion(&z_new, self.c_best, self.params.max_steering_time)?;
@@ -385,8 +385,8 @@ impl InformedRRTStar {
         let soln = self.extract_solution(&z_goal_)?;
         self.solutions.push(soln.clone());
         self.c_best = self.c_best.min(soln.cost);
-        // self.draw_tree(Some(&soln))?;
-        // println!("Solution found! Cost: {}", soln.cost);
+        self.draw_tree(Some(&soln))?;
+        println!("Solution found! Cost: {}", soln.cost);
         Ok(())
     }
 

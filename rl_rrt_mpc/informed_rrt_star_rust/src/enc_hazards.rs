@@ -130,6 +130,10 @@ impl ENCHazards {
         let intersect_w_land = linestring.intersects(&self.land);
         let intersect_w_shore = linestring.intersects(&self.shore);
         let intersect_w_seabed = linestring.intersects(&self.seabed);
+        // println!(
+        //     "Linestring intersect with land: {}, shore: {}, seabed: {}",
+        //     intersect_w_land, intersect_w_shore, intersect_w_seabed
+        // );
         intersect_w_land || intersect_w_shore || intersect_w_seabed
     }
 
@@ -147,12 +151,8 @@ impl ENCHazards {
                 .collect(),
         );
         let intersect = self.intersects_with_linestring(&traj_linestring);
-        println!(
-            "Collision free? {} | wrt linestring: {:?}",
-            !intersect, traj_linestring
-        );
-        utils::draw_enc_hazards_vs_linestring("enc_vs_linestring.svg", &self, &traj_linestring)
-            .unwrap();
+        // utils::draw_enc_hazards_vs_linestring("enc_vs_linestring.svg", &self, &traj_linestring)
+        //     .unwrap();
         intersect
     }
 

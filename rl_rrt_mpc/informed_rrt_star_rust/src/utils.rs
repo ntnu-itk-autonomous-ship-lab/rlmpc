@@ -182,9 +182,9 @@ pub fn draw_multipolygon(
             .map(|p| (p.y as f32, p.x as f32))
             .collect();
         println!("poly_points: {:?}", poly_points);
-        chart.draw_series(LineSeries::new(poly_points.clone(), color))?;
-        drawing_area.present()?;
+        chart.draw_series(LineSeries::new(poly_points, color))?;
     }
+    drawing_area.present()?;
     Ok(())
 }
 
@@ -200,7 +200,7 @@ pub fn draw_linestring(
         .map(|p| (p.y as f32, p.x as f32))
         .collect();
     println!("line_points: {:?}", line_points);
-    chart.draw_series(LineSeries::new(line_points.clone(), color))?;
+    chart.draw_series(LineSeries::new(line_points, color))?;
     drawing_area.present()?;
     Ok(())
 }
@@ -210,16 +210,39 @@ pub fn draw_enc_hazards_vs_linestring(
     enc_hazards: &ENCHazards,
     linestring: &LineString<f64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let drawing_area = SVGBackend::new(filename, (1080, 600)).into_drawing_area();
+    let drawing_area = SVGBackend::new(filename, (2048, 1440)).into_drawing_area();
     drawing_area.fill(&WHITE)?;
     let bbox = enc_hazards.bbox;
+    let buffer = 500.0;
+    let min_x_ = linestring
+        .0
+        .iter()
+        .fold(f32::INFINITY, |acc, p| acc.min(p.x as f32))
+        - buffer;
+    let min_y_ = linestring
+        .0
+        .iter()
+        .fold(f32::INFINITY, |acc, p| acc.min(p.y as f32))
+        - buffer;
+    let max_x_ = linestring
+        .0
+        .iter()
+        .fold(f32::NEG_INFINITY, |acc, p| acc.max(p.x as f32))
+        + buffer;
+    let max_y_ = linestring
+        .0
+        .iter()
+        .fold(f32::NEG_INFINITY, |acc, p| acc.max(p.y as f32))
+        + buffer;
     let mut chart = ChartBuilder::on(&drawing_area)
         .caption("ENC Hazards vs linestring", ("sans-serif", 40).into_font())
         .x_label_area_size(75)
         .y_label_area_size(75)
         .build_cartesian_2d(
-            bbox.min().y as f32..bbox.max().y as f32,
-            bbox.min().x as f32..bbox.max().x as f32,
+            min_y_..max_y_,
+            min_x_..max_x_,
+            // bbox.min().y as f32..bbox.max().y as f32,
+            // bbox.min().x as f32..bbox.max().x as f32,
         )?;
 
     chart
@@ -231,10 +254,9 @@ pub fn draw_enc_hazards_vs_linestring(
         .draw()?;
 
     draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.land, &RED)?;
-    //draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.shore, &YELLOW)?;
-    //draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.seabed, &BLUE)?;
-    //draw_linestring(&drawing_area, &mut chart, &linestring, &MAGENTA)?;
-    drawing_area.present()?;
+    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.shore, &YELLOW)?;
+    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.seabed, &BLUE)?;
+    draw_linestring(&drawing_area, &mut chart, &linestring, &MAGENTA)?;
     Ok(())
 }
 
