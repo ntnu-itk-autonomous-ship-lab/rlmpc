@@ -10,7 +10,7 @@ use id_tree::*;
 use nalgebra::{Vector2, Vector3, Vector6};
 use pyo3::conversion::ToPyObject;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyList, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyList};
 use pyo3::FromPyObject;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -39,11 +39,6 @@ impl RRTNode {
 
     pub fn set_id(&mut self, id: NodeId) {
         self.id = Some(id);
-    }
-
-    pub fn get_id(&self) -> i64 {
-        assert!(self.id.is_none());
-        self.id.unwrap().index as i64
     }
 
     pub fn point(&self) -> [f64; 2] {
@@ -251,7 +246,17 @@ impl InformedRRTStar {
     pub fn get_tree_as_list_of_dicts(&self, py: Python<'_>) -> PyResult<PyObject> {
         let node_list = PyList::empty(py);
         let root_node_id = self.bookkeeping_tree.root_node_id().unwrap();
-        self.append_subtree_to_list(&mut node_list, &root_node_id, py)?;
+        let node_id_int: i64 = 0;
+        let parent_id_int: i64 = -1;
+        let mut total_num_nodes: i64 = 0;
+        self.append_subtree_to_list(
+            node_list,
+            &root_node_id,
+            node_id_int,
+            parent_id_int,
+            &mut total_num_nodes,
+            py,
+        )?;
         Ok(node_list.into_py(py))
     }
 
@@ -275,9 +280,9 @@ impl InformedRRTStar {
         let mut z_new = self.get_root_node();
         let mut num_iter = 0;
         while self.num_nodes < self.params.max_nodes && num_iter < self.params.max_iter {
-            if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
-                break;
-            }
+            // if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
+            //     break;
+            // }
 
             if self.goal_reachable(&z_new) {
                 self.attempt_goal_insertion(&z_new, self.c_best, self.params.max_steering_time)?;
@@ -296,16 +301,16 @@ impl InformedRRTStar {
                 self.params.max_steering_time,
                 self.params.steering_acceptance_radius,
             )?;
-            let x_new: Vector6<f64> = xs_array.last().copied().unwrap();
+            let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
 
-            if self.is_too_close(&x_new) {
+            if self.is_too_close(&xs_new) {
                 continue;
             }
 
-            if self.is_collision_free(&z_nearest, &x_new) {
+            if self.is_collision_free(&xs_array) {
                 let path_length = utils::compute_path_length(&xs_array);
                 z_new = RRTNode::new(
-                    x_new,
+                    xs_new,
                     z_nearest.cost + path_length,
                     0.0,
                     z_nearest.time + t_new,
@@ -334,37 +339,42 @@ impl InformedRRTStar {
 impl InformedRRTStar {
     fn append_subtree_to_list(
         &self,
-        list: &mut PyList,
+        list: &PyList,
         node_id: &NodeId,
+        node_id_int: i64,
+        parent_id_int: i64,
+        total_num_nodes: &mut i64,
         py: Python<'_>,
     ) -> PyResult<()> {
         let node = self.bookkeeping_tree.get(node_id).unwrap();
         let node_data = node.data().clone();
         let node_dict = PyDict::new(py);
-        node_dict
-            .set_item("state", node_data.state.into())
-            .expect("Node state should be set");
-        node_dict
-            .set_item("cost", node_data.cost)
-            .expect("Node cost should be set");
-        node_dict
-            .set_item("d2land", node_data.d2land)
-            .expect("Node d2land should be set");
-        node_dict
-            .set_item("time", node_data.time)
-            .expect("Node time should be set");
-        node_dict
-            .set_item("id", node_data.id)
-            .expect("Node id should be set");
+        node_dict.set_item("state", node_data.state.as_slice())?;
+        node_dict.set_item("cost", node_data.cost)?;
+        node_dict.set_item("d2land", node_data.d2land)?;
+        node_dict.set_item("time", node_data.time)?;
+        node_dict.set_item("id", node_id_int.clone())?;
+        node_dict.set_item("parent_id", parent_id_int.clone())?;
+        println!("Node ID: {} | Parent ID: {}", node_id_int, parent_id_int);
 
-        list.append(node_dict);
+        *total_num_nodes += 1;
+        list.append(node_dict)?;
         let mut children_ids = self.bookkeeping_tree.children_ids(node_id).unwrap();
+        let mut child_node_id_int = *total_num_nodes;
         loop {
             let child_id = match children_ids.next() {
                 Some(id) => id,
                 None => break,
             };
-            self.append_subtree_to_list(list, &child_id, py)?;
+            self.append_subtree_to_list(
+                list,
+                &child_id,
+                child_node_id_int,
+                node_id_int,
+                total_num_nodes,
+                py,
+            )?;
+            child_node_id_int = *total_num_nodes;
         }
         Ok(())
     }
@@ -400,20 +410,18 @@ impl InformedRRTStar {
         Ok(RRTResult::new((states, times, cost)))
     }
 
-    pub fn is_collision_free(&self, z_nearest: &RRTNode, x_new: &Vector6<f64>) -> bool {
+    pub fn is_collision_free(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
         if self.enc.is_empty() {
             return true;
         }
-        let is_collision_free = self
-            .enc
-            .intersects_with_segment(&z_nearest.vec2d(), &Vector2::new(x_new[0], x_new[1]));
+        let is_collision_free = !self.enc.intersects_with_trajectory(&xs_array);
         is_collision_free
     }
 
-    pub fn is_too_close(&self, x_new: &Vector6<f64>) -> bool {
+    pub fn is_too_close(&self, xs_new: &Vector6<f64>) -> bool {
         let nearest = self
             .rtree
-            .nearest_neighbor_iter_with_distance_2(&[x_new[0], x_new[1]])
+            .nearest_neighbor_iter_with_distance_2(&[xs_new[0], xs_new[1]])
             .next();
         if nearest.is_none() {
             return false;
@@ -452,7 +460,7 @@ impl InformedRRTStar {
             self.steer(&z, &z_goal_, max_steering_time, self.params.min_node_dist)?;
         let x_new: Vector6<f64> = xs_array.last().copied().unwrap();
 
-        if !(self.is_collision_free(&z, &x_new) && reached) {
+        if !(self.is_collision_free(&xs_array) && reached) {
             return Ok(false);
         }
         let cost = z.cost + utils::compute_path_length(&xs_array);
@@ -506,11 +514,11 @@ impl InformedRRTStar {
                 10.0 * self.params.max_steering_time,
                 self.params.steering_acceptance_radius,
             )?;
-            let x_new_near: Vector6<f64> = xs_array.last().copied().unwrap();
-            if self.is_collision_free(&z_new, &x_new_near) && reached {
+            let xs_new_near: Vector6<f64> = xs_array.last().copied().unwrap();
+            if self.is_collision_free(&xs_array) && reached {
                 let path_length = utils::compute_path_length(&xs_array);
                 let z_new_near = RRTNode::new(
-                    x_new_near,
+                    xs_new_near,
                     z_new.cost + path_length,
                     0.0,
                     z_new.time + t_new,
@@ -586,12 +594,12 @@ impl InformedRRTStar {
                 self.params.max_steering_time,
                 self.params.steering_acceptance_radius,
             )?;
-            let x_new: Vector6<f64> = xs_array.last().copied().unwrap();
-            if self.is_collision_free(&z_near, &x_new) && !self.is_too_close(&x_new) && reached {
+            let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
+            if self.is_collision_free(&xs_array) && !self.is_too_close(&xs_new) && reached {
                 let path_length = utils::compute_path_length(&xs_array);
                 let cost = z_near.cost + path_length;
                 if cost < z_new_.cost {
-                    z_new_ = RRTNode::new(x_new, cost, 0.0, z_near.time + t_new);
+                    z_new_ = RRTNode::new(xs_new, cost, 0.0, z_near.time + t_new);
                     z_parent = z_near.clone();
                 }
             }
@@ -646,7 +654,7 @@ impl InformedRRTStar {
             } else {
                 p_rand = utils::sample_from_bbox(&map_bbox, &mut self.rng);
             }
-            println!("Sampled: {:?}", p_rand);
+            //println!("Sampled: {:?}", p_rand);
             if !self.enc.inside_hazards(&p_rand) {
                 // println!("Sampled outside hazard");
                 return Ok(RRTNode {

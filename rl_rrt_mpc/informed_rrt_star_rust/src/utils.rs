@@ -3,23 +3,20 @@
 //!
 use crate::enc_hazards::ENCHazards;
 use crate::informed_rrt_star::RRTNode;
-use geo::{coord, Rect};
+use geo::{coord, LineString, MultiPolygon, Rect};
 use id_tree::*;
 use nalgebra::{
     ClosedAdd, ClosedMul, Matrix2, Matrix3, SMatrix, Scalar, Vector2, Vector3, Vector6,
 };
-use num::cast::AsPrimitive;
 use num::traits::{One, Zero};
 use plotters::coord::types::RangedCoordf32;
 use plotters::coord::Shift;
-use plotters::prelude::*;
+use plotters::{drawing, prelude::*};
 use pyo3::prelude::*;
-use pyo3::types::PyList;
 use rand::Rng;
 use rand_chacha::ChaChaRng;
 use std::f64::consts;
 use std::iter;
-use std::ops::Add;
 
 pub fn bbox_from_corner_points(p1: &Vector2<f64>, p2: &Vector2<f64>, buffer: f64) -> Rect {
     let p_min = Vector2::new(p1[0].min(p2[0]) - buffer, p1[1].min(p2[1]) - buffer);
@@ -164,24 +161,81 @@ pub fn compute_path_length(xs_array: &Vec<Vector6<f64>>) -> f64 {
         .sum()
 }
 
-pub fn vector6_to_pylist<T>(py: Python<'_>, v: &Vector6<T>) -> PyResult<Py<PyList>>
-where
-    T: Copy + AsPrimitive<T> + 'static + Add<Output = T> + Into<f64>,
-{
-    let mut elements: Vec<f64> = Vec::new();
-    for i in 0..6 {
-        elements.push(v[i].into());
-    }
-    let pyany = elements.into_py(py);
-    let pyslice = pyany.downcast::<PyList>(py)?.into_py(py);
-    Ok(pyslice)
-}
-
 pub fn map_err_to_pyerr<E>(e: E) -> PyErr
 where
     E: std::fmt::Display,
 {
     PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())
+}
+
+pub fn draw_multipolygon(
+    drawing_area: &DrawingArea<SVGBackend, Shift>,
+    chart: &mut ChartContext<SVGBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
+    multipolygon: &MultiPolygon<f64>,
+    color: &RGBColor,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for polygon in multipolygon.0.iter() {
+        let poly_points: Vec<(f32, f32)> = polygon
+            .exterior()
+            .0
+            .iter()
+            .map(|p| (p.y as f32, p.x as f32))
+            .collect();
+        println!("poly_points: {:?}", poly_points);
+        chart.draw_series(LineSeries::new(poly_points.clone(), color))?;
+        drawing_area.present()?;
+    }
+    Ok(())
+}
+
+pub fn draw_linestring(
+    drawing_area: &DrawingArea<SVGBackend, Shift>,
+    chart: &mut ChartContext<SVGBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
+    linestring: &LineString<f64>,
+    color: &RGBColor,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let line_points: Vec<(f32, f32)> = linestring
+        .0
+        .iter()
+        .map(|p| (p.y as f32, p.x as f32))
+        .collect();
+    println!("line_points: {:?}", line_points);
+    chart.draw_series(LineSeries::new(line_points.clone(), color))?;
+    drawing_area.present()?;
+    Ok(())
+}
+
+pub fn draw_enc_hazards_vs_linestring(
+    filename: &str,
+    enc_hazards: &ENCHazards,
+    linestring: &LineString<f64>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let drawing_area = SVGBackend::new(filename, (1080, 600)).into_drawing_area();
+    drawing_area.fill(&WHITE)?;
+    let bbox = enc_hazards.bbox;
+    let mut chart = ChartBuilder::on(&drawing_area)
+        .caption("ENC Hazards vs linestring", ("sans-serif", 40).into_font())
+        .x_label_area_size(75)
+        .y_label_area_size(75)
+        .build_cartesian_2d(
+            bbox.min().y as f32..bbox.max().y as f32,
+            bbox.min().x as f32..bbox.max().x as f32,
+        )?;
+
+    chart
+        .configure_mesh()
+        .x_labels(10)
+        .y_labels(10)
+        .x_label_formatter(&|x| format!("{:.1}", x))
+        .y_label_formatter(&|x| format!("{:.1}", x))
+        .draw()?;
+
+    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.land, &RED)?;
+    //draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.shore, &YELLOW)?;
+    //draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.seabed, &BLUE)?;
+    //draw_linestring(&drawing_area, &mut chart, &linestring, &MAGENTA)?;
+    drawing_area.present()?;
+    Ok(())
 }
 
 pub fn draw_steering_results(
@@ -498,18 +552,5 @@ mod tests {
         let Mmtrx = Matrix3::from_partial_diagonal(&[3000.0, 3000.0, 19000.0]);
         let Cmtrx_res = Cmtrx(Mmtrx, nu);
         println!("Cmtrx_res: {:?}", Cmtrx_res);
-    }
-
-    #[test]
-    fn test_vector6_to_pylist() -> PyResult<()> {
-        let vec = Vector6::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
-        Python::with_gil(|py| {
-            let pylist: Py<PyList> = vector6_to_pylist::<f64>(py, &vec)?.into();
-            println!("pylist: {:?}", pylist);
-            let vec6: Vec<f64> = pylist.extract(py)?;
-            let nalg_vec6 = Vector6::new(vec6[0], vec6[1], vec6[2], vec6[3], vec6[4], vec6[5]);
-            assert_eq!(vec, nalg_vec6);
-            Ok(())
-        })
     }
 }

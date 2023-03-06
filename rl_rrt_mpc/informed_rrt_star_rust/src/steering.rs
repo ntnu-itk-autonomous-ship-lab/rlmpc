@@ -7,6 +7,7 @@ use nalgebra::Vector3;
 use nalgebra::Vector6;
 use std::f64;
 
+#[allow(non_snake_case)]
 pub trait Steering {
     fn steer(
         &mut self,
@@ -53,10 +54,8 @@ impl LOSGuidance {
         xs_start: &Vector6<f64>,
         xs_goal: &Vector6<f64>,
         U_d: f64,
-        acceptance_radius: f64,
         dt: f64,
     ) -> (f64, f64) {
-        let U_start = f64::sqrt(xs_start[3].powi(2) + xs_start[4].powi(2));
         let alpha = f64::atan2(xs_goal[1] - xs_start[1], xs_goal[0] - xs_start[0]);
         let cross_track_error = -(xs_now[0] - xs_goal[0]) * f64::sin(alpha)
             + (xs_now[1] - xs_goal[1]) * f64::cos(alpha);
@@ -196,6 +195,7 @@ impl SimpleSteering {
     }
 }
 
+#[allow(non_snake_case)]
 impl Steering for SimpleSteering {
     fn steer(
         &mut self,
@@ -218,15 +218,11 @@ impl Steering for SimpleSteering {
         let mut refs_array: Vec<(f64, f64)> = vec![];
         let mut xs_next = xs_start.clone();
         let mut reached_goal = false;
+        //println!("xs_start: {:?} | xs_goal: {:?}", xs_start, xs_goal);
         while time <= max_steering_time {
-            let refs: (f64, f64) = self.los_guidance.compute_refs(
-                &xs_next,
-                xs_start,
-                xs_goal,
-                U_d,
-                acceptance_radius,
-                time_step,
-            );
+            let refs: (f64, f64) = self
+                .los_guidance
+                .compute_refs(&xs_next, xs_start, xs_goal, U_d, time_step);
 
             let tau: Vector3<f64> = self.flsh_controller.compute_inputs(
                 &refs,
@@ -249,6 +245,7 @@ impl Steering for SimpleSteering {
                 break;
             }
         }
+        //println!("xs_next: {:?} | time: {:.2}", xs_next, time);
         (xs_array, u_array, refs_array, time, reached_goal)
     }
 }
@@ -264,14 +261,14 @@ mod tests {
         let xs_start = Vector6::new(0.0, 0.0, consts::PI / 2.0, 5.0, 0.0, 0.0);
         let acceptance_radius = 10.0;
         let xs_goal = Vector6::new(100.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let (xs_array, u_array, refs_array, time, reached_goal) =
+        let (xs_array, u_array, refs_array, time, _) =
             steering.steer(&xs_start, &xs_goal, 5.0, acceptance_radius, 0.2, 70.0);
         println!("time: {:?}", time);
         assert!(xs_array.len() > 0);
         assert!(u_array.len() > 0);
         assert!(time > 0.0);
 
-        let res = utils::draw_steering_results(
+        let _ = utils::draw_steering_results(
             &xs_start,
             &xs_goal,
             &refs_array,

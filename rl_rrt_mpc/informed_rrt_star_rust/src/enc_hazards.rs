@@ -5,11 +5,12 @@
 //!
 //! ## Usage
 //! Relies on transferring ENC data from python to rust using pyo3
+use crate::utils;
 use geo::{
     coord, point, BoundingRect, Contains, EuclideanDistance, HasDimensions, Intersects, LineString,
     MultiPolygon, Polygon, Rect,
 };
-use nalgebra::Vector2;
+use nalgebra::{Vector2, Vector6};
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 #[pyclass]
@@ -61,8 +62,8 @@ impl ENCHazards {
                 2 => self.seabed = poly_out,
                 _ => panic!("Unknown hazard type"),
             }
-            println!("Multipolygon length: {:?}", self.land.0.len());
         }
+        //println!("Land: {:?}", self.land);
         self.compute_bbox()?;
         Ok(())
     }
@@ -88,9 +89,9 @@ impl ENCHazards {
         if land_bbox.is_empty() && shore_bbox.is_empty() && seabed_bbox.is_empty() {
             return Err(PyValueError::new_err("ENC Hazard is empty"));
         }
-        println!("Land bbox: {:?}", land_bbox);
-        println!("Shore bbox: {:?}", shore_bbox);
-        println!("Seabed bbox: {:?}", seabed_bbox);
+        // println!("Land bbox: {:?}", land_bbox);
+        // println!("Shore bbox: {:?}", shore_bbox);
+        // println!("Seabed bbox: {:?}", seabed_bbox);
         let max_x = land_bbox
             .max()
             .x
@@ -126,14 +127,33 @@ impl ENCHazards {
     }
 
     pub fn intersects_with_linestring(&self, linestring: &LineString<f64>) -> bool {
-        linestring.intersects(&self.land)
-            || linestring.intersects(&self.shore)
-            || linestring.intersects(&self.seabed)
+        let intersect_w_land = linestring.intersects(&self.land);
+        let intersect_w_shore = linestring.intersects(&self.shore);
+        let intersect_w_seabed = linestring.intersects(&self.seabed);
+        intersect_w_land || intersect_w_shore || intersect_w_seabed
     }
 
     pub fn intersects_with_segment(&self, p1: &Vector2<f64>, p2: &Vector2<f64>) -> bool {
         let line = LineString(vec![coord![x: p1[0], y: p1[1]], coord![x: p2[0], y: p2[1]]]);
         self.intersects_with_linestring(&line)
+    }
+
+    pub fn intersects_with_trajectory(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
+        let traj_linestring = LineString(
+            xs_array
+                .iter()
+                .step_by(2)
+                .map(|x| coord! {x: x[0], y: x[1]})
+                .collect(),
+        );
+        let intersect = self.intersects_with_linestring(&traj_linestring);
+        println!(
+            "Collision free? {} | wrt linestring: {:?}",
+            !intersect, traj_linestring
+        );
+        utils::draw_enc_hazards_vs_linestring("enc_vs_linestring.svg", &self, &traj_linestring)
+            .unwrap();
+        intersect
     }
 
     /// Calculate the distance from a point to the closest point on the ENC

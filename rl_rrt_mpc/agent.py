@@ -14,6 +14,7 @@ import colav_simulator.core.colav.colav_interface as ci
 import informed_rrt_star_rust as rrt
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
+import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc as mpc
@@ -102,16 +103,20 @@ class RLRRTMPC(ci.ICOLAV):
             self._initialized = True
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
 
-            if enc is not None:
-                enc.start_display()
-                for hazard in relevant_grounding_hazards:
-                    enc.draw_polygon(hazard, color="red")
-
             self._rrt.transfer_enc_data(relevant_grounding_hazards)
             self._rrt.set_init_state(ownship_state.tolist())
             self._rrt.set_goal_state(goal_state.tolist())
 
-            rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), ownship_state[2], [])
+            U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
+            rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
+
+            tree_list = self._rrt.get_tree_as_list_of_dicts()
+
+            if enc is not None:
+                enc.start_display()
+                for hazard in relevant_grounding_hazards:
+                    enc.draw_polygon(hazard, color="red")
+                hf.plot_rrt_tree(tree_list, enc)
 
         references = np.zeros((9, 1))
         return references
