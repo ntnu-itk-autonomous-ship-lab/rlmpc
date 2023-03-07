@@ -12,7 +12,7 @@ use geo::{
 };
 use nalgebra::{Vector2, Vector6};
 use pyo3::{exceptions::PyValueError, prelude::*};
-
+use std::fs::File;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct ENCHazards {
@@ -63,7 +63,36 @@ impl ENCHazards {
                 _ => panic!("Unknown hazard type"),
             }
         }
-        //println!("Land: {:?}", self.land);
+        self.compute_bbox()?;
+        self.save_hazards_to_json()?;
+        Ok(())
+    }
+
+    pub fn save_hazards_to_json(&self) -> PyResult<()> {
+        let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        serde_json::to_writer_pretty(&File::create(rust_root.join("data/land.json"))?, &self.land)
+            .unwrap();
+        serde_json::to_writer_pretty(
+            &File::create(rust_root.join("data/shore.json"))?,
+            &self.shore,
+        )
+        .unwrap();
+        serde_json::to_writer_pretty(
+            &File::create(rust_root.join("data/seabed.json"))?,
+            &self.seabed,
+        )
+        .unwrap();
+        Ok(())
+    }
+
+    pub fn load_hazards_from_json(&mut self) -> PyResult<()> {
+        let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let land_file = File::open(rust_root.join("data/land.json")).unwrap();
+        let shore_file = File::open(rust_root.join("data/shore.json")).unwrap();
+        let seabed_file = File::open(rust_root.join("data/seabed.json")).unwrap();
+        self.land = serde_json::from_reader(land_file).unwrap();
+        self.shore = serde_json::from_reader(shore_file).unwrap();
+        self.seabed = serde_json::from_reader(seabed_file).unwrap();
         self.compute_bbox()?;
         Ok(())
     }
@@ -113,7 +142,6 @@ impl ENCHazards {
             .min(shore_bbox.min().y)
             .min(seabed_bbox.min().y);
         self.bbox = Rect::new(coord! {x: min_x, y: min_y}, coord! {x: max_x, y: max_y});
-        println!("Bbox: {:?}", self.bbox);
         Ok(self.bbox)
     }
 
@@ -146,19 +174,24 @@ impl ENCHazards {
         let traj_linestring = LineString(
             xs_array
                 .iter()
-                .step_by(2)
+                .step_by(1)
                 .map(|x| coord! {x: x[0], y: x[1]})
                 .collect(),
         );
         let intersect = self.intersects_with_linestring(&traj_linestring);
-        // utils::draw_enc_hazards_vs_linestring("enc_vs_linestring.svg", &self, &traj_linestring)
-        //     .unwrap();
+        // utils::draw_enc_hazards_vs_linestring(
+        //     "enc_vs_linestring.png",
+        //     &self,
+        //     &traj_linestring,
+        //     &xs_array,
+        // )
+        // .unwrap();
         intersect
     }
 
     /// Calculate the distance from a point to the closest point on the ENC
     pub fn dist2point(&self, p: &Vector2<f64>) -> f64 {
-        if self.land.is_empty() || self.shore.is_empty() || self.seabed.is_empty() {
+        if self.is_empty() {
             println!("ENCHazards is empty");
             return -1.0;
         }
@@ -411,5 +444,15 @@ mod tests {
             assert_eq!(bbox.min(), coord! {x: 0.0, y: 0.0});
             assert_eq!(bbox.max(), coord! {x: 1.0, y: 1.0});
         })
+    }
+
+    #[test]
+    fn test_load_and_save_hazards_from_json() {
+        let mut enc = ENCHazards::py_new();
+        enc.load_hazards_from_json().unwrap();
+        println!("Land: {:?}", enc.land);
+        println!("Shore: {:?}", enc.shore);
+        println!("Seabed: {:?}", enc.seabed);
+        enc.save_hazards_to_json().unwrap();
     }
 }

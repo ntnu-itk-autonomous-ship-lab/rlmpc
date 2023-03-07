@@ -3,7 +3,7 @@
 //!
 use crate::enc_hazards::ENCHazards;
 use crate::informed_rrt_star::RRTNode;
-use geo::{coord, LineString, MultiPolygon, Rect};
+use geo::{coord, LineString, MultiPolygon, Point, Polygon, Rect, Rotate};
 use id_tree::*;
 use nalgebra::{
     ClosedAdd, ClosedMul, Matrix2, Matrix3, SMatrix, Scalar, Vector2, Vector3, Vector6,
@@ -169,8 +169,8 @@ where
 }
 
 pub fn draw_multipolygon(
-    drawing_area: &DrawingArea<SVGBackend, Shift>,
-    chart: &mut ChartContext<SVGBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
+    drawing_area: &DrawingArea<BitMapBackend, Shift>,
+    chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
     multipolygon: &MultiPolygon<f64>,
     color: &RGBColor,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -181,7 +181,7 @@ pub fn draw_multipolygon(
             .iter()
             .map(|p| (p.y as f32, p.x as f32))
             .collect();
-        println!("poly_points: {:?}", poly_points);
+        // println!("poly_points: {:?}", poly_points);
         chart.draw_series(LineSeries::new(poly_points, color))?;
     }
     drawing_area.present()?;
@@ -189,8 +189,8 @@ pub fn draw_multipolygon(
 }
 
 pub fn draw_linestring(
-    drawing_area: &DrawingArea<SVGBackend, Shift>,
-    chart: &mut ChartContext<SVGBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
+    drawing_area: &DrawingArea<BitMapBackend, Shift>,
+    chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
     linestring: &LineString<f64>,
     color: &RGBColor,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -199,8 +199,45 @@ pub fn draw_linestring(
         .iter()
         .map(|p| (p.y as f32, p.x as f32))
         .collect();
-    println!("line_points: {:?}", line_points);
+    //println!("line_points: {:?}", line_points);
     chart.draw_series(LineSeries::new(line_points, color))?;
+    drawing_area.present()?;
+    Ok(())
+}
+
+pub fn create_ship_polygon(state: &Vector6<f64>, length: f64, width: f64) -> Polygon<f64> {
+    let os_poly_non_rot = Polygon::new(
+        LineString::new(vec![
+            coord! {x: state[0] + length / 2.0, y: state[1]},
+            coord! {x: state[0] + 0.7 * length / 2.0, y: state[1] + width},
+            coord! {x: state[0] - length / 2.0, y: state[1] + width},
+            coord! {x: state[0] - length / 2.0, y: state[1] - width},
+            coord! {x: state[0] + 0.7 * length / 2.0, y: state[1] - width},
+            coord! {x: state[0] + length / 2.0, y: state[1]},
+        ]),
+        vec![],
+    );
+    let os_poly = os_poly_non_rot.rotate_around_point(
+        state[2] * 180.0 / std::f64::consts::PI,
+        Point::new(state[0], state[1]),
+    );
+    os_poly
+}
+
+pub fn draw_ownship(
+    drawing_area: &DrawingArea<BitMapBackend, Shift>,
+    chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
+    state: &Vector6<f64>,
+    color: &RGBColor,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let os_poly = create_ship_polygon(state, 10.0, 2.0);
+    let poly_points: Vec<(f32, f32)> = os_poly
+        .exterior()
+        .0
+        .iter()
+        .map(|p| (p.y as f32, p.x as f32))
+        .collect();
+    chart.draw_series(LineSeries::new(poly_points, color))?;
     drawing_area.present()?;
     Ok(())
 }
@@ -209,8 +246,9 @@ pub fn draw_enc_hazards_vs_linestring(
     filename: &str,
     enc_hazards: &ENCHazards,
     linestring: &LineString<f64>,
+    xs_array: &Vec<Vector6<f64>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let drawing_area = SVGBackend::new(filename, (2048, 1440)).into_drawing_area();
+    let drawing_area = BitMapBackend::new(filename, (2048, 1440)).into_drawing_area();
     drawing_area.fill(&WHITE)?;
     let bbox = enc_hazards.bbox;
     let buffer = 500.0;
@@ -257,6 +295,13 @@ pub fn draw_enc_hazards_vs_linestring(
     draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.shore, &YELLOW)?;
     draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.seabed, &BLUE)?;
     draw_linestring(&drawing_area, &mut chart, &linestring, &MAGENTA)?;
+    draw_ownship(
+        &drawing_area,
+        &mut chart,
+        &xs_array.first().unwrap(),
+        &GREEN,
+    )?;
+    draw_ownship(&drawing_area, &mut chart, &xs_array.last().unwrap(), &GREEN)?;
     Ok(())
 }
 
@@ -317,7 +362,7 @@ pub fn draw_tree(
     if enc_hazards.is_empty() {
         bbox = bbox_from_corner_points(p_start, p_goal, 100.0);
     }
-    println!("Map bbox: {:?}", bbox);
+    // println!("Map bbox: {:?}", bbox);
     let mut chart = ChartBuilder::on(&drawing_area)
         .caption("Tree", ("sans-serif", 40).into_font())
         .x_label_area_size(50)

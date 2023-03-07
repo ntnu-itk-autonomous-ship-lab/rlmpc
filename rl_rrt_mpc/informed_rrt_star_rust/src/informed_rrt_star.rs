@@ -16,6 +16,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RRTNode {
@@ -268,6 +269,7 @@ impl InformedRRTStar {
         do_list: &PyList,
         py: Python<'_>,
     ) -> PyResult<PyObject> {
+        let start = Instant::now();
         self.set_speed_reference(U_d)?;
         self.set_init_state(ownship_state)?;
         println!("Ownship state: {:?}", ownship_state);
@@ -281,7 +283,7 @@ impl InformedRRTStar {
         let mut num_iter = 0;
         while self.num_nodes < self.params.max_nodes && num_iter < self.params.max_iter {
             if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
-                break;
+                continue;
             }
 
             if self.goal_reachable(&z_new) {
@@ -330,6 +332,8 @@ impl InformedRRTStar {
             num_iter += 1;
         }
         let opt_soln = self.extract_best_solution();
+        let duration = start.elapsed();
+        println!("InformedRRTStar run time: {:?}", duration.as_secs());
         self.draw_tree(Some(&opt_soln))?;
         Ok(opt_soln.to_object(py))
     }
@@ -355,7 +359,7 @@ impl InformedRRTStar {
         node_dict.set_item("time", node_data.time)?;
         node_dict.set_item("id", node_id_int.clone())?;
         node_dict.set_item("parent_id", parent_id_int.clone())?;
-        println!("Node ID: {} | Parent ID: {}", node_id_int, parent_id_int);
+        // println!("Node ID: {} | Parent ID: {}", node_id_int, parent_id_int);
 
         *total_num_nodes += 1;
         list.append(node_dict)?;
@@ -385,7 +389,7 @@ impl InformedRRTStar {
         let soln = self.extract_solution(&z_goal_)?;
         self.solutions.push(soln.clone());
         self.c_best = self.c_best.min(soln.cost);
-        self.draw_tree(Some(&soln))?;
+        // self.draw_tree(Some(&soln))?;
         println!("Solution found! Cost: {}", soln.cost);
         Ok(())
     }
@@ -416,6 +420,41 @@ impl InformedRRTStar {
         }
         let is_collision_free = !self.enc.intersects_with_trajectory(&xs_array);
         is_collision_free
+    }
+
+    pub fn is_collision_free_to_children(
+        &mut self,
+        z_new_near: &RRTNode,
+        z_near_id: &NodeId,
+    ) -> bool {
+        if self.enc.is_empty() {
+            return true;
+        }
+        let is_safe = true;
+        let mut children_ids = self
+            .bookkeeping_tree
+            .children_ids(z_near_id)
+            .unwrap()
+            .clone();
+        loop {
+            let child_id = match children_ids.next() {
+                Some(id) => id,
+                None => break,
+            };
+            let z_child = self.bookkeeping_tree.get(&child_id).unwrap().data().clone();
+            // let (xs_array, _, _, t_new, reached) = self
+            //     .steer(
+            //         &z_new_near,
+            //         &z_child,
+            //         self.params.max_steering_time,
+            //         self.params.min_node_dist,
+            //     )
+            //     .unwrap();
+            // if !(self.is_collision_free(&xs_array) && reached) {
+            //     return false;
+            // }
+        }
+        is_safe
     }
 
     pub fn is_too_close(&self, xs_new: &Vector6<f64>) -> bool {
@@ -523,8 +562,8 @@ impl InformedRRTStar {
                     0.0,
                     z_new.time + t_new,
                 );
+                let z_near_id = z_near.clone().id.unwrap();
                 if z_new_near.cost < z_near.cost {
-                    let z_near_id = z_near.clone().id.unwrap();
                     self.transfer_node_data(&z_near_id, &z_new_near)?;
 
                     self.move_node(&z_near_id, &z_new.clone().id.unwrap())?;
@@ -559,7 +598,7 @@ impl InformedRRTStar {
             let z = self.bookkeeping_tree.get(root_id).unwrap().data().clone();
             return Ok(vec![z]);
         }
-        // println!("Ball radius: {}", ball_radius);
+        println!("NN radius: {}", ball_radius);
 
         let mut Z_near = self
             .rtree
@@ -930,17 +969,25 @@ mod tests {
             max_nodes: 1000,
             max_iter: 10000,
             iter_between_direct_goal_growth: 100,
-            min_node_dist: 5.0,
+            min_node_dist: 100.0,
             goal_radius: 100.0,
             step_size: 0.5,
-            max_steering_time: 20.0,
+            max_steering_time: 30.0,
             steering_acceptance_radius: 5.0,
             gamma: 1000.0,
-            max_node_dist: 300.0,
+            max_node_dist: 400.0,
         });
 
-        let xs_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
-        let xs_goal = [1000.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let xs_start = [
+            6574280.0,
+            -31824.0,
+            45.0 * std::f64::consts::PI / 180.0,
+            5.0,
+            0.0,
+            0.0,
+        ];
+        let xs_goal = [6583580.0, -31824.0, 0.0, 0.0, 0.0, 0.0];
+        rrt.enc.load_hazards_from_json()?;
         Python::with_gil(|py| -> PyResult<()> {
             let xs_start_pyany = xs_start.into_py(py);
             let xs_start_py = xs_start_pyany.as_ref(py).downcast::<PyList>().unwrap();

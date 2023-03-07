@@ -109,14 +109,21 @@ class RLRRTMPC(ci.ICOLAV):
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
+            states = rrtresult["states"]
+            times = rrtresult["times"]
 
             tree_list = self._rrt.get_tree_as_list_of_dicts()
 
             if enc is not None:
+
                 enc.start_display()
-                for hazard in relevant_grounding_hazards:
-                    enc.draw_polygon(hazard, color="red")
+                # for hazard in relevant_grounding_hazards:
+                #     enc.draw_polygon(hazard, color="red")
                 hf.plot_rrt_tree(tree_list, enc)
+                hf.plot_rrt_solution(states, times, enc)
+                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
+                enc.draw_polygon(ship_poly, color="pink")
+                enc.draw_circle((goal_state[1], goal_state[0]), radius=30, color="cyan")
 
         references = np.zeros((9, 1))
         return references
