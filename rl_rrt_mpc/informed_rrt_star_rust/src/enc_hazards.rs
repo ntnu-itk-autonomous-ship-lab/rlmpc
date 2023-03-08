@@ -154,14 +154,22 @@ impl ENCHazards {
         self.land.contains(&point) || self.shore.contains(&point) || self.seabed.contains(&point)
     }
 
+    pub fn inside_bbox(&self, p: &Vector2<f64>) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+        let point = point![x: p[0], y: p[1]];
+        self.bbox.contains(&point)
+    }
+
     pub fn intersects_with_linestring(&self, linestring: &LineString<f64>) -> bool {
         let intersect_w_land = linestring.intersects(&self.land);
         let intersect_w_shore = linestring.intersects(&self.shore);
         let intersect_w_seabed = linestring.intersects(&self.seabed);
-        // println!(
-        //     "Linestring intersect with land: {}, shore: {}, seabed: {}",
-        //     intersect_w_land, intersect_w_shore, intersect_w_seabed
-        // );
+        println!(
+            "Linestring intersect with land: {}, shore: {}, seabed: {}",
+            intersect_w_land, intersect_w_shore, intersect_w_seabed
+        );
         intersect_w_land || intersect_w_shore || intersect_w_seabed
     }
 
@@ -174,7 +182,7 @@ impl ENCHazards {
         let traj_linestring = LineString(
             xs_array
                 .iter()
-                .step_by(1)
+                .step_by(2)
                 .map(|x| coord! {x: x[0], y: x[1]})
                 .collect(),
         );

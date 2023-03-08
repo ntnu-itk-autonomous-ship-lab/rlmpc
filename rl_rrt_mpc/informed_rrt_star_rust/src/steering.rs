@@ -241,6 +241,10 @@ impl Steering for SimpleSteering {
             let dist2goal =
                 ((xs_goal[0] - xs_next[0]).powi(2) + (xs_goal[1] - xs_next[1]).powi(2)).sqrt();
             if dist2goal < acceptance_radius {
+                println!(
+                    "dist2goal: {:.2} | acceptance_radius: {:.2}",
+                    dist2goal, acceptance_radius
+                );
                 reached_goal = true;
                 break;
             }

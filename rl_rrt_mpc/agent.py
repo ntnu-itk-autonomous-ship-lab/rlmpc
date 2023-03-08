@@ -32,7 +32,7 @@ class RRTParams:
     step_size: float = 0.1
     max_steering_time: float = 20.0
     steering_acceptance_radius: float = 5.0
-    max_node_dist: float = 300.0
+    max_nn_node_dist: float = 300.0
     gamma: float = 1000.0
 
     @classmethod
@@ -117,8 +117,8 @@ class RLRRTMPC(ci.ICOLAV):
             if enc is not None:
 
                 enc.start_display()
-                # for hazard in relevant_grounding_hazards:
-                #     enc.draw_polygon(hazard, color="red")
+                for hazard in relevant_grounding_hazards:
+                    enc.draw_polygon(hazard, color="red")
                 hf.plot_rrt_tree(tree_list, enc)
                 hf.plot_rrt_solution(states, times, enc)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)

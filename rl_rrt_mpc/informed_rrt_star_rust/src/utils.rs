@@ -18,9 +18,14 @@ use rand_chacha::ChaChaRng;
 use std::f64::consts;
 use std::iter;
 
-pub fn bbox_from_corner_points(p1: &Vector2<f64>, p2: &Vector2<f64>, buffer: f64) -> Rect {
-    let p_min = Vector2::new(p1[0].min(p2[0]) - buffer, p1[1].min(p2[1]) - buffer);
-    let p_max = Vector2::new(p1[0].max(p2[0]) + buffer, p1[1].max(p2[1]) + buffer);
+pub fn bbox_from_corner_points(
+    p1: &Vector2<f64>,
+    p2: &Vector2<f64>,
+    buffer_x: f64,
+    buffer_y: f64,
+) -> Rect {
+    let p_min = Vector2::new(p1[0].min(p2[0]) - buffer_x, p1[1].min(p2[1]) - buffer_y);
+    let p_max = Vector2::new(p1[0].max(p2[0]) + buffer_x, p1[1].max(p2[1]) + buffer_y);
     Rect::new(
         coord! { x: p_min[0], y: p_min[1] },
         coord! { x: p_max[0], y: p_max[1]},
@@ -168,6 +173,69 @@ where
     PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string())
 }
 
+pub fn draw_current_situation(
+    filename: &str,
+    xs_array: &Vec<Vector6<f64>>,
+    tree: &Tree<RRTNode>,
+    enc_hazards: &ENCHazards,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let drawing_area = BitMapBackend::new(filename, (2048, 1440)).into_drawing_area();
+    drawing_area.fill(&WHITE)?;
+    let bbox = enc_hazards.bbox;
+    let buffer = 500.0;
+    let min_x_ = xs_array
+        .iter()
+        .fold(f32::INFINITY, |acc, xs| acc.min(xs[0] as f32))
+        - buffer;
+    let min_y_ = xs_array
+        .iter()
+        .fold(f32::INFINITY, |acc, xs| acc.min(xs[1] as f32))
+        - buffer;
+    let max_x_ = xs_array
+        .iter()
+        .fold(f32::NEG_INFINITY, |acc, xs| acc.max(xs[0] as f32))
+        + buffer;
+    let max_y_ = xs_array
+        .iter()
+        .fold(f32::NEG_INFINITY, |acc, xs| acc.max(xs[1] as f32))
+        + buffer;
+    let mut chart = ChartBuilder::on(&drawing_area)
+        .caption("ENC Hazards vs linestring", ("sans-serif", 40).into_font())
+        .x_label_area_size(75)
+        .y_label_area_size(75)
+        .build_cartesian_2d(
+            min_y_..max_y_,
+            min_x_..max_x_,
+            // bbox.min().y as f32..bbox.max().y as f32,
+            // bbox.min().x as f32..bbox.max().x as f32,
+        )?;
+
+    chart
+        .configure_mesh()
+        .x_labels(10)
+        .y_labels(10)
+        .x_label_formatter(&|x| format!("{:.1}", x))
+        .y_label_formatter(&|x| format!("{:.1}", x))
+        .draw()?;
+
+    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.land, &RED)?;
+    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.shore, &YELLOW)?;
+    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.seabed, &BLUE)?;
+
+    let root_node_id = tree.root_node_id().unwrap();
+    draw_tree_lines(&drawing_area, &mut chart, tree, &root_node_id)?;
+
+    draw_trajectory(&drawing_area, &mut chart, &xs_array, &MAGENTA)?;
+    draw_ownship(
+        &drawing_area,
+        &mut chart,
+        &xs_array.first().unwrap(),
+        &GREEN,
+    )?;
+    draw_ownship(&drawing_area, &mut chart, &xs_array.last().unwrap(), &GREEN)?;
+    Ok(())
+}
+
 pub fn draw_multipolygon(
     drawing_area: &DrawingArea<BitMapBackend, Shift>,
     chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
@@ -188,19 +256,18 @@ pub fn draw_multipolygon(
     Ok(())
 }
 
-pub fn draw_linestring(
+pub fn draw_trajectory(
     drawing_area: &DrawingArea<BitMapBackend, Shift>,
     chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
-    linestring: &LineString<f64>,
+    xs_array: &Vec<Vector6<f64>>,
     color: &RGBColor,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let line_points: Vec<(f32, f32)> = linestring
-        .0
+    let points: Vec<(f32, f32)> = xs_array
         .iter()
-        .map(|p| (p.y as f32, p.x as f32))
+        .map(|xs| (xs[1] as f32, xs[0] as f32))
         .collect();
-    //println!("line_points: {:?}", line_points);
-    chart.draw_series(LineSeries::new(line_points, color))?;
+    //println!("points: {:?}", points);
+    chart.draw_series(LineSeries::new(points, color))?;
     drawing_area.present()?;
     Ok(())
 }
@@ -242,66 +309,18 @@ pub fn draw_ownship(
     Ok(())
 }
 
-pub fn draw_enc_hazards_vs_linestring(
-    filename: &str,
+pub fn draw_enc_hazards_vs_trajectory(
+    drawing_area: &DrawingArea<BitMapBackend, Shift>,
+    chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
     enc_hazards: &ENCHazards,
-    linestring: &LineString<f64>,
     xs_array: &Vec<Vector6<f64>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let drawing_area = BitMapBackend::new(filename, (2048, 1440)).into_drawing_area();
-    drawing_area.fill(&WHITE)?;
-    let bbox = enc_hazards.bbox;
-    let buffer = 500.0;
-    let min_x_ = linestring
-        .0
-        .iter()
-        .fold(f32::INFINITY, |acc, p| acc.min(p.x as f32))
-        - buffer;
-    let min_y_ = linestring
-        .0
-        .iter()
-        .fold(f32::INFINITY, |acc, p| acc.min(p.y as f32))
-        - buffer;
-    let max_x_ = linestring
-        .0
-        .iter()
-        .fold(f32::NEG_INFINITY, |acc, p| acc.max(p.x as f32))
-        + buffer;
-    let max_y_ = linestring
-        .0
-        .iter()
-        .fold(f32::NEG_INFINITY, |acc, p| acc.max(p.y as f32))
-        + buffer;
-    let mut chart = ChartBuilder::on(&drawing_area)
-        .caption("ENC Hazards vs linestring", ("sans-serif", 40).into_font())
-        .x_label_area_size(75)
-        .y_label_area_size(75)
-        .build_cartesian_2d(
-            min_y_..max_y_,
-            min_x_..max_x_,
-            // bbox.min().y as f32..bbox.max().y as f32,
-            // bbox.min().x as f32..bbox.max().x as f32,
-        )?;
-
-    chart
-        .configure_mesh()
-        .x_labels(10)
-        .y_labels(10)
-        .x_label_formatter(&|x| format!("{:.1}", x))
-        .y_label_formatter(&|x| format!("{:.1}", x))
-        .draw()?;
-
-    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.land, &RED)?;
-    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.shore, &YELLOW)?;
-    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.seabed, &BLUE)?;
-    draw_linestring(&drawing_area, &mut chart, &linestring, &MAGENTA)?;
-    draw_ownship(
-        &drawing_area,
-        &mut chart,
-        &xs_array.first().unwrap(),
-        &GREEN,
-    )?;
-    draw_ownship(&drawing_area, &mut chart, &xs_array.last().unwrap(), &GREEN)?;
+    draw_multipolygon(drawing_area, chart, &enc_hazards.land, &RED)?;
+    draw_multipolygon(drawing_area, chart, &enc_hazards.shore, &YELLOW)?;
+    draw_multipolygon(drawing_area, chart, &enc_hazards.seabed, &BLUE)?;
+    draw_trajectory(drawing_area, chart, xs_array, &MAGENTA)?;
+    draw_ownship(drawing_area, chart, &xs_array.first().unwrap(), &GREEN)?;
+    draw_ownship(drawing_area, chart, &xs_array.last().unwrap(), &GREEN)?;
     Ok(())
 }
 
@@ -360,7 +379,7 @@ pub fn draw_tree(
     drawing_area.fill(&WHITE)?;
     let mut bbox = enc_hazards.bbox;
     if enc_hazards.is_empty() {
-        bbox = bbox_from_corner_points(p_start, p_goal, 100.0);
+        bbox = bbox_from_corner_points(p_start, p_goal, 100.0, 100.0);
     }
     // println!("Map bbox: {:?}", bbox);
     let mut chart = ChartBuilder::on(&drawing_area)

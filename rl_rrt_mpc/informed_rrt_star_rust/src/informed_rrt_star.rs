@@ -77,8 +77,8 @@ pub struct RRTParams {
     pub step_size: f64,
     pub max_steering_time: f64,
     pub steering_acceptance_radius: f64,
-    pub max_node_dist: f64, // nearest neighbor radius parameter
-    pub gamma: f64,         // nearest neighbor radius parameter
+    pub max_nn_node_dist: f64, // nearest neighbor max radius parameter
+    pub gamma: f64,            // nearest neighbor radius parameter
 }
 
 impl RRTParams {
@@ -92,7 +92,7 @@ impl RRTParams {
             step_size: 0.2,
             max_steering_time: 20.0,
             steering_acceptance_radius: 5.0,
-            max_node_dist: 400.0,
+            max_nn_node_dist: 400.0,
             gamma: 200.0,
         }
     }
@@ -226,6 +226,7 @@ impl InformedRRTStar {
             state: self.xs_start.clone(),
             time: 0.0,
         });
+        self.num_nodes += 1;
         Ok(())
     }
 
@@ -308,7 +309,7 @@ impl InformedRRTStar {
             if self.is_too_close(&xs_new) {
                 continue;
             }
-
+            println!("Check path from z_ nearest to z_new");
             if self.is_collision_free(&xs_array) {
                 let path_length = utils::compute_path_length(&xs_array);
                 z_new = RRTNode::new(
@@ -317,6 +318,16 @@ impl InformedRRTStar {
                     0.0,
                     z_nearest.time + t_new,
                 );
+
+                utils::draw_current_situation(
+                    "current_situation.png",
+                    &xs_array,
+                    &self.bookkeeping_tree,
+                    &self.enc,
+                )
+                .unwrap();
+                println!("DONE check path from z_ nearest to z_new");
+
                 let Z_near = self.nearest_neighbors(&z_new)?;
                 // println!("z_nearest: {:?}", z_nearest);
                 // println!("Z_near: {:?}", Z_near);
@@ -334,7 +345,7 @@ impl InformedRRTStar {
         let opt_soln = self.extract_best_solution();
         let duration = start.elapsed();
         println!("InformedRRTStar run time: {:?}", duration.as_secs());
-        self.draw_tree(Some(&opt_soln))?;
+        //self.draw_tree(Some(&opt_soln))?;
         Ok(opt_soln.to_object(py))
     }
 }
@@ -419,42 +430,8 @@ impl InformedRRTStar {
             return true;
         }
         let is_collision_free = !self.enc.intersects_with_trajectory(&xs_array);
+        println!("is_collision_free: {}", is_collision_free);
         is_collision_free
-    }
-
-    pub fn is_collision_free_to_children(
-        &mut self,
-        z_new_near: &RRTNode,
-        z_near_id: &NodeId,
-    ) -> bool {
-        if self.enc.is_empty() {
-            return true;
-        }
-        let is_safe = true;
-        let mut children_ids = self
-            .bookkeeping_tree
-            .children_ids(z_near_id)
-            .unwrap()
-            .clone();
-        loop {
-            let child_id = match children_ids.next() {
-                Some(id) => id,
-                None => break,
-            };
-            let z_child = self.bookkeeping_tree.get(&child_id).unwrap().data().clone();
-            // let (xs_array, _, _, t_new, reached) = self
-            //     .steer(
-            //         &z_new_near,
-            //         &z_child,
-            //         self.params.max_steering_time,
-            //         self.params.min_node_dist,
-            //     )
-            //     .unwrap();
-            // if !(self.is_collision_free(&xs_array) && reached) {
-            //     return false;
-            // }
-        }
-        is_safe
     }
 
     pub fn is_too_close(&self, xs_new: &Vector6<f64>) -> bool {
@@ -542,9 +519,10 @@ impl InformedRRTStar {
     }
 
     pub fn rewire(&mut self, z_new: &RRTNode, Z_near: &Vec<RRTNode>) -> PyResult<()> {
+        println!("Rewiring...");
         let z_new_parent_id = self.get_parent_id(&z_new)?;
         for z_near in Z_near.iter() {
-            if z_new_parent_id.eq(&z_near.clone().id.unwrap()) {
+            if z_new_parent_id == z_near.clone().id.unwrap() {
                 continue;
             }
             let (xs_array, _, _, t_new, reached) = self.steer(
@@ -564,6 +542,17 @@ impl InformedRRTStar {
                 );
                 let z_near_id = z_near.clone().id.unwrap();
                 if z_new_near.cost < z_near.cost {
+                    println!("Node {:?} | is new parent to node {:?}", z_new, z_near);
+                    if self.is_collision_free(&xs_array) {
+                        utils::draw_current_situation(
+                            "current_situation.png",
+                            &xs_array,
+                            &self.bookkeeping_tree,
+                            &self.enc,
+                        )
+                        .unwrap();
+                        println!("here");
+                    }
                     self.transfer_node_data(&z_near_id, &z_new_near)?;
 
                     self.move_node(&z_near_id, &z_new.clone().id.unwrap())?;
@@ -579,6 +568,7 @@ impl InformedRRTStar {
                 }
             }
         }
+        println!("Done rewiring");
         Ok(())
     }
 
@@ -617,6 +607,7 @@ impl InformedRRTStar {
         z_nearest: &RRTNode,
         Z_near: &Vec<RRTNode>,
     ) -> PyResult<(RRTNode, RRTNode)> {
+        println!("Choosing parent...");
         let mut z_new_ = z_new.clone(); // Contains the current minimum cost for the new node
         let z_nearest_id = z_nearest.clone().id.unwrap();
         if Z_near.is_empty() {
@@ -624,13 +615,13 @@ impl InformedRRTStar {
         }
         let mut z_parent = Z_near[0].clone();
         for z_near in Z_near {
-            if z_near.id.clone().unwrap().eq(&z_nearest_id) {
+            if z_near.id.clone().unwrap() == z_nearest_id {
                 continue;
             }
             let (xs_array, _, _, t_new, reached) = self.steer(
                 &z_near,
                 &z_new,
-                self.params.max_steering_time,
+                10.0 * self.params.max_steering_time,
                 self.params.steering_acceptance_radius,
             )?;
             let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
@@ -638,11 +629,28 @@ impl InformedRRTStar {
                 let path_length = utils::compute_path_length(&xs_array);
                 let cost = z_near.cost + path_length;
                 if cost < z_new_.cost {
+                    utils::draw_current_situation(
+                        "current_situation.png",
+                        &xs_array,
+                        &self.bookkeeping_tree,
+                        &self.enc,
+                    )
+                    .unwrap();
+                    println!("Node {:?} | is new parent to node {:?}", z_near, z_new);
                     z_new_ = RRTNode::new(xs_new, cost, 0.0, z_near.time + t_new);
                     z_parent = z_near.clone();
                 }
             }
         }
+        utils::draw_current_situation(
+            "current_situation.png",
+            &vec![z_parent.clone().state, z_new_.clone().state],
+            &self.bookkeeping_tree,
+            &self.enc,
+        )
+        .unwrap();
+        println!("Done choosing parent");
+
         Ok((z_new_, z_parent))
     }
 
@@ -682,9 +690,7 @@ impl InformedRRTStar {
         let p_start: Vector2<f64> = self.xs_start.fixed_rows::<2>(0).into();
         let p_goal: Vector2<f64> = self.xs_goal.fixed_rows::<2>(0).into();
         let mut map_bbox = self.enc.bbox.clone();
-        if self.enc.is_empty() {
-            map_bbox = utils::bbox_from_corner_points(&p_start, &p_goal, 100.0);
-        }
+        map_bbox = utils::bbox_from_corner_points(&p_start, &p_goal, 500.0, 5000.0);
         // println!("Map bbox: {:?}", map_bbox);
         loop {
             if self.c_best < f64::INFINITY {
@@ -694,7 +700,7 @@ impl InformedRRTStar {
                 p_rand = utils::sample_from_bbox(&map_bbox, &mut self.rng);
             }
             //println!("Sampled: {:?}", p_rand);
-            if !self.enc.inside_hazards(&p_rand) {
+            if !self.enc.inside_hazards(&p_rand) && self.enc.inside_bbox(&p_rand) {
                 // println!("Sampled outside hazard");
                 return Ok(RRTNode {
                     id: None,
@@ -767,7 +773,7 @@ impl InformedRRTStar {
         let dim = 2;
         let n = self.rtree.size() as f64;
         let ball_radius = self.params.gamma * (n.ln() / n).powf(1.0 / dim as f64);
-        ball_radius.min(self.params.max_node_dist)
+        ball_radius.min(self.params.max_nn_node_dist)
     }
 
     fn extract_best_solution(&self) -> RRTResult {
@@ -909,7 +915,7 @@ mod tests {
             max_steering_time: 20.0,
             steering_acceptance_radius: 5.0,
             gamma: 200.0,
-            max_node_dist: 100.0,
+            max_nn_node_dist: 100.0,
         });
         let z_rand = rrt.sample()?;
         assert_eq!(z_rand.state, Vector6::zeros());
@@ -929,7 +935,7 @@ mod tests {
             max_steering_time: 20.0,
             steering_acceptance_radius: 5.0,
             gamma: 200.0,
-            max_node_dist: 150.0,
+            max_nn_node_dist: 150.0,
         });
 
         let xs_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
@@ -966,22 +972,22 @@ mod tests {
     #[test]
     fn test_grow_towards_goal() -> PyResult<()> {
         let mut rrt = InformedRRTStar::py_new(RRTParams {
-            max_nodes: 1000,
+            max_nodes: 2000,
             max_iter: 10000,
             iter_between_direct_goal_growth: 100,
             min_node_dist: 100.0,
-            goal_radius: 100.0,
+            goal_radius: 600.0,
             step_size: 0.5,
             max_steering_time: 30.0,
             steering_acceptance_radius: 5.0,
             gamma: 1000.0,
-            max_node_dist: 400.0,
+            max_nn_node_dist: 500.0,
         });
 
         let xs_start = [
             6574280.0,
             -31824.0,
-            45.0 * std::f64::consts::PI / 180.0,
+            -45.0 * std::f64::consts::PI / 180.0,
             5.0,
             0.0,
             0.0,

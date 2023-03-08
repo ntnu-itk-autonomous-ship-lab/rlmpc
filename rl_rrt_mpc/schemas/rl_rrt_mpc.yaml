@@ -34,7 +34,7 @@ rrt:
     steering_acceptance_radius:
       required: True
       type: float
-    max_node_dist:
+    max_nn_node_dist:
       required: True
       type: float
     gamma:
