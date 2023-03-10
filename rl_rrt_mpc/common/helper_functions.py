@@ -12,6 +12,8 @@ import seacharts.enc as senc
 import shapely.affinity as affinity
 from shapely.geometry import Polygon
 
+def save_rrt_solution(states: list, times: list) -> None:
+
 
 def plot_rrt_solution(states: list, times: list, enc: senc.ENC) -> None:
     enc.start_display()

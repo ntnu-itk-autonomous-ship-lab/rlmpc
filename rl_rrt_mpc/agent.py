@@ -124,6 +124,7 @@ class RLRRTMPC(ci.ICOLAV):
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=30, color="cyan")
+                hf.save_rrt_solution(states, times)
 
         references = np.zeros((9, 1))
         return references
