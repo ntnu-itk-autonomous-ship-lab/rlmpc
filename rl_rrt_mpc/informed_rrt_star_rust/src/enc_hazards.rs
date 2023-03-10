@@ -166,10 +166,10 @@ impl ENCHazards {
         let intersect_w_land = linestring.intersects(&self.land);
         let intersect_w_shore = linestring.intersects(&self.shore);
         let intersect_w_seabed = linestring.intersects(&self.seabed);
-        println!(
-            "Linestring intersect with land: {}, shore: {}, seabed: {}",
-            intersect_w_land, intersect_w_shore, intersect_w_seabed
-        );
+        // println!(
+        //     "Linestring intersect with land: {}, shore: {}, seabed: {}",
+        //     intersect_w_land, intersect_w_shore, intersect_w_seabed
+        // );
         intersect_w_land || intersect_w_shore || intersect_w_seabed
     }
 

@@ -309,7 +309,6 @@ impl InformedRRTStar {
             if self.is_too_close(&xs_new) {
                 continue;
             }
-            println!("Check path from z_ nearest to z_new");
             if self.is_collision_free(&xs_array) {
                 let path_length = utils::compute_path_length(&xs_array);
                 z_new = RRTNode::new(
@@ -319,26 +318,11 @@ impl InformedRRTStar {
                     z_nearest.time + t_new,
                 );
 
-                utils::draw_current_situation(
-                    "current_situation.png",
-                    &xs_array,
-                    &self.bookkeeping_tree,
-                    &self.enc,
-                )
-                .unwrap();
-                println!("DONE check path from z_ nearest to z_new");
-
                 let Z_near = self.nearest_neighbors(&z_new)?;
-                // println!("z_nearest: {:?}", z_nearest);
-                // println!("Z_near: {:?}", Z_near);
-                // println!("z_new: {:?}", z_new);
                 let (z_new_, z_parent) = self.choose_parent(&z_new, &z_nearest, &Z_near)?;
                 z_new = z_new_;
-                //println!("z_new_: {:?} \nz_parent: {:?}", z_new, z_parent);
                 z_new = self.insert(&z_new, &z_parent)?;
-                //self.draw_tree(None)?;
                 self.rewire(&z_new, &Z_near)?;
-                //self.draw_tree(None)?;
             }
             num_iter += 1;
         }
@@ -400,7 +384,6 @@ impl InformedRRTStar {
         let soln = self.extract_solution(&z_goal_)?;
         self.solutions.push(soln.clone());
         self.c_best = self.c_best.min(soln.cost);
-        // self.draw_tree(Some(&soln))?;
         println!("Solution found! Cost: {}", soln.cost);
         Ok(())
     }
@@ -430,7 +413,6 @@ impl InformedRRTStar {
             return true;
         }
         let is_collision_free = !self.enc.intersects_with_trajectory(&xs_array);
-        println!("is_collision_free: {}", is_collision_free);
         is_collision_free
     }
 
@@ -519,7 +501,6 @@ impl InformedRRTStar {
     }
 
     pub fn rewire(&mut self, z_new: &RRTNode, Z_near: &Vec<RRTNode>) -> PyResult<()> {
-        println!("Rewiring...");
         let z_new_parent_id = self.get_parent_id(&z_new)?;
         for z_near in Z_near.iter() {
             if z_new_parent_id == z_near.clone().id.unwrap() {
@@ -542,17 +523,6 @@ impl InformedRRTStar {
                 );
                 let z_near_id = z_near.clone().id.unwrap();
                 if z_new_near.cost < z_near.cost {
-                    println!("Node {:?} | is new parent to node {:?}", z_new, z_near);
-                    if self.is_collision_free(&xs_array) {
-                        utils::draw_current_situation(
-                            "current_situation.png",
-                            &xs_array,
-                            &self.bookkeeping_tree,
-                            &self.enc,
-                        )
-                        .unwrap();
-                        println!("here");
-                    }
                     self.transfer_node_data(&z_near_id, &z_new_near)?;
 
                     self.move_node(&z_near_id, &z_new.clone().id.unwrap())?;
@@ -568,7 +538,6 @@ impl InformedRRTStar {
                 }
             }
         }
-        println!("Done rewiring");
         Ok(())
     }
 
@@ -607,13 +576,12 @@ impl InformedRRTStar {
         z_nearest: &RRTNode,
         Z_near: &Vec<RRTNode>,
     ) -> PyResult<(RRTNode, RRTNode)> {
-        println!("Choosing parent...");
         let mut z_new_ = z_new.clone(); // Contains the current minimum cost for the new node
         let z_nearest_id = z_nearest.clone().id.unwrap();
+        let mut z_parent = z_nearest.clone();
         if Z_near.is_empty() {
-            return Ok((z_new_, z_nearest.clone()));
+            return Ok((z_new_, z_parent));
         }
-        let mut z_parent = Z_near[0].clone();
         for z_near in Z_near {
             if z_near.id.clone().unwrap() == z_nearest_id {
                 continue;
@@ -629,28 +597,11 @@ impl InformedRRTStar {
                 let path_length = utils::compute_path_length(&xs_array);
                 let cost = z_near.cost + path_length;
                 if cost < z_new_.cost {
-                    utils::draw_current_situation(
-                        "current_situation.png",
-                        &xs_array,
-                        &self.bookkeeping_tree,
-                        &self.enc,
-                    )
-                    .unwrap();
-                    println!("Node {:?} | is new parent to node {:?}", z_near, z_new);
                     z_new_ = RRTNode::new(xs_new, cost, 0.0, z_near.time + t_new);
                     z_parent = z_near.clone();
                 }
             }
         }
-        utils::draw_current_situation(
-            "current_situation.png",
-            &vec![z_parent.clone().state, z_new_.clone().state],
-            &self.bookkeeping_tree,
-            &self.enc,
-        )
-        .unwrap();
-        println!("Done choosing parent");
-
         Ok((z_new_, z_parent))
     }
 
