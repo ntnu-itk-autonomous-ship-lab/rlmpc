@@ -9,7 +9,9 @@
 from dataclasses import dataclass
 from typing import Optional
 
+import casadi as csd
 import numpy as np
+from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 
 
 @dataclass
@@ -40,6 +42,8 @@ class MPCParams:
 class MPC:
     def __init__(self, config: Optional[MPCParams] = MPCParams()) -> None:
         self._params = config
+        self._ocp_options: AcadosOcpOptions = AcadosOcpOptions()
+        self._model: AcadosModel = models.ShipModel().to_acados()
 
     def plan(self, t: float, x: np.ndarray, x_ref: np.ndarray) -> np.ndarray:
         pass

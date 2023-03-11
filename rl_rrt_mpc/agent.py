@@ -126,6 +126,8 @@ class RLRRTMPC(ci.ICOLAV):
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=30, color="cyan")
                 hf.save_rrt_solution(states, times)
 
+        # self._mpc.plan(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, **kwargs)
+
         references = np.zeros((9, 1))
         return references
 
