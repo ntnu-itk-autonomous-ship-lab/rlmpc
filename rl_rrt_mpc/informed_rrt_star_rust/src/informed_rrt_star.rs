@@ -122,16 +122,20 @@ impl RRTParams {
 #[derive(Debug, Clone, FromPyObject, Serialize, Deserialize)]
 pub struct RRTResult {
     pub states: Vec<[f64; 6]>,
+    pub references: Vec<(f64, f64)>,
+    pub inputs: Vec<[f64; 3]>,
     pub times: Vec<f64>,
     pub cost: f64,
 }
 
 impl RRTResult {
-    pub fn new(solution: (Vec<[f64; 6]>, Vec<f64>, f64)) -> Self {
+    pub fn new(solution: (Vec<[f64; 6]>, Vec<(f64, f64)>, Vec<[f64; 3]>, Vec<f64>, f64)) -> Self {
         Self {
             states: solution.0,
-            times: solution.1,
-            cost: solution.2,
+            references: solution.1,
+            inputs: solution.2,
+            times: solution.3,
+            cost: solution.4,
         }
     }
 }
@@ -142,6 +146,14 @@ impl ToPyObject for RRTResult {
         for state in &self.states {
             states.append(state.to_object(py)).unwrap();
         }
+        let references = PyList::empty(py);
+        for reference in &self.references {
+            references.append(reference.to_object(py)).unwrap();
+        }
+        let inputs = PyList::empty(py);
+        for input in &self.inputs {
+            inputs.append(input.to_object(py)).unwrap();
+        }
         let times = PyList::empty(py);
         for time in &self.times {
             times.append(time.to_object(py)).unwrap();
@@ -151,6 +163,12 @@ impl ToPyObject for RRTResult {
         result_dict
             .set_item("states", states)
             .expect("Solution states should be set");
+        result_dict
+            .set_item("references", references)
+            .expect("Solution references should be set");
+        result_dict
+            .set_item("inputs", inputs)
+            .expect("Solution inputs should be set");
         result_dict
             .set_item("times", times)
             .expect("Solution times should be set");
@@ -354,7 +372,10 @@ impl InformedRRTStar {
         node_dict.set_item("time", node_data.time)?;
         node_dict.set_item("id", node_id_int.clone())?;
         node_dict.set_item("parent_id", parent_id_int.clone())?;
-        // println!("Node ID: {} | Parent ID: {}", node_id_int, parent_id_int);
+        println!(
+            "Node ID: {} | Parent ID: {} | cost: {}",
+            node_id_int, parent_id_int, node_data.cost
+        );
 
         *total_num_nodes += 1;
         list.append(node_dict)?;
@@ -405,7 +426,7 @@ impl InformedRRTStar {
         times.push(z_current.data().time);
         states.reverse();
         times.reverse();
-        Ok(RRTResult::new((states, times, cost)))
+        Ok(RRTResult::new((states, vec![], vec![], times, cost)))
     }
 
     pub fn is_collision_free(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
@@ -454,8 +475,12 @@ impl InformedRRTStar {
         max_steering_time: f64,
     ) -> PyResult<bool> {
         let mut z_goal_ = RRTNode::new(self.xs_goal.clone(), 0.0, 0.0, 0.0);
-        let (xs_array, _, _, t_new, reached) =
-            self.steer(&z, &z_goal_, max_steering_time, self.params.min_node_dist)?;
+        let (xs_array, _, _, t_new, reached) = self.steer(
+            &z,
+            &z_goal_,
+            max_steering_time,
+            self.params.steering_acceptance_radius,
+        )?;
         let x_new: Vector6<f64> = xs_array.last().copied().unwrap();
 
         if !(self.is_collision_free(&xs_array) && reached) {
@@ -636,6 +661,45 @@ impl InformedRRTStar {
         Ok((xs_array, u_array, refs_array, t_new, reached))
     }
 
+    pub fn steer_through_solution(&self, soln: &RRTResult) -> RRTResult {
+        let mut xs_array: Vec<[f64; 6]> = Vec::new();
+        let mut u_array: Vec<[f64; 3]> = Vec::new();
+        let mut refs_array: Vec<(f64, f64)> = Vec::new();
+        let mut times: Vec<f64> = vec![0.0];
+        for (xs, xs_next) in soln.states.iter().zip(soln.states.iter().skip(1)) {
+            let (xs_array_, u_array_, refs_array_, t_new_, reached) = self.steering.steer(
+                &xs.clone().into(),
+                &xs_next.clone().into(),
+                self.U_d,
+                self.params.steering_acceptance_radius,
+                self.params.step_size,
+                10.0 * 60.0 * self.params.max_steering_time,
+            );
+            assert_eq!(reached, true);
+            xs_array.extend(
+                xs_array_
+                    .iter()
+                    .map(|x| [x[0], x[1], x[2], x[3], x[4], x[5]])
+                    .collect::<Vec<[f64; 6]>>(),
+            );
+            u_array.extend(
+                u_array_
+                    .iter()
+                    .map(|u| [u[0], u[1], u[2]])
+                    .collect::<Vec<[f64; 3]>>(),
+            );
+            refs_array.extend(refs_array_);
+            times.push(t_new_);
+        }
+        RRTResult {
+            states: xs_array,
+            inputs: u_array,
+            references: refs_array,
+            times: times,
+            cost: soln.cost,
+        }
+    }
+
     pub fn sample(&mut self) -> PyResult<RRTNode> {
         let mut p_rand = Vector2::zeros();
         let p_start: Vector2<f64> = self.xs_start.fixed_rows::<2>(0).into();
@@ -728,8 +792,8 @@ impl InformedRRTStar {
     }
 
     fn extract_best_solution(&self) -> RRTResult {
-        self.solutions.iter().fold(
-            RRTResult::new((vec![], vec![], std::f64::INFINITY)),
+        let opt_soln = self.solutions.iter().fold(
+            RRTResult::new((vec![], vec![], vec![], std::f64::INFINITY)),
             |acc, x| {
                 if x.cost < acc.cost {
                     x.clone()
@@ -737,7 +801,8 @@ impl InformedRRTStar {
                     acc
                 }
             },
-        )
+        );
+        self.steer_through_solution(&opt_soln)
     }
 
     fn get_root_node(&self) -> RRTNode {

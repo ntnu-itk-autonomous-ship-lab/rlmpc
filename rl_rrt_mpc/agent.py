@@ -133,6 +133,3 @@ class RLRRTMPC(ci.ICOLAV):
 
     def get_current_plan(self) -> np.ndarray:
         return self._references
-
-
-# hazard.geoms[i].exterior.

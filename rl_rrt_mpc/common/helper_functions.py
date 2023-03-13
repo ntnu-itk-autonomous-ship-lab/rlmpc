@@ -6,13 +6,26 @@
 
     Author: Trym Tengesdal
 """
+from pathlib import Path
 from typing import Optional, Tuple
 
+import rl_rrt_mpc.common.file_utils as fu
+import rl_rrt_mpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
+import yaml
 from shapely.geometry import Polygon
 
-def save_rrt_solution(states: list, times: list) -> None:
+
+def load_rrt_solution(save_file: Path = dp.rrt_solution) -> dict:
+    return fu.read_yaml_into_dict(save_file)
+
+
+def save_rrt_solution(states: list, times: list, save_file: Path = dp.rrt_solution) -> None:
+    output_dict = {"states": states, "times": times}
+    save_file.touch(exist_ok=True)
+    with save_file.open(mode="w") as file:
+        yaml.dump(output_dict, file)
 
 
 def plot_rrt_solution(states: list, times: list, enc: senc.ENC) -> None:
