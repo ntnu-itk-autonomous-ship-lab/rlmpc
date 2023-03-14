@@ -16,6 +16,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde::{Deserialize, Serialize};
+use std::fs::File;
 use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -138,25 +139,46 @@ impl RRTResult {
             cost: solution.4,
         }
     }
+
+    pub fn save_to_json(&self) -> PyResult<()> {
+        let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        serde_json::to_writer_pretty(
+            &File::create(rust_root.join("data/rrt_result.json"))?,
+            &self,
+        )
+        .unwrap();
+        Ok(())
+    }
+
+    pub fn load_from_json(&mut self) -> PyResult<()> {
+        let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let solution_file = File::open(rust_root.join("data/rrt_result.json")).unwrap();
+        let result: RRTResult = serde_json::from_reader(solution_file).unwrap();
+        self.states = result.states;
+        self.references = result.references;
+        self.inputs = result.inputs;
+        self.times = result.times;
+        self.cost = result.cost;
+        Ok(())
+    }
 }
 
 impl ToPyObject for RRTResult {
     fn to_object(&self, py: Python) -> PyObject {
         let states = PyList::empty(py);
-        for state in &self.states {
-            states.append(state.to_object(py)).unwrap();
-        }
         let references = PyList::empty(py);
-        for reference in &self.references {
-            references.append(reference.to_object(py)).unwrap();
-        }
         let inputs = PyList::empty(py);
-        for input in &self.inputs {
-            inputs.append(input.to_object(py)).unwrap();
-        }
         let times = PyList::empty(py);
-        for time in &self.times {
-            times.append(time.to_object(py)).unwrap();
+        let n_wps = self.states.len();
+        for i in 0..n_wps {
+            // Only the starting root state should have a time of 0.0
+            if i > 0 && self.times[i] < 0.0001 {
+                continue;
+            }
+            states.append(self.states[i].to_object(py)).unwrap();
+            references.append(self.references[i].to_object(py)).unwrap();
+            inputs.append(self.inputs[i].to_object(py)).unwrap();
+            times.append(self.times[i].to_object(py)).unwrap();
         }
         let cost = self.cost.to_object(py);
         let result_dict = PyDict::new(py);
@@ -344,7 +366,7 @@ impl InformedRRTStar {
             }
             num_iter += 1;
         }
-        let opt_soln = self.extract_best_solution();
+        let opt_soln = self.extract_best_solution()?;
         let duration = start.elapsed();
         println!("InformedRRTStar run time: {:?}", duration.as_secs());
         //self.draw_tree(Some(&opt_soln))?;
@@ -372,10 +394,10 @@ impl InformedRRTStar {
         node_dict.set_item("time", node_data.time)?;
         node_dict.set_item("id", node_id_int.clone())?;
         node_dict.set_item("parent_id", parent_id_int.clone())?;
-        println!(
-            "Node ID: {} | Parent ID: {} | cost: {}",
-            node_id_int, parent_id_int, node_data.cost
-        );
+        // println!(
+        //     "Node ID: {} | Parent ID: {} | cost: {}",
+        //     node_id_int, parent_id_int, node_data.cost
+        // );
 
         *total_num_nodes += 1;
         list.append(node_dict)?;
@@ -427,6 +449,32 @@ impl InformedRRTStar {
         states.reverse();
         times.reverse();
         Ok(RRTResult::new((states, vec![], vec![], times, cost)))
+    }
+
+    // Prune state nodes from the solution to make the trajectory smoother and more optimal wrt distance
+    fn optimize_solution(&self, soln: &mut RRTResult) -> PyResult<()> {
+        soln.save_to_json()?;
+        let mut states: Vec<[f64; 6]> = vec![soln.states.last().unwrap().clone()];
+        let mut idx: usize = soln.states.len() - 1;
+        while idx > 0 {
+            for j in 0..idx {
+                let xs_array = vec![
+                    soln.states[j].clone().into(),
+                    soln.states[idx].clone().into(),
+                ];
+                let is_collision_free = self.is_collision_free(&xs_array);
+                if is_collision_free {
+                    states.push(soln.states[j].clone());
+                    idx = j;
+                    break;
+                }
+            }
+        }
+        if states.len() > 1 {
+            states.reverse();
+            soln.states = states;
+        }
+        Ok(())
     }
 
     pub fn is_collision_free(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
@@ -643,7 +691,7 @@ impl InformedRRTStar {
         f64,
         bool,
     )> {
-        let (xs_array, u_array, refs_array, t_new, reached) = self.steering.steer(
+        let (xs_array, u_array, refs_array, t_array, reached) = self.steering.steer(
             &z_nearest.state,
             &z_rand.state,
             self.U_d,
@@ -658,17 +706,31 @@ impl InformedRRTStar {
         //     &xs_array,
         //     acceptance_radius,
         // )?;
-        Ok((xs_array, u_array, refs_array, t_new, reached))
+        Ok((
+            xs_array,
+            u_array,
+            refs_array,
+            t_array.last().unwrap().clone(),
+            reached,
+        ))
     }
 
-    pub fn steer_through_solution(&self, soln: &RRTResult) -> RRTResult {
+    pub fn steer_through_solution(&mut self, soln: &RRTResult) -> PyResult<RRTResult> {
         let mut xs_array: Vec<[f64; 6]> = Vec::new();
         let mut u_array: Vec<[f64; 3]> = Vec::new();
         let mut refs_array: Vec<(f64, f64)> = Vec::new();
-        let mut times: Vec<f64> = vec![0.0];
-        for (xs, xs_next) in soln.states.iter().zip(soln.states.iter().skip(1)) {
-            let (xs_array_, u_array_, refs_array_, t_new_, reached) = self.steering.steer(
-                &xs.clone().into(),
+        let mut t_array: Vec<f64> = Vec::new();
+        let mut xs_start = soln.states[0].clone();
+        for xs_next in soln.states.iter().skip(1) {
+            if xs_start == *xs_next {
+                continue;
+            }
+            if xs_array.len() > 0 {
+                xs_start = xs_array.last().unwrap().clone();
+            }
+
+            let (xs_array_, u_array_, refs_array_, t_array_, reached) = self.steering.steer(
+                &xs_start.into(),
                 &xs_next.clone().into(),
                 self.U_d,
                 self.params.steering_acceptance_radius,
@@ -689,15 +751,32 @@ impl InformedRRTStar {
                     .collect::<Vec<[f64; 3]>>(),
             );
             refs_array.extend(refs_array_);
-            times.push(t_new_);
+            t_array.extend(
+                t_array_
+                    .iter()
+                    .map(|t| {
+                        if t_array.len() > 0 {
+                            t + t_array.last().unwrap().clone()
+                        } else {
+                            *t
+                        }
+                    })
+                    .collect::<Vec<f64>>(),
+            );
         }
-        RRTResult {
+        let new_cost = utils::compute_path_length(
+            &xs_array
+                .iter()
+                .map(|x| Vector6::from(*x))
+                .collect::<Vec<Vector6<f64>>>(),
+        );
+        Ok(RRTResult {
             states: xs_array,
             inputs: u_array,
             references: refs_array,
-            times: times,
-            cost: soln.cost,
-        }
+            times: t_array,
+            cost: new_cost,
+        })
     }
 
     pub fn sample(&mut self) -> PyResult<RRTNode> {
@@ -791,9 +870,9 @@ impl InformedRRTStar {
         ball_radius.min(self.params.max_nn_node_dist)
     }
 
-    fn extract_best_solution(&self) -> RRTResult {
-        let opt_soln = self.solutions.iter().fold(
-            RRTResult::new((vec![], vec![], vec![], std::f64::INFINITY)),
+    fn extract_best_solution(&mut self) -> PyResult<RRTResult> {
+        let mut opt_soln = self.solutions.iter().fold(
+            RRTResult::new((vec![], vec![], vec![], vec![], std::f64::INFINITY)),
             |acc, x| {
                 if x.cost < acc.cost {
                     x.clone()
@@ -802,6 +881,7 @@ impl InformedRRTStar {
                 }
             },
         );
+        self.optimize_solution(&mut opt_soln)?;
         self.steer_through_solution(&opt_soln)
     }
 
@@ -850,73 +930,6 @@ mod tests {
 
         let nearest = tree.nearest_neighbor(&[1.0, 0.0]).unwrap();
         assert_eq!(nearest.state, Vector6::zeros());
-    }
-
-    #[test]
-    fn test_bookkeeping_tree() {
-        let mut tree = Tree::new();
-        tree.insert(
-            Node::new(RRTNode {
-                id: None,
-                cost: 0.0,
-                d2land: 0.0,
-                state: Vector6::zeros(),
-                time: 0.0,
-            }),
-            AsRoot,
-        )
-        .unwrap();
-
-        let root_id = tree.root_node_id().unwrap().clone();
-
-        tree.get_mut(&root_id)
-            .unwrap()
-            .data_mut()
-            .set_id(root_id.clone());
-
-        println!("Tree root id: {:?}", root_id);
-
-        let child1_id = tree
-            .insert(
-                Node::new(RRTNode {
-                    id: None,
-                    cost: 2.0,
-                    d2land: 40.0,
-                    state: Vector6::new(50.0, 50.0, 0.0, 0.0, 0.0, 0.0),
-                    time: 20.0,
-                }),
-                UnderNode(&root_id),
-            )
-            .unwrap();
-
-        let child1_child1_id = tree
-            .insert(
-                Node::new(RRTNode {
-                    id: None,
-                    cost: 2.0,
-                    d2land: 40.0,
-                    state: Vector6::new(1000.0, 50.0, 0.0, 0.0, 0.0, 0.0),
-                    time: 40.0,
-                }),
-                UnderNode(&child1_id),
-            )
-            .unwrap();
-
-        tree.get_mut(&child1_id)
-            .unwrap()
-            .data_mut()
-            .set_id(child1_id.clone());
-        tree.get_mut(&child1_child1_id)
-            .unwrap()
-            .data_mut()
-            .set_id(child1_child1_id.clone());
-
-        println!("Root child id: {:?}", child1_id);
-        println!("Root child of child1 id: {:?}", child1_child1_id);
-
-        let mut s = String::new();
-        tree.write_formatted(&mut s).unwrap();
-        println!("Tree: {}", s);
     }
 
     #[test]
@@ -986,18 +999,51 @@ mod tests {
     }
 
     #[test]
-    fn test_grow_towards_goal() -> PyResult<()> {
+    fn test_optimize_solution() -> PyResult<()> {
         let mut rrt = InformedRRTStar::py_new(RRTParams {
-            max_nodes: 2000,
+            max_nodes: 1700,
             max_iter: 10000,
             iter_between_direct_goal_growth: 100,
-            min_node_dist: 100.0,
+            min_node_dist: 30.0,
             goal_radius: 600.0,
             step_size: 0.5,
-            max_steering_time: 30.0,
+            max_steering_time: 25.0,
             steering_acceptance_radius: 5.0,
-            gamma: 1000.0,
-            max_nn_node_dist: 500.0,
+            gamma: 1200.0,
+            max_nn_node_dist: 200.0,
+        });
+        let mut soln = RRTResult {
+            states: vec![],
+            references: vec![],
+            inputs: vec![],
+            times: vec![],
+            cost: 0.0,
+        };
+        rrt.enc.load_hazards_from_json()?;
+        soln.load_from_json()?;
+        println!("soln length: {}", soln.states.len());
+        rrt.optimize_solution(&mut soln)?;
+        println!("optimized soln length: {}", soln.states.len());
+        soln = rrt.steer_through_solution(&soln)?;
+        Python::with_gil(|py| -> PyResult<()> {
+            let soln_py = soln.to_object(py);
+            Ok(())
+        })?;
+        Ok(())
+    }
+    #[test]
+    fn test_grow_towards_goal() -> PyResult<()> {
+        let mut rrt = InformedRRTStar::py_new(RRTParams {
+            max_nodes: 1700,
+            max_iter: 10000,
+            iter_between_direct_goal_growth: 100,
+            min_node_dist: 30.0,
+            goal_radius: 600.0,
+            step_size: 0.5,
+            max_steering_time: 25.0,
+            steering_acceptance_radius: 5.0,
+            gamma: 1200.0,
+            max_nn_node_dist: 200.0,
         });
 
         let xs_start = [

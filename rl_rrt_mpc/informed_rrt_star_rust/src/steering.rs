@@ -21,7 +21,7 @@ pub trait Steering {
         Vec<Vector6<f64>>,
         Vec<Vector3<f64>>,
         Vec<(f64, f64)>,
-        f64,
+        Vec<f64>,
         bool,
     );
 }
@@ -209,10 +209,11 @@ impl Steering for SimpleSteering {
         Vec<Vector6<f64>>,
         Vec<Vector3<f64>>,
         Vec<(f64, f64)>,
-        f64,
+        Vec<f64>,
         bool,
     ) {
         let mut time = 0.0;
+        let mut t_array = vec![];
         let mut xs_array: Vec<Vector6<f64>> = vec![xs_start.clone()];
         let mut u_array: Vec<Vector3<f64>> = vec![];
         let mut refs_array: Vec<(f64, f64)> = vec![];
@@ -233,20 +234,24 @@ impl Steering for SimpleSteering {
             xs_next = self.ship_model.erk4_step(time_step, &xs_next, &tau);
 
             refs_array.push(refs);
-            xs_array.push(xs_next);
             u_array.push(tau);
+            t_array.push(time.clone());
             time += time_step;
 
+            xs_array.push(xs_next);
             // Break if inside final waypoint acceptance radius
             let dist2goal =
                 ((xs_goal[0] - xs_next[0]).powi(2) + (xs_goal[1] - xs_next[1]).powi(2)).sqrt();
             if dist2goal < acceptance_radius {
                 reached_goal = true;
+                refs_array.push(refs);
+                u_array.push(tau);
+                t_array.push(time.clone());
                 break;
             }
         }
         //println!("xs_next: {:?} | time: {:.2}", xs_next, time);
-        (xs_array, u_array, refs_array, time, reached_goal)
+        (xs_array, u_array, refs_array, t_array, reached_goal)
     }
 }
 
@@ -261,12 +266,12 @@ mod tests {
         let xs_start = Vector6::new(0.0, 0.0, consts::PI / 2.0, 5.0, 0.0, 0.0);
         let acceptance_radius = 10.0;
         let xs_goal = Vector6::new(100.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-        let (xs_array, u_array, refs_array, time, _) =
+        let (xs_array, u_array, refs_array, t_array, _) =
             steering.steer(&xs_start, &xs_goal, 5.0, acceptance_radius, 0.2, 70.0);
-        println!("time: {:?}", time);
+        println!("time: {:?}", t_array.last().unwrap().clone());
         assert!(xs_array.len() > 0);
         assert!(u_array.len() > 0);
-        assert!(time > 0.0);
+        assert!(t_array.last().unwrap().clone() > 0.0);
 
         let _ = utils::draw_steering_results(
             &xs_start,

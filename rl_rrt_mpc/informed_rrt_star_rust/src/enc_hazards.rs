@@ -5,7 +5,6 @@
 //!
 //! ## Usage
 //! Relies on transferring ENC data from python to rust using pyo3
-use crate::utils;
 use geo::{
     coord, point, BoundingRect, Contains, EuclideanDistance, HasDimensions, Intersects, LineString,
     MultiPolygon, Polygon, Rect,
@@ -179,10 +178,14 @@ impl ENCHazards {
     }
 
     pub fn intersects_with_trajectory(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
+        let mut step = 1;
+        if xs_array.len() > 100 {
+            step = 2;
+        }
         let traj_linestring = LineString(
             xs_array
                 .iter()
-                .step_by(2)
+                .step_by(step)
                 .map(|x| coord! {x: x[0], y: x[1]})
                 .collect(),
         );

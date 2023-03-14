@@ -122,9 +122,10 @@ class RLRRTMPC(ci.ICOLAV):
                 hf.plot_rrt_tree(tree_list, enc)
                 hf.plot_rrt_solution(states, times, enc)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
+                enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow")
                 enc.draw_polygon(ship_poly, color="pink")
-                enc.draw_circle((goal_state[1], goal_state[0]), radius=30, color="cyan")
-                hf.save_rrt_solution(states, times)
+                enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan")
+                # hf.save_rrt_solution(states, times)
 
         # self._mpc.plan(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, **kwargs)
 
