@@ -18,4 +18,8 @@ mpc:
   dt: 0.5
   Q: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
   R: [1.0, 1.0, 1.0]
-  gamma: 0.5
+  gamma: 0.99
+  solver_options:
+    qp_solver_type: "FULL_CONDENSING_QPOASES"
+    hessian_approx_type: "GAUSS_NEWTON"
+    nlp_solver_type: "SQP"

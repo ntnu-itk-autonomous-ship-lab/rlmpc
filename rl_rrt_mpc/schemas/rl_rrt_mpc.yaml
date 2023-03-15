@@ -68,3 +68,13 @@ mpc:
     gamma:
       required: True
       type: float
+    solver_options:
+      qp_solver_type:
+        required: True
+        type: string
+      hessian_approx_type:
+        required: True
+        type: string
+      nlp_solver_type:
+        required: True
+        type: string

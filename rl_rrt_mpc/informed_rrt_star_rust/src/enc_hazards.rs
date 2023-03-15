@@ -190,13 +190,6 @@ impl ENCHazards {
                 .collect(),
         );
         let intersect = self.intersects_with_linestring(&traj_linestring);
-        // utils::draw_enc_hazards_vs_linestring(
-        //     "enc_vs_linestring.png",
-        //     &self,
-        //     &traj_linestring,
-        //     &xs_array,
-        // )
-        // .unwrap();
         intersect
     }
 

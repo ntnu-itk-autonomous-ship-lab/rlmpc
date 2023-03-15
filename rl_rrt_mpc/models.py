@@ -2,63 +2,58 @@
     models.py
 
     Summary:
-        Contains models used in the MPC formulation, and conversion function to AcadosModel format.
+        Contains (Acados) models used in the MPC formulation.
 
     Author: Trym Tengesdal
 """
 import casadi as csd
+import colav_simulator.core.models as models
+import numpy as np
+import rl_rrt_mpc.common.math_functions as mf
 from acados_template import AcadosModel
 
 
-def export_model(IModel) -> AcadosModel:
+class TelemetronAcados:
+    def __init__(self, params: models.TelemetronParams):
+        self._model = AcadosModel()
+        self._params = params
 
-    model_name = "pendulum_ode"
+    def create_model(self) -> AcadosModel:
 
-    # constants
-    M = 1.0  # mass of the cart [kg] -> now estimated
-    m = 0.1  # mass of the ball [kg]
-    g = 9.81  # gravity constant [m/s^2]
-    l = 0.8  # length of the rod [m]
+        # Input
+        u = csd.SX.sym("u", 3)
+        # Pose [x, y, psi] and its derivative
+        eta = csd.SX.sym("eta", 3)
+        eta_dot = csd.SX.sym("eta_dot", 3)
+        # BODY Velocity [u, v, r] and its derivative
+        nu = csd.SX.sym("nu", 3)
+        nu_dot = csd.SX.sym("nu_dot", 3)
+        # State vector and its derivative
+        x = csd.vertcat(eta, nu)
+        xdot = csd.vertcat(eta_dot, nu_dot)
 
-    # set up states & controls
-    x1 = csd.SX.sym("x1")
-    theta = csd.SX.sym("theta")
-    v1 = csd.SX.sym("v1")
-    dtheta = csd.SX.sym("dtheta")
+        M = self._params.M_rb + self._params.M_a
+        Minv = np.linalg.inv(self._params.M_rb + self._params.M_a)
 
-    x = csd.vertcat(x1, theta, v1, dtheta)
+        C = mf.Cmtrx_casadi(M, nu)
+        D = mf.Dmtrx_casadi(csd.SX(self._params.D_l), csd.SX(self._params.D_q), csd.SX(self._params.D_c), nu)
 
-    F = csd.SX.sym("F")
-    u = csd.vertcat(F)
+        Rpsi = mf.Rpsi_casadi(eta[2])
 
-    # xdot
-    x1_dot = csd.SX.sym("x1_dot")
-    theta_dot = csd.SX.sym("theta_dot")
-    v1_dot = csd.SX.sym("v1_dot")
-    dtheta_dot = csd.SX.sym("dtheta_dot")
+        kinematics = Rpsi @ nu
+        kinetics = Minv * (u - D * nu - C * nu)
 
-    xdot = csd.vertcat(x1_dot, theta_dot, v1_dot, dtheta_dot)
+        f_expl = csd.vertcat(kinematics, kinetics)
+        f_impl = xdot - f_expl
 
-    # dynamics
-    cos_theta = csd.cos(theta)
-    sin_theta = csd.sin(theta)
-    denominator = M + m - m * cos_theta * cos_theta
-    f_expl = csd.vertcat(
-        v1,
-        dtheta,
-        (-m * l * sin_theta * dtheta * dtheta + m * g * cos_theta * sin_theta + F) / denominator,
-        (-m * l * cos_theta * sin_theta * dtheta * dtheta + F * cos_theta + (M + m) * g * sin_theta) / (l * denominator),
-    )
+        self._model.f_impl_expr = f_impl
+        self._model.f_expl_expr = f_expl
+        self._model.x = x
+        self._model.xdot = xdot
+        self._model.u = u
+        self._model.name = "telemetron"
+        return self._model
 
-    f_impl = xdot - f_expl
-
-    model = AcadosModel()
-
-    model.f_impl_expr = f_impl
-    model.f_expl_expr = f_expl
-    model.x = x
-    model.xdot = xdot
-    model.u = u
-    model.name = model_name
-
-    return model
+    @property
+    def model(self):
+        return self._model

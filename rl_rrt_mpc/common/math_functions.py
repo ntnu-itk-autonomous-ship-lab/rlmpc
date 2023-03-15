@@ -9,6 +9,7 @@
 import math
 from typing import Tuple
 
+import casadi as csd
 import numpy as np
 
 
@@ -216,7 +217,7 @@ def Rzyx(phi, theta, psi):
     return R
 
 
-def Rpsi(psi):
+def Rpsi(psi) -> np.ndarray:
     """
     R = Rpsi(psi) computes the 3x3 rotation matrix of an angle psi about the z-axis
     """
@@ -224,12 +225,82 @@ def Rpsi(psi):
     return Rmtrx
 
 
-def Rpsi2D(psi):
+def Rpsi_casadi(psi: float) -> csd.SX:
+    """Same as Rpsi but for casadi."""
+    return csd.SX([[csd.cos(psi), -csd.sin(psi), 0], [csd.sin(psi), csd.cos(psi), 0], [0, 0, 1]])
+
+
+def Rpsi2D(psi: float) -> np.ndarray:
     """
     R = Rpsi2D(psi) computes the 2D rotation matrix.
     Rmtrx = np.array([[np.cos(psi), np.sin(psi), 0], [-np.sin(psi), np.cos(psi), 0], [0, 0, 1]])
     """
     return np.array([[np.cos(psi), -np.sin(psi)], [np.sin(psi), np.cos(psi)]])
+
+
+def Rpsi2D_casadi(psi: float) -> csd.SX:
+    """Same as Rpsi2D but for casadi."""
+    return csd.MX([[csd.cos(psi), -csd.sin(psi)], [csd.sin(psi), csd.cos(psi)]])
+
+
+def Cmtrx(Mmtrx: np.ndarray, nu: np.ndarray) -> np.ndarray:
+    """Calculates coriolis matrix C(v)
+
+    Assumes decoupled surge and sway-yaw dynamics.
+    See eq. (7.12) - (7.15) in Fossen2011
+
+    Args:
+        Mmtrx (np.ndarray): Mass matrix.
+        nu (np.ndarray): Body-frame velocity nu = [u, v, r]^T
+
+    Returns:
+        np.ndarray: Coriolis matrix C(v)
+    """
+    c13 = -(Mmtrx[1, 1] * nu[1] + Mmtrx[1, 2] * nu[2])
+    c23 = Mmtrx[0, 0] * nu[0]
+
+    return np.array([[0, 0, c13], [0, 0, c23], [-c13, -c23, 0]])
+
+
+def Cmtrx_casadi(Mmtrx: csd.SX, nu: csd.SX) -> csd.SX:
+    """Same as Cmtrx but for casadi"""
+    c13 = -(Mmtrx[1, 1] * nu[1] + Mmtrx[1, 2] * nu[2])
+    c23 = Mmtrx[0, 0] * nu[0]
+    return csd.SX([[0, 0, c13], [0, 0, c23], [-c13, -c23, 0]])
+
+
+def Dmtrx(D_l: np.ndarray, D_q: np.ndarray, D_c: np.ndarray, nu: np.ndarray) -> np.ndarray:
+    """Calculates damping matrix D
+
+    Assumes decoupled surge and sway-yaw dynamics.
+    See eq. (7.24) in Fossen2011+
+
+    Args:
+        D_l (np.ndarray): Linear damping matrix.
+        D_q (np.ndarray): Quadratic damping matrix.
+        D_c (np.ndarray): Cubic damping matrix.
+        nu (np.ndarray): Body-frame velocity nu = [u, v, r]^T
+
+    Returns:
+        np.ndarray: Damping matrix D = D_l + D_q(nu) + D_c(nu)
+    """
+    return D_l + D_q * np.abs(nu) + D_c * (nu * nu)
+
+
+def Dmtrx_casadi(D_l: csd.SX, D_q: csd.SX, D_c: csd.SX, nu: csd.SX) -> csd.SX:
+    """Same as Dmtrx but for casadi"""
+    return D_l + D_q * csd.fabs(nu) + D_c * (nu * nu)
+
+
+def Smtrx(a: np.ndarray) -> np.ndarray:
+    """
+    S = Smtrx(a) computes the 3x3 vector skew-symmetric matrix S(a) = -S(a)'.
+    The cross product satisfies: a x b = S(a)b.
+    """
+
+    S = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
+
+    return S
 
 
 def compute_angle_between_vectors(vector1, vector2):
