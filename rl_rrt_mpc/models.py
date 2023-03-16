@@ -35,13 +35,13 @@ class TelemetronAcados:
         M = self._params.M_rb + self._params.M_a
         Minv = np.linalg.inv(self._params.M_rb + self._params.M_a)
 
-        C = mf.Cmtrx_casadi(M, nu)
+        C = mf.Cmtrx_casadi(csd.SX(M), nu)
         D = mf.Dmtrx_casadi(csd.SX(self._params.D_l), csd.SX(self._params.D_q), csd.SX(self._params.D_c), nu)
 
         Rpsi = mf.Rpsi_casadi(eta[2])
 
         kinematics = Rpsi @ nu
-        kinetics = Minv * (u - D * nu - C * nu)
+        kinetics = Minv @ (-C @ nu - D @ nu + u)
 
         f_expl = csd.vertcat(kinematics, kinetics)
         f_impl = xdot - f_expl

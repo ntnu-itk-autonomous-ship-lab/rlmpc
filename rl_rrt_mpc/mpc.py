@@ -6,13 +6,35 @@
 
     Author: Trym Tengesdal
 """
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 import casadi as csd
 import numpy as np
+import rl_rrt_mpc.common.config_parsing as cp
 import scipy
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions, AcadosOcpSolver, AcadosSimSolver
+
+
+@dataclass
+class OCPSolverOptions:
+    nlp_solver_type: str = "SQP"
+    qp_solver_type: str = "FULL_CONDENSING_QPOASES"
+    hessian_approx_type: str = "GAUSS_NEWTON"
+    globalization: str = "MERIT_BACKTRACKING"
+    nlp_solver_max_iter: int = 100
+    nlp_solver_tol_stat: float = 1e-6
+    qp_solver_iter_max: int = 100
+    qp_solver_warm_start: int = 0
+    levenberg_marquardt: float = 0.0
+    print_level: int = 3
+
+    @classmethod
+    def from_dict(cls, config_dict: dict):
+        return OCPSolverOptions(**config_dict)
+
+    def to_dict(self):
+        return asdict(self)
 
 
 @dataclass
@@ -22,12 +44,28 @@ class MPCParams:
     Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
     R: np.ndarray = np.diag([1.0, 1.0, 1.0])
     gamma: float = 0.0
+    solver_options: AcadosOcpOptions = AcadosOcpOptions()
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        config = MPCParams(T=config_dict["T"], dt=config_dict["dt"], Q=np.zeros(9), R=np.zeros(9), gamma=config_dict["gamma"])
-        config.Q = np.diag(config_dict["Q"])
-        config.R = np.diag(config_dict["R"])
+        config = MPCParams(
+            T=config_dict["T"],
+            dt=config_dict["dt"],
+            Q=np.diag(config_dict["Q"]),
+            R=np.diag(config_dict["R"]),
+            gamma=config_dict["gamma"],
+            solver_options=AcadosOcpOptions(),
+        )
+        config.solver_options.nlp_solver_type = config_dict["solver_options"]["nlp_solver_type"]
+        config.solver_options.qp_solver_type = config_dict["solver_options"]["qp_solver_type"]
+        config.solver_options.hessian_approx_type = config_dict["solver_options"]["hessian_approx_type"]
+        config.solver_options.globalization = config_dict["solver_options"]["globalization"]
+        config.solver_options.nlp_solver_max_iter = config_dict["solver_options"]["nlp_solver_max_iter"]
+        config.solver_options.nlp_solver_tol_stat = config_dict["solver_options"]["nlp_solver_tol_stat"]
+        config.solver_options.qp_solver_iter_max = config_dict["solver_options"]["qp_solver_iter_max"]
+        config.solver_options.qp_solver_warm_start = config_dict["solver_options"]["qp_solver_warm_start"]
+        config.solver_options.levenberg_marquardt = config_dict["solver_options"]["levenberg_marquardt"]
+        config.solver_options.print_level = config_dict["solver_options"]["print_level"]
         return config
 
     def to_dict(self):
@@ -41,13 +79,32 @@ class MPCParams:
 
 
 class MPC:
-    def __init__(self, config: Optional[MPCParams] = MPCParams()) -> None:
-        self._params = config
+    def __init__(self, params: Optional[MPCParams] = MPCParams()) -> None:
+        self._params = params
         self._ocp_options: AcadosOcpOptions = AcadosOcpOptions()
+        self._ocp: AcadosOcp = AcadosOcp()
+        self._setup_ocp_solver_options()
         # self._model: AcadosModel = models.ShipModel().to_acados()
 
-    def _create_ocp(self) -> AcadosOcp:
-        self.ocp = AcadosOcp()
+    def _setup_ocp_solver_options(self) -> None:
+        self._ocp.solver_options.qp_solver = self._params.solver_options.qp_solver_type
+        self._ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
+        self._ocp.solver_options.integrator_type = "ERK"
+        self._ocp.solver_options.nlp_solver_type = "SQP"  # SQP_RTI
+        self._ocp.solver_options.qp_solver = "FULL_CONDENSING_QPOASES"  # PARTIAL_CONDENSING_HPIPM
+        self._ocp.solver_options.print_level = 3
+        self._ocp.solver_options.globalization = "MERIT_BACKTRACKING"
+        self._ocp.solver_options.nlp_solver_max_iter = 5000
+        self._ocp.solver_options.nlp_solver_tol_stat = 1e-6
+        self._ocp.solver_options.levenberg_marquardt = 0.1
+        self._ocp.solver_options.sim_method_num_steps = 15
+        self._ocp.solver_options.qp_solver_iter_max = 100
+        self._ocp.solver_options.hessian_approx = "EXACT"
+        self._ocp.solver_options.exact_hess_constr = 0
+        self._ocp.solver_options.exact_hess_dyn = 0
+
+    def _setup_ocp(self) -> AcadosOcp:
+
         # set dimensions
 
         self.ocp.dims.N = N_horizon
@@ -83,11 +140,6 @@ class MPC:
         self.ocp.constraints.ubu = np.array([+Fmax])
         self.ocp.constraints.x0 = x0
         self.ocp.constraints.idxbu = np.array([0])
-
-        self.ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"  # FULL_CONDENSING_QPOASES
-        self.ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-        self.ocp.solver_options.integrator_type = "ERK"
-        self.ocp.solver_options.nlp_solver_type = "SQP"  # SQP_RTI
 
         self.ocp.solver_options.qp_solver_cond_N = N_horizon
 
@@ -169,6 +221,36 @@ def main():
 
     # create an integrator with the same settings as used in the OCP solver.
     acados_integrator = AcadosSimSolver(ocp, json_file=solver_json)
+
+    # N - maximum number of bangs
+    N = 7
+    Tf = N
+    nx = model.x.size()[0]
+    nu = model.u.size()[0]
+
+    # set dimensions
+    ocp.dims.N = N
+
+    # set cost
+    ocp.cost.cost_type = "EXTERNAL"
+    ocp.cost.cost_type_e = "EXTERNAL"
+
+    ocp.model.cost_expr_ext_cost = dt
+    ocp.model.cost_expr_ext_cost_e = 0
+
+    ocp.constraints.lbu = np.array([-a_max, 0.0])
+    ocp.constraints.ubu = np.array([+a_max, dt_max])
+    ocp.constraints.idxbu = np.array([0, 1])
+
+    ocp.constraints.x0 = x0
+    ocp.constraints.lbx_e = xf
+    ocp.constraints.ubx_e = xf
+    ocp.constraints.idxbx_e = np.array([0, 1, 2, 3])
+
+    # set prediction horizon
+    ocp.solver_options.tf = Tf
+
+    # set options
 
     Nsim = 100
     simX = np.ndarray((Nsim + 1, nx))

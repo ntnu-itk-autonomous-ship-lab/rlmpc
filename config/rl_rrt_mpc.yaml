@@ -20,6 +20,13 @@ mpc:
   R: [1.0, 1.0, 1.0]
   gamma: 0.99
   solver_options:
+    nlp_solver_type: "SQP"
     qp_solver_type: "FULL_CONDENSING_QPOASES"
     hessian_approx_type: "GAUSS_NEWTON"
-    nlp_solver_type: "SQP"
+    globalization: "MERIT_BACKTRACKING"
+    nlp_solver_max_iter: 5000
+    nlp_solver_tol_stat: 1e-6
+    qp_solver_iter_max: 100
+    qp_solver_warm_start: 0
+    levenberg_marquardt: 0.0
+    print_level: 3
