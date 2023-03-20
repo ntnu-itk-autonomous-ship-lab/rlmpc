@@ -18,7 +18,11 @@ class TelemetronAcados:
         self._model = AcadosModel()
         self._params = params
 
-    def create_model(self) -> AcadosModel:
+    @property
+    def params(self) -> models.TelemetronParams:
+        return self._params
+
+    def as_acados(self) -> AcadosModel:
 
         # Input
         u = csd.SX.sym("u", 3)
