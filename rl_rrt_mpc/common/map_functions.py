@@ -7,9 +7,6 @@
 
     Author: Trym Tengesdal
 """
-
-import copy
-import math
 from typing import Optional, Tuple
 
 import geopy.distance
@@ -21,6 +18,7 @@ import shapely.geometry as geometry
 import shapely.ops as ops
 from osgeo import osr
 from pandas import DataFrame
+from shapely import strtree
 
 
 def local2latlon(x: float | list | np.ndarray, y: float | list | np.ndarray, utm_zone: int) -> Tuple[float | list | np.ndarray, float | list | np.ndarray]:
@@ -224,6 +222,23 @@ def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> 
     """
     dangerous_seabed = enc.seabed[0].geometry.difference(enc.seabed[vessel_min_depth].geometry)
     return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
+
+
+def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]:
+    """Fills an rtree with the given multipolygon geometries. Used for fast spatial queries.
+
+    Args:
+        geometries (list): List of shapely Multipolygon geometries
+
+    Returns:
+        Tuple[strtree.STRtree, list]: The rtree containing the geometries, and the Polygon objects used to build it.
+    """
+    poly_list = []
+    for geom in geometries:
+        assert isinstance(geom, geometry.Polygon), "Only polygons are supported"
+        for poly in geom:
+            poly_list.append(poly)
+    return strtree.STRtree(poly_list), poly_list
 
 
 def linestring_to_ndarray(line: geometry.LineString) -> np.ndarray:

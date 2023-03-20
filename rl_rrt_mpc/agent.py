@@ -20,6 +20,9 @@ import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc as mpc
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
+from shapely import strtree
+from shapely.geometry import Point, box
+from shapely.ops import cascaded_union
 
 
 @dataclass
@@ -102,6 +105,11 @@ class RLRRTMPC(ci.ICOLAV):
             self._t_prev = t
             self._initialized = True
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
+            self._geometry_tree, poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+            query_geom = box(0, 0, 10, 10)
+            [points[idx].wkt for idx in self._geometry_tree.query(query_geom)]
+            [points[idx].wkt for idx in self._geometry_tree.query(query_geom)]
+            [points[idx].wkt for idx in self._geometry_tree.query(query_geom, predicate="intersects")]
 
             self._rrt.transfer_enc_data(relevant_grounding_hazards)
             self._rrt.set_init_state(ownship_state.tolist())

@@ -76,6 +76,7 @@ class MPC:
         if params:
             self._params = params
         self._init_ocp()
+        self._index_tree = index.Index()
 
     def _init_ocp(self) -> None:
         self._ocp.model = self._model.as_acados()
