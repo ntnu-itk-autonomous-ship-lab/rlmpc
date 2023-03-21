@@ -8,7 +8,7 @@
 """
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 import colav_simulator.core.colav.colav_interface as ci
 import informed_rrt_star_rust as rrt
@@ -17,12 +17,11 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
+import rl_rrt_mpc.models as models
 import rl_rrt_mpc.mpc as mpc
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
 from shapely import strtree
-from shapely.geometry import Point, box
-from shapely.ops import cascaded_union
 
 
 @dataclass
@@ -50,12 +49,16 @@ class RRTParams:
 @dataclass
 class Config:
     rl: rl.RLParams
-    rrt: dict
-    mpc: Any
+    rrt: RRTParams
+    mpc: mpc.MPCParams
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        config = Config(rl=rl.RLParams.from_dict(config_dict["rl"]), rrt=RRTParams.from_dict(config_dict["rrt"]), mpc=mpc.MPCParams.from_dict(config_dict["mpc"]))
+        config = Config(
+            rl=rl.RLParams.from_dict(config_dict["rl"]),
+            rrt=RRTParams.from_dict(config_dict["rrt"]),
+            mpc=mpc.MPCParams.from_dict(config_dict["mpc"]),
+        )
         return config
 
 
@@ -65,7 +68,7 @@ class RLRRTMPCBuilder:
 
         rl_obj = rl.RL(config.rl)
         rrt_obj = rrt.InformedRRTStar(config.rrt)
-        mpc_obj = mpc.MPC(config.mpc)
+        mpc_obj = mpc.MPC(models.TelemetronAcados(), config.mpc)
         return rl_obj, rrt_obj, mpc_obj
 
 
@@ -84,6 +87,7 @@ class RLRRTMPC(ci.ICOLAV):
         self._t_prev = 0.0
         self._min_depth: int = 0
         self._plan = np.empty(9)
+        self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
     def plan(
         self,
@@ -106,10 +110,6 @@ class RLRRTMPC(ci.ICOLAV):
             self._initialized = True
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
-            query_geom = box(0, 0, 10, 10)
-            [points[idx].wkt for idx in self._geometry_tree.query(query_geom)]
-            [points[idx].wkt for idx in self._geometry_tree.query(query_geom)]
-            [points[idx].wkt for idx in self._geometry_tree.query(query_geom, predicate="intersects")]
 
             self._rrt.transfer_enc_data(relevant_grounding_hazards)
             self._rrt.set_init_state(ownship_state.tolist())
@@ -117,16 +117,17 @@ class RLRRTMPC(ci.ICOLAV):
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
+            # rrtresult = hf.load_rrt_solution()
             states = rrtresult["states"]
             times = rrtresult["times"]
-
+            inputs = rrtresult["inputs"]
             tree_list = self._rrt.get_tree_as_list_of_dicts()
 
             if enc is not None:
-
                 enc.start_display()
-                for hazard in relevant_grounding_hazards:
-                    enc.draw_polygon(hazard, color="red")
+                # for hazard in relevant_grounding_hazards:
+                #     enc.draw_polygon(hazard, color="red")
+
                 hf.plot_rrt_tree(tree_list, enc)
                 hf.plot_rrt_solution(states, times, enc)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
@@ -135,9 +136,9 @@ class RLRRTMPC(ci.ICOLAV):
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan")
                 # hf.save_rrt_solution(states, times)
 
-        # self._mpc.plan(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, **kwargs)
+            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(states, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc)
 
-        references = np.zeros((9, 1))
+        references = self._mpc.plan(t=t, nominal_trajectory=states, nominal_inputs=inputs, xs=ownship_state, do_list=do_list, so_list=polygons_considered_in_mpc)
         return references
 
     def get_current_plan(self) -> np.ndarray:

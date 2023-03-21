@@ -347,7 +347,7 @@ pub fn draw_steering_results(
         .zip(psi_d_array.iter())
         .map(|(psi, psi_d)| wrap_angle_diff_to_pmpi(*psi_d, *psi))
         .collect();
-    let ref_error_array: Vec<f64> = psi_error_array.iter().map(|_| 0.0).collect();
+    let _ref_error_array: Vec<f64> = psi_error_array.iter().map(|_| 0.0).collect();
 
     draw_variable_vs_reference("psi_comp.png", "psi error", &psi_array, &psi_d_array)?;
 
@@ -358,7 +358,7 @@ pub fn draw_steering_results(
         .collect();
     u_array.remove(0);
     let u_d_array: Vec<f64> = refs_array.iter().map(|refs| refs.0).collect();
-    let u_error_array: Vec<f64> = u_array
+    let _u_error_array: Vec<f64> = u_array
         .iter()
         .zip(u_d_array.iter())
         .map(|(u, u_d)| u_d - u)

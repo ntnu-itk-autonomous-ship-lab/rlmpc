@@ -144,27 +144,6 @@ def latlon2local_haversine(lon0: float, lat0: float, lon1: float, lat1: float) -
     return [x, y]
 
 
-def strip_uneccessary_coastline_points(coastline: DataFrame, lla_extent: list):
-    """Removes uneccessary points from the coastline.
-
-    Args:
-        coastline ():
-        lla_extent (list): Defines the extent of the vessel data considered
-    """
-    coastline = coastline.loc[
-        (coastline["lon"] > lla_extent[1]) & (coastline["lat"] > lla_extent[0]) & (coastline["lon"] < lla_extent[3]) & (coastline["lat"] < lla_extent[2])
-    ].reset_index(drop=True)
-    if not coastline.empty:
-        coastline["y"] = coastline.apply(
-            lambda row: dist_between_latlon_coords(lla_extent[0], lla_extent[1], lla_extent[0], row["lon"]),
-            axis=1,
-        )
-        coastline["x"] = coastline.apply(
-            lambda row: dist_between_latlon_coords(lla_extent[0], lla_extent[1], row["lat"], lla_extent[1]),
-            axis=1,
-        )
-
-
 def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, scale: float = 1.0) -> geometry.Polygon:
     """Creates a ship polygon from the ship`s position, heading, length and width.
 
@@ -235,10 +214,51 @@ def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]
     """
     poly_list = []
     for geom in geometries:
-        assert isinstance(geom, geometry.Polygon), "Only polygons are supported"
+        assert isinstance(geom, geometry.MultiPolygon), "Only multipolygons are supported"
         for poly in geom:
             poly_list.append(poly)
     return strtree.STRtree(poly_list), poly_list
+
+
+def generate_enveloping_polygon(states: list, buffer: float) -> geometry.Polygon:
+    """Creates an enveloping polygon around the trajectory of the vessel, buffered by the given amount.
+
+    Args:
+        states (list): List of states on the form [x, y, psi, u, v, r]
+        buffer (float): Buffer size
+
+    Returns:
+        geometry.Polygon: The query polygon
+    """
+    trajectory_linestring = geometry.LineString([(x[1], x[0]) for x in states]).buffer(buffer)
+    return trajectory_linestring
+
+
+def extract_polygons_near_trajectory(states: list, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None) -> list:
+    """Extracts the polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
+
+    Args:
+        states (list): List of states on the form [x, y, psi, u, v, r]
+        geometry_tree (strtree.STRtree): The rtree containing the relevant grounding hazard polygons.
+        buffer (float): Buffer size
+        enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+
+    Returns:
+        list: List of relevant grounding hazard polygons intersecting the trajectory corridor.
+    """
+    enveloping_polygon = generate_enveloping_polygon(states, buffer)
+    polygons_relevant_for_trajectory = geometry_tree.query(enveloping_polygon)
+    poly_list = []
+    for poly in polygons_relevant_for_trajectory:
+        poly_list.append(enveloping_polygon.intersection(poly))
+
+    if enc is not None:
+        enc.start_display()
+        enc.draw_polygon(enveloping_polygon, color="yellow")
+        for poly in poly_list:
+            enc.draw_polygon(poly, color="red")
+
+    return poly_list
 
 
 def linestring_to_ndarray(line: geometry.LineString) -> np.ndarray:

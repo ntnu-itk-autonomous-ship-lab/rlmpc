@@ -7,14 +7,32 @@
     Author: Trym Tengesdal
 """
 from pathlib import Path
-from typing import Optional, Tuple
 
+import casadi as csd
 import rl_rrt_mpc.common.file_utils as fu
 import rl_rrt_mpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import yaml
 from shapely.geometry import Polygon
+
+
+def casadi_matrix_from_nested_list(M: list):
+    """Convenience function for making a ca.SX matrix from lists of lists
+    (don't know why this doesn't exist already), the alternative is
+    ca.vertcat(
+        ca.horzcat(a,b,c),
+        ca.horzcat(d,e,f),
+        ...
+    )
+
+    Args:
+        M (list): List of lists
+
+    Returns:
+        csd.SX: Casadi matrix
+    """
+    return csd.vertcat(*(csd.horzcat(*row) for row in M))
 
 
 def load_rrt_solution(save_file: Path = dp.rrt_solution) -> dict:

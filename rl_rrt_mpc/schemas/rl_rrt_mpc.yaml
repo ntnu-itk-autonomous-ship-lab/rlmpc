@@ -1,3 +1,4 @@
+
 rl:
   required: True
   type: dict
@@ -45,6 +46,9 @@ mpc:
   required: True
   type: dict
   schema:
+    reference_traj_bbox_buffer:
+      required: True
+      type: float
     T:
       required: True
       type: float
@@ -68,35 +72,44 @@ mpc:
     gamma:
       required: True
       type: float
+    max_num_do_constraints:
+      required: True
+      type: integer
+    max_num_so_constraints:
+      required: True
+      type: integer
     solver_options:
-      nlp_solver_type:
-        required: True
-        type: string
-      qp_solver_type:
-        required: True
-        type: string
-      hessian_approx_type:
-        required: True
-        type: string
-      globalization:
-        required: True
-        type: string
-      nlp_solver_max_iter:
-        required: True
-        type: integer
-      nlp_solver_tol_stat:
-        required: True
-        type: float
-      qp_solver_iter_max:
-        required: True
-        type: integer
-      qp_solver_warm_start:
-        required: True
-        type: integer
-      levenberg_marquardt:
-        required: True
-        type: float
-      print_level:
-        required: True
-        type: integer
+      required: True
+      type: dict
+      schema:
+        nlp_solver_type:
+          required: True
+          type: string
+        qp_solver_type:
+          required: True
+          type: string
+        hessian_approx_type:
+          required: True
+          type: string
+        globalization:
+          required: True
+          type: string
+        nlp_solver_max_iter:
+          required: True
+          type: integer
+        nlp_solver_tol_stat:
+          required: True
+          type: float
+        qp_solver_iter_max:
+          required: True
+          type: integer
+        qp_solver_warm_start:
+          required: True
+          type: integer
+        levenberg_marquardt:
+          required: True
+          type: float
+        print_level:
+          required: True
+          type: integer
 

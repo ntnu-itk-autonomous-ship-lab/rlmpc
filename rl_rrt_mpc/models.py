@@ -7,19 +7,19 @@
     Author: Trym Tengesdal
 """
 import casadi as csd
-import colav_simulator.core.models as models
+import colav_simulator.core.models as cs_models
 import numpy as np
 import rl_rrt_mpc.common.math_functions as mf
 from acados_template import AcadosModel
 
 
 class TelemetronAcados:
-    def __init__(self, params: models.TelemetronParams):
+    def __init__(self, params: cs_models.TelemetronParams = cs_models.TelemetronParams()):
         self._model = AcadosModel()
         self._params = params
 
     @property
-    def params(self) -> models.TelemetronParams:
+    def params(self) -> cs_models.TelemetronParams:
         return self._params
 
     def as_acados(self) -> AcadosModel:

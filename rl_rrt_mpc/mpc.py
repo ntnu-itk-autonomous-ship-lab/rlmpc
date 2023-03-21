@@ -13,7 +13,8 @@ import casadi as csd
 import numpy as np
 import rl_rrt_mpc.models as models
 import seacharts.enc as senc
-from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions, AcadosOcpSolver
+from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
+from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 
 @dataclass
@@ -39,16 +40,20 @@ class OCPSolverOptions:
 
 @dataclass
 class MPCParams:
+    reference_traj_bbox_buffer: float = 500.0
     T: float = 10.0
     dt: float = 0.5
     Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
     R: np.ndarray = np.diag([1.0, 1.0, 1.0])
     gamma: float = 0.0
     solver_options: AcadosOcpOptions = AcadosOcpOptions()
+    max_num_so_constraints: int = 1000
+    max_num_do_constraints: int = 1000
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = MPCParams(
+            reference_traj_bbox_buffer=config_dict["reference_traj_bbox_buffer"],
             T=config_dict["T"],
             dt=config_dict["dt"],
             Q=np.diag(config_dict["Q"]),
@@ -58,7 +63,7 @@ class MPCParams:
         )
         config.solver_options.nlp_solver_type = config_dict["solver_options"]["nlp_solver_type"]
         config.solver_options.qp_solver_type = config_dict["solver_options"]["qp_solver_type"]
-        config.solver_options.hessian_approx_type = config_dict["solver_options"]["hessian_approx_type"]
+        config.solver_options.hessian_approx = config_dict["solver_options"]["hessian_approx_type"]
         config.solver_options.globalization = config_dict["solver_options"]["globalization"]
         config.solver_options.nlp_solver_max_iter = config_dict["solver_options"]["nlp_solver_max_iter"]
         config.solver_options.nlp_solver_tol_stat = config_dict["solver_options"]["nlp_solver_tol_stat"]
@@ -75,13 +80,35 @@ class MPC:
         self._model = model
         if params:
             self._params = params
-        self._init_ocp()
-        self._index_tree = index.Index()
+        self._init_ocp_solver()
+        self._initialized = False
 
-    def _init_ocp(self) -> None:
+    def plan(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, **kwargs) -> np.ndarray:
+        """Plans a static and dynamic obstacle free trajectory for the ownship.
+
+        Args:
+            t (float): Current time.
+            nominal_trajectory (np.ndarray): Nominal reference trajectory to track.
+            xs (np.ndarray): Current state.
+            do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
+            so_list (list): List of static obstacle Polygon objects
+
+        Returns:
+            np.ndarray: Optimal trajectory for the ownship.
+        """
+        references = np.empty(9)
+
+        self._ocp.set("constraints.x0", xs)
+        self._ocp.set("init_x", nominal_trajectory)
+        self._ocp.set("init_u", nominal_inputs)
+
+        self._construct_constraints(xs, do_list, so_list)
+        return references
+
+    def _init_ocp_solver(self) -> None:
         self._ocp.model = self._model.as_acados()
         self._ocp.solver_options = self._params.solver_options
-        self._ocp.dims.N = self._params.T / self._params.dt
+        self._ocp.dims.N = int(self._params.T / self._params.dt)
         self._ocp.solver_options.qp_solver_cond_N = self._ocp.dims.N
         self._ocp.solver_options.tf = self._params.T
 
@@ -95,10 +122,25 @@ class MPC:
     def _construct_cost_function(self) -> None:
         x = self._ocp.model.x
         u = self._ocp.model.u
+
+        Q = csd.SX("Q", 6, 6)
+        kappa = csd.SX("kappa", 1)
+        t = csd.SX("t", 1)
+
+        adjustable_params = csd.vertcat(Q, kappa, t)
+
+        fixed_params = csd.SX("x_ref_" + str(0), 6)
+        for k in range(1, self._ocp.dims.N):
+            x_ref_k = csd.SX("x_ref_" + str(k), 6)
+            fixed_params = csd.vertcat(fixed_params, x_ref_k)
+
+        p = csd.vertcat(adjustable_params, fixed_params)
+        self._ocp.model.p = p
+
         self._ocp.cost.cost_type = "EXTERNAL"
         self._ocp.cost.cost_type_e = "EXTERNAL"
-        self._ocp.model.cost_expr_ext_cost = x.T @ self._params.Q @ x
-        self._ocp.model.cost_expr_ext_cost_e = x.T @ self._params.Q @ x
+        self._ocp.model.cost_expr_ext_cost = (self._ocp.cost.yref - x.T) @ Q @ (self._ocp.cost.yref - x) + kappa * t
+        self._ocp.model.cost_expr_ext_cost_e = x.T @ Q @ x
 
         # # soften
         # ocp.constraints.idxsh = np.array([0])
@@ -150,9 +192,9 @@ class MPC:
         self._ocp.constraints.lbx_e = np.array([-np.inf, -np.inf, -np.inf, 0.0, -0.6 * max_speed, -max_turn_rate])
         self._ocp.constraints.ubx_e = np.array([np.inf, np.inf, np.inf, max_speed, 0.6 * max_speed, max_turn_rate])
 
+        self._ocp.constraints.lh = np.zeros(self._params.max_num_so_constraints + self._params.max_num_so_constraints)
         # Dynamic obstacle constraints
 
-        # Static obstacle constraints
+        self._ocp.constraints.lg = np.zeros(self._params.max_num_do_constraints)
 
-    def plan(self, t: float, x: np.ndarray, x_ref: np.ndarray) -> np.ndarray:
-        pass
+        # Static obstacle constraints

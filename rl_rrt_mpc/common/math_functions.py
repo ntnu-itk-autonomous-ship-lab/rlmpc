@@ -11,6 +11,7 @@ from typing import Tuple
 
 import casadi as csd
 import numpy as np
+import rl_rrt_mpc.common.helper_functions as hf
 
 
 def wrap_min_max(x: float | np.ndarray, x_min: float | np.ndarray, x_max: float | np.ndarray) -> float | np.ndarray:
@@ -227,7 +228,7 @@ def Rpsi(psi) -> np.ndarray:
 
 def Rpsi_casadi(psi: float) -> csd.SX:
     """Same as Rpsi but for casadi."""
-    return csd.SX([[csd.cos(psi), -csd.sin(psi), 0], [csd.sin(psi), csd.cos(psi), 0], [0, 0, 1]])
+    return hf.casadi_matrix_from_nested_list([[csd.cos(psi), -csd.sin(psi), 0], [csd.sin(psi), csd.cos(psi), 0], [0, 0, 1]])
 
 
 def Rpsi2D(psi: float) -> np.ndarray:
@@ -240,7 +241,7 @@ def Rpsi2D(psi: float) -> np.ndarray:
 
 def Rpsi2D_casadi(psi: float) -> csd.SX:
     """Same as Rpsi2D but for casadi."""
-    return csd.MX([[csd.cos(psi), -csd.sin(psi)], [csd.sin(psi), csd.cos(psi)]])
+    return hf.casadi_matrix_from_nested_list([[csd.cos(psi), -csd.sin(psi)], [csd.sin(psi), csd.cos(psi)]])
 
 
 def Cmtrx(Mmtrx: np.ndarray, nu: np.ndarray) -> np.ndarray:
@@ -266,7 +267,7 @@ def Cmtrx_casadi(Mmtrx: csd.SX, nu: csd.SX) -> csd.SX:
     """Same as Cmtrx but for casadi"""
     c13 = -(Mmtrx[1, 1] * nu[1] + Mmtrx[1, 2] * nu[2])
     c23 = Mmtrx[0, 0] * nu[0]
-    return csd.SX([[0, 0, c13], [0, 0, c23], [-c13, -c23, 0]])
+    return hf.casadi_matrix_from_nested_list([[0, 0, c13], [0, 0, c23], [-c13, -c23, 0]])
 
 
 def Dmtrx(D_l: np.ndarray, D_q: np.ndarray, D_c: np.ndarray, nu: np.ndarray) -> np.ndarray:
@@ -293,13 +294,17 @@ def Dmtrx_casadi(D_l: csd.SX, D_q: csd.SX, D_c: csd.SX, nu: csd.SX) -> csd.SX:
 
 
 def Smtrx(a: np.ndarray) -> np.ndarray:
-    """
-    S = Smtrx(a) computes the 3x3 vector skew-symmetric matrix S(a) = -S(a)'.
+    """S = Smtrx(a) computes the 3x3 vector skew-symmetric matrix S(a) = -S(a)'.
     The cross product satisfies: a x b = S(a)b.
+
+    Args:
+        a (np.ndarray): 3x1 vector.
+
+    Returns:
+        np.ndarray: 3x3 skew-symmetric matrix.
     """
 
     S = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
-
     return S
 
 

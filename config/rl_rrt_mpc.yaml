@@ -5,27 +5,30 @@ rrt:
   max_nodes: 3000
   max_iter: 10000
   iter_between_direct_goal_growth: 200
-  min_node_dist: 25.0
+  min_node_dist: 30.0
   goal_radius: 500.0
   step_size: 0.8
   max_steering_time: 25.0
   steering_acceptance_radius: 5.0
-  max_nn_node_dist: 150.0
-  gamma: 1000.0
+  max_nn_node_dist: 200.0
+  gamma: 1500.0
 
 mpc:
+  reference_traj_bbox_buffer: 500.0
   T: 100.0
   dt: 0.5
   Q: [10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
   R: [1.0, 1.0, 1.0]
+  max_num_so_constraints: 1000
+  max_num_do_constraints: 1000
   gamma: 0.99
   solver_options:
     nlp_solver_type: "SQP"
     qp_solver_type: "FULL_CONDENSING_QPOASES"
-    hessian_approx_type: "GAUSS_NEWTON"
+    hessian_approx_type: "EXACT"
     globalization: "MERIT_BACKTRACKING"
     nlp_solver_max_iter: 5000
-    nlp_solver_tol_stat: 1e-6
+    nlp_solver_tol_stat: 0.000001
     qp_solver_iter_max: 100
     qp_solver_warm_start: 0
     levenberg_marquardt: 0.0

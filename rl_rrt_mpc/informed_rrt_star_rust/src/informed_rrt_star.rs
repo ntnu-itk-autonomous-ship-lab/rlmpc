@@ -733,7 +733,7 @@ impl InformedRRTStar {
                 &xs_start.into(),
                 &xs_next.clone().into(),
                 self.U_d,
-                self.params.steering_acceptance_radius,
+                self.params.steering_acceptance_radius * 3.0,
                 self.params.step_size,
                 10.0 * 60.0 * self.params.max_steering_time,
             );
