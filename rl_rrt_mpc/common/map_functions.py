@@ -7,18 +7,18 @@
 
     Author: Trym Tengesdal
 """
+import unittest
 from typing import Optional, Tuple
 
+import geopandas as gpd
 import geopy.distance
+import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.math_functions as mf
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
-import shapely.ops as ops
 from osgeo import osr
-from pandas import DataFrame
-from shapely import strtree
+from shapely import ops, strtree
 
 
 def local2latlon(x: float | list | np.ndarray, y: float | list | np.ndarray, utm_zone: int) -> Tuple[float | list | np.ndarray, float | list | np.ndarray]:
@@ -261,6 +261,59 @@ def extract_polygons_near_trajectory(states: list, geometry_tree: strtree.STRtre
     return poly_list
 
 
+def to_triangles(polygon: geometry.Polygon) -> list:
+    """Converts a polygon to a list of triangles. Basically constrained delaunay triangulation.
+
+    Args:
+        polygon (geometry.Polygon): The polygon to triangulate.
+
+    Returns:
+        list: List of triangles as shapely polygons.
+    """
+    res_intersection_gdf = gpd.GeoDataFrame(geometry=[polygon])
+    # Create ID to identify overlapping polygons
+    res_intersection_gdf["TRI_ID"] = res_intersection_gdf.index
+    # List to keep triangulated geometries
+    triangles = []
+    # List to keep the original IDs
+    triangle_ids = []
+    # Triangulate single or multi-polygons
+    for i, _ in res_intersection_gdf.iterrows():
+        tri_ = ops.triangulate(res_intersection_gdf.geometry.values[i])
+        triangles.append(tri_)
+        for _ in range(0, len(tri_)):
+            triangle_ids.append(res_intersection_gdf.TRI_ID.values[i])
+    # Check if it is a single or multi-polygon
+    len_list = len(triangles)
+    triangles = np.array(triangles).flatten().tolist()
+    # unlist geometries for multi-polygons
+    if len_list > 1:
+        triangles = [item for sublist in triangles for item in sublist]
+    # Create triangulated polygons
+    filtered_triangles = gpd.GeoDataFrame(triangles)
+    filtered_triangles = filtered_triangles.set_geometry(triangles)
+    del filtered_triangles[0]
+    # Assign original IDs to each triangle
+    filtered_triangles["TRI_ID"] = triangle_ids
+    # Create new ID for each triangle
+    filtered_triangles["LINK_ID"] = filtered_triangles.index
+    # Create centroids from all triangles
+    filtered_triangles["centroid"] = filtered_triangles.centroid
+    filtered_triangles_centroid = filtered_triangles.set_geometry("centroid")
+    del filtered_triangles_centroid["geometry"]
+    del filtered_triangles["centroid"]
+    # Find triangle centroids inside original polygon
+    filtered_triangles_join = gpd.sjoin(
+        filtered_triangles_centroid[["centroid", "TRI_ID", "LINK_ID"]], res_intersection_gdf[["geometry", "TRI_ID"]], how="inner", predicate="within"
+    )
+    # Remove overlapping from other triangles (Necessary for multi-polygons overlapping or close to each other)
+    filtered_triangles_join = filtered_triangles_join[filtered_triangles_join["TRI_ID_left"] == filtered_triangles_join["TRI_ID_right"]]
+    # Remove overload triangles from same filtered_triangless
+    filtered_triangles = filtered_triangles[filtered_triangles["LINK_ID"].isin(filtered_triangles_join["LINK_ID"])]
+
+    return filtered_triangles.geometry.values
+
+
 def linestring_to_ndarray(line: geometry.LineString) -> np.ndarray:
     """Converts a shapely LineString to a numpy array
 
@@ -362,3 +415,20 @@ def find_intersections_line_polygon(line: geometry.LineString, polygon: geometry
             x, y = line.coords.xy
             coords.append([list(x), list(y)])
     return np.array(coords, dtype=object)
+
+
+class TestMapFunctions(unittest.TestCase):
+    def test_to_triangle(self):
+        polygon = geometry.Polygon([(3.0, 0.0), (2.0, 0.0), (2.0, 0.75), (2.5, 0.75), (2.5, 0.6), (2.25, 0.6), (2.25, 0.2), (3.0, 0.2), (3.0, 0.0)])
+        triangles = to_triangles(polygon)
+
+        x, y = polygon.exterior.xy
+        plt.plot(x, y, color="b", alpha=0.7, linewidth=3, solid_capstyle="round", zorder=2)
+        for triangle in triangles:
+            x_t, y_t = triangle.exterior.xy
+            plt.plot(x_t, y_t, color="r", alpha=0.7, linewidth=3, solid_capstyle="round", zorder=1)
+        plt.show()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -9,6 +9,7 @@
 from pathlib import Path
 
 import casadi as csd
+import numpy as np
 import rl_rrt_mpc.common.file_utils as fu
 import rl_rrt_mpc.common.paths as dp
 import seacharts.enc as senc
@@ -33,6 +34,18 @@ def casadi_matrix_from_nested_list(M: list):
         csd.SX: Casadi matrix
     """
     return csd.vertcat(*(csd.horzcat(*row) for row in M))
+
+
+def casadi_matrix_from_vector(v: csd.SX.sym):
+    len_v = len(v)
+    n_rows = int(np.sqrt(len_v))
+    llist = []
+    for i in range(n_rows):
+        nested_list = []
+        for j in range(n_rows):
+            nested_list.append(v[i * n_rows + j])
+        llist.append(nested_list)
+    return casadi_matrix_from_nested_list(llist)
 
 
 def load_rrt_solution(save_file: Path = dp.rrt_solution) -> dict:

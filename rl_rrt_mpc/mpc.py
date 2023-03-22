@@ -123,15 +123,15 @@ class MPC:
         x = self._ocp.model.x
         u = self._ocp.model.u
 
-        Q = csd.SX("Q", 6, 6)
-        kappa = csd.SX("kappa", 1)
-        t = csd.SX("t", 1)
+        Qvec = csd.SX.sym("Q", 36)
+        kappa = csd.SX.sym("kappa", 1)
+        t = csd.SX.sym("t", 1)
 
-        adjustable_params = csd.vertcat(Q, kappa, t)
+        adjustable_params = csd.vertcat(Qvec, kappa, t)
 
-        fixed_params = csd.SX("x_ref_" + str(0), 6)
+        fixed_params = csd.SX.sym("x_ref_" + str(0), 6)
         for k in range(1, self._ocp.dims.N):
-            x_ref_k = csd.SX("x_ref_" + str(k), 6)
+            x_ref_k = csd.SX.sym("x_ref_" + str(k), 6)
             fixed_params = csd.vertcat(fixed_params, x_ref_k)
 
         p = csd.vertcat(adjustable_params, fixed_params)
@@ -139,8 +139,9 @@ class MPC:
 
         self._ocp.cost.cost_type = "EXTERNAL"
         self._ocp.cost.cost_type_e = "EXTERNAL"
-        self._ocp.model.cost_expr_ext_cost = (self._ocp.cost.yref - x.T) @ Q @ (self._ocp.cost.yref - x) + kappa * t
-        self._ocp.model.cost_expr_ext_cost_e = x.T @ Q @ x
+        Qmtrx = csd.reshape(Qvec, (6, 6))
+        self._ocp.model.cost_expr_ext_cost = (self._ocp.cost.yref - x.T) @ Qmtrx @ (self._ocp.cost.yref - x) + kappa * t
+        self._ocp.model.cost_expr_ext_cost_e = x.T @ Qmtrx @ x
 
         # # soften
         # ocp.constraints.idxsh = np.array([0])
@@ -149,14 +150,14 @@ class MPC:
         # ocp.cost.Zl = 1e5 * np.array([1])
         # ocp.cost.Zu = 1e5 * np.array([1])
 
-    def _construct_constraints(self, xs: np.ndarray, do_list: list, enc: senc.ENC) -> None:
+    def _construct_constraints(self, xs: np.ndarray, do_list: list, so_list: list) -> None:
         """Construct constraints for the MPC problem based on the current state, list of dynamic obstacles
         and the Electronic Navigational Chart object.
 
         Args:
             xs (np.ndarray): State vector.
             do_list (list): List of dynamic obstacles on format (ID, state, covariance, length, width)
-            enc (senc.ENC): Electronic Navigational Chart object.
+            so_list (list): List of static obstacle triangles (after constrained delaunay triangulation)
         """
         nx = self._ocp.model.x.size()[0]
         nu = self._ocp.model.u.size()[0]
@@ -192,9 +193,16 @@ class MPC:
         self._ocp.constraints.lbx_e = np.array([-np.inf, -np.inf, -np.inf, 0.0, -0.6 * max_speed, -max_turn_rate])
         self._ocp.constraints.ubx_e = np.array([np.inf, np.inf, np.inf, max_speed, 0.6 * max_speed, max_turn_rate])
 
+        # Dynamic and static obstacle constraints
+        d_safe = csd.SX("d_safe", 1)
+        p = self._ocp.model.p
+        p = csd.vertcat(p, d_safe)
+        self._ocp.model.p = p
+
         self._ocp.constraints.lh = np.zeros(self._params.max_num_so_constraints + self._params.max_num_so_constraints)
-        # Dynamic obstacle constraints
+        self._ocp.constraints.lg = np.zeros(self._params.max_num_so_constraints + self._params.max_num_do_constraints)
 
-        self._ocp.constraints.lg = np.zeros(self._params.max_num_do_constraints)
-
-        # Static obstacle constraints
+        # for i in range(self._params.max_num_so_constraints):
+        #     if i == 0:
+        #         con_h_expr =
+        #     else:
