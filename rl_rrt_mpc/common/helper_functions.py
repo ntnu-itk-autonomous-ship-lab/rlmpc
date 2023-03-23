@@ -7,6 +7,7 @@
     Author: Trym Tengesdal
 """
 from pathlib import Path
+from typing import Optional, Tuple
 
 import casadi as csd
 import numpy as np
@@ -15,7 +16,40 @@ import rl_rrt_mpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import yaml
+from scipy.interpolate import PchipInterpolator
 from shapely.geometry import Polygon
+
+
+def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> Tuple[list, list]:
+    """Computes splines from a list of polygons
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+
+    Returns:
+        list: List of tuples with splines for x and y, and similarly for the derivatives
+    """
+    splines = []
+    spline_derivatives = []
+    for polygon in polygons:
+        east, north = polygon.exterior.xy
+        if len(east) < 3:
+            continue
+
+        linspace = np.linspace(0.0, 1.0, len(east))
+        spline_x = PchipInterpolator(linspace, north, extrapolate=False)
+        spline_y = PchipInterpolator(linspace, east, extrapolate=False)
+        splines.append((spline_x, spline_y))
+        spline_derivatives.append((spline_x.derivative(), spline_y.derivative()))
+        if enc is not None:
+            enc.start_display()
+            x_spline_vals = spline_x(linspace)
+            y_spline_vals = spline_y(linspace)
+            pairs = list(zip(y_spline_vals, x_spline_vals))
+            enc.draw_line(pairs, color="black", width=0)
+
+    return splines, spline_derivatives
 
 
 def casadi_matrix_from_nested_list(M: list):
@@ -37,7 +71,7 @@ def casadi_matrix_from_nested_list(M: list):
 
 
 def casadi_matrix_from_vector(v: csd.SX.sym):
-    len_v = len(v)
+    len_v = v.shape[0]
     n_rows = int(np.sqrt(len_v))
     llist = []
     for i in range(n_rows):
@@ -52,8 +86,8 @@ def load_rrt_solution(save_file: Path = dp.rrt_solution) -> dict:
     return fu.read_yaml_into_dict(save_file)
 
 
-def save_rrt_solution(states: list, times: list, save_file: Path = dp.rrt_solution) -> None:
-    output_dict = {"states": states, "times": times}
+def save_rrt_solution(states: list, inputs: list, times: list, save_file: Path = dp.rrt_solution) -> None:
+    output_dict = {"states": states, "inputs": inputs, "times": times}
     save_file.touch(exist_ok=True)
     with save_file.open(mode="w") as file:
         yaml.dump(output_dict, file)

@@ -116,11 +116,11 @@ class RLRRTMPC(ci.ICOLAV):
             self._rrt.set_goal_state(goal_state.tolist())
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
-            rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
-            # rrtresult = hf.load_rrt_solution()
+            # rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
+            rrtresult = hf.load_rrt_solution()
             states = rrtresult["states"]
             times = rrtresult["times"]
-            inputs = rrtresult["inputs"]
+            inputs = []
             tree_list = self._rrt.get_tree_as_list_of_dicts()
 
             if enc is not None:
@@ -134,11 +134,12 @@ class RLRRTMPC(ci.ICOLAV):
                 enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow")
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan")
-                # hf.save_rrt_solution(states, times)
+                hf.save_rrt_solution(states, inputs, times)
 
             polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(states, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc)
+            self._mpc.construct_ocp(do_list=do_list, so_list=polygons_considered_in_mpc, enc=enc)
 
-        references = self._mpc.plan(t=t, nominal_trajectory=states, nominal_inputs=inputs, xs=ownship_state, do_list=do_list, so_list=polygons_considered_in_mpc)
+        references = self._mpc.plan(t=t, nominal_trajectory=states, nominal_inputs=[], xs=ownship_state, do_list=do_list, so_list=polygons_considered_in_mpc)
         return references
 
     def get_current_plan(self) -> np.ndarray:

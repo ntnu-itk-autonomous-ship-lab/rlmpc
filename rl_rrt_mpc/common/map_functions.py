@@ -215,7 +215,7 @@ def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]
     poly_list = []
     for geom in geometries:
         assert isinstance(geom, geometry.MultiPolygon), "Only multipolygons are supported"
-        for poly in geom:
+        for poly in geom.geoms:
             poly_list.append(poly)
     return strtree.STRtree(poly_list), poly_list
 
@@ -250,7 +250,12 @@ def extract_polygons_near_trajectory(states: list, geometry_tree: strtree.STRtre
     polygons_relevant_for_trajectory = geometry_tree.query(enveloping_polygon)
     poly_list = []
     for poly in polygons_relevant_for_trajectory:
-        poly_list.append(enveloping_polygon.intersection(poly))
+        intersection_poly = enveloping_polygon.intersection(poly)
+        if isinstance(intersection_poly, geometry.MultiPolygon):
+            for sub_poly in intersection_poly.geoms:
+                poly_list.append(sub_poly)
+        else:
+            poly_list.append(intersection_poly)
 
     if enc is not None:
         enc.start_display()

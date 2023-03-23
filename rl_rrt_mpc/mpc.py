@@ -11,6 +11,7 @@ from typing import Optional
 
 import casadi as csd
 import numpy as np
+import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.models as models
 import seacharts.enc as senc
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
@@ -80,8 +81,6 @@ class MPC:
         self._model = model
         if params:
             self._params = params
-        self._init_ocp_solver()
-        self._initialized = False
 
     def plan(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, **kwargs) -> np.ndarray:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
@@ -102,24 +101,29 @@ class MPC:
         self._ocp.set("init_x", nominal_trajectory)
         self._ocp.set("init_u", nominal_inputs)
 
-        self._construct_constraints(xs, do_list, so_list)
+        status = self._solver.solve()
         return references
 
-    def _init_ocp_solver(self) -> None:
+    def construct_ocp(self, do_list: list, so_list: list, enc: Optional[senc.ENC] = None) -> None:
+        """Constructs the OCP for the NMPC problem.
+
+        Args:
+            do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
+            so_list (list): List of static obstacle Polygon objects
+            enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+
+        """
         self._ocp.model = self._model.as_acados()
         self._ocp.solver_options = self._params.solver_options
         self._ocp.dims.N = int(self._params.T / self._params.dt)
         self._ocp.solver_options.qp_solver_cond_N = self._ocp.dims.N
         self._ocp.solver_options.tf = self._params.T
 
-        self._construct_cost_function()
-        # self._construct_constraints()
+        nx = self._ocp.model.x.size()[0]
+        nu = self._ocp.model.u.size()[0]
+        self._ocp.dims.nx = nx
+        self._ocp.dims.nu = nu
 
-        # set constraints
-        solver_json = "acados_ocp_" + self._ocp.model.name + ".json"
-        self._solver = AcadosOcpSolver(self._ocp, json_file=solver_json)
-
-    def _construct_cost_function(self) -> None:
         x = self._ocp.model.x
         u = self._ocp.model.u
 
@@ -128,20 +132,17 @@ class MPC:
         t = csd.SX.sym("t", 1)
 
         adjustable_params = csd.vertcat(Qvec, kappa, t)
-
-        fixed_params = csd.SX.sym("x_ref_" + str(0), 6)
-        for k in range(1, self._ocp.dims.N):
-            x_ref_k = csd.SX.sym("x_ref_" + str(k), 6)
-            fixed_params = csd.vertcat(fixed_params, x_ref_k)
+        x_ref = csd.SX.sym("x_ref", 6)
+        fixed_params = x_ref
 
         p = csd.vertcat(adjustable_params, fixed_params)
         self._ocp.model.p = p
 
         self._ocp.cost.cost_type = "EXTERNAL"
         self._ocp.cost.cost_type_e = "EXTERNAL"
-        Qmtrx = csd.reshape(Qvec, (6, 6))
-        self._ocp.model.cost_expr_ext_cost = (self._ocp.cost.yref - x.T) @ Qmtrx @ (self._ocp.cost.yref - x) + kappa * t
-        self._ocp.model.cost_expr_ext_cost_e = x.T @ Qmtrx @ x
+        Qmtrx = hf.casadi_matrix_from_vector(Qvec)
+        self._ocp.model.cost_expr_ext_cost = (x_ref - x).T @ Qmtrx @ (x_ref - x) + kappa * t
+        self._ocp.model.cost_expr_ext_cost_e = (x_ref - x).T @ Qmtrx @ (x_ref - x)
 
         # # soften
         # ocp.constraints.idxsh = np.array([0])
@@ -150,21 +151,7 @@ class MPC:
         # ocp.cost.Zl = 1e5 * np.array([1])
         # ocp.cost.Zu = 1e5 * np.array([1])
 
-    def _construct_constraints(self, xs: np.ndarray, do_list: list, so_list: list) -> None:
-        """Construct constraints for the MPC problem based on the current state, list of dynamic obstacles
-        and the Electronic Navigational Chart object.
-
-        Args:
-            xs (np.ndarray): State vector.
-            do_list (list): List of dynamic obstacles on format (ID, state, covariance, length, width)
-            so_list (list): List of static obstacle triangles (after constrained delaunay triangulation)
-        """
-        nx = self._ocp.model.x.size()[0]
-        nu = self._ocp.model.u.size()[0]
-
         self._ocp.constraints.constr_type = "BGH"
-        self._ocp.constraints.x0 = xs
-
         min_Fx = self._model.params.Fx_limits[0]
         max_Fx = self._model.params.Fx_limits[1]
         min_Fy = self._model.params.Fy_limits[0]
@@ -194,15 +181,40 @@ class MPC:
         self._ocp.constraints.ubx_e = np.array([np.inf, np.inf, np.inf, max_speed, 0.6 * max_speed, max_turn_rate])
 
         # Dynamic and static obstacle constraints
-        d_safe = csd.SX("d_safe", 1)
+        d_safe_so = csd.SX.sym("d_safe_so", 1)
+        d_safe_do = csd.SX.sym("d_safe_do", 1)
+
         p = self._ocp.model.p
-        p = csd.vertcat(p, d_safe)
+        p = csd.vertcat(p, d_safe_so, d_safe_do)
         self._ocp.model.p = p
 
         self._ocp.constraints.lh = np.zeros(self._params.max_num_so_constraints + self._params.max_num_so_constraints)
-        self._ocp.constraints.lg = np.zeros(self._params.max_num_so_constraints + self._params.max_num_do_constraints)
+        self._ocp.constraints.lh_e = self._ocp.constraints.lh
+        self._ocp.constraints.uh = np.inf * np.ones(self._params.max_num_so_constraints + self._params.max_num_so_constraints)
+        self._ocp.constraints.uh_e = self._ocp.constraints.uh
 
-        # for i in range(self._params.max_num_so_constraints):
-        #     if i == 0:
-        #         con_h_expr =
-        #     else:
+        con_h_expr = []
+        so_splines_xy, so_splines_der_xy = hf.compute_splines_from_polygons(so_list, enc)
+        n_so = len(so_splines_xy)
+        for j in range(self._params.max_num_so_constraints):
+            if j < n_so:
+
+            # generate spline of static obstacle
+            y_poly, x_poly = so_list[j].exterior.xy
+            so_spline_j = csd.interpolant("so_spline_" + str(j), "bspline", [x_poly], y_poly)
+            con_h_expr.append((x - so_spline_j(x)).T @ (x - so_spline_j(x)) - d_safe_so**2)
+
+        for i in range(self._params.max_num_so_constraints, self._params.max_num_so_constraints + self._params.max_num_do_constraints):
+            (_, _, _, length, width) = do_list[i - self._params.max_num_so_constraints]
+            x_do_i = csd.SX.sym("x_do_" + str(i), 4)
+            chi_do_i = csd.atan2(x_do_i[3], x_do_i[2])
+            p = csd.vertcat(p, x_do_i)
+            con_h_expr.append(((x[0] - x_do_i[0]) ** 2 * csd.cos(chi_do_i) / length**2) + ((x[0] - x_do_i[0]) ** 2 * csd.cos(chi_do_i) / width**2))
+
+        self._ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
+        self._ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
+
+        solver_json = "acados_ocp_" + self._ocp.model.name + ".json"
+        self._solver = AcadosOcpSolver(self._ocp, json_file=solver_json)
+
+        self._solver.set()
