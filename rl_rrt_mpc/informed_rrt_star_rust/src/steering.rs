@@ -122,13 +122,7 @@ impl FLSHController {
         let psi_unwrapped = utils::unwrap_angle(self.psi_prev, psi);
         let psi_d: f64 = refs.1;
         let psi_d_unwrapped = utils::unwrap_angle(self.psi_d_prev, psi_d);
-        let psi_error: f64 = utils::wrap_angle_diff_to_pmpi(psi_d, psi);
-        // println!("psi: {}, psi_d: {}, psi_error: {}", psi, psi_d, psi_error);
         let psi_error: f64 = utils::wrap_angle_diff_to_pmpi(psi_d_unwrapped, psi_unwrapped);
-        // println!(
-        //     "psi_unwrapped: {}, psi_d_unwrapped: {}, psi_error_unwrapped: {}",
-        //     psi_unwrapped, psi_d_unwrapped, psi_error
-        // );
         self.psi_prev = psi;
         self.psi_d_prev = psi_d;
         if self.psi_error_int.abs() > self.max_psi_error_int {
