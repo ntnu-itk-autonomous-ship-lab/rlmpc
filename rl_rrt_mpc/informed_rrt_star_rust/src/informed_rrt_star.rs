@@ -205,6 +205,7 @@ impl ToPyObject for RRTResult {
 #[pyclass]
 pub struct InformedRRTStar {
     pub c_best: f64,
+    pub z_best_parent: RRTNode,
     pub solutions: Vec<RRTResult>, // (states, times, cost) for each solution
     pub params: RRTParams,
     pub steering: SimpleSteering,
@@ -225,6 +226,7 @@ impl InformedRRTStar {
         println!("InformedRRTStar initialized with params: {:?}", params);
         Self {
             c_best: std::f64::INFINITY,
+            z_best_parent: RRTNode::new(Vector6::zeros(), 0.0, 0.0, 0.0),
             solutions: Vec::new(),
             params: params.clone(),
             steering: SimpleSteering::new(),
@@ -322,17 +324,24 @@ impl InformedRRTStar {
         self.solutions = Vec::new();
         let mut z_new = self.get_root_node();
         let mut num_iter = 0;
+        let goal_attempt_steering_time = 10.0 * 60.0;
         while self.num_nodes < self.params.max_nodes && num_iter < self.params.max_iter {
-            if self.attempt_direct_goal_growth(num_iter, self.c_best)? {
+            if self.attempt_direct_goal_growth(num_iter, self.c_best, goal_attempt_steering_time)? {
                 continue;
             }
 
             if self.goal_reachable(&z_new) {
-                self.attempt_goal_insertion(&z_new, self.c_best, self.params.max_steering_time)?;
-                println!(
-                    "Num iter: {} | Num nodes: {} | c_best: {}",
-                    num_iter, self.num_nodes, self.c_best
-                );
+                let accepted = self.attempt_goal_insertion(
+                    &z_new,
+                    self.c_best,
+                    self.params.max_steering_time,
+                )?;
+                if accepted {
+                    println!(
+                        "Num iter: {} | Num nodes: {} | c_best: {}",
+                        num_iter, self.num_nodes, self.c_best
+                    );
+                }
             }
 
             z_new = RRTNode::default();
@@ -427,6 +436,7 @@ impl InformedRRTStar {
         let soln = self.extract_solution(&z_goal_)?;
         self.solutions.push(soln.clone());
         self.c_best = self.c_best.min(soln.cost);
+        self.z_best_parent = z.clone();
         println!("Solution found! Cost: {}", soln.cost);
         Ok(())
     }
@@ -507,13 +517,18 @@ impl InformedRRTStar {
         dist_squared < self.params.goal_radius.powi(2)
     }
 
-    pub fn attempt_direct_goal_growth(&mut self, num_iter: u64, c_best: f64) -> PyResult<bool> {
+    pub fn attempt_direct_goal_growth(
+        &mut self,
+        num_iter: u64,
+        c_best: f64,
+        max_steering_time: f64,
+    ) -> PyResult<bool> {
         if num_iter % self.params.iter_between_direct_goal_growth != 0 {
             return Ok(false);
         }
         let z_goal = RRTNode::new(self.xs_goal.clone(), 0.0, 0.0, 0.0);
         let z_nearest = self.nearest(&z_goal)?;
-        self.attempt_goal_insertion(&z_nearest, c_best, 10.0 * 60.0)
+        self.attempt_goal_insertion(&z_nearest, c_best, max_steering_time)
     }
 
     pub fn attempt_goal_insertion(
@@ -522,6 +537,10 @@ impl InformedRRTStar {
         c_best: f64,
         max_steering_time: f64,
     ) -> PyResult<bool> {
+        if z.id == self.z_best_parent.id {
+            println!("Attempted goal insertion with same node as best parent");
+            return Ok(false);
+        }
         let mut z_goal_ = RRTNode::new(self.xs_goal.clone(), 0.0, 0.0, 0.0);
         let (xs_array, _, _, t_new, reached) = self.steer(
             &z,
@@ -536,6 +555,10 @@ impl InformedRRTStar {
         }
         let cost = z.cost + utils::compute_path_length(&xs_array);
         if cost >= c_best {
+            println!(
+                "Attempted goal insertion | cost : {} | c_best : {}",
+                cost, c_best
+            );
             return Ok(false);
         }
         z_goal_ = RRTNode::new(x_new, cost, 0.0, z.time + t_new);

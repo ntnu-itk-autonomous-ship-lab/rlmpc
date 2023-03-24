@@ -220,25 +220,28 @@ def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]
     return strtree.STRtree(poly_list), poly_list
 
 
-def generate_enveloping_polygon(states: list, buffer: float) -> geometry.Polygon:
+def generate_enveloping_polygon(trajectory: np.ndarray, buffer: float) -> geometry.Polygon:
     """Creates an enveloping polygon around the trajectory of the vessel, buffered by the given amount.
 
     Args:
-        states (list): List of states on the form [x, y, psi, u, v, r]
+        trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
         buffer (float): Buffer size
 
     Returns:
         geometry.Polygon: The query polygon
     """
-    trajectory_linestring = geometry.LineString([(x[1], x[0]) for x in states]).buffer(buffer)
+    point_list = []
+    for k in range(trajectory.shape[1]):
+        point_list.append((trajectory[1, k], trajectory[0, k]))
+    trajectory_linestring = geometry.LineString(point_list).buffer(buffer)
     return trajectory_linestring
 
 
-def extract_polygons_near_trajectory(states: list, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None) -> list:
+def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None) -> list:
     """Extracts the polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
 
     Args:
-        states (list): List of states on the form [x, y, psi, u, v, r]
+        trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
         geometry_tree (strtree.STRtree): The rtree containing the relevant grounding hazard polygons.
         buffer (float): Buffer size
         enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
@@ -246,7 +249,7 @@ def extract_polygons_near_trajectory(states: list, geometry_tree: strtree.STRtre
     Returns:
         list: List of relevant grounding hazard polygons intersecting the trajectory corridor.
     """
-    enveloping_polygon = generate_enveloping_polygon(states, buffer)
+    enveloping_polygon = generate_enveloping_polygon(trajectory, buffer)
     polygons_relevant_for_trajectory = geometry_tree.query(enveloping_polygon)
     poly_list = []
     for poly in polygons_relevant_for_trajectory:

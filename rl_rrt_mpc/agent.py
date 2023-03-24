@@ -116,11 +116,19 @@ class RLRRTMPC(ci.ICOLAV):
             self._rrt.set_goal_state(goal_state.tolist())
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
-            # rrtresult: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
-            rrtresult = hf.load_rrt_solution()
-            states = rrtresult["states"]
-            times = rrtresult["times"]
-            inputs = []
+            rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
+            # rrt_solution = hf.load_rrt_solution()
+            rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
+            times = np.array(rrt_solution["times"])
+            n_samples = len(times)
+            nominal_trajectory = np.zeros((6, n_samples))
+            nominal_inputs = np.zeros((3, n_samples))
+            nominal_references = np.zeros((2, n_samples))
+            for k in range(n_samples):
+                nominal_trajectory[:, k] = np.array(rrt_solution["states"][k])
+                nominal_inputs[:, k] = np.array(rrt_solution["inputs"][k])
+                nominal_references[:, k] = np.array(rrt_solution["references"][k])
+
             tree_list = self._rrt.get_tree_as_list_of_dicts()
 
             if enc is not None:
@@ -129,17 +137,21 @@ class RLRRTMPC(ci.ICOLAV):
                 #     enc.draw_polygon(hazard, color="red")
 
                 hf.plot_rrt_tree(tree_list, enc)
-                hf.plot_rrt_solution(states, times, enc)
+                hf.plot_rrt_solution(nominal_trajectory, times, enc)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
                 enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow")
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan")
-                hf.save_rrt_solution(states, inputs, times)
+                hf.save_rrt_solution(rrt_solution)
 
-            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(states, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc)
-            self._mpc.construct_ocp(do_list=do_list, so_list=polygons_considered_in_mpc, enc=enc)
+            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
+                nominal_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
+            )
+            self._mpc.construct_ocp(nominal_trajectory=nominal_trajectory, do_list=do_list, so_list=polygons_considered_in_mpc, enc=enc)
 
-        references = self._mpc.plan(t=t, nominal_trajectory=states, nominal_inputs=[], xs=ownship_state, do_list=do_list, so_list=polygons_considered_in_mpc)
+        references = self._mpc.plan(
+            t=t, nominal_trajectory=nominal_trajectory, nominal_inputs=nominal_inputs, xs=ownship_state, do_list=do_list, so_list=polygons_considered_in_mpc
+        )
         return references
 
     def get_current_plan(self) -> np.ndarray:

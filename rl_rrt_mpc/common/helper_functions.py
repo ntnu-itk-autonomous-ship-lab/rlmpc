@@ -86,19 +86,18 @@ def load_rrt_solution(save_file: Path = dp.rrt_solution) -> dict:
     return fu.read_yaml_into_dict(save_file)
 
 
-def save_rrt_solution(states: list, inputs: list, times: list, save_file: Path = dp.rrt_solution) -> None:
-    output_dict = {"states": states, "inputs": inputs, "times": times}
+def save_rrt_solution(rrt_solution: dict, save_file: Path = dp.rrt_solution) -> None:
     save_file.touch(exist_ok=True)
     with save_file.open(mode="w") as file:
-        yaml.dump(output_dict, file)
+        yaml.dump(rrt_solution, file)
 
 
-def plot_rrt_solution(states: list, times: list, enc: senc.ENC) -> None:
+def plot_rrt_solution(trajectory: np.ndarray, times: np.ndarray, enc: senc.ENC) -> None:
     enc.start_display()
-    states_line = []
-    for state in states:
-        states_line.append((state[1], state[0]))
-    enc.draw_line(states_line, color="magenta", width=1.0, thickness=1.0, marker_type=None)
+    trajectory_line = []
+    for k in range(trajectory.shape[1]):
+        trajectory_line.append((trajectory[1, k], trajectory[0, k]))
+    enc.draw_line(trajectory_line, color="magenta", width=1.0, thickness=1.0, marker_type=None)
 
 
 def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:

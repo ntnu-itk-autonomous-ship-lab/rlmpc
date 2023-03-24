@@ -16,7 +16,6 @@ pyo3-build-config = "0.18.1"
 serde_json = "1.0.93"
 serde = { version = "1.0.152", features = ["derive"] }
 config = "0.13.3"
-anyhow = "1.0.51"
 pyo3 = { version = "0.18.1", features = ["auto-initialize"]}
 rand = "0.8.5"
 nalgebra = "0.32.1"
