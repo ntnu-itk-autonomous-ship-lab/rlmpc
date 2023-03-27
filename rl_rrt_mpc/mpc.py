@@ -95,8 +95,12 @@ class MPC:
         if params:
             self._params0: MPCParams = params
             self._params: MPCParams = params
+        nx, nu = self._model.dims
+        self._x_warm_start: np.ndarray = np.zeros(nx)
+        self._u_warm_start: np.ndarray = np.zeros(nu)
+        self._initialized = False
 
-    def update_adjustable_params(self, params: list) -> list:
+    def update_adjustable_params(self, params: list) -> None:
         """Updates the RL-tuneable parameters in the NMPC.
 
         Args:
@@ -109,7 +113,8 @@ class MPC:
         Returns:
             list: List of newly updated parameters.
         """
-        self._params.Q = np.reshape(params[0:36], (6, 6))
+        nx = self._ocp.model.x.size()[0]
+        self._params.Q = np.reshape(params[0 : nx * nx], (nx, nx))
         self._params.gamma = params[36]
         self._params.d_safe_so = params[37]
         self._params.d_safe_do = params[38]
@@ -124,7 +129,8 @@ class MPC:
                 - d_safe_so
                 - d_safe_do
         """
-        return [self._params.Q.reshape(), self._params.gamma, self._params.d_safe_so, self._params.d_safe_do]
+        nx = self._ocp.model.x.size()[0]
+        return [*self._params.Q.reshape((nx * nx)).tolist(), self._params.gamma, self._params.d_safe_so, self._params.d_safe_do]
 
     def plan(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
@@ -140,22 +146,28 @@ class MPC:
         Returns:
             Tuple[np.ndarray, np.ndarray]: Optimal trajectory and inputs for the ownship.
         """
-        self._update_ocp(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, self._params)
-        status = self._ocp_solver.solve()
-        t_solve = self._ocp_solver.get_stats("time_tot")
-        cost = self._ocp_solver.get_stats("cost")
+        if not self._initialized:
+            self._x_warm_start = nominal_trajectory
+            self._u_warm_start = nominal_inputs
+            self._initialized = True
 
-        trajectory = np.array((self._ocp.dims.nx, self._ocp.dims.N + 1))
-        inputs = np.array((self._ocp.dims.nu, self._ocp.dims.N))
+        self._update_ocp(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list)
+        status = self._ocp_solver.solve()
+        self._ocp_solver.print_statistics()
+        t_solve = self._ocp_solver.get_stats("time_tot")
+        cost = self._ocp_solver.get_cost()
+
+        trajectory = np.zeros((self._ocp.dims.nx, self._ocp.dims.N + 1))
+        inputs = np.zeros((self._ocp.dims.nu, self._ocp.dims.N))
         for i in range(self._ocp.dims.N):
-            trajectory[:, i] = self._ocp_solver.get(i, "x").T
+            trajectory[:, i] = self._ocp_solver.get(i, "x")
             inputs[:, i] = self._ocp_solver.get(i, "u").T
         print(f"MPC: | Runtime: {t_solve} | Cost: {cost}")
+        self._x_warm_start = trajectory
+        self._u_warm_start = inputs
         return trajectory, inputs
 
-    def _update_ocp(
-        self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, adjustable_params: list
-    ) -> None:
+    def _update_ocp(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list) -> None:
         """Updates the OCP (cost and constraints) with the current info available
 
         Args:
@@ -165,12 +177,15 @@ class MPC:
             xs (np.ndarray): Current state.
             do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             so_list (list): List of static obstacle Polygon objects
-            adjustable_params (list): List of adjustable parameters to be passed to the cost function
         """
+        adjustable_params = self.get_adjustable_params()
         self._ocp_solver.constraints_set(0, "lbx", xs)
         self._ocp_solver.constraints_set(0, "ubx", xs)
-
         for i in range(self._ocp.dims.N + 1):
+            self._ocp_solver.set(i, "x", self._x_warm_start[:, i])
+            if i < self._ocp.dims.N:
+                self._ocp_solver.set(i, "u", self._u_warm_start[:, i])
+
             p_i = self.create_parameter_values(adjustable_params, nominal_trajectory, do_list, so_list, i)
             self._ocp_solver.set(i, "p", p_i)
 
@@ -236,15 +251,21 @@ class MPC:
         )
         self._ocp.constraints.ubu = np.array([max_Fx, max_Fy, lever_arm * max_Fy])
 
-        approx_inf = 1e15
+        approx_inf = 1e10
         # State constraints
+        lbx = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -0.6 * max_speed, -max_turn_rate])
+        ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, 0.6 * max_speed, max_turn_rate])
+        self._ocp.constraints.idxbx_0 = np.array(range(nx))
+        self._ocp.constraints.lbx_0 = lbx
+        self._ocp.constraints.ubx_0 = ubx
+
         self._ocp.constraints.idxbx = np.array(range(nx))
-        self._ocp.constraints.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -0.6 * max_speed, -max_turn_rate])
-        self._ocp.constraints.ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, 0.6 * max_speed, max_turn_rate])
+        self._ocp.constraints.lbx = lbx
+        self._ocp.constraints.ubx = ubx
 
         self._ocp.constraints.idxbx_e = np.array(range(nx))
-        self._ocp.constraints.lbx_e = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -0.6 * max_speed, -max_turn_rate])
-        self._ocp.constraints.ubx_e = np.array([approx_inf, approx_inf, approx_inf, max_speed, 0.6 * max_speed, max_turn_rate])
+        self._ocp.constraints.lbx_e = lbx
+        self._ocp.constraints.ubx_e = ubx
 
         # Dynamic and static obstacle constraints
         d_safe_so = csd.SX.sym("d_safe_so", 1)
@@ -264,7 +285,7 @@ class MPC:
             # y_poly, x_poly = so_list[j].exterior.xy
             # so_spline_j = csd.interpolant("so_spline_" + str(j), "bspline", [x_poly], y_poly)
             # con_h_expr.append((x - so_spline_j(x)).T @ (x - so_spline_j(x)) - d_safe_so**2)
-            con_h_expr.append(x[0])
+            con_h_expr.append(1000)
 
         for i in range(MAX_NUM_DO_CONSTRAINTS):
             x_do_i = csd.SX.sym("x_do_" + str(i), 4)
@@ -309,7 +330,7 @@ class MPC:
             continue
 
         for i in range(MAX_NUM_DO_CONSTRAINTS):
-            t = i * dt
+            t = stage_idx * dt
             if i < n_do:
                 (ID, state, cov, length, width) = do_list[i]
                 parameter_values = np.concatenate((parameter_values, np.array([state[0] + t * state[2], state[1] + t * state[3], state[2], state[3], length, width])))

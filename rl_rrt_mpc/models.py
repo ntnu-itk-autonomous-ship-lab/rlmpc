@@ -6,6 +6,8 @@
 
     Author: Trym Tengesdal
 """
+from typing import Tuple
+
 import casadi as csd
 import colav_simulator.core.models as cs_models
 import numpy as np
@@ -21,6 +23,10 @@ class TelemetronAcados:
     @property
     def params(self) -> cs_models.TelemetronParams:
         return self._params
+
+    @property
+    def dims(self) -> Tuple[int, int]:
+        return 6, 3
 
     def as_acados(self) -> AcadosModel:
 
