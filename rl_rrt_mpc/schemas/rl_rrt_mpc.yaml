@@ -100,6 +100,9 @@ mpc:
         nlp_solver_tol_stat:
           required: True
           type: float
+        nlp_solver_ext_qp_res:
+          required: True
+          type: integer
         qp_solver_iter_max:
           required: True
           type: integer

@@ -12,11 +12,13 @@ from typing import Optional, Tuple
 import casadi as csd
 import numpy as np
 import rl_rrt_mpc.common.file_utils as fu
+import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import yaml
 from scipy.interpolate import PchipInterpolator
+from scipy.stats import chi2
 from shapely.geometry import Polygon
 
 
@@ -42,12 +44,12 @@ def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None
         spline_y = PchipInterpolator(linspace, east, extrapolate=False)
         splines.append((spline_x, spline_y))
         spline_derivatives.append((spline_x.derivative(), spline_y.derivative()))
-        if enc is not None:
-            enc.start_display()
-            x_spline_vals = spline_x(linspace)
-            y_spline_vals = spline_y(linspace)
-            pairs = list(zip(y_spline_vals, x_spline_vals))
-            enc.draw_line(pairs, color="black", width=0)
+        # if enc is not None:
+        #     enc.start_display()
+        #     x_spline_vals = spline_x(linspace)
+        #     y_spline_vals = spline_y(linspace)
+        #     pairs = list(zip(y_spline_vals, x_spline_vals))
+        #     enc.draw_line(pairs, color="black", width=0)
 
     return splines, spline_derivatives
 
@@ -92,12 +94,108 @@ def save_rrt_solution(rrt_solution: dict, save_file: Path = dp.rrt_solution) -> 
         yaml.dump(rrt_solution, file)
 
 
-def plot_rrt_solution(trajectory: np.ndarray, times: np.ndarray, enc: senc.ENC) -> None:
+def shift_dynamic_obstacle_coordinates(dynamic_obstacles: list, x_shift: float, y_shift: float) -> list:
+    """Shifts the coordinates of a list of dynamic obstacles by (-y_shift, -x_shift)
+
+    Args:
+        dynamic_obstacles (list): List of dynamic obstacle objects on the form (ID, state, cov, length, width)
+        x_shift (float): Easting shift
+        y_shift (float): Northing shift
+
+    Returns:
+        list: List of dynamic obstacles with shifted coordinates
+    """
+    shifted_dynamic_obstacles = []
+    for (ID, state, cov, length, width) in dynamic_obstacles:
+        shifted_state = state - np.array([y_shift, x_shift, 0.0, 0.0])
+        shifted_dynamic_obstacles.append((ID, shifted_state, cov, length, width))
+    return shifted_dynamic_obstacles
+
+
+def shift_polygon_coordinates(polygons: list, x_shift: float, y_shift: float) -> list:
+    """Shifts the coordinates of a list of polygons by (-x_shift, -y_shift)
+
+    Args:
+        polygons (list): List of shapely polygons
+        x_shift (float): Shift easting
+        y_shift (float): Shift northing
+
+    Returns:
+        list: List of shifted polygons
+    """
+    shifted_polygons = []
+    for polygon in polygons:
+        shifted_polygon = affinity.translate(polygon, xoff=-x_shift, yoff=-y_shift)
+        shifted_polygons.append(shifted_polygon)
+    return shifted_polygons
+
+
+def create_probability_ellipse(P: np.ndarray, probability: float = 0.99) -> Tuple[list, list]:
+    """Creates a probability ellipse for a covariance matrix P and a given
+    confidence level (default 0.99).
+
+    Args:
+        P (np.ndarray): Covariance matrix
+        probability (float, optional): Confidence level. Defaults to 0.99.
+
+    Returns:
+        np.ndarray: Ellipse data in x and y coordinates
+    """
+
+    # eigenvalues and eigenvectors of the covariance matrix
+    eigenval, eigenvec = np.linalg.eig(P[0:2, 0:2])
+
+    largest_eigenval = max(eigenval)
+    largest_eigenvec_idx = np.argwhere(eigenval == max(eigenval))[0][0]
+    largest_eigenvec = eigenvec[:, largest_eigenvec_idx]
+
+    smallest_eigenval = min(eigenval)
+    # if largest_eigenvec_idx == 0:
+    #     smallest_eigenvec = eigenvec[:, 1]
+    # else:
+    #     smallest_eigenvec = eigenvec[:, 0]
+
+    angle = np.arctan2(largest_eigenvec[1], largest_eigenvec[0])
+    angle = mf.wrap_angle_to_02pi(angle)
+
+    # Get the ellipse scaling factor based on the confidence level
+    chisquare_val = chi2.ppf(q=probability, df=2)
+
+    a = chisquare_val * np.sqrt(largest_eigenval)
+    b = chisquare_val * np.sqrt(smallest_eigenval)
+
+    # the ellipse in "body" x and y coordinates
+    t = np.linspace(0, 2.01 * np.pi, 100)
+    x = a * np.cos(t)
+    y = b * np.sin(t)
+
+    R = mf.Rpsi2D(angle)
+
+    # Rotate to NED by angle phi, N_ell_points x 2
+    ellipse_xy = np.array([x, y])
+    for i in range(len(ellipse_xy)):
+        ellipse_xy[:, i] = R @ ellipse_xy[:, i]
+
+    return ellipse_xy[0, :].tolist(), ellipse_xy[1, :].tolist()
+
+
+def plot_trajectory(trajectory: np.ndarray, times: np.ndarray, enc: senc.ENC, color: str) -> None:
     enc.start_display()
     trajectory_line = []
     for k in range(trajectory.shape[1]):
         trajectory_line.append((trajectory[1, k], trajectory[0, k]))
-    enc.draw_line(trajectory_line, color="magenta", width=1.0, thickness=1.0, marker_type=None)
+    enc.draw_line(trajectory_line, color=color, width=1.0, thickness=1.0, marker_type=None)
+
+
+def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC) -> None:
+    enc.start_display()
+    for (ID, state, cov, length, width) in dynamic_obstacles:
+        do_poly = create_ship_polygon(state[0], state[1], np.arctan2(state[3], state[2]), length, width, length_scaling=1.0, width_scaling=1.0)
+        enc.draw_polygon(do_poly, color="red")
+
+        ellipse_x, ellipse_y = create_probability_ellipse(cov, 0.99)
+        ell_geometry = Polygon(zip(ellipse_y + state[1], ellipse_x + state[0]))
+        enc.draw_polygon(ell_geometry, color="orange", alpha=0.3)
 
 
 def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
@@ -109,7 +207,6 @@ def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
         for sub_node in node_list:
             if node["id"] == sub_node["id"] or sub_node["parent_id"] != node["id"]:
                 continue
-
             enc.draw_line([(node["state"][1], node["state"][0]), (sub_node["state"][1], sub_node["state"][0])], color="white", width=1.0, thickness=1.0, marker_type=None)
 
 

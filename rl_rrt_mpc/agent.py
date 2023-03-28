@@ -86,7 +86,13 @@ class RLRRTMPC(ci.ICOLAV):
         self._initialized = False
         self._t_prev = 0.0
         self._min_depth: int = 0
-        self._plan = np.empty(9)
+        self._mpc_rel_polygons: list = []
+        self._rrt_inputs: np.ndarray = np.empty(3)
+        self._rrt_trajectory: np.ndarray = np.empty(6)
+        self._rrt_references: np.ndarray = np.empty(2)
+        self._rel_rrt_trajectory: np.ndarray = np.empty(6)
+        self._mpc_trajectory: np.ndarray = np.empty(6)
+        self._mpc_inputs: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
     def plan(
@@ -104,6 +110,8 @@ class RLRRTMPC(ci.ICOLAV):
         in order to extract relevant grounding hazards.
         """
         assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
+        assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
+        rel_do_list = hf.shift_dynamic_obstacle_coordinates(do_list, enc.origin[0], enc.origin[1])
         if not self._initialized:
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             self._t_prev = t
@@ -121,23 +129,25 @@ class RLRRTMPC(ci.ICOLAV):
             rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
             times = np.array(rrt_solution["times"])
             n_samples = len(times)
-            nominal_trajectory = np.zeros((6, n_samples))
-            nominal_inputs = np.zeros((3, n_samples))
-            nominal_references = np.zeros((2, n_samples))
+            self._rrt_trajectory = np.zeros((6, n_samples))
+            self._rrt_inputs = np.zeros((3, n_samples))
+            self._rrt_references = np.zeros((2, n_samples))
             for k in range(n_samples):
-                nominal_trajectory[:, k] = np.array(rrt_solution["states"][k])
-                nominal_inputs[:, k] = np.array(rrt_solution["inputs"][k])
-                nominal_references[:, k] = np.array(rrt_solution["references"][k])
+                self._rrt_trajectory[:, k] = np.array(rrt_solution["states"][k])
+                self._rrt_inputs[:, k] = np.array(rrt_solution["inputs"][k])
+                self._rrt_references[:, k] = np.array(rrt_solution["references"][k])
 
+            self._rel_rrt_trajectory = self._rrt_trajectory.copy()
+            self._rel_rrt_trajectory[0, :] -= enc.origin[1]
+            self._rel_rrt_trajectory[1, :] -= enc.origin[0]
             tree_list = self._rrt.get_tree_as_list_of_dicts()
-
             if enc is not None:
                 enc.start_display()
                 # for hazard in relevant_grounding_hazards:
                 #     enc.draw_polygon(hazard, color="red")
 
                 hf.plot_rrt_tree(tree_list, enc)
-                hf.plot_rrt_solution(nominal_trajectory, times, enc)
+                hf.plot_trajectory(self._rrt_trajectory, times, enc, color="magenta")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
                 enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow")
                 enc.draw_polygon(ship_poly, color="pink")
@@ -145,15 +155,27 @@ class RLRRTMPC(ci.ICOLAV):
                 # hf.save_rrt_solution(rrt_solution)
 
             polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
-                nominal_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
+                self._rrt_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
             )
-            self._mpc.construct_ocp(nominal_trajectory=nominal_trajectory, do_list=do_list, so_list=polygons_considered_in_mpc, enc=enc)
+            self._mpc_rel_polygons = hf.shift_polygon_coordinates(polygons_considered_in_mpc, enc.origin[0], enc.origin[1])
+            self._mpc.construct_ocp(nominal_trajectory=self._rel_rrt_trajectory, do_list=rel_do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
-        trajectory, inputs = self._mpc.plan(
-            t=t, nominal_trajectory=nominal_trajectory, nominal_inputs=nominal_inputs, xs=ownship_state, do_list=do_list, so_list=polygons_considered_in_mpc
+        rel_ownship_state = ownship_state.copy()
+        rel_ownship_state[0] -= enc.origin[1]
+        rel_ownship_state[1] -= enc.origin[0]
+        self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
+            t=t,
+            nominal_trajectory=self._rel_rrt_trajectory,
+            nominal_inputs=self._rrt_inputs,
+            xs=rel_ownship_state,
+            do_list=rel_do_list,
+            so_list=self._mpc_rel_polygons,
         )
-        references = np.zeros((9, len(trajectory[0, :])))
-        references[:6, :] = trajectory
+
+        hf.plot_dynamic_obstacles(do_list, enc)
+        hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")
+        references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        references[:6, :] = self._mpc_trajectory
         return references
 
     def get_current_plan(self) -> np.ndarray:

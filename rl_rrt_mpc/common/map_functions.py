@@ -260,11 +260,11 @@ def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strt
         else:
             poly_list.append(intersection_poly)
 
-    if enc is not None:
-        enc.start_display()
-        enc.draw_polygon(enveloping_polygon, color="yellow")
-        for poly in poly_list:
-            enc.draw_polygon(poly, color="red")
+    # if enc is not None:
+    #     enc.start_display()
+    #     enc.draw_polygon(enveloping_polygon, color="yellow")
+    #     for poly in poly_list:
+    #         enc.draw_polygon(poly, color="red")
 
     return poly_list
 
@@ -360,10 +360,10 @@ def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel
     """
     dangerous_seabed = extract_relevant_grounding_hazards(minimum_vessel_depth, enc)
     vessel_traj_linestring = ndarray_to_linestring(vessel_trajectory)
-    if enc and show_enc:
-        enc.start_display()
-        for hazard in dangerous_seabed:
-            enc.draw_polygon(hazard, color="red")
+    # if enc and show_enc:
+    #     enc.start_display()
+    #     for hazard in dangerous_seabed:
+    #         enc.draw_polygon(hazard, color="red")
     # intersection_points = find_intersections_line_polygon(vessel_traj_linestring, dangerous_seabed, enc)
 
     # Will find the first gronding point.
@@ -395,8 +395,8 @@ def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel
         if np.linalg.norm(min_dist_vec) <= min_dist + epsilon and np.linalg.norm(min_dist_vec) >= min_dist - epsilon:
             break
 
-    if enc and show_enc:
-        enc.close_display()
+    # if enc and show_enc:
+    #     enc.close_display()
     return min_dist, min_dist_vec, min_idx
 
 

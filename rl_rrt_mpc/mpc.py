@@ -12,13 +12,14 @@ from typing import Optional, Tuple
 import casadi as csd
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
+import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.models as models
 import seacharts.enc as senc
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
-MAX_NUM_DO_CONSTRAINTS: int = 15
-MAX_NUM_SO_CONSTRAINTS: int = 1000
+MAX_NUM_DO_CONSTRAINTS: int = 2
+MAX_NUM_SO_CONSTRAINTS: int = 0
 P_ADJUSTABLE_IDX_START: int = 0  # Index of first adjustable parameter in the parameter vector
 P_ADJUSTABLE_IDX_END: int = 39  # Index of last adjustable parameter + 1 in the parameter vector
 P_XREF_IDX_START: int = 39  # Index of first reference state element in the parameter vector
@@ -81,6 +82,7 @@ class MPCParams:
         config.solver_options.globalization = config_dict["solver_options"]["globalization"]
         config.solver_options.nlp_solver_max_iter = config_dict["solver_options"]["nlp_solver_max_iter"]
         config.solver_options.nlp_solver_tol_stat = config_dict["solver_options"]["nlp_solver_tol_stat"]
+        config.solver_options.nlp_solver_ext_qp_res = config_dict["solver_options"]["nlp_solver_ext_qp_res"]
         config.solver_options.qp_solver_iter_max = config_dict["solver_options"]["qp_solver_iter_max"]
         config.solver_options.qp_solver_warm_start = config_dict["solver_options"]["qp_solver_warm_start"]
         config.solver_options.levenberg_marquardt = config_dict["solver_options"]["levenberg_marquardt"]
@@ -99,6 +101,8 @@ class MPC:
         self._x_warm_start: np.ndarray = np.zeros(nx)
         self._u_warm_start: np.ndarray = np.zeros(nu)
         self._initialized = False
+        self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
+        self._map_origin: Tuple[float, float] = (0.0, 0.0)  # In east-north coordinates
 
     def update_adjustable_params(self, params: list) -> None:
         """Updates the RL-tuneable parameters in the NMPC.
@@ -137,11 +141,11 @@ class MPC:
 
         Args:
             t (float): Current time.
-            nominal_trajectory (np.ndarray): Nominal reference trajectory to track.
+            nominal_trajectory (np.ndarray): Nominal reference trajectory to track. Assume that the positions is relative to the coordinate/map origin.
             nominal_inputs (np.ndarray): Nominal reference inputs to track.
             xs (np.ndarray): Current state.
-            do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
-            so_list (list): List of static obstacle Polygon objects
+            do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width). Assume that the position parts are relative to the coordinate/map origin.
+            so_list (list): List of static obstacle Polygon objects. Assume that the positions are relative to the coordinate/map origin.
 
         Returns:
             Tuple[np.ndarray, np.ndarray]: Optimal trajectory and inputs for the ownship.
@@ -159,13 +163,16 @@ class MPC:
 
         trajectory = np.zeros((self._ocp.dims.nx, self._ocp.dims.N + 1))
         inputs = np.zeros((self._ocp.dims.nu, self._ocp.dims.N))
-        for i in range(self._ocp.dims.N):
+        for i in range(self._ocp.dims.N + 1):
             trajectory[:, i] = self._ocp_solver.get(i, "x")
-            inputs[:, i] = self._ocp_solver.get(i, "u").T
+            if i < self._ocp.dims.N:
+                inputs[:, i] = self._ocp_solver.get(i, "u").T
         print(f"MPC: | Runtime: {t_solve} | Cost: {cost}")
-        self._x_warm_start = trajectory
-        self._u_warm_start = inputs
-        return trajectory, inputs
+        self._x_warm_start = trajectory.copy()
+        self._u_warm_start = inputs.copy()
+        trajectory[0, :] = trajectory[0, :] + self._map_origin[1]
+        trajectory[1, :] = trajectory[1, :] + self._map_origin[0]
+        return trajectory[:, : self._ocp.dims.N], inputs[:, : self._ocp.dims.N]
 
     def _update_ocp(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list) -> None:
         """Updates the OCP (cost and constraints) with the current info available
@@ -185,20 +192,30 @@ class MPC:
             self._ocp_solver.set(i, "x", self._x_warm_start[:, i])
             if i < self._ocp.dims.N:
                 self._ocp_solver.set(i, "u", self._u_warm_start[:, i])
-
             p_i = self.create_parameter_values(adjustable_params, nominal_trajectory, do_list, so_list, i)
             self._ocp_solver.set(i, "p", p_i)
+        print("OCP updated")
 
-    def construct_ocp(self, nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None) -> None:
+    def construct_ocp(self, nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
         """Constructs the OCP for the NMPC problem.
 
         Args:
             nominal_trajectory (np.ndarray): Nominal reference trajectory to track.
             do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             so_list (list): List of static obstacle Polygon objects
-            enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+            enc senc.ENC: ENC object.
 
         """
+        self._map_bbox = enc.bbox
+        self._map_origin = enc.origin
+        min_Fx = self._model.params.Fx_limits[0]
+        max_Fx = self._model.params.Fx_limits[1]
+        min_Fy = self._model.params.Fy_limits[0]
+        max_Fy = self._model.params.Fy_limits[1]
+        lever_arm = self._model.params.l_r
+        max_turn_rate = self._model.params.r_max
+        max_speed = self._model.params.U_max
+
         self._ocp.model = self._model.as_acados()
         self._ocp.solver_options = self._params.solver_options
         self._ocp.dims.N = int(self._params.T / self._params.dt)
@@ -220,7 +237,18 @@ class MPC:
 
         self._ocp.cost.cost_type = "EXTERNAL"
         self._ocp.cost.cost_type_e = "EXTERNAL"
-        Qmtrx = hf.casadi_matrix_from_vector(Qvec)
+        Qscaling = np.eye(nx)
+        # Qscaling = np.diag(
+        #     [
+        #         1.0 / (self._map_bbox[3] - self._map_bbox[1]) ** 2,
+        #         1.0 / (self._map_bbox[2] - self._map_bbox[0]) ** 2,
+        #         1.0 / (2.0 * np.pi) ** 2,
+        #         1.0 / max_speed**2,
+        #         1.0 / (0.6 * max_speed) ** 2,
+        #         1.0 / (2.0 * max_turn_rate) ** 2,
+        #     ]
+        # )
+        Qmtrx = hf.casadi_matrix_from_vector(Qvec) @ Qscaling
         self._ocp.model.cost_expr_ext_cost = gamma * (x_ref - x).T @ Qmtrx @ (x_ref - x)
         self._ocp.model.cost_expr_ext_cost_e = gamma * (x_ref - x).T @ Qmtrx @ (x_ref - x)
 
@@ -232,13 +260,6 @@ class MPC:
         # ocp.cost.Zu = 1e5 * np.array([1])
 
         self._ocp.constraints.constr_type = "BGH"
-        min_Fx = self._model.params.Fx_limits[0]
-        max_Fx = self._model.params.Fx_limits[1]
-        min_Fy = self._model.params.Fy_limits[0]
-        max_Fy = self._model.params.Fy_limits[1]
-        lever_arm = self._model.params.l_r
-        max_turn_rate = self._model.params.r_max
-        max_speed = self._model.params.U_max
 
         # Input constraints
         self._ocp.constraints.idxbu = np.array(range(nu))
@@ -251,21 +272,21 @@ class MPC:
         )
         self._ocp.constraints.ubu = np.array([max_Fx, max_Fy, lever_arm * max_Fy])
 
-        approx_inf = 1e10
+        approx_inf = 1e6
         # State constraints
-        lbx = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -0.6 * max_speed, -max_turn_rate])
-        ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, 0.6 * max_speed, max_turn_rate])
+        lbx = np.array([self._map_bbox[1] - self._map_origin[1], self._map_bbox[0] - self._map_origin[0], -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])
+        ubx = np.array([self._map_bbox[3] - self._map_origin[1], self._map_bbox[2] - self._map_origin[0], np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
         self._ocp.constraints.idxbx_0 = np.array(range(nx))
         self._ocp.constraints.lbx_0 = lbx
         self._ocp.constraints.ubx_0 = ubx
 
-        self._ocp.constraints.idxbx = np.array(range(nx))
-        self._ocp.constraints.lbx = lbx
-        self._ocp.constraints.ubx = ubx
+        self._ocp.constraints.idxbx = np.array([0, 1, 3, 4, 5])
+        self._ocp.constraints.lbx = lbx[self._ocp.constraints.idxbx]
+        self._ocp.constraints.ubx = ubx[self._ocp.constraints.idxbx]
 
-        self._ocp.constraints.idxbx_e = np.array(range(nx))
-        self._ocp.constraints.lbx_e = lbx
-        self._ocp.constraints.ubx_e = ubx
+        self._ocp.constraints.idxbx_e = np.array([0, 1, 3, 4, 5])
+        self._ocp.constraints.lbx_e = lbx[self._ocp.constraints.idxbx_e]
+        self._ocp.constraints.ubx_e = ubx[self._ocp.constraints.idxbx_e]
 
         # Dynamic and static obstacle constraints
         d_safe_so = csd.SX.sym("d_safe_so", 1)
@@ -285,15 +306,19 @@ class MPC:
             # y_poly, x_poly = so_list[j].exterior.xy
             # so_spline_j = csd.interpolant("so_spline_" + str(j), "bspline", [x_poly], y_poly)
             # con_h_expr.append((x - so_spline_j(x)).T @ (x - so_spline_j(x)) - d_safe_so**2)
-            con_h_expr.append(1000)
+            con_h_expr.append(0.0)
 
+        # Ellipsoidal DO constraints
         for i in range(MAX_NUM_DO_CONSTRAINTS):
             x_do_i = csd.SX.sym("x_do_" + str(i), 4)
             l_do_i = csd.SX.sym("l_do_" + str(i), 1)
             w_do_i = csd.SX.sym("w_do_" + str(i), 1)
             chi_do_i = csd.atan2(x_do_i[3], x_do_i[2])
+            Rchi_do_i = mf.Rpsi2D_casadi(chi_do_i)
+            p_diff_do_frame = Rchi_do_i @ (x[0:2] - x_do_i[0:2])
+            weights = hf.casadi_matrix_from_nested_list([[1.0 / (l_do_i + d_safe_do) ** 2, 0.0], [0.0, 1.0 / (w_do_i + d_safe_do) ** 2]])
             fixed_params = csd.vertcat(fixed_params, x_do_i, l_do_i, w_do_i)
-            con_h_expr.append(((x[0] - x_do_i[0]) ** 2 * csd.cos(chi_do_i) / l_do_i**2) + ((x[1] - x_do_i[1]) ** 2 * csd.cos(chi_do_i) / w_do_i**2) - d_safe_do**2)
+            con_h_expr.append(p_diff_do_frame.T @ weights @ p_diff_do_frame - 1)
 
         # Parameters consist of RL adjustable parameters, and fixed parameters (either nominal trajectory or dynamic obstacle related). The model parameters are considered fixed.
         adjustable_params = csd.vertcat(Qvec, gamma, d_safe_so, d_safe_do)
@@ -307,16 +332,16 @@ class MPC:
         self._ocp.parameter_values = self.create_parameter_values(initial_adjustable_params, nominal_trajectory, do_list, so_list, 0)
 
         solver_json = "acados_ocp_" + self._ocp.model.name + ".json"
-        self._ocp_solver = AcadosOcpSolver(self._ocp, json_file=solver_json)
+        self._ocp_solver: AcadosOcpSolver = AcadosOcpSolver(self._ocp, json_file=solver_json)
 
     def create_parameter_values(self, adjustable_params: list, nominal_trajectory: np.ndarray, do_list: list, so_list: list, stage_idx: int) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
         Args:
             adjustable_params (list): List of adjustable parameter values
-            nominal_trajectory (np.ndarray): Nominal trajectory to be followed
-            do_list (list): List of dynamic obstacles
-            so_list (list): List of static obstacles
+            nominal_trajectory (np.ndarray): Nominal trajectory to be followed. Assume that the position part is relative to the map origin.
+            do_list (list): List of dynamic obstacles. Assume that the position part is relative to the map origin.
+            so_list (list): List of static obstacles. Assume that the position part is relative to the map origin.
             stage_idx (int): Stage index for the shooting node to consider
 
         Returns:
@@ -335,5 +360,5 @@ class MPC:
                 (ID, state, cov, length, width) = do_list[i]
                 parameter_values = np.concatenate((parameter_values, np.array([state[0] + t * state[2], state[1] + t * state[3], state[2], state[3], length, width])))
             else:
-                parameter_values = np.concatenate((parameter_values, np.array([0.0, 0.0, 0.0, 0.0, 5.0, 2.0])))
+                parameter_values = np.concatenate((parameter_values, np.array([self._map_origin[1], self._map_origin[0], 0.0, 0.0, 5.0, 2.0])))
         return parameter_values

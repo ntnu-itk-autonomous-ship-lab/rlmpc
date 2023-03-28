@@ -15,9 +15,9 @@ rrt:
 
 mpc:
   reference_traj_bbox_buffer: 500.0
-  T: 10.0
+  T: 120.0
   dt: 0.5
-  Q: [10.0, 10.0, 0.1, 0.1, 0.1, 0.1]
+  Q: [100.0, 100.0, 1.0, 1.0, 0.05, 0.01]
   R: [1.0, 1.0, 1.0]
   d_safe_so: 5.0
   d_safe_do: 10.0
@@ -29,7 +29,8 @@ mpc:
     globalization: "MERIT_BACKTRACKING"
     nlp_solver_max_iter: 500
     nlp_solver_tol_stat: 0.000001
+    nlp_solver_ext_qp_res: 1
     qp_solver_iter_max: 100
     qp_solver_warm_start: 0
     levenberg_marquardt: 0.0
-    print_level: 3
+    print_level: 1

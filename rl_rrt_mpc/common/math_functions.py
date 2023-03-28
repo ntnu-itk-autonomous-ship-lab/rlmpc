@@ -239,7 +239,7 @@ def Rpsi2D(psi: float) -> np.ndarray:
     return np.array([[np.cos(psi), -np.sin(psi)], [np.sin(psi), np.cos(psi)]])
 
 
-def Rpsi2D_casadi(psi: float) -> csd.SX:
+def Rpsi2D_casadi(psi: float | csd.SX) -> csd.SX:
     """Same as Rpsi2D but for casadi."""
     return hf.casadi_matrix_from_nested_list([[csd.cos(psi), -csd.sin(psi)], [csd.sin(psi), csd.cos(psi)]])
 
