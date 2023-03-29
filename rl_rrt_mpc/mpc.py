@@ -148,8 +148,8 @@ class MPC:
         print(f"MPC: | Runtime: {t_solve} | Cost: {cost}")
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
-        trajectory[0, :] = trajectory[0, :] + self._map_origin[1]
-        trajectory[1, :] = trajectory[1, :] + self._map_origin[0]
+        trajectory[0, :] = trajectory[0, :] + self._map_bbox[1]
+        trajectory[1, :] = trajectory[1, :] + self._map_bbox[0]
         return trajectory[:, : self._ocp.dims.N], inputs[:, : self._ocp.dims.N]
 
     def _update_ocp(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list) -> None:
@@ -185,7 +185,6 @@ class MPC:
 
         """
         self._map_bbox = enc.bbox
-        self._map_origin = enc.origin
         min_Fx = self._model.params.Fx_limits[0]
         max_Fx = self._model.params.Fx_limits[1]
         min_Fy = self._model.params.Fy_limits[0]
@@ -252,8 +251,8 @@ class MPC:
 
         approx_inf = 1e10
         # State constraints
-        lbx = np.array([self._map_bbox[1] - self._map_origin[1], self._map_bbox[0] - self._map_origin[0], -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])
-        ubx = np.array([self._map_bbox[3] - self._map_origin[1], self._map_bbox[2] - self._map_origin[0], np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
+        lbx = np.array([0.0, 0.0, -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])
+        ubx = np.array([self._map_bbox[3] - self._map_bbox[1], self._map_bbox[2] - self._map_bbox[0], np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
         self._ocp.constraints.idxbx_0 = np.array(range(nx))
         self._ocp.constraints.lbx_0 = lbx
         self._ocp.constraints.ubx_0 = ubx
@@ -276,8 +275,8 @@ class MPC:
         self._ocp.constraints.uh_e = self._ocp.constraints.uh
 
         con_h_expr = []
-        so_splines_xy, so_splines_der_xy = hf.compute_splines_from_polygons(so_list, enc)
-        n_so = len(so_splines_xy)
+        so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, self._map_bbox, enc)
+        n_so = len(so_surfaces)
         for j in range(MAX_NUM_SO_CONSTRAINTS):
             # if j < n_so:
             # # generate spline of static obstacle

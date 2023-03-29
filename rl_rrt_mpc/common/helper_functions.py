@@ -22,6 +22,35 @@ from scipy.stats import chi2
 from shapely.geometry import Polygon
 
 
+def compute_surface_approximations_from_polygons(polygons: list, map_bbox: Tuple[int, int, int, int], enc: Optional[senc.ENC] = None) -> list:
+    """Computes smooth 2D surface approximations from the input polygon list.
+
+    Args:
+        polygons (list): List of shapely polygons
+        map_bbox (Tuple[int, int, int, int]): Bounding box of the map
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+
+    Returns:
+        list: List of surface approximations for each polygon.
+    """
+    surfaces = []
+
+    for j, polygon in enumerate(polygons):
+        y, x = polygon.exterior.xy
+        X_poly, Y_poly = np.meshgrid(x, y, indexing="ij")
+        z_values = np.ones(len(x))
+        polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [x, y], z_values)
+        surfaces.append(polygon_surface)
+    #     xgrid = np.linspace(-5,5,11)
+    #   * ygrid = np.linspace(-4,4,9)
+    #   * X,Y = np.meshgrid(xgrid,ygrid,indexing='ij')
+    #   * R = np.sqrt(5*X**2 + Y**2)+ 1
+    #   * data = np.sin(R)/R
+    #   * data_flat = data.ravel(order='F')
+    #   * LUT = casadi.interpolant('name','bspline',[xgrid,ygrid],data_flat)
+    return surfaces
+
+
 def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> Tuple[list, list]:
     """Computes splines from a list of polygons
 
@@ -30,7 +59,7 @@ def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None
         enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
 
     Returns:
-        list: List of tuples with splines for x and y, and similarly for the derivatives
+        Tuple[list, list]: List of tuples with splines for x and y, and similarly for the derivatives
     """
     splines = []
     spline_derivatives = []
