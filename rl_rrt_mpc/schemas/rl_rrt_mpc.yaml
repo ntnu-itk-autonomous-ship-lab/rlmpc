@@ -85,30 +85,39 @@ mpc:
         nlp_solver_type:
           required: True
           type: string
-        qp_solver_type:
-          required: True
-          type: string
-        hessian_approx_type:
-          required: True
-          type: string
-        globalization:
-          required: True
-          type: string
         nlp_solver_max_iter:
           required: True
           type: integer
         nlp_solver_tol_stat:
           required: True
           type: float
+        nlp_solver_tol_eq:
+          required: True
+          type: float
+        nlp_solver_tol_ineq:
+          required: True
+          type: float
+        nlp_solver_tol_comp:
+          required: True
+          type: float
         nlp_solver_ext_qp_res:
           required: True
           type: integer
+        qp_solver_type:
+          required: True
+          type: string
         qp_solver_iter_max:
           required: True
           type: integer
         qp_solver_warm_start:
           required: True
           type: integer
+        hessian_approx_type:
+          required: True
+          type: string
+        globalization:
+          required: True
+          type: string
         levenberg_marquardt:
           required: True
           type: float

@@ -6,7 +6,7 @@
 
     Author: Trym Tengesdal
 """
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import casadi as csd
@@ -18,37 +18,8 @@ import seacharts.enc as senc
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
-MAX_NUM_DO_CONSTRAINTS: int = 2
-MAX_NUM_SO_CONSTRAINTS: int = 0
-P_ADJUSTABLE_IDX_START: int = 0  # Index of first adjustable parameter in the parameter vector
-P_ADJUSTABLE_IDX_END: int = 39  # Index of last adjustable parameter + 1 in the parameter vector
-P_XREF_IDX_START: int = 39  # Index of first reference state element in the parameter vector
-P_XREF_IDX_END: int = 46  # Index of last reference state element + 1 in the parameter vector
-P_SO_IDX_START: int = -1  # Index of first static obstacle constraint element in the parameter vector
-P_SO_IDX_END: int = -1 * MAX_NUM_SO_CONSTRAINTS  # Index of last static obstacle constraint element parameter + 1 in the parameter vector.
-P_DO_IDX_START: int = 46  # Index of first dynamic obstacle constraint element in the parameter vector
-P_DO_IDX_END: int = 46 + (4 + 1 + 1) * MAX_NUM_DO_CONSTRAINTS  # Index of last dynamic obstacle constraint element parameter + 1 in the parameter vector.
-
-
-@dataclass
-class OCPSolverOptions:
-    nlp_solver_type: str = "SQP"
-    qp_solver_type: str = "FULL_CONDENSING_QPOASES"
-    hessian_approx_type: str = "GAUSS_NEWTON"
-    globalization: str = "MERIT_BACKTRACKING"
-    nlp_solver_max_iter: int = 100
-    nlp_solver_tol_stat: float = 1e-6
-    qp_solver_iter_max: int = 100
-    qp_solver_warm_start: int = 0
-    levenberg_marquardt: float = 0.0
-    print_level: int = 3
-
-    @classmethod
-    def from_dict(cls, config_dict: dict):
-        return OCPSolverOptions(**config_dict)
-
-    def to_dict(self):
-        return asdict(self)
+MAX_NUM_DO_CONSTRAINTS: int = 15
+MAX_NUM_SO_CONSTRAINTS: int = 700
 
 
 @dataclass
@@ -77,14 +48,17 @@ class MPCParams:
             solver_options=AcadosOcpOptions(),
         )
         config.solver_options.nlp_solver_type = config_dict["solver_options"]["nlp_solver_type"]
-        config.solver_options.qp_solver_type = config_dict["solver_options"]["qp_solver_type"]
-        config.solver_options.hessian_approx = config_dict["solver_options"]["hessian_approx_type"]
-        config.solver_options.globalization = config_dict["solver_options"]["globalization"]
         config.solver_options.nlp_solver_max_iter = config_dict["solver_options"]["nlp_solver_max_iter"]
+        config.solver_options.nlp_solver_tol_eq = config_dict["solver_options"]["nlp_solver_tol_eq"]
+        config.solver_options.nlp_solver_tol_ineq = config_dict["solver_options"]["nlp_solver_tol_ineq"]
+        config.solver_options.nlp_solver_tol_comp = config_dict["solver_options"]["nlp_solver_tol_comp"]
         config.solver_options.nlp_solver_tol_stat = config_dict["solver_options"]["nlp_solver_tol_stat"]
         config.solver_options.nlp_solver_ext_qp_res = config_dict["solver_options"]["nlp_solver_ext_qp_res"]
+        config.solver_options.qp_solver = config_dict["solver_options"]["qp_solver_type"]
         config.solver_options.qp_solver_iter_max = config_dict["solver_options"]["qp_solver_iter_max"]
         config.solver_options.qp_solver_warm_start = config_dict["solver_options"]["qp_solver_warm_start"]
+        config.solver_options.hessian_approx = config_dict["solver_options"]["hessian_approx_type"]
+        config.solver_options.globalization = config_dict["solver_options"]["globalization"]
         config.solver_options.levenberg_marquardt = config_dict["solver_options"]["levenberg_marquardt"]
         config.solver_options.print_level = config_dict["solver_options"]["print_level"]
         return config
@@ -103,6 +77,10 @@ class MPC:
         self._initialized = False
         self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
         self._map_origin: Tuple[float, float] = (0.0, 0.0)  # In east-north coordinates
+
+    @property
+    def params(self) -> MPCParams:
+        return self._params
 
     def update_adjustable_params(self, params: list) -> None:
         """Updates the RL-tuneable parameters in the NMPC.
@@ -272,7 +250,7 @@ class MPC:
         )
         self._ocp.constraints.ubu = np.array([max_Fx, max_Fy, lever_arm * max_Fy])
 
-        approx_inf = 1e6
+        approx_inf = 1e10
         # State constraints
         lbx = np.array([self._map_bbox[1] - self._map_origin[1], self._map_bbox[0] - self._map_origin[0], -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])
         ubx = np.array([self._map_bbox[3] - self._map_origin[1], self._map_bbox[2] - self._map_origin[0], np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
@@ -309,6 +287,7 @@ class MPC:
             con_h_expr.append(0.0)
 
         # Ellipsoidal DO constraints
+        epsilon_do = 0.0001
         for i in range(MAX_NUM_DO_CONSTRAINTS):
             x_do_i = csd.SX.sym("x_do_" + str(i), 4)
             l_do_i = csd.SX.sym("l_do_" + str(i), 1)
@@ -318,7 +297,7 @@ class MPC:
             p_diff_do_frame = Rchi_do_i @ (x[0:2] - x_do_i[0:2])
             weights = hf.casadi_matrix_from_nested_list([[1.0 / (l_do_i + d_safe_do) ** 2, 0.0], [0.0, 1.0 / (w_do_i + d_safe_do) ** 2]])
             fixed_params = csd.vertcat(fixed_params, x_do_i, l_do_i, w_do_i)
-            con_h_expr.append(p_diff_do_frame.T @ weights @ p_diff_do_frame - 1)
+            con_h_expr.append(csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon_do) - csd.log(1 + epsilon_do))
 
         # Parameters consist of RL adjustable parameters, and fixed parameters (either nominal trajectory or dynamic obstacle related). The model parameters are considered fixed.
         adjustable_params = csd.vertcat(Qvec, gamma, d_safe_so, d_safe_do)
@@ -360,5 +339,5 @@ class MPC:
                 (ID, state, cov, length, width) = do_list[i]
                 parameter_values = np.concatenate((parameter_values, np.array([state[0] + t * state[2], state[1] + t * state[3], state[2], state[3], length, width])))
             else:
-                parameter_values = np.concatenate((parameter_values, np.array([self._map_origin[1], self._map_origin[0], 0.0, 0.0, 5.0, 2.0])))
+                parameter_values = np.concatenate((parameter_values, np.array([0.0, 0.0, 0.0, 0.0, 5.0, 2.0])))
         return parameter_values

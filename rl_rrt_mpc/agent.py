@@ -172,7 +172,7 @@ class RLRRTMPC(ci.ICOLAV):
             so_list=self._mpc_rel_polygons,
         )
 
-        hf.plot_dynamic_obstacles(do_list, enc)
+        hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
         hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")
         references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         references[:6, :] = self._mpc_trajectory
