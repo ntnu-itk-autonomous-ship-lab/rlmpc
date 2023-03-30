@@ -37,8 +37,8 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-    npx = 50
-    npy = 50
+    npx = 15
+    npy = 15
     for j, polygon in enumerate(polygons):
         n_vertices = len(polygon.exterior.coords)
         npx = int(np.sqrt(n_vertices))
@@ -47,7 +47,7 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
         X, Y = np.meshgrid(north_coords, east_coords)
         map_coords = np.hstack((Y.reshape(-1, 1), X.reshape(-1, 1)))
-        poly_path = mpath.Path(polygon.buffer(0.5).exterior.coords)
+        poly_path = mpath.Path(polygon.buffer(0.2).exterior.coords)
         mask = poly_path.contains_points(points=map_coords, radius=0.1)
         mask = mask.astype(float).reshape((npy, npx))
         mask[mask > 0.0] = -1.0

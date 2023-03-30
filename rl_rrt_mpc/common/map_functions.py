@@ -272,7 +272,52 @@ def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strt
     return poly_list
 
 
-def to_triangles(polygon: geometry.Polygon) -> list:
+def extract_triangle_boundaries_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> list:
+    """Computes CDT for all polygons in the list, and returns a list of triangles comprising the boundary of each polygon.
+
+    Args:
+        polygons (list): List of shapely polygons.
+
+    Returns:
+        list: List of list of shapely polygons representing the boundary triangles for each polygon.
+    """
+    poly_boundary_list = []
+    for poly in polygons:
+        cdt = constrained_delaunay_triangulation(poly)
+        boundary_triangles = extract_triangle_boundaries_from_polygon(cdt, poly)
+        poly_boundary_list.append(boundary_triangles)
+
+        if enc is not None:
+            enc.draw_polygon(poly, color="black", alpha=0.3)
+            for tri in boundary_triangles:
+                enc.draw_polygon(tri, color="red")
+
+    return poly_boundary_list
+
+
+def extract_triangle_boundaries_from_polygon(cdt: list, polygon: geometry.Polygon) -> list:
+    """Extracts the triangles that comprise the boundary of the polygon.
+
+    Args:
+        cdt (list): List of shapely polygons representing the CDT for the polygon.
+        polygon (geometry.Polygon): The polygon.
+
+    Returns:
+        list: List of shapely polygons representing the boundary triangles for the polygon.
+    """
+    boundary_triangles = []
+    if len(cdt) == 1:
+        return cdt
+
+    for v in polygon.exterior.coords:
+        for tri in cdt:
+            if tri.contains(geometry.Point(v)) and tri not in boundary_triangles:
+                boundary_triangles.append(tri)
+
+    return boundary_triangles
+
+
+def constrained_delaunay_triangulation(polygon: geometry.Polygon) -> list:
     """Converts a polygon to a list of triangles. Basically constrained delaunay triangulation.
 
     Args:
@@ -321,7 +366,6 @@ def to_triangles(polygon: geometry.Polygon) -> list:
     filtered_triangles_join = filtered_triangles_join[filtered_triangles_join["TRI_ID_left"] == filtered_triangles_join["TRI_ID_right"]]
     # Remove overload triangles from same filtered_triangless
     filtered_triangles = filtered_triangles[filtered_triangles["LINK_ID"].isin(filtered_triangles_join["LINK_ID"])]
-
     return filtered_triangles.geometry.values
 
 

@@ -157,6 +157,7 @@ class RLRRTMPC(ci.ICOLAV):
             polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
                 self._rrt_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
             )
+            triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_mpc, enc=enc)
             self._mpc_rel_polygons = hf.shift_polygon_coordinates(polygons_considered_in_mpc, enc.origin[0], enc.origin[1])
             self._mpc.construct_ocp(nominal_trajectory=self._rel_rrt_trajectory, do_list=rel_do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
