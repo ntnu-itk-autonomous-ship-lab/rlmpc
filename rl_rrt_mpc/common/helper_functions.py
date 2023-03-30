@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import casadi as csd
+import matplotlib.path as mpath
+import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.file_utils as fu
 import rl_rrt_mpc.common.math_functions as mf
@@ -17,37 +19,56 @@ import rl_rrt_mpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import yaml
+from matplotlib import cm
 from scipy.interpolate import PchipInterpolator
 from scipy.stats import chi2
 from shapely.geometry import Polygon
 
 
-def compute_surface_approximations_from_polygons(polygons: list, map_bbox: Tuple[int, int, int, int], enc: Optional[senc.ENC] = None) -> list:
+def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
         polygons (list): List of shapely polygons
-        map_bbox (Tuple[int, int, int, int]): Bounding box of the map
         enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-
+    npx = 50
+    npy = 50
     for j, polygon in enumerate(polygons):
-        y, x = polygon.exterior.xy
-        X_poly, Y_poly = np.meshgrid(x, y, indexing="ij")
-        z_values = np.ones(len(x))
-        polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [x, y], z_values)
+        n_vertices = len(polygon.exterior.coords)
+        npx = int(np.sqrt(n_vertices))
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(2.0).bounds
+        north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
+        east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
+        X, Y = np.meshgrid(north_coords, east_coords)
+        map_coords = np.hstack((Y.reshape(-1, 1), X.reshape(-1, 1)))
+        poly_path = mpath.Path(polygon.buffer(0.5).exterior.coords)
+        mask = poly_path.contains_points(points=map_coords, radius=0.1)
+        mask = mask.astype(float).reshape((npy, npx))
+        mask[mask > 0.0] = -1.0
+        polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [east_coords, north_coords], mask.ravel(order="F"))
         surfaces.append(polygon_surface)
-    #     xgrid = np.linspace(-5,5,11)
-    #   * ygrid = np.linspace(-4,4,9)
-    #   * X,Y = np.meshgrid(xgrid,ygrid,indexing='ij')
-    #   * R = np.sqrt(5*X**2 + Y**2)+ 1
-    #   * data = np.sin(R)/R
-    #   * data_flat = data.ravel(order='F')
-    #   * LUT = casadi.interpolant('name','bspline',[xgrid,ygrid],data_flat)
+        surface_points = np.zeros((npy, npx))
+
+        if show_plots:
+            assert enc is not None
+            poly = affinity.translate(polygon, xoff=enc.origin[0], yoff=enc.origin[1])
+            enc.draw_polygon(poly, color="red")
+            for i, east_coord in enumerate(east_coords):
+                for j, north_coord in enumerate(north_coords):
+                    surface_points[i, j] = polygon_surface([east_coord, north_coord])
+
+            ax = plt.figure().add_subplot(111, projection="3d")
+            ax.plot_surface(Y, X, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
+            ax.set_xlabel("East")
+            ax.set_ylabel("North")
+            ax.set_zlabel("Mask")
+            plt.show()
     return surfaces
 
 

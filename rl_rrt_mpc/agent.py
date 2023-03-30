@@ -140,13 +140,13 @@ class RLRRTMPC(ci.ICOLAV):
             self._rel_rrt_trajectory = self._rrt_trajectory.copy()
             self._rel_rrt_trajectory[0, :] -= enc.origin[1]
             self._rel_rrt_trajectory[1, :] -= enc.origin[0]
-            tree_list = self._rrt.get_tree_as_list_of_dicts()
+            # tree_list = self._rrt.get_tree_as_list_of_dicts()
             if enc is not None:
                 enc.start_display()
                 # for hazard in relevant_grounding_hazards:
                 #     enc.draw_polygon(hazard, color="red")
 
-                hf.plot_rrt_tree(tree_list, enc)
+                # hf.plot_rrt_tree(tree_list, enc)
                 hf.plot_trajectory(self._rrt_trajectory, times, enc, color="magenta")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
                 enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow")
@@ -171,6 +171,8 @@ class RLRRTMPC(ci.ICOLAV):
             do_list=rel_do_list,
             so_list=self._mpc_rel_polygons,
         )
+        self._mpc_trajectory[0, :] += enc.origin[1]
+        self._mpc_trajectory[1, :] += enc.origin[0]
 
         hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
         hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")

@@ -226,7 +226,7 @@ def Rpsi(psi) -> np.ndarray:
     return Rmtrx
 
 
-def Rpsi_casadi(psi: float) -> csd.SX:
+def Rpsi_casadi(psi: float) -> csd.MX:
     """Same as Rpsi but for casadi."""
     return hf.casadi_matrix_from_nested_list([[csd.cos(psi), -csd.sin(psi), 0], [csd.sin(psi), csd.cos(psi), 0], [0, 0, 1]])
 
@@ -239,7 +239,7 @@ def Rpsi2D(psi: float) -> np.ndarray:
     return np.array([[np.cos(psi), -np.sin(psi)], [np.sin(psi), np.cos(psi)]])
 
 
-def Rpsi2D_casadi(psi: float | csd.SX) -> csd.SX:
+def Rpsi2D_casadi(psi: float | csd.MX) -> csd.MX:
     """Same as Rpsi2D but for casadi."""
     return hf.casadi_matrix_from_nested_list([[csd.cos(psi), -csd.sin(psi)], [csd.sin(psi), csd.cos(psi)]])
 
@@ -263,7 +263,7 @@ def Cmtrx(Mmtrx: np.ndarray, nu: np.ndarray) -> np.ndarray:
     return np.array([[0, 0, c13], [0, 0, c23], [-c13, -c23, 0]])
 
 
-def Cmtrx_casadi(Mmtrx: csd.SX, nu: csd.SX) -> csd.SX:
+def Cmtrx_casadi(Mmtrx: csd.MX, nu: csd.MX) -> csd.MX:
     """Same as Cmtrx but for casadi"""
     c13 = -(Mmtrx[1, 1] * nu[1] + Mmtrx[1, 2] * nu[2])
     c23 = Mmtrx[0, 0] * nu[0]
@@ -288,7 +288,7 @@ def Dmtrx(D_l: np.ndarray, D_q: np.ndarray, D_c: np.ndarray, nu: np.ndarray) -> 
     return D_l + D_q * np.abs(nu) + D_c * (nu * nu)
 
 
-def Dmtrx_casadi(D_l: csd.SX, D_q: csd.SX, D_c: csd.SX, nu: csd.SX) -> csd.SX:
+def Dmtrx_casadi(D_l: csd.MX, D_q: csd.MX, D_c: csd.MX, nu: csd.MX) -> csd.MX:
     """Same as Dmtrx but for casadi"""
     return D_l + D_q * csd.fabs(nu) + D_c * (nu * nu)
 

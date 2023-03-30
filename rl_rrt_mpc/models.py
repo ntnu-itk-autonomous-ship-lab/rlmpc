@@ -31,13 +31,13 @@ class TelemetronAcados:
     def as_acados(self) -> AcadosModel:
 
         # Input
-        u = csd.SX.sym("u", 3)
+        u = csd.MX.sym("u", 3)
         # Pose [x, y, psi] and its derivative
-        eta = csd.SX.sym("eta", 3)
-        eta_dot = csd.SX.sym("eta_dot", 3)
+        eta = csd.MX.sym("eta", 3)
+        eta_dot = csd.MX.sym("eta_dot", 3)
         # BODY Velocity [u, v, r] and its derivative
-        nu = csd.SX.sym("nu", 3)
-        nu_dot = csd.SX.sym("nu_dot", 3)
+        nu = csd.MX.sym("nu", 3)
+        nu_dot = csd.MX.sym("nu_dot", 3)
         # State vector and its derivative
         x = csd.vertcat(eta, nu)
         xdot = csd.vertcat(eta_dot, nu_dot)
@@ -45,8 +45,8 @@ class TelemetronAcados:
         M = self._params.M_rb + self._params.M_a
         Minv = np.linalg.inv(self._params.M_rb + self._params.M_a)
 
-        C = mf.Cmtrx_casadi(csd.SX(M), nu)
-        D = mf.Dmtrx_casadi(csd.SX(self._params.D_l), csd.SX(self._params.D_q), csd.SX(self._params.D_c), nu)
+        C = mf.Cmtrx_casadi(csd.MX(M), nu)
+        D = mf.Dmtrx_casadi(csd.MX(self._params.D_l), csd.MX(self._params.D_q), csd.MX(self._params.D_c), nu)
 
         Rpsi = mf.Rpsi_casadi(eta[2])
 

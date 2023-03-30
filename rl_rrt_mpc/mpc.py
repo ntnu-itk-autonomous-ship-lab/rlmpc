@@ -19,7 +19,7 @@ from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 MAX_NUM_DO_CONSTRAINTS: int = 15
-MAX_NUM_SO_CONSTRAINTS: int = 700
+MAX_NUM_SO_CONSTRAINTS: int = 300
 
 
 @dataclass
@@ -148,8 +148,6 @@ class MPC:
         print(f"MPC: | Runtime: {t_solve} | Cost: {cost}")
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
-        trajectory[0, :] = trajectory[0, :] + self._map_bbox[1]
-        trajectory[1, :] = trajectory[1, :] + self._map_bbox[0]
         return trajectory[:, : self._ocp.dims.N], inputs[:, : self._ocp.dims.N]
 
     def _update_ocp(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list) -> None:
@@ -185,6 +183,7 @@ class MPC:
 
         """
         self._map_bbox = enc.bbox
+        self._map_bbox = (0.0, 0.0, float(enc.bbox[2] - enc.bbox[0]), float(enc.bbox[3] - enc.bbox[1]))  # In relative coordinates
         min_Fx = self._model.params.Fx_limits[0]
         max_Fx = self._model.params.Fx_limits[1]
         min_Fy = self._model.params.Fy_limits[0]
@@ -207,9 +206,9 @@ class MPC:
         x = self._ocp.model.x
         u = self._ocp.model.u
 
-        Qvec = csd.SX.sym("Q", 36)
-        gamma = csd.SX.sym("gamma", 1)
-        x_ref = csd.SX.sym("x_ref", 6)
+        Qvec = csd.MX.sym("Q", 36)
+        gamma = csd.MX.sym("gamma", 1)
+        x_ref = csd.MX.sym("x_ref", 6)
         fixed_params = x_ref
 
         self._ocp.cost.cost_type = "EXTERNAL"
@@ -236,7 +235,7 @@ class MPC:
         # ocp.cost.Zl = 1e5 * np.array([1])
         # ocp.cost.Zu = 1e5 * np.array([1])
 
-        self._ocp.constraints.constr_type = "BGH"
+        approx_inf = 1e10
 
         # Input constraints
         self._ocp.constraints.idxbu = np.array(range(nu))
@@ -249,10 +248,9 @@ class MPC:
         )
         self._ocp.constraints.ubu = np.array([max_Fx, max_Fy, lever_arm * max_Fy])
 
-        approx_inf = 1e10
         # State constraints
         lbx = np.array([0.0, 0.0, -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])
-        ubx = np.array([self._map_bbox[3] - self._map_bbox[1], self._map_bbox[2] - self._map_bbox[0], np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
+        ubx = np.array([self._map_bbox[3], self._map_bbox[2], np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
         self._ocp.constraints.idxbx_0 = np.array(range(nx))
         self._ocp.constraints.lbx_0 = lbx
         self._ocp.constraints.ubx_0 = ubx
@@ -266,8 +264,8 @@ class MPC:
         self._ocp.constraints.ubx_e = ubx[self._ocp.constraints.idxbx_e]
 
         # Dynamic and static obstacle constraints
-        d_safe_so = csd.SX.sym("d_safe_so", 1)
-        d_safe_do = csd.SX.sym("d_safe_do", 1)
+        d_safe_so = csd.MX.sym("d_safe_so", 1)
+        d_safe_do = csd.MX.sym("d_safe_do", 1)
 
         self._ocp.constraints.lh = np.zeros(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
         self._ocp.constraints.lh_e = self._ocp.constraints.lh
@@ -275,22 +273,22 @@ class MPC:
         self._ocp.constraints.uh_e = self._ocp.constraints.uh
 
         con_h_expr = []
-        so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, self._map_bbox, enc)
+
+        # Static obstacle polygon constraints
+        so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, enc)
         n_so = len(so_surfaces)
         for j in range(MAX_NUM_SO_CONSTRAINTS):
-            # if j < n_so:
-            # # generate spline of static obstacle
-            # y_poly, x_poly = so_list[j].exterior.xy
-            # so_spline_j = csd.interpolant("so_spline_" + str(j), "bspline", [x_poly], y_poly)
-            # con_h_expr.append((x - so_spline_j(x)).T @ (x - so_spline_j(x)) - d_safe_so**2)
-            con_h_expr.append(0.0)
+            if j < n_so:
+                con_h_expr.append(so_surfaces[j](x[:2]))
+            else:
+                con_h_expr.append(0.0)
 
         # Ellipsoidal DO constraints
         epsilon_do = 0.0001
         for i in range(MAX_NUM_DO_CONSTRAINTS):
-            x_do_i = csd.SX.sym("x_do_" + str(i), 4)
-            l_do_i = csd.SX.sym("l_do_" + str(i), 1)
-            w_do_i = csd.SX.sym("w_do_" + str(i), 1)
+            x_do_i = csd.MX.sym("x_do_" + str(i), 4)
+            l_do_i = csd.MX.sym("l_do_" + str(i), 1)
+            w_do_i = csd.MX.sym("w_do_" + str(i), 1)
             chi_do_i = csd.atan2(x_do_i[3], x_do_i[2])
             Rchi_do_i = mf.Rpsi2D_casadi(chi_do_i)
             p_diff_do_frame = Rchi_do_i @ (x[0:2] - x_do_i[0:2])

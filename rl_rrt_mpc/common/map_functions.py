@@ -254,17 +254,20 @@ def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strt
     poly_list = []
     for poly in polygons_relevant_for_trajectory:
         intersection_poly = enveloping_polygon.intersection(poly)
+        if intersection_poly.area == 0.0:
+            continue
+
         if isinstance(intersection_poly, geometry.MultiPolygon):
             for sub_poly in intersection_poly.geoms:
                 poly_list.append(sub_poly)
         else:
             poly_list.append(intersection_poly)
 
-    # if enc is not None:
-    #     enc.start_display()
-    #     enc.draw_polygon(enveloping_polygon, color="yellow")
-    #     for poly in poly_list:
-    #         enc.draw_polygon(poly, color="red")
+    if enc is not None:
+        enc.start_display()
+        enc.draw_polygon(enveloping_polygon, color="yellow", alpha=0.3)
+        # for poly in poly_list:
+        # enc.draw_polygon(poly, color="red")
 
     return poly_list
 
