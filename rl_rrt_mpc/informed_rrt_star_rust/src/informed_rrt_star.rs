@@ -367,6 +367,14 @@ impl InformedRRTStar {
                     z_nearest.time + t_new,
                 );
 
+                // utils::draw_current_situation(
+                //     "current_situation.png",
+                //     &xs_array,
+                //     &self.bookkeeping_tree,
+                //     &self.enc,
+                // )
+                // .unwrap();
+
                 let Z_near = self.nearest_neighbors(&z_new)?;
                 let (z_new_, z_parent) = self.choose_parent(&z_new, &z_nearest, &Z_near)?;
                 z_new = z_new_;
@@ -1085,16 +1093,16 @@ mod tests {
             max_nn_node_dist: 125.0,
         });
         let xs_start = [
-            6582120.0,
-            -33444.0,
-            -120.0 * std::f64::consts::PI / 180.0,
+            6581590.0,
+            -33715.0,
+            120.0 * std::f64::consts::PI / 180.0,
             4.0,
             0.0,
             0.0,
         ];
         let xs_goal = [
-            6581720.0,
-            -32700.0,
+            6581780.0,
+            -32670.0,
             -30.0 * std::f64::consts::PI / 180.0,
             0.0,
             0.0,

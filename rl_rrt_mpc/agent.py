@@ -125,7 +125,7 @@ class RLRRTMPC(ci.ICOLAV):
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
-            # fix sampling issue in RRT
+            hf.save_rrt_solution(rrt_solution)
             tree_list = self._rrt.get_tree_as_list_of_dicts()
             if enc is not None:
                 enc.start_display()
@@ -152,10 +152,9 @@ class RLRRTMPC(ci.ICOLAV):
             self._rel_rrt_trajectory = self._rrt_trajectory.copy()
             self._rel_rrt_trajectory[0, :] -= enc.origin[1]
             self._rel_rrt_trajectory[1, :] -= enc.origin[0]
-            # tree_list = self._rrt.get_tree_as_list_of_dicts()
+
             if enc is not None:
                 hf.plot_trajectory(self._rrt_trajectory, times, enc, color="magenta")
-                hf.save_rrt_solution(rrt_solution)
 
             polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
                 self._rrt_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc

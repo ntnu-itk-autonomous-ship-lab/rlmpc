@@ -17,7 +17,8 @@ import numpy as np
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
-import triangle as tr
+
+# import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
 
@@ -285,7 +286,7 @@ def extract_triangle_boundaries_from_polygons(polygons: list, enc: Optional[senc
     """
     poly_boundary_list = []
     for poly in polygons:
-        cdt = constrained_delaunay_triangulation(poly)
+        cdt = constrained_delaunay_triangulatio_custom(poly)
         boundary_triangles = extract_triangle_boundaries_from_polygon(cdt, poly)
         if len(boundary_triangles) == 0:
             boundary_triangles = cdt
@@ -330,40 +331,40 @@ def extract_triangle_boundaries_from_polygon(cdt: list, polygon: geometry.Polygo
     return boundary_triangles
 
 
-def constrained_delaunay_triangulation(polygon: geometry.Polygon) -> list:
-    """Uses the triangle library to compute a constrained delaunay triangulation.
+# def constrained_delaunay_triangulation(polygon: geometry.Polygon) -> list:
+#     """Uses the triangle library to compute a constrained delaunay triangulation.
 
-    Args:
-        polygon (geometry.Polygon): The polygon to triangulate.
+#     Args:
+#         polygon (geometry.Polygon): The polygon to triangulate.
 
-    Returns:
-        list: List of triangles as shapely polygons.
-    """
-    x, y = polygon.exterior.coords.xy
-    vertices = np.array([list(a) for a in zip(x, y)])
-    cdt = tr.triangulate({"vertices": vertices})
-    triangle_indices = cdt["triangles"]
-    triangles = [geometry.Polygon([cdt["vertices"][i] for i in tri]) for tri in triangle_indices]
+#     Returns:
+#         list: List of triangles as shapely polygons.
+#     """
+#     x, y = polygon.exterior.coords.xy
+#     vertices = np.array([list(a) for a in zip(x, y)])
+#     cdt = tr.triangulate({"vertices": vertices})
+#     triangle_indices = cdt["triangles"]
+#     triangles = [geometry.Polygon([cdt["vertices"][i] for i in tri]) for tri in triangle_indices]
 
-    cdt_triangles = []
-    for tri in triangles:
-        intersection_poly = tri.intersection(polygon)
+#     cdt_triangles = []
+#     for tri in triangles:
+#         intersection_poly = tri.intersection(polygon)
 
-        if isinstance(intersection_poly, geometry.Point) or isinstance(intersection_poly, geometry.LineString):
-            continue
+#         if isinstance(intersection_poly, geometry.Point) or isinstance(intersection_poly, geometry.LineString):
+#             continue
 
-        if intersection_poly.area == 0.0:
-            continue
+#         if intersection_poly.area == 0.0:
+#             continue
 
-        # cdt_triangles.append(tri)
-        if isinstance(intersection_poly, geometry.MultiPolygon) or isinstance(intersection_poly, geometry.GeometryCollection):
-            for sub_poly in intersection_poly.geoms:
-                if sub_poly.area == 0.0 or isinstance(sub_poly, geometry.Point) or isinstance(sub_poly, geometry.LineString):
-                    continue
-                cdt_triangles.append(sub_poly)
-        else:
-            cdt_triangles.append(intersection_poly)
-    return cdt_triangles
+#         # cdt_triangles.append(tri)
+#         if isinstance(intersection_poly, geometry.MultiPolygon) or isinstance(intersection_poly, geometry.GeometryCollection):
+#             for sub_poly in intersection_poly.geoms:
+#                 if sub_poly.area == 0.0 or isinstance(sub_poly, geometry.Point) or isinstance(sub_poly, geometry.LineString):
+#                     continue
+#                 cdt_triangles.append(sub_poly)
+#         else:
+#             cdt_triangles.append(intersection_poly)
+#     return cdt_triangles
 
 
 def constrained_delaunay_triangulation_custom(polygon: geometry.Polygon) -> list:
@@ -415,7 +416,24 @@ def constrained_delaunay_triangulation_custom(polygon: geometry.Polygon) -> list
     filtered_triangles_join = filtered_triangles_join[filtered_triangles_join["TRI_ID_left"] == filtered_triangles_join["TRI_ID_right"]]
     # Remove overload triangles from same filtered_triangless
     filtered_triangles = filtered_triangles[filtered_triangles["LINK_ID"].isin(filtered_triangles_join["LINK_ID"])]
-    return filtered_triangles.geometry.values
+    filtered_triangles = filtered_triangles.geometry.values
+    # double check
+    cdt_triangles = []
+    for tri in triangles:
+        intersection_poly = tri.intersection(polygon)
+        if isinstance(intersection_poly, geometry.Point) or isinstance(intersection_poly, geometry.LineString):
+            continue
+        if intersection_poly.area == 0.0:
+            continue
+
+        if isinstance(intersection_poly, geometry.MultiPolygon) or isinstance(intersection_poly, geometry.GeometryCollection):
+            for sub_poly in intersection_poly.geoms:
+                if sub_poly.area == 0.0 or isinstance(sub_poly, geometry.Point) or isinstance(sub_poly, geometry.LineString):
+                    continue
+                cdt_triangles.append(sub_poly)
+        else:
+            cdt_triangles.append(intersection_poly)
+    return cdt_triangles
 
 
 def linestring_to_ndarray(line: geometry.LineString) -> np.ndarray:
