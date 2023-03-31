@@ -375,7 +375,13 @@ impl InformedRRTStar {
             }
             num_iter += 1;
         }
-        let opt_soln = self.extract_best_solution()?;
+        let opt_soln = match self.extract_best_solution() {
+            Ok(soln) => soln,
+            Err(e) => {
+                println!("No solution found. Error msg: {:?}", e);
+                return Ok(PyList::empty(py).into_py(py));
+            }
+        };
         let duration = start.elapsed();
         println!("InformedRRTStar run time: {:?}", duration.as_secs());
         //self.draw_tree(Some(&opt_soln))?;
@@ -464,6 +470,10 @@ impl InformedRRTStar {
     // Prune state nodes from the solution to make the trajectory smoother and more optimal wrt distance
     fn optimize_solution(&self, soln: &mut RRTResult) -> PyResult<()> {
         soln.save_to_json()?;
+        if soln.states.len() < 2 {
+            soln.states = vec![];
+            return Ok(());
+        }
         let mut states: Vec<[f64; 6]> = vec![soln.states.last().unwrap().clone()];
         let mut idx: usize = soln.states.len() - 1;
         while idx > 0 {
@@ -503,8 +513,9 @@ impl InformedRRTStar {
         if nearest.is_none() {
             return false;
         }
+        let tup = nearest.unwrap();
         let min_dist = self.params.min_node_dist;
-        nearest.unwrap().1 <= min_dist.powi(2)
+        tup.1 <= min_dist.powi(2)
     }
 
     pub fn goal_reachable(&self, z: &RRTNode) -> bool {
@@ -743,6 +754,11 @@ impl InformedRRTStar {
         let mut u_array: Vec<[f64; 3]> = Vec::new();
         let mut refs_array: Vec<(f64, f64)> = Vec::new();
         let mut t_array: Vec<f64> = Vec::new();
+        if soln.states.len() < 2 {
+            return Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                "Solution must have at least 2 states",
+            ));
+        }
         let mut xs_start = soln.states[0].clone();
         for xs_next in soln.states.iter().skip(1) {
             if xs_start == *xs_next {
@@ -1057,27 +1073,42 @@ mod tests {
     #[test]
     fn test_grow_towards_goal() -> PyResult<()> {
         let mut rrt = InformedRRTStar::py_new(RRTParams {
-            max_nodes: 1700,
+            max_nodes: 2000,
             max_iter: 10000,
             iter_between_direct_goal_growth: 100,
-            min_node_dist: 30.0,
-            goal_radius: 600.0,
+            min_node_dist: 10.0,
+            goal_radius: 10.0,
             step_size: 0.5,
-            max_steering_time: 25.0,
+            max_steering_time: 15.0,
             steering_acceptance_radius: 5.0,
             gamma: 1200.0,
-            max_nn_node_dist: 200.0,
+            max_nn_node_dist: 125.0,
         });
-
         let xs_start = [
-            6574280.0,
-            -31824.0,
-            -45.0 * std::f64::consts::PI / 180.0,
-            5.0,
+            6582120.0,
+            -33444.0,
+            -120.0 * std::f64::consts::PI / 180.0,
+            4.0,
             0.0,
             0.0,
         ];
-        let xs_goal = [6583580.0, -31824.0, 0.0, 0.0, 0.0, 0.0];
+        let xs_goal = [
+            6581720.0,
+            -32700.0,
+            -30.0 * std::f64::consts::PI / 180.0,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        // let xs_start = [
+        //     6574280.0,
+        //     -31824.0,
+        //     -45.0 * std::f64::consts::PI / 180.0,
+        //     5.0,
+        //     0.0,
+        //     0.0,
+        // ];
+        // let xs_goal = [6583580.0, -31824.0, 0.0, 0.0, 0.0, 0.0];
         rrt.enc.load_hazards_from_json()?;
         Python::with_gil(|py| -> PyResult<()> {
             let xs_start_pyany = xs_start.into_py(py);

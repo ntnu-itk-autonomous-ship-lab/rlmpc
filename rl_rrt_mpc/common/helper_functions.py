@@ -37,11 +37,15 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-    npx = 15
-    npy = 15
+    npx_min = 6
+    npy_min = 6
     for j, polygon in enumerate(polygons):
+        # Sjå på CDL for å forenkle problemet.
+        # Finne "kystlinjepolygons"
+        # rekne ut hensiktsmessig npx og npy basert på n_vertices og polygon.bounds
         n_vertices = len(polygon.exterior.coords)
-        npx = int(np.sqrt(n_vertices))
+        npx = int(max(npx_min, n_vertices / 2))
+        npy = int(max(npy_min, n_vertices / 2))
         poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(2.0).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)

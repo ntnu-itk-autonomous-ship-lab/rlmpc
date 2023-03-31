@@ -124,8 +124,20 @@ class RLRRTMPC(ci.ICOLAV):
             self._rrt.set_goal_state(goal_state.tolist())
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
-            # rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
-            rrt_solution = hf.load_rrt_solution()
+            rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
+            # fix sampling issue in RRT
+            tree_list = self._rrt.get_tree_as_list_of_dicts()
+            if enc is not None:
+                enc.start_display()
+                for hazard in relevant_grounding_hazards:
+                    enc.draw_polygon(hazard, color="red", fill=False)
+                hf.plot_rrt_tree(tree_list, enc)
+                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
+                enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
+                enc.draw_polygon(ship_poly, color="pink")
+                enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
+
+            # rrt_solution = hf.load_rrt_solution()
             rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
             times = np.array(rrt_solution["times"])
             n_samples = len(times)
@@ -142,17 +154,8 @@ class RLRRTMPC(ci.ICOLAV):
             self._rel_rrt_trajectory[1, :] -= enc.origin[0]
             # tree_list = self._rrt.get_tree_as_list_of_dicts()
             if enc is not None:
-                enc.start_display()
-                # for hazard in relevant_grounding_hazards:
-                #     enc.draw_polygon(hazard, color="red")
-
-                # hf.plot_rrt_tree(tree_list, enc)
                 hf.plot_trajectory(self._rrt_trajectory, times, enc, color="magenta")
-                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
-                enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow")
-                enc.draw_polygon(ship_poly, color="pink")
-                enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan")
-                # hf.save_rrt_solution(rrt_solution)
+                hf.save_rrt_solution(rrt_solution)
 
             polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
                 self._rrt_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc

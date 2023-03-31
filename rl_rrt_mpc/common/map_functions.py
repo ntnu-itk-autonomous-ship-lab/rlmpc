@@ -17,6 +17,7 @@ import numpy as np
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
+import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
 
@@ -254,7 +255,8 @@ def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strt
     poly_list = []
     for poly in polygons_relevant_for_trajectory:
         intersection_poly = enveloping_polygon.intersection(poly)
-        if intersection_poly.area == 0.0:
+
+        if intersection_poly.area == 0.0 and intersection_poly.length == 0.0:
             continue
 
         if isinstance(intersection_poly, geometry.MultiPolygon):
@@ -265,9 +267,9 @@ def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strt
 
     if enc is not None:
         enc.start_display()
-        enc.draw_polygon(enveloping_polygon, color="yellow", alpha=0.3)
+        enc.draw_polygon(enveloping_polygon, color="yellow", alpha=0.1)
         # for poly in poly_list:
-        # enc.draw_polygon(poly, color="red")
+        #     enc.draw_polygon(poly, color="black")
 
     return poly_list
 
@@ -285,12 +287,15 @@ def extract_triangle_boundaries_from_polygons(polygons: list, enc: Optional[senc
     for poly in polygons:
         cdt = constrained_delaunay_triangulation(poly)
         boundary_triangles = extract_triangle_boundaries_from_polygon(cdt, poly)
+        if len(boundary_triangles) == 0:
+            boundary_triangles = cdt
         poly_boundary_list.append(boundary_triangles)
-
         if enc is not None:
-            enc.draw_polygon(poly, color="black", alpha=0.3)
+            # for tri in cdt:
+            #     enc.draw_polygon(tri, color="orange", alpha=1.0, fill=False)
+            # enc.draw_polygon(poly, color="pink", alpha=0.3)
             for tri in boundary_triangles:
-                enc.draw_polygon(tri, color="red")
+                enc.draw_polygon(tri, color="red", fill=False)
 
     return poly_boundary_list
 
@@ -309,15 +314,59 @@ def extract_triangle_boundaries_from_polygon(cdt: list, polygon: geometry.Polygo
     if len(cdt) == 1:
         return cdt
 
-    for v in polygon.exterior.coords:
-        for tri in cdt:
-            if tri.contains(geometry.Point(v)) and tri not in boundary_triangles:
+    for tri in cdt:
+        boundary_line = geometry.LineString(tri.exterior.coords)
+        v_count = 0
+        idx_prev = 0
+        for idx, v in enumerate(polygon.exterior.coords):
+            if v_count == 2 and idx_prev == idx - 1 and tri not in boundary_triangles:
                 boundary_triangles.append(tri)
+                break
+
+            if boundary_line.contains(geometry.Point(v)):
+                v_count += 1
+                idx_prev = idx
 
     return boundary_triangles
 
 
 def constrained_delaunay_triangulation(polygon: geometry.Polygon) -> list:
+    """Uses the triangle library to compute a constrained delaunay triangulation.
+
+    Args:
+        polygon (geometry.Polygon): The polygon to triangulate.
+
+    Returns:
+        list: List of triangles as shapely polygons.
+    """
+    x, y = polygon.exterior.coords.xy
+    vertices = np.array([list(a) for a in zip(x, y)])
+    cdt = tr.triangulate({"vertices": vertices})
+    triangle_indices = cdt["triangles"]
+    triangles = [geometry.Polygon([cdt["vertices"][i] for i in tri]) for tri in triangle_indices]
+
+    cdt_triangles = []
+    for tri in triangles:
+        intersection_poly = tri.intersection(polygon)
+
+        if isinstance(intersection_poly, geometry.Point) or isinstance(intersection_poly, geometry.LineString):
+            continue
+
+        if intersection_poly.area == 0.0:
+            continue
+
+        # cdt_triangles.append(tri)
+        if isinstance(intersection_poly, geometry.MultiPolygon) or isinstance(intersection_poly, geometry.GeometryCollection):
+            for sub_poly in intersection_poly.geoms:
+                if sub_poly.area == 0.0 or isinstance(sub_poly, geometry.Point) or isinstance(sub_poly, geometry.LineString):
+                    continue
+                cdt_triangles.append(sub_poly)
+        else:
+            cdt_triangles.append(intersection_poly)
+    return cdt_triangles
+
+
+def constrained_delaunay_triangulation_custom(polygon: geometry.Polygon) -> list:
     """Converts a polygon to a list of triangles. Basically constrained delaunay triangulation.
 
     Args:
