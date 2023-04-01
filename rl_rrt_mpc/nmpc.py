@@ -47,8 +47,17 @@ class NMPCParams:
             gamma=config_dict["gamma"],
             d_safe_so=config_dict["d_safe_so"],
             d_safe_do=config_dict["d_safe_do"],
+            spline_reference=config_dict["spline_reference"],
+            path_following=config_dict["path_following"],
             solver_options=AcadosOcpOptions(),
         )
+
+        if config.path_following and config.Q.shape[0] != 2:
+            raise ValueError("Q must be a 2x2 matrix when path_following is True.")
+
+        if not config.path_following and config.Q.shape[0] != 6:
+            raise ValueError("Q must be a 6x6 matrix when path_following is False (trajectory tracking).")
+
         config.solver_options.nlp_solver_type = config_dict["solver_options"]["nlp_solver_type"]
         config.solver_options.nlp_solver_max_iter = config_dict["solver_options"]["nlp_solver_max_iter"]
         config.solver_options.nlp_solver_tol_eq = config_dict["solver_options"]["nlp_solver_tol_eq"]
@@ -73,6 +82,7 @@ class NMPC:
         if params:
             self._params0: NMPCParams = params
             self._params: NMPCParams = params
+
         nx, nu = self._model.dims
         self._x_warm_start: np.ndarray = np.zeros(nx)
         self._u_warm_start: np.ndarray = np.zeros(nu)
@@ -119,30 +129,43 @@ class NMPC:
         nx = self._ocp.model.x.size()[0]
         return [*self._params.Q.reshape((nx * nx)).tolist(), self._params.gamma, self._params.d_safe_so, self._params.d_safe_do]
 
-    def plan(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list) -> Tuple[np.ndarray, np.ndarray]:
+    def _set_initial_warm_start(self, nominal_trajectory: np.ndarray | list, nominal_inputs: np.ndarray) -> None:
+        """Sets the initial warm start state (and input) trajectory for the NMPC.
+
+        Args:
+            nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Assume that the positions are relative to the coordinate/map origin. Either as np.ndarray or as list of splines for (x, y, Optional[psi], Optional[U], Optional[r]), where the optional elements depend on if path following is used or not.
+            nominal_inputs (np.ndarray): Nominal reference inputs used if time parameterized trajectory tracking is selected.
+        """
+        if isinstance(nominal_trajectory, list):
+            # eval nominal traj at current path var up until horizon T, using
+        self._x_warm_start = nominal_trajectory
+        self._u_warm_start = nominal_inputs
+
+    def plan(
+        self, t: float, nominal_trajectory: np.ndarray | list, nominal_inputs: np.ndarray, xs: np.ndarray, do_list: list, so_list: list
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
-            t (float): Current time.
-            nominal_trajectory (np.ndarray): Nominal reference trajectory to track. Assume that the positions is relative to the coordinate/map origin.
-            nominal_inputs (np.ndarray): Nominal reference inputs to track.
-            xs (np.ndarray): Current state.
-            do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width). Assume that the position parts are relative to the coordinate/map origin.
-            so_list (list): List of static obstacle Polygon objects. Assume that the positions are relative to the coordinate/map origin.
+            - t (float): Current time.
+            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Assume that the positions are relative to the coordinate/map origin. Either as np.ndarray or as list of splines for (x, y, Optional[psi], Optional[U], Optional[r]), where the optional elements depend on if path following is used or not.
+            - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
+            - xs (np.ndarray): Current state.
+            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width). Assume that the position parts are relative to the coordinate/map origin.
+            - so_list (list): List of static obstacle Polygon objects. Assume that the positions are relative to the coordinate/map origin.
 
         Returns:
             Tuple[np.ndarray, np.ndarray]: Optimal trajectory and inputs for the ownship.
         """
         if not self._initialized:
-            self._x_warm_start = nominal_trajectory
-            self._u_warm_start = nominal_inputs
+            self._set_initial_warm_start(nominal_trajectory, nominal_inputs)
             self._initialized = True
 
         self._update_ocp(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list)
         status = self._ocp_solver.solve()
         self._ocp_solver.print_statistics()
         t_solve = self._ocp_solver.get_stats("time_tot")
-        cost = self._ocp_solver.get_cost()
+        cost_val = self._ocp_solver.get_cost()
 
         trajectory = np.zeros((self._ocp.dims.nx, self._ocp.dims.N + 1))
         inputs = np.zeros((self._ocp.dims.nu, self._ocp.dims.N))
@@ -150,7 +173,7 @@ class NMPC:
             trajectory[:, i] = self._ocp_solver.get(i, "x")
             if i < self._ocp.dims.N:
                 inputs[:, i] = self._ocp_solver.get(i, "u").T
-        print(f"NMPC: | Runtime: {t_solve} | Cost: {cost}")
+        print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val}")
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
         return trajectory[:, : self._ocp.dims.N], inputs[:, : self._ocp.dims.N]
