@@ -2,7 +2,7 @@
     mpc.py
 
     Summary:
-        Contains a class for an MPC trajectory tracking controller.
+        Contains a class for an NMPC trajectory tracking/path following controller.
 
     Author: Trym Tengesdal
 """
@@ -23,7 +23,7 @@ MAX_NUM_SO_CONSTRAINTS: int = 300
 
 
 @dataclass
-class MPCParams:
+class NMPCParams:
     reference_traj_bbox_buffer: float = 500.0
     T: float = 10.0
     dt: float = 0.5
@@ -32,11 +32,13 @@ class MPCParams:
     gamma: float = 0.0
     d_safe_so: float = 5.0
     d_safe_do: float = 5.0
+    spline_reference: bool = False
+    path_following: bool = False
     solver_options: AcadosOcpOptions = AcadosOcpOptions()
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        config = MPCParams(
+        config = NMPCParams(
             reference_traj_bbox_buffer=config_dict["reference_traj_bbox_buffer"],
             T=config_dict["T"],
             dt=config_dict["dt"],
@@ -64,13 +66,13 @@ class MPCParams:
         return config
 
 
-class MPC:
-    def __init__(self, model: models.TelemetronAcados, params: Optional[MPCParams] = MPCParams()) -> None:
+class NMPC:
+    def __init__(self, model: models.TelemetronAcados, params: Optional[NMPCParams] = NMPCParams()) -> None:
         self._ocp: AcadosOcp = AcadosOcp()
         self._model = model
         if params:
-            self._params0: MPCParams = params
-            self._params: MPCParams = params
+            self._params0: NMPCParams = params
+            self._params: NMPCParams = params
         nx, nu = self._model.dims
         self._x_warm_start: np.ndarray = np.zeros(nx)
         self._u_warm_start: np.ndarray = np.zeros(nu)
@@ -79,7 +81,7 @@ class MPC:
         self._map_origin: Tuple[float, float] = (0.0, 0.0)  # In east-north coordinates
 
     @property
-    def params(self) -> MPCParams:
+    def params(self) -> NMPCParams:
         return self._params
 
     def update_adjustable_params(self, params: list) -> None:
@@ -96,7 +98,10 @@ class MPC:
             list: List of newly updated parameters.
         """
         nx = self._ocp.model.x.size()[0]
-        self._params.Q = np.reshape(params[0 : nx * nx], (nx, nx))
+        if self._params.path_following:
+            self._params.Q = np.reshape(params[0 : 2 * 2], (2, 2))
+        else:
+            self._params.Q = np.reshape(params[0 : nx * nx], (nx, nx))
         self._params.gamma = params[36]
         self._params.d_safe_so = params[37]
         self._params.d_safe_do = params[38]
@@ -145,7 +150,7 @@ class MPC:
             trajectory[:, i] = self._ocp_solver.get(i, "x")
             if i < self._ocp.dims.N:
                 inputs[:, i] = self._ocp_solver.get(i, "u").T
-        print(f"MPC: | Runtime: {t_solve} | Cost: {cost}")
+        print(f"NMPC: | Runtime: {t_solve} | Cost: {cost}")
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
         return trajectory[:, : self._ocp.dims.N], inputs[:, : self._ocp.dims.N]
@@ -172,11 +177,12 @@ class MPC:
             self._ocp_solver.set(i, "p", p_i)
         print("OCP updated")
 
-    def construct_ocp(self, nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
+    def construct_ocp(self, nominal_trajectory: Optional[np.ndarray], do_list: list, so_list: list, enc: senc.ENC) -> None:
         """Constructs the OCP for the NMPC problem.
 
         Args:
-            nominal_trajectory (np.ndarray): Nominal reference trajectory to track.
+            nominal_trajectory (Optional[np.ndarray]): Nominal time-parameterized reference trajectory to track.
+            nominal_path (Optional[Path]): Nominal path to follow. Excludes the nominal trajectory argument.
             do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             so_list (list): List of static obstacle Polygon objects
             enc senc.ENC: ENC object.
@@ -308,6 +314,7 @@ class MPC:
         self._ocp.parameter_values = self.create_parameter_values(initial_adjustable_params, nominal_trajectory, do_list, so_list, 0)
 
         solver_json = "acados_ocp_" + self._ocp.model.name + ".json"
+        self._ocp.code_export_directory = "../generated_ocp_" + self._ocp.model.name
         self._ocp_solver: AcadosOcpSolver = AcadosOcpSolver(self._ocp, json_file=solver_json)
 
     def create_parameter_values(self, adjustable_params: list, nominal_trajectory: np.ndarray, do_list: list, so_list: list, stage_idx: int) -> np.ndarray:

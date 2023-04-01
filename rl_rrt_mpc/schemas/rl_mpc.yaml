@@ -53,6 +53,12 @@ mpc:
     d_safe_do:
       required: True
       type: float
+    spline_reference:
+      required: True
+      type: boolean
+    path_following:
+      required: True
+      type: boolean
     solver_options:
       required: True
       type: dict
