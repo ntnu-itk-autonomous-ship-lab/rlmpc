@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import colav_simulator.core.colav.colav_interface as ci
+import colav_simulator.core.guidances as guidances
 import informed_rrt_star_rust as rrt
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
@@ -47,14 +48,14 @@ class RRTParams:
 
 
 @dataclass
-class Config:
+class RLRRTMPCParams:
     rl: rl.RLParams
     rrt: RRTParams
     mpc: mpc.MPCParams
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        config = Config(
+        config = RLRRTMPCParams(
             rl=rl.RLParams.from_dict(config_dict["rl"]),
             rrt=RRTParams.from_dict(config_dict["rrt"]),
             mpc=mpc.MPCParams.from_dict(config_dict["mpc"]),
@@ -64,7 +65,7 @@ class Config:
 
 class RLRRTMPCBuilder:
     @classmethod
-    def build(cls, config: Config) -> Tuple[rl.RL, rrt.InformedRRTStar, mpc.MPC]:
+    def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt.InformedRRTStar, mpc.MPC]:
 
         rl_obj = rl.RL(config.rl)
         rrt_obj = rrt.InformedRRTStar(config.rrt)
@@ -73,12 +74,12 @@ class RLRRTMPCBuilder:
 
 
 class RLRRTMPC(ci.ICOLAV):
-    def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
+    def __init__(self, config: Optional[RLRRTMPCParams] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
 
         if config:
-            self._config: Config = config
+            self._config: RLRRTMPCParams = config
         else:
-            self._config = cp.extract(Config, config_file, dp.rl_rrt_mpc_schema)
+            self._config = cp.extract(RLRRTMPCParams, config_file, dp.rl_rrt_mpc_schema)
 
         self._rl, self._rrt, self._mpc = RLRRTMPCBuilder.build(self._config)
 
@@ -131,7 +132,7 @@ class RLRRTMPC(ci.ICOLAV):
                 enc.start_display()
                 for hazard in relevant_grounding_hazards:
                     enc.draw_polygon(hazard, color="red", fill=False)
-                hf.plot_rrt_tree(tree_list, enc)
+                # hf.plot_rrt_tree(tree_list, enc)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
                 enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
                 enc.draw_polygon(ship_poly, color="pink")
@@ -181,6 +182,114 @@ class RLRRTMPC(ci.ICOLAV):
         hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")
         references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         references[:6, :] = self._mpc_trajectory
+        return references
+
+    def get_current_plan(self) -> np.ndarray:
+        return self._references
+
+
+@dataclass
+class TrajectoryTrackingRLMPCParams:
+    rl: rl.RLParams
+    ktp: guidances.KTPGuidanceParams
+    mpc: mpc.MPCParams
+
+    @classmethod
+    def from_dict(cls, config_dict: dict):
+        config = TrajectoryTrackingRLMPCParams(
+            rl=rl.RLParams.from_dict(config_dict["rl"]),
+            ktp=guidances.KTPGuidanceParams.from_dict(config_dict["ktp"]),
+            mpc=mpc.MPCParams.from_dict(config_dict["mpc"]),
+        )
+        return config
+
+
+class TrajectoryTrackingRLMPC(ci.ICOLAV):
+    def __init__(self, config: Optional[TrajectoryTrackingRLMPCParams] = None, config_file: Optional[Path] = dp.trajectory_tracking_rl_mpc_config) -> None:
+
+        if config:
+            self._config: TrajectoryTrackingRLMPCParams = config
+        else:
+            self._config = cp.extract(TrajectoryTrackingRLMPCParams, config_file, dp.trajectory_tracking_rl_mpc_schema)
+
+        self._rl = rl.RL(self._config.rl)
+        self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
+        self._mpc = mpc.MPC(models.TelemetronAcados(), self._config.mpc)
+
+        self._references = np.empty(9)
+        self._initialized = False
+        self._t_prev = 0.0
+        self._min_depth: int = 0
+        self._ktp_trajectory: np.ndarray = np.empty(6)
+        self._rel_ktp_trajectory: np.ndarray = np.empty(6)
+        self._mpc_rel_polygons: list = []
+        self._mpc_trajectory: np.ndarray = np.empty(6)
+        self._mpc_inputs: np.ndarray = np.empty(3)
+        self._geometry_tree: strtree.STRtree = strtree.STRtree([])
+
+    def plan(
+        self,
+        t: float,
+        waypoints: np.ndarray,
+        speed_plan: np.ndarray,
+        ownship_state: np.ndarray,
+        do_list: list,
+        enc: Optional[senc.ENC] = None,
+        goal_state: Optional[np.ndarray] = None,
+        **kwargs
+    ) -> np.ndarray:
+        """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
+        in order to extract relevant grounding hazards.
+        """
+        assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
+        assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
+        rel_do_list = hf.shift_dynamic_obstacle_coordinates(do_list, enc.origin[0], enc.origin[1])
+        if not self._initialized:
+            self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
+            self._initialized = True
+            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
+            self._geometry_tree, poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+
+            if enc is not None:
+                enc.start_display()
+                for hazard in relevant_grounding_hazards:
+                    enc.draw_polygon(hazard, color="red", fill=False)
+                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
+                enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
+                enc.draw_polygon(ship_poly, color="pink")
+                enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
+
+            references = self._ktp.compute_references(waypoints, speed_plan, None, ownship_state, t - self._t_prev)
+            x_spline, y_spline, psi_spline, v_spline = self._ktp.get_splines()
+            if enc is not None:
+                hf.plot_trajectory(self._ktp_trajectory, [], enc, color="magenta")
+
+            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
+                self._ktp_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
+            )
+            triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_mpc, enc=enc)
+            self._mpc_rel_polygons = hf.shift_polygon_coordinates(polygons_considered_in_mpc, enc.origin[0], enc.origin[1])
+            self._mpc.construct_ocp(nominal_trajectory=self._rel_ktp_trajectory, do_list=rel_do_list, so_list=self._mpc_rel_polygons, enc=enc)
+
+        rel_ownship_state = ownship_state.copy()
+        rel_ownship_state[0] -= enc.origin[1]
+        rel_ownship_state[1] -= enc.origin[0]
+        self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
+            t=t,
+            nominal_trajectory=self._rel_ktp_trajectory,
+            nominal_inputs=np.array([]),
+            xs=rel_ownship_state,
+            do_list=rel_do_list,
+            so_list=self._mpc_rel_polygons,
+        )
+        self._mpc_trajectory[0, :] += enc.origin[1]
+        self._mpc_trajectory[1, :] += enc.origin[0]
+
+        hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
+        hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")
+        references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        references[:6, :] = self._mpc_trajectory
+        self._t_prev = t
         return references
 
     def get_current_plan(self) -> np.ndarray:

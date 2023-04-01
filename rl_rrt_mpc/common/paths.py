@@ -15,6 +15,8 @@ data = root / "data"
 
 schemas = package / "schemas"
 rl_rrt_mpc_schema = schemas / "rl_rrt_mpc.yaml"
+trajectory_tracking_rl_mpc_schema = schemas / "trajectory_tracking_rl_mpc.yaml"
 
 rl_rrt_mpc_config = config / "rl_rrt_mpc.yaml"
+trajectory_tracking_rl_mpc_config = config / "trajectory_tracking_rl_mpc.yaml"
 rrt_solution = data / "rrt_solution.yaml"

@@ -1,0 +1,32 @@
+rl:
+  learning_rate: 0.1
+
+ktp:
+  epsilon: 0.00001
+  dt_seg: 0.1
+
+mpc:
+  reference_traj_bbox_buffer: 500.0
+  T: 120.0
+  dt: 0.5
+  Q: [100.0, 100.0, 1.0, 1.0, 0.05, 0.01]
+  R: [1.0, 1.0, 1.0]
+  d_safe_so: 5.0
+  d_safe_do: 10.0
+  gamma: 0.99
+  solver_options:
+    nlp_solver_type: "SQP"
+    nlp_solver_max_iter: 300
+    nlp_solver_tol_stat: 0.000001
+    nlp_solver_tol_eq: 0.000001
+    nlp_solver_tol_ineq: 0.000001
+    nlp_solver_tol_comp: 0.000001
+    nlp_solver_ext_qp_res: 0
+    qp_solver_type: "FULL_CONDENSING_QPOASES"
+    hessian_approx_type: "EXACT"
+    globalization: "MERIT_BACKTRACKING"
+
+    qp_solver_iter_max: 100
+    qp_solver_warm_start: 1
+    levenberg_marquardt: 0.0
+    print_level: 0
