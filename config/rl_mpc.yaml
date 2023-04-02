@@ -3,7 +3,6 @@ rl:
 
 ktp:
   epsilon: 0.00001
-  dt_seg: 0.1
 
 mpc:
   reference_traj_bbox_buffer: 500.0

@@ -286,7 +286,7 @@ def extract_triangle_boundaries_from_polygons(polygons: list, enc: Optional[senc
     """
     poly_boundary_list = []
     for poly in polygons:
-        cdt = constrained_delaunay_triangulatio_custom(poly)
+        cdt = constrained_delaunay_triangulation_custom(poly)
         boundary_triangles = extract_triangle_boundaries_from_polygon(cdt, poly)
         if len(boundary_triangles) == 0:
             boundary_triangles = cdt

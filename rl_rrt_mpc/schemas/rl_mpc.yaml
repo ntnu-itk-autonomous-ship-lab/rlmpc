@@ -14,9 +14,6 @@ ktp:
     epsilon:
       required: True
       type: float
-    dt_seg:
-      required: True
-      type: float
 mpc:
   required: True
   type: dict

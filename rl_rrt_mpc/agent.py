@@ -227,8 +227,6 @@ class RLMPC(ci.ICOLAV):
         self._t_prev = 0.0
         self._min_depth: int = 0
         self._ktp_trajectory: np.ndarray = np.empty(6)
-        self._rel_ktp_trajectory: np.ndarray = np.empty(6)
-        self._nmpc_rel_polygons: list = []
         self._nmpc_trajectory: np.ndarray = np.empty(6)
         self._nmpc_inputs: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
@@ -249,7 +247,6 @@ class RLMPC(ci.ICOLAV):
         """
         assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
         assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
-        rel_do_list = hf.shift_dynamic_obstacle_coordinates(do_list, enc.origin[0], enc.origin[1])
         if not self._initialized:
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             self._initialized = True
@@ -267,30 +264,25 @@ class RLMPC(ci.ICOLAV):
 
             x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
             # self._ktp.plot_reference_trajectory(waypoints, np.array([]))
+            spline_ktp_trajectory = [x_spline, y_spline, psi_spline, speed_spline]
 
-            reference_trajectory = self._ktp.compute_reference_trajectory(self._nmpc.params.dt)
+            self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._nmpc.params.dt)
             if enc is not None:
-                hf.plot_trajectory(reference_trajectory, np.array([]), enc, color="magenta")
+                hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
             polygons_considered_in_nmpc = mapf.extract_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
             )
-            triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_nmpc, enc=enc)
-            self._nmpc_rel_polygons = hf.shift_polygon_coordinates(polygons_considered_in_nmpc, enc.origin[0], enc.origin[1])
-            self._nmpc.construct_ocp(nominal_trajectory=self._rel_ktp_trajectory, do_list=rel_do_list, so_list=self._nmpc_rel_polygons, enc=enc)
+            # triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_nmpc, enc=enc)
+            self._nmpc.construct_ocp(nominal_trajectory=spline_ktp_trajectory, do_list=do_list, so_list=polygons_considered_in_nmpc, enc=enc)
 
-        rel_ownship_state = ownship_state.copy()
-        rel_ownship_state[0] -= enc.origin[1]
-        rel_ownship_state[1] -= enc.origin[0]
         self._nmpc_trajectory, self._nmpc_inputs = self._nmpc.plan(
             t=t,
-            nominal_trajectory=self._rel_ktp_trajectory,
+            nominal_trajectory=spline_ktp_trajectory,
             nominal_inputs=np.array([]),
-            xs=rel_ownship_state,
-            do_list=rel_do_list,
-            so_list=self._nmpc_rel_polygons,
+            xs=ownship_state,
+            do_list=do_list,
+            so_list=polygons_considered_in_nmpc,
         )
-        self._nmpc_trajectory[0, :] += enc.origin[1]
-        self._nmpc_trajectory[1, :] += enc.origin[0]
 
         hf.plot_dynamic_obstacles(do_list, enc, self._nmpc.params.T, self._nmpc.params.dt)
         hf.plot_trajectory(self._nmpc_trajectory, np.array([]), enc, color="cyan")
