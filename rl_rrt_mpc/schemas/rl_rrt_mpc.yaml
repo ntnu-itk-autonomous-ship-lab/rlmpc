@@ -1,12 +1,4 @@
 
-rl:
-  required: True
-  type: dict
-  schema:
-    learning_rate:
-      required: True
-      type: float
-
 rrt:
   required: True
   type: dict
@@ -42,10 +34,13 @@ rrt:
       required: True
       type: float
 
-mpc:
+rl_mpc:
   required: True
   type: dict
   schema:
+    learning_rate:
+      required: True
+      type: float
     reference_traj_bbox_buffer:
       required: True
       type: float
@@ -84,7 +79,35 @@ mpc:
     path_following:
       required: True
       type: boolean
-    solver_options:
+    casadi_solver_options:
+      required: True
+      type: dict
+      schema:
+        solver_type:
+          required: True
+          type: string
+        max_iter:
+          required: True
+          type: integer
+        tol_stat:
+          required: True
+          type: float
+        nlp_solver_tol_eq:
+          required: True
+          type: float
+        nlp_solver_tol_ineq:
+          required: True
+          type: float
+        nlp_solver_tol_comp:
+          required: True
+          type: float
+        nlp_solver_ext_qp_res:
+          required: True
+          type: integer
+        print_level:
+          required: True
+          type: integer
+    acados_solver_options:
       required: True
       type: dict
       schema:

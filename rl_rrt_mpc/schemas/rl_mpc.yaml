@@ -14,10 +14,13 @@ ktp:
     epsilon:
       required: True
       type: float
-mpc:
+rl_mpc:
   required: True
   type: dict
   schema:
+    learning_rate:
+      required: True
+      type: float
     reference_traj_bbox_buffer:
       required: True
       type: float
