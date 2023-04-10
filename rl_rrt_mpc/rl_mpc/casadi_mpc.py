@@ -1,14 +1,13 @@
 """
-    mpc.py
+    casadi_mpc.py
 
     Summary:
-        Contains a class for an NMPC trajectory tracking/path following controller.
+        Contains a class for an (RL) NMPC (impl in casadi) trajectory tracking/path following controller with incorporated collision avoidance.
 
     Author: Trym Tengesdal
 """
 from dataclasses import asdict, dataclass
 from typing import Optional, Tuple
-
 
 import casadi as csd
 import numpy as np
@@ -16,6 +15,7 @@ import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.rl_mpc.integrators as integrators
 import rl_rrt_mpc.rl_mpc.models as models
+import rl_rrt_mpc.rl_mpc.parameters as parameters
 import seacharts.enc as senc
 
 MAX_NUM_DO_CONSTRAINTS: int = 15
@@ -42,54 +42,16 @@ class CasadiSolverOptions:
         return asdict(self)
 
 
-@dataclass
-class CasadiNMPCParams:
-    reference_traj_bbox_buffer: float = 500.0
-    T: float = 10.0
-    dt: float = 0.5
-    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-    R: np.ndarray = np.diag([1.0, 1.0, 1.0])
-    gamma: float = 0.0
-    d_safe_so: float = 5.0
-    d_safe_do: float = 5.0
-    spline_reference: bool = False
-    path_following: bool = False
-    acados: bool = False
-    casadi_solver_options: CasadiSolverOptions = CasadiSolverOptions()
-
-    @classmethod
-    def from_dict(cls, config_dict: dict):
-        config = CasadiNMPCParams(
-            reference_traj_bbox_buffer=config_dict["reference_traj_bbox_buffer"],
-            T=config_dict["T"],
-            dt=config_dict["dt"],
-            Q=np.diag(config_dict["Q"]),
-            R=np.diag(config_dict["R"]),
-            gamma=config_dict["gamma"],
-            d_safe_so=config_dict["d_safe_so"],
-            d_safe_do=config_dict["d_safe_do"],
-            spline_reference=config_dict["spline_reference"],
-            path_following=config_dict["path_following"],
-            acados=config_dict["acados"],
-            casadi_solver_options=CasadiSolverOptions(),
-        )
-
-        if config.path_following and config.Q.shape[0] != 2:
-            raise ValueError("Q must be a 2x2 matrix when path_following is True.")
-
-        if not config.path_following and config.Q.shape[0] != 6:
-            raise ValueError("Q must be a 6x6 matrix when path_following is False (trajectory tracking).")
-
-        config.casadi_solver_options = CasadiSolverOptions.from_dict(config_dict["casadi_solver_options"])
-        return config
-
-
-class CasadiNMPC:
-    def __init__(self, model: models.Telemetron, params: Optional[CasadiNMPCParams] = CasadiNMPCParams()) -> None:
+class CasadiMPC:
+    def __init__(
+        self, model: models.Telemetron, params: Optional[parameters.RLMPCParams] = parameters.RLMPCParams(), solver_options: CasadiSolverOptions = CasadiSolverOptions()
+    ) -> None:
         self._model = model
         if params:
-            self._params0: CasadiNMPCParams = params
-            self._params: CasadiNMPCParams = params
+            self._params0: parameters.RLMPCParams = params
+            self._params: parameters.RLMPCParams = params
+
+        self._solver_options: CasadiSolverOptions = solver_options
 
         nx, nu = self._model.dims
         self._x_warm_start: np.ndarray = np.zeros(nx)
@@ -99,7 +61,7 @@ class CasadiNMPC:
         self._s: float = 0.0
 
     @property
-    def params(self) -> CasadiNMPCParams:
+    def params(self) -> parameters.RLMPCParams:
         return self._params
 
     def update_adjustable_params(self, params: list) -> None:
@@ -115,7 +77,7 @@ class CasadiNMPC:
         Returns:
             - list: List of newly updated parameters.
         """
-        nx = self._acados_ocp.model.x.size()[0]
+        nx, nu = self._model.dims()
         if self._params.path_following:
             self._params.Q = np.reshape(params[0 : 2 * 2], (2, 2))
         else:
@@ -134,7 +96,7 @@ class CasadiNMPC:
                 - d_safe_so
                 - d_safe_do
         """
-        nx = self._acados_ocp.model.x.size()[0]
+        nx, nu = self._model.dims()
         return [*self._params.Q.reshape((nx * nx)).tolist(), self._params.gamma, self._params.d_safe_so, self._params.d_safe_do]
 
     def _compute_path_variable_derivative(self, s: float, nominal_trajectory: list, xs: Optional[np.ndarray]) -> float:
@@ -216,22 +178,36 @@ class CasadiNMPC:
             self._set_initial_warm_start(nominal_trajectory, nominal_inputs)
             self._initialized = True
 
-        self._update_ocp(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list)
-        status = self._acados_ocp_solver.solve()
-        self._acados_ocp_solver.print_statistics()
-        t_solve = self._acados_ocp_solver.get_stats("time_tot")
-        cost_val = self._acados_ocp_solver.get_cost()
+        nx, nu = self._model.dims()
+        parameter_values = self.create_parameter_values(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list)
+        soln = self.vsolver(
+            x0=xs,
+            p=parameter_values,
+            lbg=self.lbg_vcsd,
+            ubg=self.ubg_vcsd,
+        )
+        stats = self._solver.stats()
+        if not fl["success"]:
+            RuntimeError("Problem is Infeasible")
 
-        trajectory = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1))
-        inputs = np.zeros((self._acados_ocp.dims.nu, self._acados_ocp.dims.N))
-        for i in range(self._acados_ocp.dims.N + 1):
-            trajectory[:, i] = self._acados_ocp_solver.get(i, "x")
-            if i < self._acados_ocp.dims.N:
-                inputs[:, i] = self._acados_ocp_solver.get(i, "u").T
-        print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val}")
-        self._x_warm_start = trajectory.copy()
-        self._u_warm_start = inputs.copy()
-        return trajectory[:, : self._acados_ocp.dims.N], inputs[:, : self._acados_ocp.dims.N]
+        opt_vars = soln["x"].full()
+        act0 = np.array(opt_vars[:nu])[:, 0]
+
+        print("Soln")
+        print(opt_vars[: nu * self.N, :].T)
+        print(
+            opt_vars[
+                nu * self.N : nu * self.N + nx * self.N,
+                :,
+            ].T
+        )
+        print(
+            opt_vars[
+                nu * self.N + nx * self.N :,
+                :,
+            ].T
+        )
+        return act0, soln
 
     def _update_ocp(self, t: float, nominal_trajectory: np.ndarray | list, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> None:
         """Updates the OCP (cost and constraints) with the current info available
@@ -245,25 +221,34 @@ class CasadiNMPC:
             - so_list (list): List of static obstacle Polygon objects
         """
         adjustable_params = self.get_adjustable_params()
-        self._acados_ocp_solver.constraints_set(0, "lbx", xs)
-        self._acados_ocp_solver.constraints_set(0, "ubx", xs)
-        for i in range(self._acados_ocp.dims.N + 1):
-            self._acados_ocp_solver.set(i, "x", self._x_warm_start[:, i])
-            if i < self._acados_ocp.dims.N:
-                self._acados_ocp_solver.set(i, "u", self._u_warm_start[:, i])
+        self._solver.constraints_set(0, "lbx", xs)
+        self._solver.constraints_set(0, "ubx", xs)
+        for i in range(N + 1):
+            self._solver.set(i, "x", self._x_warm_start[:, i])
+            if i < N:
+                self._solver.set(i, "u", self._u_warm_start[:, i])
             p_i = self.create_parameter_values(adjustable_params, nominal_trajectory, do_list, so_list, i)
-            self._acados_ocp_solver.set(i, "p", p_i)
+            self._solver.set(i, "p", p_i)
         print("OCP updated")
 
     def construct_ocp(self, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, enc: senc.ENC) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
-        Class constructs a CASADI OCP on the form (same form as for the ACADOS OCP):
-            min     ∫ Lc(x, u) dt + Tc(xf)  (from 0 to T)
-            s.t.    dx/dt = xdot(x, u)
-                    xlb <= x <= xub ∀ x
-                    ulb <= u <= uub ∀ u
-                    clb <= c(x, u, p) <= cub ∀ x, u
+        Class constructs a "CASADI" (ipopt) tailored OCP on the form (same as for the ACADOS MPC):
+            min     ∫ Lc(x, u, p) dt + Tc_theta(xf)  (from 0 to Tf)
+            s.t.    xdot = f_expl(x, u)
+                    lbx <= x <= ubx ∀ x
+                    lbu <= u <= ubu ∀ u
+                    0 <= sigma ∀ sigma
+                    lbh <= h(x, u, p) <= ubh
+
+            where x, u and p are the state, input and parameter vector, respectively.
+
+            Since this is Casadi, this OCP must be converted to an NLP on the form
+
+            min     J(w, p)
+            s.t.    lbw <= x <= ubw ∀ w
+                    lbg <= g(w, p) <= ubg
 
         Args:
             - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for  x, y, psi, U.
@@ -273,99 +258,92 @@ class CasadiNMPC:
         """
         self._map_bbox = enc.bbox
         N = int(self._params.T / self._params.dt)
+        dt = self._params.dt
 
+        nx, nu = self._model.dims()
         xdot, x, u = self._model.as_casadi()
 
-        lbu, ubu, lbx, ubx = self._model.get_input_state_bounds()
+        # NLP decision variables
+        X = csd.MX.sym("X", nx, N + 1)
+        U = csd.MX.sym("U", nu, N)
+        Sigma = csd.MX.sym("Sigma", 1, N + 1)
+        w = csd.vertcat(X, U, Sigma)
+
+        # Box constraints on NLP decision variables
+        lbu_k, ubu_k, lbx_k, ubx_k = self._model.get_input_state_bounds()
+        lbu = [lbu_k] * N
+        ubu = [ubu_k] * N
+        lbx = [lbx_k] * (N + 1)
+        ubx = [ubx_k] * (N + 1)
+        lbsigma = [0] * (N + 1)
+        ubsigma = [np.inf] * (N + 1)
+        lbw = np.concatenate((lbx, lbu, lbsigma), axis=0)
+        ubw = np.concatenate((ubx, ubu, ubsigma), axis=0)
+
+        g, lbg, ubg = [], [], []  # NLP inequality constraints
+        p, p_fixed, p_adjustable = [], [], []  # NLP parameters
+
+        gamma = csd.MX.sym("gamma", 1)
+        if self._params.path_following:
+            Q_vec = csd.MX.sym("Qmtrx", nx * nx, 1)
+            X_ref = csd.MX.sym("X_ref", nx, N + 1)
+        else:
+            Q_vec = csd.MX.sym("Qmtrx", 2 * 2, 1)
+            X_ref = csd.MX.sym("X_ref", 2, N + 1)
+        Qmtrx = hf.casadi_matrix_from_vector(Q_vec, nx, nx)
+        p_fixed.append(X_ref)
+
+        p_adjustable.append(gamma)
+        p_adjustable.append(Q_vec)
 
         # Create symbolic constraint
-        self.c = csd.Function("C", [x, u, p], [c], ["x", "u", "p"], ["c"])
+        g_func = csd.Function("G", [x, u, p], [c], ["x", "u", "p"], ["c"])
 
-        # Create symbolic integrator
-        erk4 = integrators.ERK4(x, u, xdot, None, self._params.dt)
+        erk4 = integrators.ERK4(x, u, xdot, None, dt)
 
-        # For plotting x and u given w
-        x_plot, u_plot, s_plot = [], [], []
-
-        # Start with an empty NLP (no states w and no constraints g)
-        w, lbw, ubw = [], [], []
-        g, lbg, ubg = [], [], []
-        cost = 0
-
-        # "Lift" initial conditions
-        x_0 = csd.MX.sym("X_0", x.shape[0])
-        x_k = x_0
-        w.append(x_k)
+        x_0 = csd.MX.sym("x_0", nx, 1)
         lbw.append(x_0)
         ubw.append(x_0)
-        x_plot.append(x_k)
 
-        # Formulate the NLP by iterating over shoting intervals
+        J = 0
         for k in range(N):
-            # New NLP variable for the control
-            u_k = csd.MX.sym("U_" + str(k), u.shape[0])
-            w.append(u_k)
-            lbw.append(lbu)
-            ubw.append(ubu)
-            u_plot.append(u_k)
+            # Sum stage costs
+            J += gamma**k * quadratic_cost(X[:, k], X_ref[:, k], Qmtrx)
 
-            # Integrate from t_k -> t_k+1 and add variables
-            x_k_end, _, _, _, _, _, _, _ = erk4(x_k, u_k)
+            # Shooting gap constraints
+            x_k_next = erk4(X[:, k], U[:, k])
+            g.append(x_k_next - X[:, k + 1])
+            lbg.append(np.zeros(nx))
+            ubg.append(np.zeros(nx))
 
-            # New NLP variable for state at end of interval
-            x_k = csd.MX.sym("X_" + str(k + 1), x.shape[0])
-            w.append(x_k)
-            x_plot.append(x_k)
+            # Static obstacle constraints
 
-            # Add constraint on shooting gap
-            g.append(x_k_end - x_k)
-            lbg.append([0] * x.shape[0])
-            ubg.append([0] * x.shape[0])
-
-            # Add nonlinear constraints
-            if slack is not None:
-                Sk = csd.MX.sym("S_" + str(k + 1), len(clb))
-                self.w.append(Sk)
-                self.lbw.append([0] * len(clb))
-                self.ubw.append([np.inf] * len(clb))
-                s_plot.append(Sk)
-                g.append(self.c(x_k, u_k, self.p) - Sk)
-                cost += slack * csd.sum1(Sk)
-            else:
-                g.append(self.c(x_k, u_k, self.p))
-            lbg.append(clb)
-            ubg.append(cub)
-
-            # Add cost contribution
-            cost = cost + (x_k) *
+            # Dynamic obstacle constraints
 
         # Add terminal cost
-        terminal_cost = csd.Function("Tc", [x, p], [Tc], ["x", "p"], ["terminal_cost"])
-        cost = cost + terminal_cost(x_k, self.p)
+        J += gamma**N * (self.terminal_cost(X[:, self.N], s_ref, tQ, tq) + W @ self.Sigma[:, self.N])
 
         # Vectorize and finalize the NLP
-        self._casadi_w = csd.vertcat(*w)
-        self._casadi_g = csd.vertcat(*g)
-        self._casadi_lbw = csd.vertcat(*lbw)
-        self._casadi_ubw = csd.vertcat(*ubw)
-        self._casadi_lbg = csd.vertcat(*lbg)
-        self._casadi_ubg = csd.vertcat(*ubg)
-        self._casadi_cost = cost
+        self.g = ca.vertcat(*self.g)
+        self.lbg = ca.vertcat(*self.lbg)
+        self.ubg = ca.vertcat(*self.ubg)
 
-        # Useful function for extracting x and u trajectories from w vector
-        self._casadi_slack = csd.Function("slack", [self._casadi_w], [csd.horzcat(*s_plot)], ["w"], ["s"])
-        self._casadi_decision_trajectories = csd.Function(
-            "decision_trajectories", [self.w], [csd.horzcat(*x_plot), csd.horzcat(*u_plot), csd.horzcat(*s_plot)], ["w"], ["x", "u", "s"]
+        u_0 = csd.MX.sym("u_0", nu, 1)
+        qsolver_extra_constraint = U[:, 0] - u_0
+
+        # Usefull function for extracting x and u trajectories from w vector
+        self.trajectories = ca.Function("trajectories", [self.w], [ca.horzcat(*x_plot), ca.horzcat(*u_plot)], ["w"], ["x", "u"])
+        self.collocation = ca.Function("collocation_points", [self.w], [ca.horzcat(*x_collocation)], ["w"], ["x"])
+        self.slack = ca.Function("slack", [self.w], [ca.horzcat(*s_plot)], ["w"], ["s"])
+        self.decision_trajectories = ca.Function(
+            "decision_trajectories", [self.w], [ca.horzcat(*x_collocation, Xk), ca.horzcat(*u_plot), ca.horzcat(*s_plot)], ["w"], ["x", "u", "s"]
         )
-        self._casadi_decision_variables = csd.Function(
-            "decision_variables", [csd.horzcat(*x_plot), csd.horzcat(*u_plot), csd.horzcat(*s_plot)], [self._casadi_w], ["x", "u", "s"], ["w"]
+        self.decision_variables = ca.Function(
+            "decision_variables", [ca.horzcat(*x_collocation, Xk), ca.horzcat(*u_plot), ca.horzcat(*s_plot)], [self.w], ["x", "u", "s"], ["w"]
         )
 
-        # Useful function for generating bounds
-        self._casadi_bounds = csd.Function("bounds", [x_0, p], [self._casadi_lbw, self._casadi_ubw, self._casadi_lbg, self._casadi_ubg], ["x_0"], ["lbx", "ubx", "lbg", "ubg"])
-
-        problem = {"f": self._casadi_cost, "x": self._casadi_w, "g": self._casadi_g, "p": self._p}
-        self.solver = csd.nlpsol("solver", self._params.solver, problem, self._params.casadi_solver_options)
+        # Usefull function for generating bounds
+        self.bounds = ca.Function("bounds", [X0], [self.lbw, self.ubw, self.lbg, self.ubg], ["x0"], ["lbx", "ubx", "lbg", "ubg"])
 
     def create_parameter_values(self, adjustable_params: list, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, stage_idx: int) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
@@ -439,13 +417,7 @@ class CasadiNMPC:
         mu_s = csd.MX.sym("mux", Hs.shape[0])
         mult = csd.vertcat(lamb, mu_u, mu_x, mu_s)
 
-        lagrangian = (
-            cost
-            + csd.transpose(lamb) @ eq_constr
-            + csd.transpose(mu_u) @ Hu
-            + csd.transpose(mu_x) @ Hx
-            + csd.transpose(mu_s) @ Hs
-        )
+        lagrangian = cost + csd.transpose(lamb) @ eq_constr + csd.transpose(mu_u) @ Hu + csd.transpose(mu_x) @ Hx + csd.transpose(mu_s) @ Hs
         lagrangian_function = csd.Function("Lag", [self.Opt_Vars, mult, self.Pf, self.P], [lagrangian])
         lagrangian_function_derivative = lagrangian_function.factory(
             "dLagfunc",
@@ -453,3 +425,105 @@ class CasadiNMPC:
             ["jac:o0:i0", "jac:o0:i2", "jac:o0:i3"],
         )
         dLdw, dLdPf, dLdP = lagrangian_function_derivative(self._casadi_w, mult, self.Pf, self.P)
+
+    def dPidP(self, state, soln, param_val=None):
+        # Sensitivity of policy output with respect to learnable param
+        # i.e. gradient of action wrt to param_val
+        x = soln["x"].full()
+        lam_g = soln["lam_g"].full()
+        z = np.concatenate((x, lam_g), axis=0)
+
+        self.pf_val[:nx, :] = state[:, None]
+        param_val = param_val if param_val is not None else self.param_val
+        jacob_act = self.dPi(z, self.pf_val[:, 0], param_val[:, 0]).full()
+        return jacob_act[:nu, :]
+
+    def Q_value(self, state, action, param_val=None):
+        # Action-value function evaluation
+        nx, nu = self._model.dims()
+        self.pf_val[:nx, :] = state[:, None]
+        self.pf_val[nx : nx + nu, :] = action[:, None]
+        param_val = param_val if param_val is not None else self.param_val
+        X0 = self.env.get_initial_guess(self.N)
+
+        qsoln = self.qsolver(
+            x0=X0,
+            p=np.concatenate([self.pf_val, param_val])[:, 0],
+            lbg=self.lbg_qcsd,
+            ubg=self.ubg_qcsd,
+        )
+        fl = self.qsolver.stats()
+        if not fl["success"]:
+            RuntimeError("Problem is Infeasible")
+
+        q = qsoln["f"].full()[0, 0]
+        return q, qsoln
+
+    def dQdP(self, state, action, soln, param_val=None):
+        # Gradient of action-value fn Q wrt lernable param
+        # state, action, act_wt need to be from qsoln (garbage in garbage out)
+        x = soln["x"].full()
+        lam_g = soln["lam_g"].full()
+
+        self.pf_val[:nx, :] = state[:, None]
+        self.pf_val[nx : nx + nu, :] = action[:, None]
+        param_val = param_val if param_val is not None else self.param_val
+
+        _, _, dLdP = self.dLagQ(x, lam_g, self.pf_val[:, 0], param_val[:, 0])
+        return dLdP.full()
+
+    def param_update(self, lr, dJ, param_val=None):
+        # Param update scheme
+        param_val = param_val if param_val is not None else self.param_val
+        if self.constrained_updates:
+            self.param_val = self.constraint_param_update(lr, dJ, param_val)
+        else:
+            self.param_val -= lr * dJ
+
+    def constraint_param_update(self, lr, dJ, param_val):
+        # SDP for param update to ensure stable MPC formulation
+        dP = cvx.Variable((self.n_P, 1))
+        J_up = 0.5 * cvx.sum_squares(dP) + lr * dJ.T @ dP
+        P_next = param_val + dP
+        constraint = []
+        for cost_type in self.cost_defn:
+            if cost_type == "diagQ":
+                constraint += [cvx.diag(P_next[self.indP_q[0] : self.indP_q[1], 0]) >> 0.0]
+            elif cost_type == "diagR":
+                constraint += [cvx.diag(P_next[self.indP_r[0] : self.indP_r[1], 0]) >> 0.0]
+            elif cost_type == "fullQ":
+                constraint += [
+                    cvx.reshape(
+                        P_next[self.indP_fq[0] : self.indP_fq[1], 0],
+                        (nx, nx),
+                    )
+                    >> 0.0
+                ]
+            elif cost_type == "fullR":
+                constraint += [
+                    cvx.reshape(
+                        P_next[self.indP_fr[0] : self.indP_fr[1], 0],
+                        (nu, nu),
+                    )
+                    >> 0.0
+                ]
+            elif cost_type == "fullQu" or cost_type == "fullRu":
+                raise BaseException("Constrained update for cost function type not implemented")
+        prob = cvx.Problem(cvx.Minimize(J_up), constraint)
+        prob.solve(solver="CVXOPT")
+        P_up = param_val + dP.value
+        return P_up
+
+
+def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
+    """Forms the NMPC stage cost function used by the mid-level COLAV method.
+
+    Args:
+        var (csd.MX): Decision variable to weight quadratically (e.g. state, input, slack)
+        var_ref (csd.MX): Reference (input or state fixed parameter) variable
+        W (csd.MX): Weighting matrix for the decision variable error
+
+    Returns:
+        csd.MX: Cost function
+    """
+    return (var_ref - var).T @ W @ (var_ref - var)

@@ -1,93 +1,59 @@
 """
-    mpc.py
+    acados_mpc.py
 
     Summary:
-        Contains a class for an NMPC trajectory tracking/path following controller with collision avoidance functionality.
+        Contains a class (impl in Acados) for an NMPC trajectory tracking/path following controller with incorporated collision avoidance.
 
     Author: Trym Tengesdal
 """
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import casadi as csd
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.math_functions as mf
-import rl_rrt_mpc.rl_mpc.integrators as integrators
 import rl_rrt_mpc.rl_mpc.models as models
+import rl_rrt_mpc.rl_mpc.parameters as parameters
 import seacharts.enc as senc
-import rl_rrt_mpc.rl_mpc.nmpc_casadi as nmpc_casadi
-
-if ACADOS_COMPATIBLE:
-    import rl_rrt_mpc.rl_mpc.nmpc_acados as nmpc_acados
-
+from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
+from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 MAX_NUM_DO_CONSTRAINTS: int = 15
 MAX_NUM_SO_CONSTRAINTS: int = 300
 
 
-@dataclass
-class NMPCParams:
-    acados_nmpc_params: nmpc_acados.AcadosNMPCParams
-    casadi_nmpc_params: nmpc_casadi.CasadiNMPCParams
+def parse_acados_solver_options(self, config_dict: dict):
+    acados_solver_options = AcadosOcpOptions()
+    acados_solver_options.nlp_solver_type = config_dict["nlp_solver_type"]
+    acados_solver_options.nlp_solver_max_iter = config_dict["nlp_solver_max_iter"]
+    acados_solver_options.nlp_solver_tol_eq = config_dict["nlp_solver_tol_eq"]
+    acados_solver_options.nlp_solver_tol_ineq = config_dict["nlp_solver_tol_ineq"]
+    acados_solver_options.nlp_solver_tol_comp = config_dict["nlp_solver_tol_comp"]
+    acados_solver_options.nlp_solver_tol_stat = config_dict["nlp_solver_tol_stat"]
+    acados_solver_options.nlp_solver_ext_qp_res = config_dict["nlp_solver_ext_qp_res"]
+    acados_solver_options.qp_solver = config_dict["qp_solver_type"]
+    acados_solver_options.qp_solver_iter_max = config_dict["qp_solver_iter_max"]
+    acados_solver_options.qp_solver_warm_start = config_dict["qp_solver_warm_start"]
+    acados_solver_options.hessian_approx = config_dict["hessian_approx_type"]
+    acados_solver_options.globalization = config_dict["globalization"]
+    acados_solver_options.levenberg_marquardt = config_dict["levenberg_marquardt"]
+    acados_solver_options.print_level = config_dict["print_level"]
+    return acados_solver_options
 
 
-    @classmethod
-    def from_dict(cls, config_dict: dict):
-        config = NMPCParams(
-            reference_traj_bbox_buffer=config_dict["reference_traj_bbox_buffer"],
-            T=config_dict["T"],
-            dt=config_dict["dt"],
-            Q=np.diag(config_dict["Q"]),
-            R=np.diag(config_dict["R"]),
-            gamma=config_dict["gamma"],
-            d_safe_so=config_dict["d_safe_so"],
-            d_safe_do=config_dict["d_safe_do"],
-            spline_reference=config_dict["spline_reference"],
-            path_following=config_dict["path_following"],
-            acados=config_dict["acados"],
-            casadi_solver_options=CasadiSolverOptions(),
-            acados_solver_options=AcadosOcpOptions(),
-        )
-
-        if config.path_following and config.Q.shape[0] != 2:
-            raise ValueError("Q must be a 2x2 matrix when path_following is True.")
-
-        if not config.path_following and config.Q.shape[0] != 6:
-            raise ValueError("Q must be a 6x6 matrix when path_following is False (trajectory tracking).")
-
-        config.casadi_solver_options = CasadiSolverOptions.from_dict(config_dict["casadi_solver_options"])
-        config.acados_solver_options = config.parse_acados_solver_options(config_dict["acados_solver_options"])
-        return config
-
-    def parse_acados_solver_options(self, config_dict: dict):
-        acados_solver_options = AcadosOcpOptions()
-        acados_solver_options.nlp_solver_type = config_dict["nlp_solver_type"]
-        acados_solver_options.nlp_solver_max_iter = config_dict["nlp_solver_max_iter"]
-        acados_solver_options.nlp_solver_tol_eq = config_dict["nlp_solver_tol_eq"]
-        acados_solver_options.nlp_solver_tol_ineq = config_dict["nlp_solver_tol_ineq"]
-        acados_solver_options.nlp_solver_tol_comp = config_dict["nlp_solver_tol_comp"]
-        acados_solver_options.nlp_solver_tol_stat = config_dict["nlp_solver_tol_stat"]
-        acados_solver_options.nlp_solver_ext_qp_res = config_dict["nlp_solver_ext_qp_res"]
-        acados_solver_options.qp_solver = config_dict["qp_solver_type"]
-        acados_solver_options.qp_solver_iter_max = config_dict["qp_solver_iter_max"]
-        acados_solver_options.qp_solver_warm_start = config_dict["qp_solver_warm_start"]
-        acados_solver_options.hessian_approx = config_dict["hessian_approx_type"]
-        acados_solver_options.globalization = config_dict["globalization"]
-        acados_solver_options.levenberg_marquardt = config_dict["levenberg_marquardt"]
-        acados_solver_options.print_level = config_dict["print_level"]
-        return acados_solver_options
-
-
-class NMPC:
-    def __init__(self, model: models.TelemetronAcados, params: Optional[NMPCParams] = NMPCParams()) -> None:
+class AcadosMPC:
+    def __init__(
+        self, model: models.Telemetron, params: Optional[parameters.RLMPCParams] = parameters.RLMPCParams(), solver_options: AcadosOcpOptions = AcadosOcpOptions()
+    ) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
+        self._acados_ocp.solver_options = solver_options
         self._model = model
         if params:
-            self._params0: NMPCParams = params
-            self._params: NMPCParams = params
+            self._params0: parameters.RLMPCParams = params
+            self._params: parameters.RLMPCParams = params
 
-        nx, nu = self._model.dims
+        nx, nu = self._model.dims()
         self._x_warm_start: np.ndarray = np.zeros(nx)
         self._u_warm_start: np.ndarray = np.zeros(nu)
         self._initialized = False
@@ -95,7 +61,7 @@ class NMPC:
         self._s: float = 0.0
 
     @property
-    def params(self) -> NMPCParams:
+    def params(self) -> parameters.RLMPCParams:
         return self._params
 
     def update_adjustable_params(self, params: list) -> None:
@@ -252,30 +218,14 @@ class NMPC:
         print("OCP updated")
 
     def construct_ocp(self, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, enc: senc.ENC) -> None:
-        """Constructs the OCP for the NMPC problem. Depending on whether or not ACADOS is used, the OCP is constructed using the acados_template or the casadi framework.
-
-        Args:
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for  x, y, psi, U.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
-            - so_list (list): List of static obstacle Polygon objects
-            - enc (senc.ENC): ENC object.
-
-        """
-        self._map_bbox = enc.bbox
-        if self._params.acados:
-            self._construct_acados_ocp(nominal_trajectory, do_list, so_list, enc)
-        else:
-            self._construct_casadi_ocp(nominal_trajectory, do_list, so_list, enc)
-
-    def _construct_acados_ocp(self, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, enc: senc.ENC) -> None:
-        """Constructs the OCP for the NMPC problem. Depending on whether or not ACADOS is used, the OCP is constructed using the acados_template or the casadi framework.
+        """Constructs the OCP for the NMPC problem using ACADOS.
 
          Class constructs an ACADOS tailored OCP on the form:
             min     ∫ Lc(x, u, p) dt + Tc_theta(xf)  (from 0 to Tf)
             s.t.    xdot = f_expl(x, u)
-                    xlb <= x <= xub ∀ x
-                    ulb <= u <= uub ∀ u
-                    hlb <= h(x, u, p) <= hub
+                    lbx <= x <= ubx ∀ x
+                    lbu <= u <= ubu ∀ u
+                    lbh <= h(x, u, p) <= ubh
 
             where x, u and p are the state, input and parameter vector, respectively.
 
@@ -286,16 +236,8 @@ class NMPC:
             - enc (senc.ENC): ENC object.
 
         """
-        min_Fx = self._model.params.Fx_limits[0]
-        max_Fx = self._model.params.Fx_limits[1]
-        min_Fy = self._model.params.Fy_limits[0]
-        max_Fy = self._model.params.Fy_limits[1]
-        lever_arm = self._model.params.l_r
-        max_turn_rate = self._model.params.r_max
-        max_speed = self._model.params.U_max
-
         self._acados_ocp.model = self._model.as_acados()
-        self._acados_ocp.solver_options = self._params.solver_options
+        self._acados_ocp.solver_options = self._params.acados_solver_options
         self._acados_ocp.dims.N = int(self._params.T / self._params.dt)
         self._acados_ocp.solver_options.qp_solver_cond_N = self._acados_ocp.dims.N
         self._acados_ocp.solver_options.tf = self._params.T
@@ -345,21 +287,14 @@ class NMPC:
         # ocp.cost.Zu = 1e5 * np.array([1])
 
         approx_inf = 1e10
+        lbu, ubu, lbx, ubx = self._model.get_input_state_bounds()
 
         # Input constraints
         self._acados_ocp.constraints.idxbu = np.array(range(nu))
-        self._acados_ocp.constraints.lbu = np.array(
-            [
-                min_Fx,
-                min_Fy,
-                lever_arm * min_Fy,
-            ]
-        )
-        self._acados_ocp.constraints.ubu = np.array([max_Fx, max_Fy, lever_arm * max_Fy])
+        self._acados_ocp.constraints.lbu = lbu
+        self._acados_ocp.constraints.ubu = ubu
 
         # State constraints
-        lbx = np.array([self._map_bbox[1], self._map_bbox[0], -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])
-        ubx = np.array([self._map_bbox[3], self._map_bbox[2], np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
         self._acados_ocp.constraints.idxbx_0 = np.array(range(nx))
         self._acados_ocp.constraints.lbx_0 = lbx
         self._acados_ocp.constraints.ubx_0 = ubx
@@ -421,116 +356,6 @@ class NMPC:
         solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
         # self._acados_ocp.code_export_directory = "../generated_ocp_" + self._acados_ocp.model.name
         self._acados_ocp_solver: AcadosOcpSolver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json)
-
-    def _construct_casadi_ocp(self, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, enc: senc.ENC) -> None:
-        """
-        Class constructs a CASADI OCP on the form:
-            min     ∫ Lc(x, u) dt + Tc(xf)  (from 0 to T)
-            s.t.    dx/dt = xdot(x, u)
-                    xlb <= x <= xub ∀ x
-                    ulb <= u <= uub ∀ u
-                    clb <= c(x, u, p) <= cub ∀ x, u
-
-        Args:
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for  x, y, psi, U.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
-            - so_list (list): List of static obstacle Polygon objects
-            - enc (senc.ENC): ENC object.
-        """
-        N = int(self._params.T / self._params.dt)
-
-        xdot, x, u = self._model.as_casadi()
-
-
-
-        # Create symbolic constraint
-        self.c = csd.Function("C", [x, u, p], [c], ["x", "u", "p"], ["c"])
-
-        # Create symbolic integrator
-        erk4 = integrators.ERK4(x, u, xdot, None, self._params.dt)
-
-        # For plotting x and u given w
-        x_plot, u_plot, s_plot = [], [], []
-
-        # Start with an empty NLP (no states w and no constraints g)
-        w, lbw, ubw = [], [], []
-        g, lbg, ubg = [], [], []
-        cost = 0
-
-        # "Lift" initial conditions
-        x_0 = csd.MX.sym("X_0", x.shape[0])
-        x_k = x_0
-        w.append(x_k)
-        lbw.append(x_0)
-        ubw.append(x_0)
-        x_plot.append(x_k)
-
-        # Formulate the NLP by iterating over shoting intervals
-        for k in range(N):
-            # New NLP variable for the control
-            u_k = csd.MX.sym("U_" + str(k), u.shape[0])
-            w.append(u_k)
-            lbw.append(lbu)
-            ubw.append(ubu)
-            u_plot.append(u_k)
-
-            # Integrate from t_k -> t_k+1 and add variables
-            x_k_end, _, _, _, _, _, _, _ = erk4(x_k, u_k)
-
-            # New NLP variable for state at end of interval
-            x_k = csd.MX.sym("X_" + str(k + 1), x.shape[0])
-            w.append(x_k)
-            x_plot.append(x_k)
-
-            # Add constraint on shooting gap
-            g.append(x_k_end - x_k)
-            lbg.append([0] * x.shape[0])
-            ubg.append([0] * x.shape[0])
-
-            # Add nonlinear constraints
-            if slack is not None:
-                Sk = csd.MX.sym("S_" + str(k + 1), len(clb))
-                self.w.append(Sk)
-                self.lbw.append([0] * len(clb))
-                self.ubw.append([np.inf] * len(clb))
-                s_plot.append(Sk)
-                g.append(self.c(x_k, u_k, self.p) - Sk)
-                cost += slack * csd.sum1(Sk)
-            else:
-                g.append(self.c(x_k, u_k, self.p))
-            lbg.append(clb)
-            ubg.append(cub)
-
-            # Add cost contribution
-            cost = cost + (x_k) *
-
-        # Add terminal cost
-        terminal_cost = csd.Function("Tc", [x, p], [Tc], ["x", "p"], ["terminal_cost"])
-        cost = cost + terminal_cost(x_k, self.p)
-
-        # Vectorize and finalize the NLP
-        self._casadi_w = csd.vertcat(*w)
-        self._casadi_g = csd.vertcat(*g)
-        self._casadi_lbw = csd.vertcat(*lbw)
-        self._casadi_ubw = csd.vertcat(*ubw)
-        self._casadi_lbg = csd.vertcat(*lbg)
-        self._casadi_ubg = csd.vertcat(*ubg)
-        self._casadi_cost = cost
-
-        # Useful function for extracting x and u trajectories from w vector
-        self._casadi_slack = csd.Function("slack", [self._casadi_w], [csd.horzcat(*s_plot)], ["w"], ["s"])
-        self._casadi_decision_trajectories = csd.Function(
-            "decision_trajectories", [self.w], [csd.horzcat(*x_plot), csd.horzcat(*u_plot), csd.horzcat(*s_plot)], ["w"], ["x", "u", "s"]
-        )
-        self._casadi_decision_variables = csd.Function(
-            "decision_variables", [csd.horzcat(*x_plot), csd.horzcat(*u_plot), csd.horzcat(*s_plot)], [self._casadi_w], ["x", "u", "s"], ["w"]
-        )
-
-        # Useful function for generating bounds
-        self._casadi_bounds = csd.Function("bounds", [x_0, p], [self._casadi_lbw, self._casadi_ubw, self._casadi_lbg, self._casadi_ubg], ["x_0"], ["lbx", "ubx", "lbg", "ubg"])
-
-        problem = {"f": self._casadi_cost, "x": self._casadi_w, "g": self._casadi_g, "p": self._p}
-        self.solver = csd.nlpsol("solver", self._params.solver, problem, self._params.casadi_solver_options)
 
     def create_parameter_values(self, adjustable_params: list, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, stage_idx: int) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
@@ -595,26 +420,3 @@ class NMPC:
             else:
                 parameter_values = np.concatenate((parameter_values, np.array([self._map_bbox[1], self._map_bbox[0], 0.0, 0.0, 5.0, 2.0])))
         return parameter_values
-
-    def build_sensitivity(self, cost, eq_constr, Hu, Hx, Hs):
-        # Sensitivity
-        lamb = csd.MX.sym("lambda", eq_constr.shape[0])
-        mu_u = csd.MX.sym("muu", Hu.shape[0])
-        mu_x = csd.MX.sym("mux", Hx.shape[0])
-        mu_s = csd.MX.sym("mux", Hs.shape[0])
-        mult = csd.vertcat(lamb, mu_u, mu_x, mu_s)
-
-        lagrangian = (
-            cost
-            + csd.transpose(lamb) @ eq_constr
-            + csd.transpose(mu_u) @ Hu
-            + csd.transpose(mu_x) @ Hx
-            + csd.transpose(mu_s) @ Hs
-        )
-        lagrangian_function = csd.Function("Lag", [self.Opt_Vars, mult, self.Pf, self.P], [lagrangian])
-        lagrangian_function_derivative = lagrangian_function.factory(
-            "dLagfunc",
-            ["i0", "i1", "i2", "i3"],
-            ["jac:o0:i0", "jac:o0:i2", "jac:o0:i3"],
-        )
-        dLdw, dLdPf, dLdP = lagrangian_function_derivative(self._casadi_w, mult, self.Pf, self.P)

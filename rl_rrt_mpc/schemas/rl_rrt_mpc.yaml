@@ -79,78 +79,89 @@ rl_mpc:
     path_following:
       required: True
       type: boolean
-    casadi_solver_options:
+    enable_acados:
+      required: True
+      type: boolean
+    solver_options:
       required: True
       type: dict
       schema:
-        solver_type:
+        casadi:
+          required:  True
+          type: dict
+          schema:
+            solver_type:
+              required: True
+              type: string
+            solver_tol:
+              required: True
+              type: float
+            print_level:
+              required: True
+              type: integer
+            print_time:
+              required: True
+              type: integer
+            mu_target:
+              required: True
+              type: float
+            mu_init:
+              required: True
+              type: float
+            acceptable_tol:
+              required: True
+              type: float
+            acceptable_obj_change_tol:
+              required: True
+              type: float
+            max_iter:
+              required: True
+              type: integer
+
+        acados:
           required: True
-          type: string
-        max_iter:
-          required: True
-          type: integer
-        tol_stat:
-          required: True
-          type: float
-        nlp_solver_tol_eq:
-          required: True
-          type: float
-        nlp_solver_tol_ineq:
-          required: True
-          type: float
-        nlp_solver_tol_comp:
-          required: True
-          type: float
-        nlp_solver_ext_qp_res:
-          required: True
-          type: integer
-        print_level:
-          required: True
-          type: integer
-    acados_solver_options:
-      required: True
-      type: dict
-      schema:
-        nlp_solver_type:
-          required: True
-          type: string
-        nlp_solver_max_iter:
-          required: True
-          type: integer
-        nlp_solver_tol_stat:
-          required: True
-          type: float
-        nlp_solver_tol_eq:
-          required: True
-          type: float
-        nlp_solver_tol_ineq:
-          required: True
-          type: float
-        nlp_solver_tol_comp:
-          required: True
-          type: float
-        nlp_solver_ext_qp_res:
-          required: True
-          type: integer
-        qp_solver_type:
-          required: True
-          type: string
-        qp_solver_iter_max:
-          required: True
-          type: integer
-        qp_solver_warm_start:
-          required: True
-          type: integer
-        hessian_approx_type:
-          required: True
-          type: string
-        globalization:
-          required: True
-          type: string
-        levenberg_marquardt:
-          required: True
-          type: float
-        print_level:
-          required: True
-          type: integer
+          type: dict
+          schema:
+            nlp_solver_type:
+              required: True
+              type: string
+            nlp_solver_max_iter:
+              required: True
+              type: integer
+            nlp_solver_tol_stat:
+              required: True
+              type: float
+            nlp_solver_tol_eq:
+              required: True
+              type: float
+            nlp_solver_tol_ineq:
+              required: True
+              type: float
+            nlp_solver_tol_comp:
+              required: True
+              type: float
+            nlp_solver_ext_qp_res:
+              required: True
+              type: integer
+            qp_solver_type:
+              required: True
+              type: string
+            qp_solver_iter_max:
+              required: True
+              type: integer
+            qp_solver_warm_start:
+              required: True
+              type: integer
+            hessian_approx_type:
+              required: True
+              type: string
+            globalization:
+              required: True
+              type: string
+            levenberg_marquardt:
+              required: True
+              type: float
+            print_level:
+              required: True
+              type: integer
 

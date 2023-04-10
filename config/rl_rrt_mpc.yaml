@@ -23,23 +23,31 @@ rl_mpc:
   gamma: 0.99
   spline_reference: True
   path_following: True
-  acados: True
-  solver_options:
-    casadi:
 
-    acados:
-      nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 300
-      nlp_solver_tol_stat: 0.000001
-      nlp_solver_tol_eq: 0.000001
-      nlp_solver_tol_ineq: 0.000001
-      nlp_solver_tol_comp: 0.000001
-      nlp_solver_ext_qp_res: 0
-      qp_solver_type: "FULL_CONDENSING_QPOASES"
-      hessian_approx_type: "EXACT"
-      globalization: "MERIT_BACKTRACKING"
-
-      qp_solver_iter_max: 100
-      qp_solver_warm_start: 1
-      levenberg_marquardt: 0.0
-      print_level: 0
+enable_acados: True
+solver_options:
+  casadi:
+    solver_type: "ipopt"
+    solver_tol: 0.000001
+    print_level: 3
+    print_time: 0
+    mu_target: 0.000001
+    mu_init: 0.000001
+    acceptable_tol: 0.000001
+    acceptable_obj_change_tol: 0.000001
+    max_iter: 100
+  acados:
+    nlp_solver_type: "SQP"
+    nlp_solver_max_iter: 300
+    nlp_solver_tol_stat: 0.000001
+    nlp_solver_tol_eq: 0.000001
+    nlp_solver_tol_ineq: 0.000001
+    nlp_solver_tol_comp: 0.000001
+    nlp_solver_ext_qp_res: 0
+    qp_solver_type: "FULL_CONDENSING_QPOASES"
+    qp_solver_iter_max: 100
+    qp_solver_warm_start: 1
+    hessian_approx_type: "EXACT"
+    globalization: "MERIT_BACKTRACKING"
+    levenberg_marquardt: 0.0
+    print_level: 0

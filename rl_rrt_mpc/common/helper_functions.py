@@ -126,13 +126,11 @@ def casadi_matrix_from_nested_list(M: list):
     return csd.vertcat(*(csd.horzcat(*row) for row in M))
 
 
-def casadi_matrix_from_vector(v: csd.SX.sym):
-    len_v = v.shape[0]
-    n_rows = int(np.sqrt(len_v))
+def casadi_matrix_from_vector(v: csd.SX.sym, n_rows: int, n_cols: int):
     llist = []
     for i in range(n_rows):
         nested_list = []
-        for j in range(n_rows):
+        for j in range(n_cols):
             nested_list.append(v[i * n_rows + j])
         llist.append(nested_list)
     return casadi_matrix_from_nested_list(llist)
