@@ -2,24 +2,37 @@
     parameters.py
 
     Summary:
-        Contains a dataclasses for parameters used by the RL(N)MPC.
+        Contains a dataclasses for a parameter interface and parameters used by the RL(N)MPC mid-level COLAV.
 
     Author: Trym Tengesdal
 """
+from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import Any, Optional, Tuple
 
 import numpy as np
 
 
 @dataclass
-class RLMPCParams:
+class IParams(ABC):
+    @classmethod
+    @abstractmethod
+    def from_dict(self, config_dict: dict):
+        """Creates a parameters object from a dictionary."""
+
+    @abstractmethod
+    def to_dict(self) -> dict:
+        """Converts the parameters to a dictionary."""
+
+
+@dataclass
+class RLMPCParams(IParams):
+    """Class for parameters used by the RL(N)MPC mid-level COLAV. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
+
     reference_traj_bbox_buffer: float = 500.0
     T: float = 10.0
     dt: float = 0.5
     Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-    R: np.ndarray = np.diag([1.0, 1.0, 1.0])
-    gamma: float = 0.0
+    gamma: float = 0.9
     d_safe_so: float = 5.0
     d_safe_do: float = 5.0
     spline_reference: bool = False
@@ -38,3 +51,12 @@ class RLMPCParams:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    @property
+    def adjustable(self) -> list:
+        """Returns a list of the adjustable parameters by the RL scheme.
+
+        Returns:
+            list: List of adjustable parameters.
+        """
+        return [self.Q.flatten().tolist(), self.d_safe_so, self.d_safe_do]

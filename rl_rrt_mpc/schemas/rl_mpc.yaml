@@ -14,95 +14,126 @@ ktp:
     epsilon:
       required: True
       type: float
-rl_mpc:
+mpc:
   required: True
   type: dict
   schema:
-    learning_rate:
-      required: True
-      type: float
-    reference_traj_bbox_buffer:
-      required: True
-      type: float
-    T:
-      required: True
-      type: float
-    dt:
-      required: True
-      type: float
-    Q:
-      required: True
-      type: list
-      maxlength: 6
-      minlength: 6
-      schema:
-        type: float
-    R:
-      required: True
-      type: list
-      maxlength: 3
-      minlength: 3
-      schema:
-        type: float
-    gamma:
-      required: True
-      type: float
-    d_safe_so:
-      required: True
-      type: float
-    d_safe_do:
-      required: True
-      type: float
-    spline_reference:
-      required: True
-      type: boolean
-    path_following:
-      required: True
-      type: boolean
-    solver_options:
+    params:
       required: True
       type: dict
       schema:
-        nlp_solver_type:
-          required: True
-          type: string
-        nlp_solver_max_iter:
-          required: True
-          type: integer
-        nlp_solver_tol_stat:
+        reference_traj_bbox_buffer:
           required: True
           type: float
-        nlp_solver_tol_eq:
+        T:
           required: True
           type: float
-        nlp_solver_tol_ineq:
+        dt:
           required: True
           type: float
-        nlp_solver_tol_comp:
+        Q:
+          required: True
+          type: list
+          maxlength: 6
+          minlength: 6
+          schema:
+            type: float
+        gamma:
           required: True
           type: float
-        nlp_solver_ext_qp_res:
-          required: True
-          type: integer
-        qp_solver_type:
-          required: True
-          type: string
-        qp_solver_iter_max:
-          required: True
-          type: integer
-        qp_solver_warm_start:
-          required: True
-          type: integer
-        hessian_approx_type:
-          required: True
-          type: string
-        globalization:
-          required: True
-          type: string
-        levenberg_marquardt:
+        d_safe_so:
           required: True
           type: float
-        print_level:
+        d_safe_do:
           required: True
-          type: integer
+          type: float
+        path_following:
+          required: True
+          type: boolean
+
+    enable_acados:
+      required: True
+      type: boolean
+    solver_options:
+        required: True
+        type: dict
+        schema:
+          casadi:
+            required:  True
+            type: dict
+            schema:
+              solver_type:
+                required: True
+                type: string
+              solver_tol:
+                required: True
+                type: float
+              print_level:
+                required: True
+                type: integer
+              print_time:
+                required: True
+                type: integer
+              mu_target:
+                required: True
+                type: float
+              mu_init:
+                required: True
+                type: float
+              acceptable_tol:
+                required: True
+                type: float
+              acceptable_obj_change_tol:
+                required: True
+                type: float
+              max_iter:
+                required: True
+                type: integer
+
+          acados:
+            required: True
+            type: dict
+            schema:
+              nlp_solver_type:
+                required: True
+                type: string
+              nlp_solver_max_iter:
+                required: True
+                type: integer
+              nlp_solver_tol_stat:
+                required: True
+                type: float
+              nlp_solver_tol_eq:
+                required: True
+                type: float
+              nlp_solver_tol_ineq:
+                required: True
+                type: float
+              nlp_solver_tol_comp:
+                required: True
+                type: float
+              nlp_solver_ext_qp_res:
+                required: True
+                type: integer
+              qp_solver_type:
+                required: True
+                type: string
+              qp_solver_iter_max:
+                required: True
+                type: integer
+              qp_solver_warm_start:
+                required: True
+                type: integer
+              hessian_approx_type:
+                required: True
+                type: string
+              globalization:
+                required: True
+                type: string
+              levenberg_marquardt:
+                required: True
+                type: float
+              print_level:
+                required: True
+                type: integer
 

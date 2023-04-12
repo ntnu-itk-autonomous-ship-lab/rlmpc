@@ -18,8 +18,9 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.models as models
-import rl_rrt_mpc.nmpc as nmpc
+import rl_rrt_mpc.mpc.models as mpc_models
+import rl_rrt_mpc.mpc.mpc as mpc
+import rl_rrt_mpc.mpc.parameters as mpc_params
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
 from shapely import strtree
@@ -49,28 +50,27 @@ class RRTParams:
 
 @dataclass
 class RLRRTMPCParams:
-    rl: rl.RLParams
+    rl_method: rl.RLParams
     rrt: RRTParams
-    mpc: nmpc.NMPCParams
+    mpc: mpc.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLRRTMPCParams(
-            rl=rl.RLParams.from_dict(config_dict["rl"]),
+            rl_method=rl.RLParams.from_dict(config_dict["rl"]),
             rrt=RRTParams.from_dict(config_dict["rrt"]),
-            mpc=nmpc.NMPCParams.from_dict(config_dict["mpc"]),
+            mpc=mpc.Config.from_dict(config_dict["mpc"]),
         )
         return config
 
 
 class RLRRTMPCBuilder:
     @classmethod
-    def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt.InformedRRTStar, nmpc.NMPC]:
-
-        rl_obj = rl.RL(config.rl)
+    def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt.InformedRRTStar, mpc.MPC]:
+        rl_obj = rl.RL(config.rl_method)
         rrt_obj = rrt.InformedRRTStar(config.rrt)
-        mpc_obj = nmpc.NMPC(models.TelemetronAcados(), config.mpc)
-        return rl_obj, rrt_obj, mpc_obj
+        rlmpc_obj = mpc.MPC(mpc_models.Telemetron(), config.mpc)
+        return rl_obj, rrt_obj, rlmpc_obj
 
 
 class RLRRTMPC(ci.ICOLAV):
@@ -94,8 +94,8 @@ class RLRRTMPC(ci.ICOLAV):
         self._rrt_trajectory: np.ndarray = np.empty(6)
         self._rrt_references: np.ndarray = np.empty(2)
         self._rel_rrt_trajectory: np.ndarray = np.empty(6)
-        self._nmpc_trajectory: np.ndarray = np.empty(6)
-        self._nmpc_inputs: np.ndarray = np.empty(3)
+        self._mpc_trajectory: np.ndarray = np.empty(6)
+        self._mpc_inputs: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
     def plan(
@@ -159,31 +159,30 @@ class RLRRTMPC(ci.ICOLAV):
             if enc is not None:
                 hf.plot_trajectory(self._rrt_trajectory, times, enc, color="magenta")
 
-            polygons_considered_in_nmpc = mapf.extract_polygons_near_trajectory(
+            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
                 self._rrt_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
             )
-            triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_nmpc, enc=enc)
-            self._nmpc_rel_polygons = hf.shift_polygon_coordinates(polygons_considered_in_nmpc, enc.origin[0], enc.origin[1])
-            self._nmpc.construct_ocp(nominal_trajectory=self._rel_rrt_trajectory, do_list=rel_do_list, so_list=self._nmpc_rel_polygons, enc=enc)
+            triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_mpc, enc=enc)
+            self._mpc_rel_polygons = hf.shift_polygon_coordinates(polygons_considered_in_mpc, enc.origin[0], enc.origin[1])
+            self._mpc.construct_ocp(nominal_trajectory=self._rel_rrt_trajectory, do_list=rel_do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
         rel_ownship_state = ownship_state.copy()
         rel_ownship_state[0] -= enc.origin[1]
         rel_ownship_state[1] -= enc.origin[0]
-        self._nmpc_trajectory, self._nmpc_inputs = self._nmpc.plan(
-            t=t,
+        self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
             nominal_trajectory=self._rel_rrt_trajectory,
             nominal_inputs=self._rrt_inputs,
             xs=rel_ownship_state,
             do_list=rel_do_list,
-            so_list=self._nmpc_rel_polygons,
+            so_list=self._mpc_rel_polygons,
         )
-        self._nmpc_trajectory[0, :] += enc.origin[1]
-        self._nmpc_trajectory[1, :] += enc.origin[0]
+        self._mpc_trajectory[0, :] += enc.origin[1]
+        self._mpc_trajectory[1, :] += enc.origin[0]
 
-        hf.plot_dynamic_obstacles(do_list, enc, self._nmpc.params.T, self._nmpc.params.dt)
-        hf.plot_trajectory(self._nmpc_trajectory, times, enc, color="cyan")
-        references = np.zeros((9, len(self._nmpc_trajectory[0, :])))
-        references[:6, :] = self._nmpc_trajectory
+        hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
+        hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")
+        references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        references[:6, :] = self._mpc_trajectory
         return references
 
     def get_current_plan(self) -> np.ndarray:
@@ -194,14 +193,14 @@ class RLRRTMPC(ci.ICOLAV):
 class RLMPCParams:
     rl: rl.RLParams
     ktp: guidances.KTPGuidanceParams
-    mpc: nmpc.NMPCParams
+    mpc: mpc.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLMPCParams(
             rl=rl.RLParams.from_dict(config_dict["rl"]),
             ktp=guidances.KTPGuidanceParams.from_dict(config_dict["ktp"]),
-            mpc=nmpc.NMPCParams.from_dict(config_dict["mpc"]),
+            mpc=mpc.Config.from_dict(config_dict["mpc"]),
         )
         return config
 
@@ -220,15 +219,15 @@ class RLMPC(ci.ICOLAV):
 
         self._rl = rl.RL(self._config.rl)
         self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
-        self._nmpc = nmpc.NMPC(models.TelemetronAcados(), self._config.mpc)
+        self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
 
         self._references = np.empty(9)
         self._initialized = False
         self._t_prev = 0.0
         self._min_depth: int = 0
         self._ktp_trajectory: np.ndarray = np.empty(6)
-        self._nmpc_trajectory: np.ndarray = np.empty(6)
-        self._nmpc_inputs: np.ndarray = np.empty(3)
+        self._mpc_trajectory: np.ndarray = np.empty(6)
+        self._mpc_inputs: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
     def plan(
@@ -266,28 +265,27 @@ class RLMPC(ci.ICOLAV):
             # self._ktp.plot_reference_trajectory(waypoints, np.array([]))
             spline_ktp_trajectory = [x_spline, y_spline, psi_spline, speed_spline]
 
-            self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._nmpc.params.dt)
+            self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             if enc is not None:
                 hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
-            polygons_considered_in_nmpc = mapf.extract_polygons_near_trajectory(
-                self._ktp_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
+            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
+                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            # triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_nmpc, enc=enc)
-            self._nmpc.construct_ocp(nominal_trajectory=spline_ktp_trajectory, do_list=do_list, so_list=polygons_considered_in_nmpc, enc=enc)
+            # triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_mpc, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=polygons_considered_in_mpc, enc=enc)
 
-        self._nmpc_trajectory, self._nmpc_inputs = self._nmpc.plan(
-            t=t,
-            nominal_trajectory=spline_ktp_trajectory,
+        self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
+            nominal_trajectory=self._ktp_trajectory,
             nominal_inputs=np.array([]),
             xs=ownship_state,
             do_list=do_list,
-            so_list=polygons_considered_in_nmpc,
+            so_list=polygons_considered_in_mpc,
         )
 
-        hf.plot_dynamic_obstacles(do_list, enc, self._nmpc.params.T, self._nmpc.params.dt)
-        hf.plot_trajectory(self._nmpc_trajectory, np.array([]), enc, color="cyan")
-        references = np.zeros((9, len(self._nmpc_trajectory[0, :])))
-        references[:6, :] = self._nmpc_trajectory
+        hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
+        hf.plot_trajectory(self._rlmpc_trajectory, np.array([]), enc, color="cyan")
+        references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        references[:6, :] = self._mpc_trajectory
         self._t_prev = t
         return references
 

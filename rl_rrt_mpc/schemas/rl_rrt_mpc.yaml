@@ -1,3 +1,10 @@
+rl:
+  required: True
+  type: dict
+  schema:
+    learning_rate:
+      required: True
+      type: float
 
 rrt:
   required: True
@@ -34,51 +41,42 @@ rrt:
       required: True
       type: float
 
-rl_mpc:
+mpc:
   required: True
   type: dict
   schema:
-    learning_rate:
+    params:
       required: True
-      type: float
-    reference_traj_bbox_buffer:
-      required: True
-      type: float
-    T:
-      required: True
-      type: float
-    dt:
-      required: True
-      type: float
-    Q:
-      required: True
-      type: list
-      maxlength: 6
-      minlength: 6
+      type: dict
       schema:
-        type: float
-    R:
-      required: True
-      type: list
-      maxlength: 3
-      minlength: 3
-      schema:
-        type: float
-    gamma:
-      required: True
-      type: float
-    d_safe_so:
-      required: True
-      type: float
-    d_safe_do:
-      required: True
-      type: float
-    spline_reference:
-      required: True
-      type: boolean
-    path_following:
-      required: True
-      type: boolean
+        reference_traj_bbox_buffer:
+          required: True
+          type: float
+        T:
+          required: True
+          type: float
+        dt:
+          required: True
+          type: float
+        Q:
+          required: True
+          type: list
+          maxlength: 6
+          minlength: 6
+          schema:
+            type: float
+        gamma:
+          required: True
+          type: float
+        d_safe_so:
+          required: True
+          type: float
+        d_safe_do:
+          required: True
+          type: float
+        path_following:
+          required: True
+          type: boolean
     enable_acados:
       required: True
       type: boolean

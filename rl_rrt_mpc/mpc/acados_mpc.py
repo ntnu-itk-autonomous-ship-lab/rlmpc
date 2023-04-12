@@ -6,15 +6,14 @@
 
     Author: Trym Tengesdal
 """
-from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import casadi as csd
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.math_functions as mf
-import rl_rrt_mpc.rl_mpc.models as models
-import rl_rrt_mpc.rl_mpc.parameters as parameters
+import rl_rrt_mpc.mpc.models as models
+import rl_rrt_mpc.mpc.parameters as parameters
 import seacharts.enc as senc
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
@@ -70,7 +69,6 @@ class AcadosMPC:
         Args:
             params (list): List of parameters to update. The order of the parameters are:
                 - Q
-                - gamma
                 - d_safe_so
                 - d_safe_do
 
@@ -79,12 +77,12 @@ class AcadosMPC:
         """
         nx = self._acados_ocp.model.x.size()[0]
         if self._params.path_following:
-            self._params.Q = np.reshape(params[0 : 2 * 2], (2, 2))
+            dim_Q = 2
         else:
-            self._params.Q = np.reshape(params[0 : nx * nx], (nx, nx))
-        self._params.gamma = params[36]
-        self._params.d_safe_so = params[37]
-        self._params.d_safe_do = params[38]
+            dim_Q = nx
+        self._params.Q = np.reshape(params[0 : dim_Q * dim_Q], (dim_Q, dim_Q))
+        self._params.d_safe_so = params[dim_Q * dim_Q]
+        self._params.d_safe_do = params[dim_Q * dim_Q + 1]
 
     def get_adjustable_params(self) -> list:
         """Returns the RL-tuneable parameters in the NMPC.
@@ -92,80 +90,28 @@ class AcadosMPC:
         Returns:
             list: List of parameters. The order of the parameters are:
                 - Q
-                - gamma
                 - d_safe_so
                 - d_safe_do
         """
-        nx = self._acados_ocp.model.x.size()[0]
-        return [*self._params.Q.reshape((nx * nx)).tolist(), self._params.gamma, self._params.d_safe_so, self._params.d_safe_do]
+        return [*self._params.Q.flatten().tolist(), self._params.d_safe_so, self._params.d_safe_do]
 
-    def _compute_path_variable_derivative(self, s: float, nominal_trajectory: list, xs: Optional[np.ndarray]) -> float:
-        """Computes the path variable dynamics, i.e. the derivative of the path variable s.
-
-        Args:
-            - s (float): Path variable.
-            - nominal_trajectory (list): Nominal reference trajectory to track. As list of splines for (x, y, psi, v).
-            - xs (Optional[np.ndarray]): Own-ship state.
-
-        Returns:
-            float: Derivative of the path variable s.
-        """
-        x_spline = nominal_trajectory[0]
-        y_spline = nominal_trajectory[1]
-        speed_spline = nominal_trajectory[3]
-
-        # Use speed spline to compute the path variable derivative, i.e. use a speed profile
-        s_dot = speed_spline(s) / np.sqrt(0.0001 + np.power(x_spline(s, 1), 2.0) + np.power(y_spline(s, 1), 2.0))
-        # Reference vehicle propagation slows down when the actual vehicle is far away from the reference vehicle
-        # s_dot = speed_spline(s) * (1 - 0.1 * np.tanh(np.sqrt((x_spline(s) - xs[0]) ** 2 + (y_spline(s) - xs[1]) ** 2)))
-        return s_dot
-
-    def _set_initial_warm_start(self, nominal_trajectory: np.ndarray | list, nominal_inputs: Optional[np.ndarray]) -> None:
+    def _set_initial_warm_start(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
         """Sets the initial warm start state (and input) trajectory for the NMPC.
 
         Args:
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for (x, y, psi, U).
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
         """
-        if isinstance(nominal_trajectory, list) and self._params.spline_reference:
-            N = int(self._params.T / self._params.dt)
-            self._x_warm_start = np.zeros((6, N))
-            for i in range(N):
-                t = (i * self._params.dt) / (self._params.T - self._params.dt)
-                x_d = nominal_trajectory[0](t)
-                y_d = nominal_trajectory[1](t)
-                x_dot_d = nominal_trajectory[0](t, 1)
-                y_dot_d = nominal_trajectory[1](t, 1)
-                psi_d = nominal_trajectory[2](t)
-                r_d = nominal_trajectory[2](t, 1)
-                Rpsi = mf.Rpsi2D(psi_d)
-                v_ne = np.array([x_dot_d, y_dot_d])
-                v_body = Rpsi.T @ v_ne
-
-                self._x_warm_start[:, i] = np.array(
-                    [
-                        x_d,
-                        y_d,
-                        psi_d,
-                        v_body[0],
-                        v_body[1],
-                        r_d,
-                    ]
-                )
-        else:
-            self._x_warm_start = nominal_trajectory
+        self._x_warm_start = nominal_trajectory
 
         if nominal_inputs is not None:
             self._u_warm_start = nominal_inputs
 
-    def plan(
-        self, t: float, nominal_trajectory: np.ndarray | list, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def plan(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
-            - t (float): Current time.
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for (x, y, psi, U).
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
@@ -178,7 +124,7 @@ class AcadosMPC:
             self._set_initial_warm_start(nominal_trajectory, nominal_inputs)
             self._initialized = True
 
-        self._update_ocp(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list)
+        self._update_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list)
         status = self._acados_ocp_solver.solve()
         self._acados_ocp_solver.print_statistics()
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
@@ -195,29 +141,27 @@ class AcadosMPC:
         self._u_warm_start = inputs.copy()
         return trajectory[:, : self._acados_ocp.dims.N], inputs[:, : self._acados_ocp.dims.N]
 
-    def _update_ocp(self, t: float, nominal_trajectory: np.ndarray | list, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> None:
+    def _update_ocp(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> None:
         """Updates the OCP (cost and constraints) with the current info available
 
         Args:
-            - t (float): Current time.
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for (x, y, psi, U).
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             - so_list (list): List of static obstacle Polygon objects
         """
-        adjustable_params = self.get_adjustable_params()
         self._acados_ocp_solver.constraints_set(0, "lbx", xs)
         self._acados_ocp_solver.constraints_set(0, "ubx", xs)
         for i in range(self._acados_ocp.dims.N + 1):
             self._acados_ocp_solver.set(i, "x", self._x_warm_start[:, i])
             if i < self._acados_ocp.dims.N:
                 self._acados_ocp_solver.set(i, "u", self._u_warm_start[:, i])
-            p_i = self.create_parameter_values(adjustable_params, nominal_trajectory, do_list, so_list, i)
+            p_i = self.create_parameter_values(nominal_trajectory, do_list, so_list, i)
             self._acados_ocp_solver.set(i, "p", p_i)
         print("OCP updated")
 
-    def construct_ocp(self, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, enc: senc.ENC) -> None:
+    def construct_ocp(self, nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
         """Constructs the OCP for the NMPC problem using ACADOS.
 
          Class constructs an ACADOS tailored OCP on the form:
@@ -230,14 +174,13 @@ class AcadosMPC:
             where x, u and p are the state, input and parameter vector, respectively.
 
         Args:
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for  x, y, psi, U.
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             - so_list (list): List of static obstacle Polygon objects
             - enc (senc.ENC): ENC object.
 
         """
         self._acados_ocp.model = self._model.as_acados()
-        self._acados_ocp.solver_options = self._params.acados_solver_options
         self._acados_ocp.dims.N = int(self._params.T / self._params.dt)
         self._acados_ocp.solver_options.qp_solver_cond_N = self._acados_ocp.dims.N
         self._acados_ocp.solver_options.tf = self._params.T
@@ -256,13 +199,11 @@ class AcadosMPC:
         self._acados_ocp.cost.cost_type_e = "EXTERNAL"
 
         if self._params.path_following:
-            x_ref = csd.MX.sym("x_ref", 2)
-            Qvec = csd.MX.sym("Q", 2 * 2)
+            dim_Q = 2
             Qscaling = np.eye(2)
         else:  # trajectory tracking
-            x_ref = csd.MX.sym("x_ref", nx)
-            Qvec = csd.MX.sym("Q", nx * nx)
-            Qscaling = np.eye(nx)
+            dim_Q = nx
+            Qscaling = np.eye(dim_Q)
             # Qscaling = np.diag(
             #     [
             #         1.0 / (self._map_bbox[3] - self._map_bbox[1]) ** 2,
@@ -273,8 +214,16 @@ class AcadosMPC:
             #         1.0 / (2.0 * max_turn_rate) ** 2,
             #     ]
             # )
-
-        Qmtrx = hf.casadi_matrix_from_vector(Qvec) @ Qscaling
+        x_ref = csd.MX.sym("x_ref", dim_Q)
+        Q_vec = csd.MX.sym("Q_vec", dim_Q * dim_Q, 1)
+        Qmtrx = (
+            hf.casadi_matrix_from_vector(
+                Q_vec,
+                dim_Q,
+                dim_Q,
+            )
+            @ Qscaling
+        )
         self._acados_ocp.model.cost_expr_ext_cost = gamma * (x_ref - x).T @ Qmtrx @ (x_ref - x)
         self._acados_ocp.model.cost_expr_ext_cost_e = gamma * (x_ref - x).T @ Qmtrx @ (x_ref - x)
         fixed_params = x_ref
@@ -343,26 +292,24 @@ class AcadosMPC:
         # Parameters consist of RL adjustable parameters, and fixed parameters
         # (either nominal trajectory or dynamic obstacle related).
         # The model parameters are considered fixed.
-        adjustable_params = csd.vertcat(Qvec, gamma, d_safe_so, d_safe_do)
+        adjustable_params = csd.vertcat(Q_vec, gamma, d_safe_so, d_safe_do)
         self._acados_ocp.model.p = csd.vertcat(adjustable_params, fixed_params)
         self._acados_ocp.dims.np = self._acados_ocp.model.p.size()[0]
 
         self._acados_ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
         self._acados_ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
 
-        initial_adjustable_params = [*self._params.Q.reshape(nx**2).tolist(), self._params.gamma, self._params.d_safe_so, self._params.d_safe_do]
-        self._acados_ocp.parameter_values = self.create_parameter_values(initial_adjustable_params, nominal_trajectory, do_list, so_list, 0)
+        self._acados_ocp.parameter_values = self.create_parameter_values(nominal_trajectory, do_list, so_list, 0)
 
         solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
         # self._acados_ocp.code_export_directory = "../generated_ocp_" + self._acados_ocp.model.name
         self._acados_ocp_solver: AcadosOcpSolver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json)
 
-    def create_parameter_values(self, adjustable_params: list, nominal_trajectory: np.ndarray | list, do_list: list, so_list: list, stage_idx: int) -> np.ndarray:
+    def create_parameter_values(self, nominal_trajectory: np.ndarray, do_list: list, so_list: list, stage_idx: int) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
         Args:
-            - adjustable_params (list): List of adjustable parameter values
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for (x, y, psi, U).
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track. Either as np.ndarray or as list of splines for (x, y, psi, U).
             - do_list (list): List of dynamic obstacles.
             - so_list (list): List of static obstacles.
             - stage_idx (int): Stage index for the shooting node to consider
@@ -370,40 +317,13 @@ class AcadosMPC:
         Returns:
             - np.ndarray: Parameter vector to be used as input to solver
         """
+        adjustable_params = self.get_adjustable_params()
         parameter_values = np.array(adjustable_params)
 
-        if self._params.spline_reference:
-            assert isinstance(nominal_trajectory, list)
-            s_stage = self._s
-            s_dot = self._compute_path_variable_derivative(s_stage, nominal_trajectory, None)
-            for i in range(stage_idx):
-                s_dot = self._compute_path_variable_derivative(s_stage, nominal_trajectory, None)
-                s_stage += self._params.dt * s_dot
-            x_d = nominal_trajectory[0](s_stage)
-            y_d = nominal_trajectory[1](s_stage)
-            x_dot_d = nominal_trajectory[0](s_stage, 1) * s_dot
-            y_dot_d = nominal_trajectory[1](s_stage, 1) * s_dot
-            psi_d = nominal_trajectory[2](s_stage)
-            r_d = nominal_trajectory[2](s_stage, 1)
-            Rpsi = mf.Rpsi2D(psi_d)
-            v_ne = np.array([x_dot_d, y_dot_d])
-            v_body = Rpsi.T @ v_ne
-            x_ref_stage = np.array(
-                [
-                    x_d,
-                    y_d,
-                    psi_d,
-                    v_body[0],
-                    v_body[1],
-                    r_d,
-                ]
-            )
-        else:
-            assert isinstance(nominal_trajectory, np.ndarray)
-            x_ref_stage = nominal_trajectory[:, stage_idx]
-
         if self._params.path_following:
-            x_ref_stage = x_ref_stage[0:2]
+            x_ref_stage = nominal_trajectory[0:2, stage_idx]
+        else:
+            x_ref_stage = nominal_trajectory[:, stage_idx]
 
         parameter_values = np.concatenate((parameter_values, x_ref_stage))
         n_do = len(do_list)
