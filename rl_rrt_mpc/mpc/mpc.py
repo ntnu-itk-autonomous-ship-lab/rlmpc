@@ -10,7 +10,7 @@
 import platform
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Type
 
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
@@ -22,14 +22,11 @@ import seacharts.enc as senc
 
 uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
-    import rl_rrt_mpc.mpc.acados_mpc as acados_mpc
-
     ACADOS_COMPATIBLE = False  # ACADOS does not support arm64 and macOS yet
 else:
-    ACADOS_COMPATIBLE = True
+    import rl_rrt_mpc.mpc.acados_mpc as acados_mpc
 
-MAX_NUM_DO_CONSTRAINTS: int = 15
-MAX_NUM_SO_CONSTRAINTS: int = 300
+    ACADOS_COMPATIBLE = True
 
 
 @dataclass
@@ -46,7 +43,7 @@ class SolverConfig:
 @dataclass
 class Config:
     enable_acados: bool = False
-    mpc: parameters.IParams = parameters.RLMPCParams()
+    mpc: Type[parameters.IParams] = parameters.RLMPCParams()
     solver_options: SolverConfig = SolverConfig()
 
     @classmethod

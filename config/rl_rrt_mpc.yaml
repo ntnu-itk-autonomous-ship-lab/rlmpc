@@ -22,7 +22,7 @@ mpc:
     d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 0.99
-    path_following: True
+    path_following: False
   enable_acados: True
   solver_options:
     casadi:

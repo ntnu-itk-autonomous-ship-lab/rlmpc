@@ -6,7 +6,7 @@
 
     Author: Trym Tengesdal
 """
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Type, TypeVar
 
 import casadi as csd
 import numpy as np
@@ -21,8 +21,10 @@ from acados_template.acados_ocp_solver import AcadosOcpSolver
 MAX_NUM_DO_CONSTRAINTS: int = 15
 MAX_NUM_SO_CONSTRAINTS: int = 300
 
+ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
-def parse_acados_solver_options(self, config_dict: dict):
+
+def parse_acados_solver_options(config_dict: dict):
     acados_solver_options = AcadosOcpOptions()
     acados_solver_options.nlp_solver_type = config_dict["nlp_solver_type"]
     acados_solver_options.nlp_solver_max_iter = config_dict["nlp_solver_max_iter"]
@@ -42,15 +44,13 @@ def parse_acados_solver_options(self, config_dict: dict):
 
 
 class AcadosMPC:
-    def __init__(
-        self, model: models.Telemetron, params: Optional[parameters.RLMPCParams] = parameters.RLMPCParams(), solver_options: AcadosOcpOptions = AcadosOcpOptions()
-    ) -> None:
+    def __init__(self, model: models.Telemetron, params: Optional[ParamClass] = parameters.RLMPCParams(), solver_options: AcadosOcpOptions = AcadosOcpOptions()) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._acados_ocp.solver_options = solver_options
         self._model = model
         if params:
-            self._params0: parameters.RLMPCParams = params
-            self._params: parameters.RLMPCParams = params
+            self._params0: ParamClass = params
+            self._params: ParamClass = params
 
         nx, nu = self._model.dims()
         self._x_warm_start: np.ndarray = np.zeros(nx)

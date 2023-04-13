@@ -7,7 +7,7 @@
     Author: Trym Tengesdal
 """
 from dataclasses import asdict, dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Type, TypeVar
 
 import casadi as csd
 import numpy as np
@@ -20,6 +20,8 @@ import seacharts.enc as senc
 
 MAX_NUM_DO_CONSTRAINTS: int = 15
 MAX_NUM_SO_CONSTRAINTS: int = 300
+
+ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
 
 @dataclass
@@ -57,12 +59,12 @@ class CasadiSolverOptions:
 
 class CasadiMPC:
     def __init__(
-        self, model: models.Telemetron, params: Optional[parameters.RLMPCParams] = parameters.RLMPCParams(), solver_options: CasadiSolverOptions = CasadiSolverOptions()
+        self, model: models.Telemetron, params: Optional[ParamClass] = parameters.RLMPCParams(), solver_options: CasadiSolverOptions = CasadiSolverOptions()
     ) -> None:
         self._model = model
         if params:
-            self._params0: parameters.RLMPCParams = params
-            self._params: parameters.RLMPCParams = params
+            self._params0: ParamClass = params
+            self._params: ParamClass = params
 
         self._solver_options: CasadiSolverOptions = solver_options
 
@@ -72,7 +74,7 @@ class CasadiMPC:
         self._initialized = False
         self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
 
-        self._opt_vars: csd.MX = csd.MX("opt_vars", 0)  # Optimization variables w
+        self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)  # Optimization variables w
         self._lbw: np.ndarray = np.array([])
         self._ubw: np.ndarray = np.array([])
         self._vsolver: csd.Function = csd.Function("vsolver", [], [])
@@ -89,15 +91,15 @@ class CasadiMPC:
         self._num_ocp_params: int = 0
         self._num_fixed_ocp_params: int = 0
         self._num_adjustable_ocp_params: int = 0
-        self._p_fixed: csd.MX = csd.MX("p_fixed", 0)
-        self._p_adjustable: csd.MX = csd.MX("p_adjustable", 0)
+        self._p_fixed: csd.MX = csd.MX.sym("p_fixed", 0)
+        self._p_adjustable: csd.MX = csd.MX.sym("p_adjustable", 0)
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
 
     @property
-    def params(self) -> parameters.RLMPCParams:
+    def params(self):
         return self._params
 
     def get_adjustable_params(self) -> list:
@@ -214,14 +216,14 @@ class CasadiMPC:
 
         # Box constraints on NLP decision variables
         lbu_k, ubu_k, lbx_k, ubx_k = self._model.get_input_state_bounds()
-        lbu = [lbu_k] * N
-        ubu = [ubu_k] * N
-        lbx = [lbx_k] * (N + 1)
-        ubx = [ubx_k] * (N + 1)
-        lbsigma = [0] * (N + 1) * (MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        ubsigma = [np.inf] * (N + 1) * (MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._lbw = np.array([*lbu, *lbx, *lbsigma])
-        self._ubw = np.array([*ubu, *ubx, *ubsigma])
+        lbu = np.tile(lbu_k, N)
+        ubu = np.tile(ubu_k, N)
+        lbx = np.tile(lbx_k, N + 1)
+        ubx = np.tile(ubx_k, N + 1)
+        lbsigma = np.array([0] * (N + 1) * (MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS))
+        ubsigma = np.array([np.inf] * (N + 1) * (MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS))
+        self._lbw = np.concatenate((lbu, lbx, lbsigma))
+        self._ubw = np.concatenate((ubu, ubx, ubsigma))
 
         g_eq_list = []  # NLP equality constraints
         g_ineq_list = []  # NLP inequality constraints
@@ -304,7 +306,7 @@ class CasadiMPC:
                 Rchi_do_i = mf.Rpsi2D_casadi(chi_do_i)
                 p_diff_do_frame = Rchi_do_i @ (x[0:2] - x_do_i[0:2])
                 weights = hf.casadi_matrix_from_nested_list([[1.0 / (l_do_i + d_safe_do) ** 2, 0.0], [0.0, 1.0 / (w_do_i + d_safe_do) ** 2]])
-                g_ineq_list.append(csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon_do) - csd.log(1 + epsilon_do))
+                g_ineq_list.append(csd.log(1 + epsilon_do) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon_do))
 
         # Add terminal cost
         J += gamma**N * quadratic_cost(X[:, N], X_ref[:, N], Qmtrx) + W @ Sigma[:, N]
@@ -315,8 +317,8 @@ class CasadiMPC:
 
         lbg_eq = [0.0] * g_eq.shape[0]
         ubg_eq = [0.0] * g_eq.shape[0]
-        lbg_ineq = [0.0] * g_ineq.shape[0]
-        ubg_ineq = [np.inf] * g_ineq.shape[0]
+        lbg_ineq = [-np.inf] * g_ineq.shape[0]
+        ubg_ineq = [0.0] * g_ineq.shape[0]
         self._lbg_v = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg_v = np.concatenate((ubg_eq, ubg_ineq), axis=0)
 

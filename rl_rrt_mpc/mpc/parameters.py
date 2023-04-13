@@ -23,6 +23,10 @@ class IParams(ABC):
     def to_dict(self) -> dict:
         """Converts the parameters to a dictionary."""
 
+    @abstractmethod
+    def adjustable(self) -> list:
+        """Returns a list of the adjustable parameters by an RL scheme."""
+
 
 @dataclass
 class RLMPCParams(IParams):
@@ -41,6 +45,7 @@ class RLMPCParams(IParams):
     @classmethod
     def from_dict(self, config_dict: dict):
         params = RLMPCParams(**config_dict)
+        params.Q = np.diag(params.Q)
         if params.path_following and params.Q.shape[0] != 2:
             raise ValueError("Q must be a 2x2 matrix when path_following is True.")
 

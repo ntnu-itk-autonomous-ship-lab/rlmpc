@@ -25,7 +25,7 @@ from scipy.stats import chi2
 from shapely.geometry import Polygon
 
 
-def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
+def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
@@ -37,8 +37,8 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-    npx_min = 6
-    npy_min = 6
+    npx_min = 10
+    npy_min = 10
     for j, polygon in enumerate(polygons):
         # Sjå på CDL for å forenkle problemet.
         # Finne "kystlinjepolygons"
@@ -72,6 +72,12 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             ax.set_xlabel("East")
             ax.set_ylabel("North")
             ax.set_zlabel("Mask")
+
+            ax2 = plt.figure().add_subplot(111)
+            extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=500)
+            extra_east_coords = east_coords[5] * np.ones(500)
+            surface_coords2 = [polygon_surface([y, x]) for x, y in zip(extra_north_coords, extra_east_coords)]
+            ax2.plot(extra_north_coords, surface_coords2, color="red")
             plt.show()
     return surfaces
 

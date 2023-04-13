@@ -189,7 +189,7 @@ def find_minimum_depth(vessel_draft, enc: senc.ENC):
     return lowest_possible_depth
 
 
-def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> list:
+def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> geometry.MultiPolygon:
     """Extracts the relevant grounding hazards from the ENC as a list of polygons.
 
     This includes land, shore and seabed polygons that are below the vessel`s minimum depth.
@@ -202,23 +202,24 @@ def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> 
         list: The relevant grounding hazards.
     """
     dangerous_seabed = enc.seabed[0].geometry.difference(enc.seabed[vessel_min_depth].geometry)
-    return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
+    # return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
+    return [enc.land.geometry.union(enc.shore.geometry).union(dangerous_seabed)]
 
 
 def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]:
     """Fills an rtree with the given multipolygon geometries. Used for fast spatial queries.
 
     Args:
-        geometries (list): List of shapely Multipolygon geometries
+        geometries (list): The geometries to fill the rtree with.
 
     Returns:
         Tuple[strtree.STRtree, list]: The rtree containing the geometries, and the Polygon objects used to build it.
     """
     poly_list = []
-    for geom in geometries:
-        assert isinstance(geom, geometry.MultiPolygon), "Only multipolygons are supported"
-        for poly in geom.geoms:
-            poly_list.append(poly)
+    for poly in geometries:
+        assert isinstance(poly, geometry.MultiPolygon), "Only MultiPolygon members are supported"
+        for sub_poly in poly.geoms:
+            poly_list.append(sub_poly)
     return strtree.STRtree(poly_list), poly_list
 
 
@@ -239,7 +240,9 @@ def generate_enveloping_polygon(trajectory: np.ndarray, buffer: float) -> geomet
     return trajectory_linestring
 
 
-def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None) -> list:
+def extract_polygons_near_trajectory(
+    trajectory: np.ndarray, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None
+) -> Tuple[list, geometry.Polygon]:
     """Extracts the polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
 
     Args:
@@ -249,82 +252,93 @@ def extract_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strt
         enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
 
     Returns:
-        list: List of relevant grounding hazard polygons intersecting the trajectory corridor.
+        Tuple[list, geometry.Polygon]: List of tuples of relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to. Also returns the query polygon.
     """
     enveloping_polygon = generate_enveloping_polygon(trajectory, buffer)
-    polygons_relevant_for_trajectory = geometry_tree.query(enveloping_polygon)
+    polygons_near_trajectory = geometry_tree.query(enveloping_polygon)
     poly_list = []
-    for poly in polygons_relevant_for_trajectory:
+    for poly in polygons_near_trajectory:
+        relevant_poly_list = []
         intersection_poly = enveloping_polygon.intersection(poly)
-
         if intersection_poly.area == 0.0 and intersection_poly.length == 0.0:
             continue
 
         if isinstance(intersection_poly, geometry.MultiPolygon):
             for sub_poly in intersection_poly.geoms:
-                poly_list.append(sub_poly)
+                relevant_poly_list.append(sub_poly)
         else:
-            poly_list.append(intersection_poly)
+            relevant_poly_list.append(intersection_poly)
+        poly_list.append((relevant_poly_list, poly))
 
     if enc is not None:
         enc.start_display()
-        enc.draw_polygon(enveloping_polygon, color="yellow", alpha=0.1)
-        # for poly in poly_list:
-        #     enc.draw_polygon(poly, color="black")
+        enc.draw_polygon(enveloping_polygon, color="yellow", alpha=0.2)
+        # for poly_sublist, _ in poly_list:
+        #     for poly in poly_sublist:
+        #         enc.draw_polygon(poly, color="red", fill=False)
 
-    return poly_list
+    return poly_list, enveloping_polygon
 
 
-def extract_triangle_boundaries_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> list:
-    """Computes CDT for all polygons in the list, and returns a list of triangles comprising the boundary of each polygon.
+def extract_boundary_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None) -> list:
+    """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
 
     Args:
-        polygons (list): List of shapely polygons.
+        trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
+        geometry_tree (strtree.STRtree): The rtree containing the relevant grounding hazard polygons.
+        buffer (float): Buffer size
+        enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
 
     Returns:
-        list: List of list of shapely polygons representing the boundary triangles for each polygon.
+        list: _description_
     """
-    poly_boundary_list = []
-    for poly in polygons:
-        cdt = constrained_delaunay_triangulation_custom(poly)
-        boundary_triangles = extract_triangle_boundaries_from_polygon(cdt, poly)
-        if len(boundary_triangles) == 0:
-            boundary_triangles = cdt
-        poly_boundary_list.append(boundary_triangles)
-        if enc is not None:
-            # for tri in cdt:
-            #     enc.draw_polygon(tri, color="orange", alpha=1.0, fill=False)
-            # enc.draw_polygon(poly, color="pink", alpha=0.3)
-            for tri in boundary_triangles:
-                enc.draw_polygon(tri, color="red", fill=False)
+    poly_list, enveloping_polygon = extract_polygons_near_trajectory(trajectory, geometry_tree, buffer, enc)
+    boundary_polygons = []
+    for relevant_poly_list, original_polygon in poly_list:
+        for relevant_polygon in relevant_poly_list:
+            triangle_boundaries = extract_triangle_boundaries_from_polygon(relevant_polygon, enveloping_polygon, original_polygon)
+            if not triangle_boundaries:
+                continue
 
-    return poly_boundary_list
+            if enc is not None:
+                # enc.draw_polygon(poly, color="pink", alpha=0.3)
+                for tri in triangle_boundaries:
+                    enc.draw_polygon(tri, color="red", fill=False)
+
+            boundary_polygons.extend(triangle_boundaries)
+    return boundary_polygons
 
 
-def extract_triangle_boundaries_from_polygon(cdt: list, polygon: geometry.Polygon) -> list:
+def extract_triangle_boundaries_from_polygon(polygon: geometry.Polygon, planning_area_envelope: geometry.Polygon, original_polygon: geometry.Polygon) -> list:
     """Extracts the triangles that comprise the boundary of the polygon.
 
+    Triangles are filtered out if they have two vertices on the envelope boundary and is inside of the original polygon.
+
     Args:
-        cdt (list): List of shapely polygons representing the CDT for the polygon.
-        polygon (geometry.Polygon): The polygon.
+        polygon (geometry.Polygon): The polygon in consideration inside the envelope polygon.
+        planning_area_envelope (geometry.Polygon): A polygon representing the relevant area the vessel is planning to navigate in.
+        original_polygon (geometry.Polygon): The original polygon that the relevant polygon belongs to.
 
     Returns:
         list: List of shapely polygons representing the boundary triangles for the polygon.
     """
+    cdt = constrained_delaunay_triangulation_custom(polygon)
+    # return cdt
+    envelope_boundary = geometry.LineString(planning_area_envelope.exterior.coords).buffer(0.0001)
+    original_polygon_boundary = geometry.LineString(original_polygon.exterior.coords).buffer(0.0001)
     boundary_triangles = []
     if len(cdt) == 1:
         return cdt
 
     for tri in cdt:
-        boundary_line = geometry.LineString(tri.exterior.coords)
         v_count = 0
         idx_prev = 0
-        for idx, v in enumerate(polygon.exterior.coords):
+        for idx, v in enumerate(tri.exterior.coords):
             if v_count == 2 and idx_prev == idx - 1 and tri not in boundary_triangles:
                 boundary_triangles.append(tri)
                 break
-
-            if boundary_line.contains(geometry.Point(v)):
+            v_point = geometry.Point(v)
+            if original_polygon_boundary.contains(v_point):
                 v_count += 1
                 idx_prev = idx
 

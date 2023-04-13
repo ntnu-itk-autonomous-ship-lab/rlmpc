@@ -20,7 +20,6 @@ import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.models as mpc_models
 import rl_rrt_mpc.mpc.mpc as mpc
-import rl_rrt_mpc.mpc.parameters as mpc_params
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
 from shapely import strtree
@@ -254,9 +253,9 @@ class RLMPC(ci.ICOLAV):
 
             if enc is not None:
                 enc.start_display()
-                for hazard in relevant_grounding_hazards:
-                    enc.draw_polygon(hazard, color="red", fill=False)
-                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
+                # for hazard in relevant_grounding_hazards:
+                #     enc.draw_polygon(hazard, color="red", fill=False)
+                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 3, 1.5)
                 enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
@@ -268,11 +267,11 @@ class RLMPC(ci.ICOLAV):
             self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             if enc is not None:
                 hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
-            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
+
+            triangle_polygons = mapf.extract_boundary_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            # triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_mpc, enc=enc)
-            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=polygons_considered_in_mpc, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=triangle_polygons, enc=enc)
 
         self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
             nominal_trajectory=self._ktp_trajectory,
