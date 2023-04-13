@@ -16,11 +16,11 @@ import numpy as np
 import rl_rrt_mpc.common.file_utils as fu
 import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.common.paths as dp
+import scipy.interpolate as scipyintp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import yaml
 from matplotlib import cm
-from scipy.interpolate import PchipInterpolator
 from scipy.stats import chi2
 from shapely.geometry import Polygon
 
@@ -37,8 +37,8 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-    npx_min = 10
-    npy_min = 10
+    npx_min = 15
+    npy_min = 15
     for j, polygon in enumerate(polygons):
         # Sjå på CDL for å forenkle problemet.
         # Finne "kystlinjepolygons"
@@ -49,13 +49,14 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(2.0).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
-        X, Y = np.meshgrid(north_coords, east_coords)
+        X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
         map_coords = np.hstack((Y.reshape(-1, 1), X.reshape(-1, 1)))
         poly_path = mpath.Path(polygon.buffer(0.2).exterior.coords)
         mask = poly_path.contains_points(points=map_coords, radius=0.1)
         mask = mask.astype(float).reshape((npy, npx))
         mask[mask > 0.0] = -1.0
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [east_coords, north_coords], mask.ravel(order="F"))
+        polygon_surface2_tck = scipyintp.bisplrep(Y, X, mask, s=0)
         surfaces.append(polygon_surface)
         surface_points = np.zeros((npy, npx))
 
@@ -73,11 +74,19 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             ax.set_ylabel("North")
             ax.set_zlabel("Mask")
 
-            ax2 = plt.figure().add_subplot(111)
             extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=500)
-            extra_east_coords = east_coords[5] * np.ones(500)
-            surface_coords2 = [polygon_surface([y, x]) for x, y in zip(extra_north_coords, extra_east_coords)]
-            ax2.plot(extra_north_coords, surface_coords2, color="red")
+            extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=500)
+            yY, xX = np.meshgrid(extra_east_coords, extra_north_coords, indexing="ij")
+            surface_coords2 = scipyintp.bisplev(yY[:, 0], xX[0, :], polygon_surface2_tck)
+
+            # yY_new = yY[:-1, :-1] + np.diff(yY[:2, 0])[0] / 2.0
+            # xX_new = xX[:-1, :-1] + np.diff(xX[0, :2])[0] / 2.0
+            # surface_coords2 = scipyintp.bisplev(yY_new[:, 0], xX_new[0, :], polygon_surface2_tck)
+            # plt.figure()
+            # plt.pcolormesh(yY, xX, surface_coords2, shading="flat", cmap=cm.coolwarm)
+            # plt.colorbar()
+            ax2 = plt.figure().add_subplot(111, projection="3d")
+            ax2.plot_surface(yY, xX, surface_coords2, rcount=200, ccount=200, cmap=cm.coolwarm)
             plt.show()
     return surfaces
 
@@ -100,8 +109,8 @@ def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None
             continue
 
         linspace = np.linspace(0.0, 1.0, len(east))
-        spline_x = PchipInterpolator(linspace, north, extrapolate=False)
-        spline_y = PchipInterpolator(linspace, east, extrapolate=False)
+        spline_x = scipyintp.PchipInterpolator(linspace, north, extrapolate=False)
+        spline_y = scipyintp.PchipInterpolator(linspace, east, extrapolate=False)
         splines.append((spline_x, spline_y))
         spline_derivatives.append((spline_x.derivative(), spline_y.derivative()))
         # if enc is not None:

@@ -278,7 +278,7 @@ class RLMPC(ci.ICOLAV):
             nominal_inputs=np.array([]),
             xs=ownship_state,
             do_list=do_list,
-            so_list=polygons_considered_in_mpc,
+            so_list=triangle_polygons,
         )
 
         hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
