@@ -25,7 +25,7 @@ from scipy.stats import chi2
 from shapely.geometry import Polygon
 
 
-def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
@@ -37,8 +37,8 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-    npx_min = 15
-    npy_min = 15
+    npx_min = 6
+    npy_min = 6
     for j, polygon in enumerate(polygons):
         # Sjå på CDL for å forenkle problemet.
         # Finne "kystlinjepolygons"
@@ -46,7 +46,7 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         n_vertices = len(polygon.exterior.coords)
         npx = int(max(npx_min, n_vertices / 2))
         npy = int(max(npy_min, n_vertices / 2))
-        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(2.0).bounds
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(3.0).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
         X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
@@ -54,29 +54,27 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         poly_path = mpath.Path(polygon.buffer(0.2).exterior.coords)
         mask = poly_path.contains_points(points=map_coords, radius=0.1)
         mask = mask.astype(float).reshape((npy, npx))
-        mask[mask > 0.0] = -1.0
+        mask[mask > 0.0] = 10.0
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [east_coords, north_coords], mask.ravel(order="F"))
-        polygon_surface2_tck = scipyintp.bisplrep(Y, X, mask, s=0)
         surfaces.append(polygon_surface)
-        surface_points = np.zeros((npy, npx))
 
         if show_plots:
             assert enc is not None
-            poly = affinity.translate(polygon, xoff=enc.origin[0], yoff=enc.origin[1])
-            enc.draw_polygon(poly, color="red")
-            for i, east_coord in enumerate(east_coords):
-                for j, north_coord in enumerate(north_coords):
+            enc.draw_polygon(polygon, color="black")
+            extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=500)
+            extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=500)
+            surface_points = np.zeros((500, 500))
+            for i, east_coord in enumerate(extra_east_coords):
+                for j, north_coord in enumerate(extra_north_coords):
                     surface_points[i, j] = polygon_surface([east_coord, north_coord])
-
+            yY, xX = np.meshgrid(extra_east_coords, extra_north_coords, indexing="ij")
             ax = plt.figure().add_subplot(111, projection="3d")
-            ax.plot_surface(Y, X, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
+            ax.plot_surface(yY, xX, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
             ax.set_xlabel("East")
             ax.set_ylabel("North")
             ax.set_zlabel("Mask")
 
-            extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=500)
-            extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=500)
-            yY, xX = np.meshgrid(extra_east_coords, extra_north_coords, indexing="ij")
+            polygon_surface2_tck = scipyintp.bisplrep(Y, X, mask)
             surface_coords2 = scipyintp.bisplev(yY[:, 0], xX[0, :], polygon_surface2_tck)
 
             # yY_new = yY[:-1, :-1] + np.diff(yY[:2, 0])[0] / 2.0

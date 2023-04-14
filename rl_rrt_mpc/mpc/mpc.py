@@ -36,7 +36,7 @@ class SolverConfig:
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        config = SolverConfig(acados=config_dict["acados"], casadi=config_dict["casadi"])
+        config = SolverConfig(acados=config_dict["acados"], casadi=casadi_mpc.CasadiSolverOptions.from_dict(config_dict["casadi"]))
         return config
 
 

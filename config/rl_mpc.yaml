@@ -7,14 +7,14 @@ ktp:
 mpc:
   params:
     reference_traj_bbox_buffer: 300.0
-    T: 120.0
+    T: 60.0
     dt: 0.5
     Q: [100.0, 100.0, 1.0, 1.0, 0.05, 0.01]
     d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 0.99
     path_following: False
-  enable_acados: True
+  enable_acados: False
   solver_options:
     casadi:
       solver_type: "ipopt"
@@ -26,6 +26,7 @@ mpc:
       acceptable_tol: 0.000001
       acceptable_obj_change_tol: 0.000001
       max_iter: 100
+      warm_start_init_point: "no"
     acados:
       nlp_solver_type: "SQP"
       nlp_solver_max_iter: 300
@@ -34,7 +35,7 @@ mpc:
       nlp_solver_tol_ineq: 0.000001
       nlp_solver_tol_comp: 0.000001
       nlp_solver_ext_qp_res: 0
-      qp_solver_type: "FULL_CONDENSING_QPOASES"
+      qp_solver_type: "PARTIAL_CONDENSING_HPIPM"
       qp_solver_iter_max: 100
       qp_solver_warm_start: 1
       hessian_approx_type: "EXACT"

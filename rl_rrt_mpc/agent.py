@@ -245,9 +245,17 @@ class RLMPC(ci.ICOLAV):
         """
         assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
         assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
+
+        x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
+        # spline_ktp_trajectory = [x_spline, y_spline, psi_spline, speed_spline]
+
+        self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
+        if enc is not None:
+            hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
+
         if not self._initialized:
-            self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             self._initialized = True
+            self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
@@ -260,14 +268,6 @@ class RLMPC(ci.ICOLAV):
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
-            x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
-            # self._ktp.plot_reference_trajectory(waypoints, np.array([]))
-            spline_ktp_trajectory = [x_spline, y_spline, psi_spline, speed_spline]
-
-            self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-            if enc is not None:
-                hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
-
             triangle_polygons = mapf.extract_boundary_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
@@ -275,14 +275,14 @@ class RLMPC(ci.ICOLAV):
 
         self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
             nominal_trajectory=self._ktp_trajectory,
-            nominal_inputs=np.array([]),
+            nominal_inputs=None,
             xs=ownship_state,
             do_list=do_list,
             so_list=triangle_polygons,
         )
 
         hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
-        hf.plot_trajectory(self._rlmpc_trajectory, np.array([]), enc, color="cyan")
+        hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
         references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         references[:6, :] = self._mpc_trajectory
         self._t_prev = t

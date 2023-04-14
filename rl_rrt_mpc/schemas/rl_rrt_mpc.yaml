@@ -115,6 +115,9 @@ mpc:
             max_iter:
               required: True
               type: integer
+            warm_start_init_point:
+              required: True
+              type: string
 
         acados:
           required: True

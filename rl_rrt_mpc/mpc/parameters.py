@@ -58,10 +58,10 @@ class RLMPCParams(IParams):
         return asdict(self)
 
     @property
-    def adjustable(self) -> list:
-        """Returns a list of the adjustable parameters by the RL scheme.
+    def adjustable(self) -> np.ndarray:
+        """Returns an array of the adjustable parameters by the RL scheme.
 
         Returns:
-            list: List of adjustable parameters.
+            np.ndarray: Array of adjustable parameters.
         """
-        return [self.Q.flatten().tolist(), self.d_safe_so, self.d_safe_do]
+        return np.array([*self.Q.flatten().tolist(), self.d_safe_so, self.d_safe_do])
