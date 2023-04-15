@@ -7,7 +7,7 @@
     Author: Trym Tengesdal
 """
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Optional, Tuple
 
 import casadi as csd
 import colav_simulator.core.models as cs_models
@@ -53,34 +53,26 @@ class Telemetron(MPCModel):
         """Forms the equations of motion for the Telemetron vessel
 
         Returns:
-            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state, state derivative and input symbolic vectors
+            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state and input symbolic vectors
         """
-        # Input
+        x = csd.MX.sym("x", 6)
         u = csd.MX.sym("u", 3)
-        # Pose [x, y, psi] and its derivative
-        eta = csd.MX.sym("eta", 3)
-        eta_dot = csd.MX.sym("eta_dot", 3)
-        # BODY Velocity [u, v, r] and its derivative
-        nu = csd.MX.sym("nu", 3)
-        nu_dot = csd.MX.sym("nu_dot", 3)
-        # State vector and its derivative
-        x = csd.vertcat(eta, nu)
-        xdot = csd.vertcat(eta_dot, nu_dot)
+        xdot = csd.MX.sym("x_dot", 6)
 
         M = self._params.M_rb + self._params.M_a
         Minv = np.linalg.inv(self._params.M_rb + self._params.M_a)
 
-        C = mf.Cmtrx_casadi(csd.MX(M), nu)
-        D = mf.Dmtrx_casadi(csd.MX(self._params.D_l), csd.MX(self._params.D_q), csd.MX(self._params.D_c), nu)
+        C = mf.Cmtrx_casadi(csd.MX(M), x[3:6])
+        D = mf.Dmtrx_casadi(csd.MX(self._params.D_l), csd.MX(self._params.D_q), csd.MX(self._params.D_c), x[3:6])
 
-        Rpsi = mf.Rpsi_casadi(eta[2])
+        Rpsi = mf.Rpsi_casadi(x[2])
 
-        kinematics = Rpsi @ nu
-        kinetics = Minv @ (-C @ nu - D @ nu + u)
+        kinematics = Rpsi @ x[3:6]
+        kinetics = Minv @ (-C @ x[3:6] - D @ x[3:6] + u)
 
         f_expl = csd.vertcat(kinematics, kinetics)
         f_impl = xdot - f_expl
-        return f_impl, f_expl, x, xdot, u
+        return f_impl, f_expl, xdot, x, u
 
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Returns the bounds for the state and input vectors.
@@ -116,7 +108,7 @@ class Telemetron(MPCModel):
         Returns:
             Tuple[csd.MX, csd.MX, csd.MX]: Returns the Telemetron model dynamics f(x, u), the state and input vector symbolics
         """
-        _, f_expl, x, _, u = self.setup_equations_of_motion()
+        _, f_expl, _, x, u = self.setup_equations_of_motion()
         return f_expl, x, u
 
     def as_acados(self) -> AcadosModel:

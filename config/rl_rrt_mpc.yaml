@@ -16,14 +16,14 @@ rrt:
 mpc:
   params:
     reference_traj_bbox_buffer: 500.0
-    T: 120.0
+    T: 1.0
     dt: 0.5
     Q: [100.0, 100.0, 1.0, 1.0, 0.05, 0.01]
     d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 0.99
     path_following: False
-  enable_acados: True
+  enable_acados: False
   solver_options:
     casadi:
       solver_type: "ipopt"
