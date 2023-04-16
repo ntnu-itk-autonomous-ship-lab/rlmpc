@@ -25,7 +25,31 @@ from scipy.stats import chi2
 from shapely.geometry import Polygon
 
 
-def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
+def decision_trajectories_from_soln(soln: np.ndarray, N: int, nu: int, nx: int, ns: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Extracts the input sequence U, state sequence X and the slack variable sequence S from the solution vector soln = w = [U.flattened, X.flattened, Sigma.flattened] from the optimization problem.
+
+    Args:
+        soln (np.ndarray): A solution vector from the optimization problem.
+        N (int): The prediction horizon.
+        nu (int): The input dimension
+        nx (int): The state dimension
+        ns (int): The slack variable dimension
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: The input sequence U, state sequence X and the slack variable sequence S.
+    """
+    U = np.zeros((nu, N))
+    X = np.zeros((nx, N + 1))
+    Sigma = np.zeros((ns, N + 1))
+    for k in range(N + 1):
+        if k < N:
+            U[:, k] = soln[k * nu : (k + 1) * nu].ravel()
+        X[:, k] = soln[N * nu + k * nx : N * nu + (k + 1) * nx].ravel()
+        Sigma[:, k] = soln[N * nu + (N + 1) * nx + k * ns : N * nu + (N + 1) * nx + (k + 1) * ns].ravel()
+    return U, X, Sigma
+
+
+def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
@@ -37,8 +61,10 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-    npx_min = 6
-    npy_min = 6
+    npx_min = 10
+    npy_min = 10
+    ax = plt.figure().add_subplot(111, projection="3d")
+    ax2 = plt.figure().add_subplot(111, projection="3d")
     for j, polygon in enumerate(polygons):
         # Sjå på CDL for å forenkle problemet.
         # Finne "kystlinjepolygons"
@@ -54,28 +80,31 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         poly_path = mpath.Path(polygon.buffer(0.2).exterior.coords)
         mask = poly_path.contains_points(points=map_coords, radius=0.1)
         mask = mask.astype(float).reshape((npy, npx))
-        mask[mask > 0.0] = 10.0
+        mask[mask > 0.0] = 5.0
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [east_coords, north_coords], mask.ravel(order="F"))
+
         surfaces.append(polygon_surface)
 
         if show_plots:
+            polygon_surface2 = scipyintp.RectBivariateSpline(east_coords, north_coords, mask)
+            ax.clear()
+            ax2.clear()
             assert enc is not None
             enc.draw_polygon(polygon, color="black")
-            extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=500)
-            extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=500)
-            surface_points = np.zeros((500, 500))
+            extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=100)
+            extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=100)
+            surface_points = np.zeros((100, 100))
+            surface_points2 = np.zeros((100, 100))
             for i, east_coord in enumerate(extra_east_coords):
                 for j, north_coord in enumerate(extra_north_coords):
                     surface_points[i, j] = polygon_surface([east_coord, north_coord])
+                    surface_points2[i, j] = polygon_surface2.ev(east_coord, north_coord)
             yY, xX = np.meshgrid(extra_east_coords, extra_north_coords, indexing="ij")
-            ax = plt.figure().add_subplot(111, projection="3d")
+
             ax.plot_surface(yY, xX, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
             ax.set_xlabel("East")
             ax.set_ylabel("North")
             ax.set_zlabel("Mask")
-
-            polygon_surface2_tck = scipyintp.bisplrep(Y, X, mask)
-            surface_coords2 = scipyintp.bisplev(yY[:, 0], xX[0, :], polygon_surface2_tck)
 
             # yY_new = yY[:-1, :-1] + np.diff(yY[:2, 0])[0] / 2.0
             # xX_new = xX[:-1, :-1] + np.diff(xX[0, :2])[0] / 2.0
@@ -83,8 +112,8 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             # plt.figure()
             # plt.pcolormesh(yY, xX, surface_coords2, shading="flat", cmap=cm.coolwarm)
             # plt.colorbar()
-            ax2 = plt.figure().add_subplot(111, projection="3d")
-            ax2.plot_surface(yY, xX, surface_coords2, rcount=200, ccount=200, cmap=cm.coolwarm)
+
+            ax2.plot_surface(yY, xX, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
             plt.show()
     return surfaces
 

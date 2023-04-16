@@ -8,8 +8,23 @@
 """
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
+from enum import Enum
 
 import numpy as np
+
+
+class StaticObstacleConstraint(Enum):
+    """Enum for the different possible static obstacle constraints
+
+    Explanation:
+        ParametricSurface: Uses a surface approximation of the static obstacle CDT triangles to create a constraint.
+        Circular: Uses a maximum coverage circular constraint for each static obstacle.
+        Elliptical: Uses a maximum coverage elliptic constraint for the boundary of each static obstacle.
+    """
+
+    PARAMETRIC_SURFACE = 0
+    CIRCULAR = 1
+    ELLIPTICAL = 2
 
 
 @dataclass
@@ -40,11 +55,13 @@ class RLMPCParams(IParams):
     d_safe_so: float = 5.0
     d_safe_do: float = 5.0
     spline_reference: bool = False
+    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRIC_SURFACE
     path_following: bool = False
 
     @classmethod
     def from_dict(self, config_dict: dict):
         params = RLMPCParams(**config_dict)
+        params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
         params.Q = np.diag(params.Q)
         if params.path_following and params.Q.shape[0] != 2:
             raise ValueError("Q must be a 2x2 matrix when path_following is True.")
@@ -55,7 +72,10 @@ class RLMPCParams(IParams):
         return params
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        config_dict = asdict(self)
+        config_dict["so_constr_type"] = self.so_constr_type.name
+        config_dict["Q"] = self.Q.diagonal().tolist()
+        return config_dict
 
     @property
     def adjustable(self) -> np.ndarray:

@@ -7,7 +7,7 @@
     Author: Trym Tengesdal
 """
 from dataclasses import asdict, dataclass
-from typing import Optional, Tuple, Type, TypeVar
+from typing import Optional, Tuple, TypeVar
 
 import casadi as csd
 import numpy as np
@@ -18,8 +18,8 @@ import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import seacharts.enc as senc
 
-MAX_NUM_DO_CONSTRAINTS: int = 1
-MAX_NUM_SO_CONSTRAINTS: int = 0
+MAX_NUM_DO_CONSTRAINTS: int = 0
+MAX_NUM_SO_CONSTRAINTS: int = 2
 
 ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
@@ -71,7 +71,6 @@ class CasadiMPC:
         self._solver_options: CasadiSolverOptions = solver_options
 
         nx, nu = self._model.dims()
-        self._w_warm_start: np.ndarray = np.zeros(nx)
         self._initialized = False
         self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
 
@@ -79,11 +78,11 @@ class CasadiMPC:
         self._lbw: np.ndarray = np.array([])
         self._ubw: np.ndarray = np.array([])
         self._vsolver: csd.Function = csd.Function("vsolver", [], [])
-        self._prev_vsoln: np.ndarray = np.empty(0)
+        self._prev_vsoln: dict = {}
         self._lbg_v: np.ndarray = np.array([])
         self._ubg_v: np.ndarray = np.array([])
         self._qsolver: csd.Function = csd.Function("qsolver", [], [])
-        self._prev_qsoln: np.ndarray = np.empty(0)
+        self._prev_qsoln: dict = {}
         self._lbg_q: np.ndarray = np.array([])
         self._ubg_q: np.ndarray = np.array([])
 
@@ -125,18 +124,19 @@ class CasadiMPC:
         """
         nx, nu = self._model.dims()
         N = int(self._params.T / self._params.dt)
-        dim_Q = nx
-        if self._params.path_following:
-            dim_Q = 2
-
         if nominal_inputs is not None:
             w = nominal_inputs.T.flatten()
         else:
             w = np.zeros(N * nu)
-        w = np.concatenate((w, nominal_trajectory[0:dim_Q, 0 : N + 1].T.flatten(), np.zeros((MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS) * (N + 1))))
-        self._w_warm_start = w
+        w = np.concatenate((w, nominal_trajectory[0:nx, 0 : N + 1].T.flatten(), np.zeros((MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS) * (N + 1))))
+        self._prev_vsoln["x"] = w
 
-    def plan(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> Tuple[np.ndarray, np.ndarray]:
+        self._prev_vsoln["lam_x"] = np.zeros(w.shape[0])
+        self._prev_vsoln["lam_g"] = np.zeros(self._lbg_v.shape[0])
+
+    def plan(
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list
+    ) -> Tuple[np.ndarray, np.ndarray, dict]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
@@ -147,13 +147,14 @@ class CasadiMPC:
             - so_list (list): List of static obstacle Polygon objects.
 
         Returns:
-            - Tuple[np.ndarray, np.ndarray]: Optimal trajectory and inputs for the ownship.
+            - Tuple[np.ndarray, np.ndarray, dict]: Optimal trajectory and inputs for the ownship. Also, the NLP solution dictionary is returned.
         """
         if not self._initialized:
             self._set_initial_warm_start(nominal_trajectory, nominal_inputs)
             self._initialized = True
 
         nx, nu = self._model.dims()
+        ns = MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS
         N = int(self._params.T / self._params.dt)
         action = None
         if nominal_inputs is not None:
@@ -161,34 +162,24 @@ class CasadiMPC:
 
         parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list)
         soln = self._vsolver(
-            x0=self._w_warm_start,
+            x0=self._prev_vsoln["x"],
+            lam_x0=self._prev_vsoln["lam_x"],
+            lam_g0=self._prev_vsoln["lam_g"],
             p=parameter_values,
+            lbx=self._lbw,
+            ubx=self._ubw,
             lbg=self._lbg_v,
             ubg=self._ubg_v,
         )
+        self._prev_vsoln = soln
         stats = self._vsolver.stats()
         if not stats["success"]:
             RuntimeError("Problem is Infeasible")
 
-        opt_vars = soln["x"].full()
-        act0 = np.array(opt_vars[:nu])[:, 0]
+        soln_trajectory = soln["x"].full()
+        U, X, Sigma = hf.decision_trajectories_from_soln(soln_trajectory, N, nu, nx, ns)
 
-        print("Soln")
-        print(opt_vars[: nu * N, :].T)
-        print(
-            opt_vars[
-                nu * N : nu * N + nx * N,
-                :,
-            ].T
-        )
-        print(
-            opt_vars[
-                nu * N + nx * N :,
-                :,
-            ].T
-        )
-
-        return act0, soln
+        return X[:, :N], U, soln
 
     def construct_ocp(self, so_list: list, enc: senc.ENC) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
@@ -222,6 +213,10 @@ class CasadiMPC:
 
         # Box constraints on NLP decision variables
         lbu_k, ubu_k, lbx_k, ubx_k = self._model.get_input_state_bounds()
+        lbx_k[0] = self._map_bbox[1]
+        lbx_k[1] = self._map_bbox[0]
+        ubx_k[0] = self._map_bbox[3]
+        ubx_k[1] = self._map_bbox[2]
         lbu = np.tile(lbu_k, N)
         ubu = np.tile(ubu_k, N)
         lbx = np.tile(lbx_k, N + 1)
@@ -306,6 +301,9 @@ class CasadiMPC:
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
             U.append(u_k)
 
+            # Sum stage costs
+            J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + W.T @ sigma_k)
+
             # Static obstacle constraints
             for j in range(MAX_NUM_SO_CONSTRAINTS):
                 if j < n_so:
@@ -325,13 +323,10 @@ class CasadiMPC:
                 g_ineq_list.append(csd.log(1 - sigma_k[MAX_NUM_SO_CONSTRAINTS + i] + epsilon_do) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon_do))
 
             # Shooting gap constraints
-            x_k_end, J_k_end, _, _, _, _, _, _ = erk4(x_k, u_k)
+            x_k_end, _, _, _, _, _, _, _ = erk4(x_k, u_k)
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
             X.append(x_k)
             g_eq_list.append(x_k_end - x_k)
-
-            # Sum stage costs
-            J += gamma**k * (J_k_end + W.T @ sigma_k)
 
             sigma_k = csd.MX.sym("sigma_" + str(k + 1), MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS, 1)
             Sigma.append(sigma_k)
@@ -352,13 +347,10 @@ class CasadiMPC:
             x_do_i = x_aug_do_i[0:4]
             l_do_i = x_aug_do_i[4]
             w_do_i = x_aug_do_i[5]
-            chi_do_i = csd.atan2(x_do_i[3], x_do_i[2])
-            Rchi_do_i = mf.Rpsi2D_casadi(chi_do_i)
+            Rchi_do_i = mf.Rpsi2D_casadi(x_do_i[2])
             p_diff_do_frame = Rchi_do_i @ (x_k[0:2] - x_do_i[0:2])
             weights = hf.casadi_matrix_from_nested_list([[1.0 / (l_do_i + d_safe_do) ** 2, 0.0], [0.0, 1.0 / (w_do_i + d_safe_do) ** 2]])
-            g_ineq_list.append(
-                csd.log(1 + epsilon_do) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon_do) - csd.log(sigma_k[MAX_NUM_SO_CONSTRAINTS + i])
-            )
+            g_ineq_list.append(csd.log(1 - sigma_k[MAX_NUM_SO_CONSTRAINTS + i] + epsilon_do) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon_do))
 
         # Vectorize and finalize the NLP
         g_eq = csd.vertcat(*g_eq_list)
@@ -391,7 +383,7 @@ class CasadiMPC:
             "g": csd.vertcat(g_eq, g_ineq),
         }
         self._vsolver = csd.nlpsol("vsolver", "ipopt", vnlp_prob, self._solver_options.to_opt_settings())
-        self._dlag_v = self.build_sensitivity(J, g_eq, g_ineq)
+        # self._dlag_v = self.build_sensitivity(J, g_eq, g_ineq)
 
         # Create action-value (q or Q(s, a)) function approximation
         g_eq = csd.vertcat(g_eq, u_0 - U[0])
@@ -402,7 +394,7 @@ class CasadiMPC:
 
         qnlp_prob = {"f": J, "x": self._opt_vars, "p": self._p, "g": csd.vertcat(g_eq, g_ineq)}
         self._qsolver = csd.nlpsol("qsolver", "ipopt", qnlp_prob, self._solver_options.to_opt_settings())
-        self._dlag_q = self.build_sensitivity(J, g_eq, g_ineq)
+        # self._dlag_q = self.build_sensitivity(J, g_eq, g_ineq)
 
         # Useful functions
         self._decision_trajectories_func = csd.Function(
@@ -432,12 +424,11 @@ class CasadiMPC:
         else:
             fixed_parameter_values.extend([0.0] * nu)
 
+        dim_Q = nx
         if self._params.path_following:
             dim_Q = 2
-        else:
-            dim_Q = nx
-        fixed_parameter_values.extend(nominal_trajectory[0:dim_Q, : N + 1].T.flatten().tolist())
 
+        fixed_parameter_values.extend(nominal_trajectory[0:dim_Q, : N + 1].T.flatten().tolist())
         fixed_parameter_values.append(self._params.gamma)
         W = np.ones(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
         fixed_parameter_values.extend(W.tolist())

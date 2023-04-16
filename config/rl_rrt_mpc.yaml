@@ -22,6 +22,7 @@ mpc:
     d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 0.99
+    so_constr_type: "SURFACE_APPROX"
     path_following: False
   enable_acados: False
   solver_options:

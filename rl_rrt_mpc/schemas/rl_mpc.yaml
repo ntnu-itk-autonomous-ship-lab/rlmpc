@@ -35,7 +35,7 @@ mpc:
           required: True
           type: list
           maxlength: 6
-          minlength: 6
+          minlength: 2
           schema:
             type: float
         gamma:
@@ -47,6 +47,9 @@ mpc:
         d_safe_do:
           required: True
           type: float
+        so_constr_type:
+          required: True
+          type: string
         path_following:
           required: True
           type: boolean
