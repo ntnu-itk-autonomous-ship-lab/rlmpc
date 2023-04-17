@@ -118,6 +118,9 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
     return surfaces
 
 
+# REKNE UT DATAPUNKTER SOM TRENGD UT FRÅ 1 PUNKT PER 2 METER:  MAX_NORTH - MIN_NORTH / 2.0
+
+
 def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> Tuple[list, list]:
     """Computes splines from a list of polygons
 
