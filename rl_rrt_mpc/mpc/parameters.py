@@ -20,14 +20,14 @@ class StaticObstacleConstraint(Enum):
     Explanation:
         PARAMETRIC_SURFACE: Uses a surface approximation of the static obstacle CDT triangles to create a constraint.
         CIRCULAR: Uses a maximum coverage circular constraint for each static obstacle.
-        ELLIPTICAL: Uses a maximum coverage elliptic constraint for the boundary of each static obstacle.
+        ELLIPSOIDAL: Uses a maximum coverage elliptic constraint for the boundary of each static obstacle.
         APPROXCONVEXSAFESET: Uses an approximate maximum coverage convex set constraint for the own-ship to stay within.
         TRIANGULARBOUNDARY: Uses a triangular boundary constraint for each static obstacle.
     """
 
     PARAMETRICSURFACE = 0
     CIRCULAR = 1
-    ELLIPTICAL = 2
+    ELLIPSOIDAL = 2
     APPROXCONVEXSAFESET = 3
     TRIANGULARBOUNDARY = 4
 

@@ -294,16 +294,25 @@ class CasadiMPC:
 
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
             so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, enc)
+
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
+            hf.compute_circular_approximations_from_polygons(so_list, enc)
             so_pars = csd.MX.sym("so_pars", 3, MAX_NUM_SO_CONSTRAINTS)  # (x_c, y_c, r) x MAX_NUM_SO_CONSTRAINTS
-        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPTICAL:
+            p_fixed.append(so_pars.reshape(-1, 1))
+            num_fixed_ocp_params += 3 * MAX_NUM_SO_CONSTRAINTS  # so_pars
+
+        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
+            hf.compute_ellipsoidal_approximations_from_polygons(so_list, enc)
             so_pars = csd.MX.sym("so_pars", 4, MAX_NUM_SO_CONSTRAINTS)  # (x_c, y_c, a, b) x MAX_NUM_SO_CONSTRAINTS
             p_fixed.append(so_pars.reshape(-1, 1))
+            num_fixed_ocp_params += 4 * MAX_NUM_SO_CONSTRAINTS  # so_pars
+
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             A_so_constr = csd.MX.sym("A_so_constr", self._params.n_so_set_constraints, 2)
             b_so_constr = csd.MX.sym("b_so_constr", self._params.n_so_set_constraints, 1)
             p_fixed.append(csd.reshape(A_so_constr, -1, 1))
             p_fixed.append(csd.reshape(b_so_constr, -1, 1))
+            num_fixed_ocp_params += self._params.n_so_set_constraints * 3  # A_so_constr and b_so_constr
         else:
             raise ValueError("Unknown static obstacle constraint type.")
 
@@ -319,23 +328,21 @@ class CasadiMPC:
             # Sum stage costs
             J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + W.T @ sigma_k)
 
+            # Static obstacle constraints
             so_constr_k = self._create_so_constraints(x_k, sigma_k, d_safe_so, epsilon_do, so_pars, so_surfaces)
             if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-                # Static obstacle constraints
                 for j in range(MAX_NUM_SO_CONSTRAINTS):
                     if j < n_so:
                         g_ineq_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
                     else:
                         g_ineq_list.append(-sigma_k[j])
             elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
-                # Static obstacle constraints
                 for j in range(MAX_NUM_SO_CONSTRAINTS):
                     if j < n_so:
                         g_ineq_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
                     else:
                         g_ineq_list.append(-sigma_k[j])
-            elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPTICAL:
-                # Static obstacle constraints
+            elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
                 for j in range(MAX_NUM_SO_CONSTRAINTS):
                     if j < n_so:
                         g_ineq_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])

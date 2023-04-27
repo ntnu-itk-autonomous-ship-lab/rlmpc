@@ -16,6 +16,8 @@ import numpy as np
 import rl_rrt_mpc.common.file_utils as fu
 import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.common.paths as dp
+import rl_rrt_mpc.gmm_em as gmm_em
+import scipy.cluster.vq as scipyvq
 import scipy.interpolate as scipyintp
 import seacharts.enc as senc
 import shapely.affinity as affinity
@@ -62,7 +64,7 @@ def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constraints
     return A, b
 
 
-def decision_trajectories_from_soln(soln: np.ndarray, N: int, nu: int, nx: int, ns: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def decision_trajectories_from_solution(soln: np.ndarray, N: int, nu: int, nx: int, ns: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extracts the input sequence U, state sequence X and the slack variable sequence S from the solution vector soln = w = [U.flattened, X.flattened, Sigma.flattened] from the optimization problem.
 
     Args:
@@ -84,6 +86,60 @@ def decision_trajectories_from_soln(soln: np.ndarray, N: int, nu: int, nx: int, 
         X[:, k] = soln[N * nu + k * nx : N * nu + (k + 1) * nx].ravel()
         Sigma[:, k] = soln[N * nu + (N + 1) * nx + k * ns : N * nu + (N + 1) * nx + (k + 1) * ns].ravel()
     return U, X, Sigma
+
+
+def k_means_clustering_for_polygons(n_clusters: int, polygon: Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Performs k-means clustering on the input polygon
+
+    Args:
+        n_clusters (int): Number of clusters.
+        polygons (Polygon): Shapely polygon
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of clusters.
+    """
+    clusters = scipyvq.kmeans2(np.array(polygon.exterior.coords.xy).T, n_clusters, minit="points")[0]
+    return clusters
+
+
+def compute_circular_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Computes circular approximations from the input polygon list.
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of circular approximations for each polygon.
+    """
+    circles = []
+
+    return circles
+
+
+def compute_ellipsoidal_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Computes ellipsoidal approximations from the input polygon list.
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of ellipsoidal approximations for each polygon.
+    """
+    ellipses = []
+
+    for polygon in polygons:
+        gmm_em_object = gmm_em.GMM_EM(k=3, dim=2, init_mu=None, init_sigma=None, init_pi=None)
+        mu_c, sigma_c, pi_c = gmm_em_object.run(num_iters=100)
+
+        ellipses.append((mu_c, sigma_c, pi_c))
+
+    return ellipses
 
 
 def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
