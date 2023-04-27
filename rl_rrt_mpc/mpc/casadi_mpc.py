@@ -178,7 +178,7 @@ class CasadiMPC:
             RuntimeError("Problem is Infeasible")
 
         soln_trajectory = soln["x"].full()
-        U, X, Sigma = hf.decision_trajectories_from_soln(soln_trajectory, N, nu, nx, ns)
+        U, X, Sigma = hf.decision_trajectories_from_solution(soln_trajectory, N, nu, nx, ns)
 
         return X[:, :N], U, soln
 
