@@ -9,6 +9,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from enum import Enum
+from typing import Optional
 
 import numpy as np
 
@@ -17,14 +18,18 @@ class StaticObstacleConstraint(Enum):
     """Enum for the different possible static obstacle constraints
 
     Explanation:
-        ParametricSurface: Uses a surface approximation of the static obstacle CDT triangles to create a constraint.
-        Circular: Uses a maximum coverage circular constraint for each static obstacle.
-        Elliptical: Uses a maximum coverage elliptic constraint for the boundary of each static obstacle.
+        PARAMETRIC_SURFACE: Uses a surface approximation of the static obstacle CDT triangles to create a constraint.
+        CIRCULAR: Uses a maximum coverage circular constraint for each static obstacle.
+        ELLIPTICAL: Uses a maximum coverage elliptic constraint for the boundary of each static obstacle.
+        APPROXCONVEXSAFESET: Uses an approximate maximum coverage convex set constraint for the own-ship to stay within.
+        TRIANGULARBOUNDARY: Uses a triangular boundary constraint for each static obstacle.
     """
 
-    PARAMETRIC_SURFACE = 0
+    PARAMETRICSURFACE = 0
     CIRCULAR = 1
     ELLIPTICAL = 2
+    APPROXCONVEXSAFESET = 3
+    TRIANGULARBOUNDARY = 4
 
 
 @dataclass
@@ -55,8 +60,9 @@ class RLMPCParams(IParams):
     d_safe_so: float = 5.0
     d_safe_do: float = 5.0
     spline_reference: bool = False
-    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRIC_SURFACE
+    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.APPROXCONVEXSAFESET
     path_following: bool = False
+    n_set_constraints: Optional[int] = None
 
     @classmethod
     def from_dict(self, config_dict: dict):

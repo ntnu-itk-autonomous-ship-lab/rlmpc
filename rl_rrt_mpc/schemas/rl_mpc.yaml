@@ -53,6 +53,9 @@ mpc:
         path_following:
           required: True
           type: boolean
+        n_so_set_constraints:
+          required: False
+          type: integer
 
     enable_acados:
       required: True

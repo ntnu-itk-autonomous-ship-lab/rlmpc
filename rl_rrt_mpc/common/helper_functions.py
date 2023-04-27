@@ -25,6 +25,43 @@ from scipy.stats import chi2
 from shapely.geometry import Polygon
 
 
+def create_point_list_from_polygons(polygons: list) -> Tuple[np.ndarray, np.ndarray]:
+    """Creates a list of x and y coordinates from a list of polygons.
+
+    Args:
+        polygons (list): List of shapely polygons.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: A tuple of two numpy arrays containing the x and y coordinates of the polygons.
+    """
+    poly_points_x: list = []
+    poly_points_y: list = []
+    for polygon in polygons:
+        y, x = polygon.exterior.coords.xy
+        poly_points_x.append(x.tolist())
+        poly_points_y.append(y.tolist())
+
+    return np.array(poly_points_x), np.array(poly_points_y)
+
+
+def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constraints: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Reduces the number of (polytopic) constraints to the number of set constraints.
+
+    Args:
+        A_full (np.ndarray): Full constraint matrix.
+        b_full (np.ndarray): Full constraint vector.
+        n_set_constraints (int): Number of set constraints.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: A tuple of the reduced constraint matrix and vector.
+    """
+    A = np.zeros((n_set_constraints, 2))
+    A[: A_full[0:n_set_constraints].shape[0]] = A_full[0:n_set_constraints]
+    b = np.zeros(n_set_constraints)
+    b[: b_full[0:n_set_constraints].shape[0]] = b_full[0:n_set_constraints]
+    return A, b
+
+
 def decision_trajectories_from_soln(soln: np.ndarray, N: int, nu: int, nx: int, ns: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extracts the input sequence U, state sequence X and the slack variable sequence S from the solution vector soln = w = [U.flattened, X.flattened, Sigma.flattened] from the optimization problem.
 

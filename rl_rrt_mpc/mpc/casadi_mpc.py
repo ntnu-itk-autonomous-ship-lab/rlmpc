@@ -16,6 +16,7 @@ import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.mpc.integrators as integrators
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
+import rl_rrt_mpc.mpc.set_generator as sg
 import seacharts.enc as senc
 
 MAX_NUM_DO_CONSTRAINTS: int = 0
@@ -201,7 +202,7 @@ class CasadiMPC:
                     lbg <= g(w, p) <= ubg
 
         Args:
-            - so_list (list): List of static obstacle Polygon objects
+            - so_list (list): List of compatible static obstacle Polygon objects with the static obstacle constraint type.
             - enc (senc.ENC): ENC object.
         """
         self._map_bbox = enc.bbox
@@ -291,7 +292,21 @@ class CasadiMPC:
         # Cost function
         J = 0
 
-        so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, enc)
+        if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
+            so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, enc)
+        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
+            so_pars = csd.MX.sym("so_pars", 3, MAX_NUM_SO_CONSTRAINTS)  # (x_c, y_c, r) x MAX_NUM_SO_CONSTRAINTS
+        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPTICAL:
+            so_pars = csd.MX.sym("so_pars", 4, MAX_NUM_SO_CONSTRAINTS)  # (x_c, y_c, a, b) x MAX_NUM_SO_CONSTRAINTS
+            p_fixed.append(so_pars.reshape(-1, 1))
+        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+            A_so_constr = csd.MX.sym("A_so_constr", self._params.n_so_set_constraints, 2)
+            b_so_constr = csd.MX.sym("b_so_constr", self._params.n_so_set_constraints, 1)
+            p_fixed.append(csd.reshape(A_so_constr, -1, 1))
+            p_fixed.append(csd.reshape(b_so_constr, -1, 1))
+        else:
+            raise ValueError("Unknown static obstacle constraint type.")
+
         n_so = 100  # len(so_surfaces)
 
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
@@ -304,12 +319,30 @@ class CasadiMPC:
             # Sum stage costs
             J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + W.T @ sigma_k)
 
-            # Static obstacle constraints
-            for j in range(MAX_NUM_SO_CONSTRAINTS):
-                if j < n_so:
-                    g_ineq_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
-                else:
-                    g_ineq_list.append(-sigma_k[j])
+            so_constr_k = self._create_so_constraints(x_k, sigma_k, d_safe_so, epsilon_do, so_pars, so_surfaces)
+            if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
+                # Static obstacle constraints
+                for j in range(MAX_NUM_SO_CONSTRAINTS):
+                    if j < n_so:
+                        g_ineq_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
+                    else:
+                        g_ineq_list.append(-sigma_k[j])
+            elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
+                # Static obstacle constraints
+                for j in range(MAX_NUM_SO_CONSTRAINTS):
+                    if j < n_so:
+                        g_ineq_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
+                    else:
+                        g_ineq_list.append(-sigma_k[j])
+            elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPTICAL:
+                # Static obstacle constraints
+                for j in range(MAX_NUM_SO_CONSTRAINTS):
+                    if j < n_so:
+                        g_ineq_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
+                    else:
+                        g_ineq_list.append(-sigma_k[j])
+            elif self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+                g_ineq_list.append(A_so_constr @ x_k[0:2] - b_so_constr - sigma_k)
 
             # Dynamic obstacle constraints with DO state [x, y, chi, U, l, w]
             for i in range(MAX_NUM_DO_CONSTRAINTS):

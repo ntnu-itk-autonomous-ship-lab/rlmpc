@@ -271,7 +271,7 @@ class RLMPC(ci.ICOLAV):
             triangle_polygons = mapf.extract_boundary_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=triangle_polygons, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=poly_list, enc=enc)
 
         self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
             nominal_trajectory=self._ktp_trajectory,
