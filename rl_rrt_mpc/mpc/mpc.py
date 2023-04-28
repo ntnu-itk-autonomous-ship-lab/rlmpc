@@ -96,28 +96,6 @@ class MPC:
     def train(self, data) -> None:
         """Trains the RL-MPC using data (s, a, s+, a+, r+)"""
 
-    def _create_compatible_polygons(self, so_list: list, enc: senc.ENC) -> list:
-        """Based on the chosen Static Obstacle constraint type, creates a list of compatible polygons.
-
-        Args:
-            so_list (list): List of all original static obstacle Polygon objects.
-            enc (senc.ENC): ENC object.
-
-        Returns:
-            list: List of compatible static obstacle Polygon objects.
-        """
-        compatible_polygons: list = []
-        if self._params.so_constraint_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-            compatible_polygons = []
-        elif self._params.so_constraint_type == parameters.StaticObstacleConstraint.CIRCULAR:
-            compatible_polygons = so_list
-        elif self._params.so_constraint_type == parameters.StaticObstacleConstraint.ELLIPTICAL:
-            compatible_polygons = so_list
-        elif self._params.so_constraint_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            poly_points_x, poly_points_y = hf.create_point_list_from_polygons(so_list)
-            self._set_generator = sg.SetGenerator(poly_points_x, poly_points_y)
-        return compatible_polygons
-
     def construct_ocp(self, nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
@@ -127,12 +105,13 @@ class MPC:
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
         """
-        compatible_polygons = self._create_compatible_polygons(so_list, enc)
-        self._casadi_mpc.construct_ocp(compatible_polygons, enc)
+        self._casadi_mpc.construct_ocp(so_list, enc)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_trajectory, do_list, compatible_polygons, enc)
+            self._acados_mpc.construct_ocp(nominal_trajectory, do_list, so_list, enc)
 
-    def plan(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> Tuple[np.ndarray, np.ndarray]:
+    def plan(
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC]
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
@@ -141,6 +120,7 @@ class MPC:
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of ALL static obstacle Polygon objects.
+            - enc (Optional[senc.ENC]): ENC object containing information about the ENC.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory [eta, nu] x N and inputs for the ownship.
@@ -156,5 +136,5 @@ class MPC:
         if self._acados_enabled:
             trajectory, inputs = self._acados_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list)
         else:
-            trajectory, inputs, _ = self._casadi_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list)
+            trajectory, inputs, _ = self._casadi_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc)
         return trajectory[:, :N], inputs[:, :N]

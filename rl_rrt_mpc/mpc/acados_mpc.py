@@ -18,9 +18,6 @@ import seacharts.enc as senc
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
-MAX_NUM_DO_CONSTRAINTS: int = 15
-MAX_NUM_SO_CONSTRAINTS: int = 200
-
 ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
 
@@ -253,30 +250,30 @@ class AcadosMPC:
         d_safe_so = csd.MX.sym("d_safe_so", 1)
         d_safe_do = csd.MX.sym("d_safe_do", 1)
 
-        self._acados_ocp.constraints.lh = np.zeros(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
+        self._acados_ocp.constraints.lh = np.zeros(self._params.max_num_so_constr + self._params.max_num_do_constr)
         self._acados_ocp.constraints.lh_e = self._acados_ocp.constraints.lh
-        self._acados_ocp.constraints.uh = approx_inf * np.ones(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
+        self._acados_ocp.constraints.uh = approx_inf * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
         self._acados_ocp.constraints.uh_e = self._acados_ocp.constraints.uh
 
         # Slacks on dynamic obstacle and static obstacle constraints
-        self._acados_ocp.constraints.idxsh = np.array(range(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS))
-        self._acados_ocp.constraints.idxsh_e = np.array(range(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS))
+        self._acados_ocp.constraints.idxsh = np.array(range(self._params.max_num_so_constr + self._params.max_num_do_constr))
+        self._acados_ocp.constraints.idxsh_e = np.array(range(self._params.max_num_so_constr + self._params.max_num_do_constr))
 
-        self._acados_ocp.cost.Zl = np.zeros(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._acados_ocp.cost.Zl_e = np.zeros(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._acados_ocp.cost.Zu = np.zeros(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._acados_ocp.cost.Zu_e = np.zeros(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._acados_ocp.cost.zl = 1e5 * np.ones(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._acados_ocp.cost.zl_e = 1e5 * np.ones(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._acados_ocp.cost.zu = 1e5 * np.ones(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
-        self._acados_ocp.cost.zu_e = 1e5 * np.ones(MAX_NUM_SO_CONSTRAINTS + MAX_NUM_DO_CONSTRAINTS)
+        self._acados_ocp.cost.Zl = np.zeros(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        self._acados_ocp.cost.Zl_e = np.zeros(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        self._acados_ocp.cost.Zu = np.zeros(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        self._acados_ocp.cost.Zu_e = np.zeros(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        self._acados_ocp.cost.zl = 1e5 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        self._acados_ocp.cost.zl_e = 1e5 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        self._acados_ocp.cost.zu = 1e5 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        self._acados_ocp.cost.zu_e = 1e5 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
 
         con_h_expr = []
 
         # Static obstacle polygon constraints
         # so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, enc)
         n_so = 0  # len(so_surfaces)
-        for j in range(MAX_NUM_SO_CONSTRAINTS):
+        for j in range(self._params.max_num_so_constr):
             if j < n_so:
                 con_h_expr.append(0.0)  # so_surfaces[j](x[:2]))
             else:
@@ -284,7 +281,7 @@ class AcadosMPC:
 
         # Ellipsoidal DO constraints
         epsilon_do = 0.0001
-        for i in range(MAX_NUM_DO_CONSTRAINTS):
+        for i in range(self._params.max_num_do_constr):
             x_do_i = csd.MX.sym("x_do_" + str(i), 4)
             l_do_i = csd.MX.sym("l_do_" + str(i), 1)
             w_do_i = csd.MX.sym("w_do_" + str(i), 1)
@@ -335,10 +332,10 @@ class AcadosMPC:
         n_do = len(do_list)
         dt = self._params.dt
 
-        for j in range(MAX_NUM_SO_CONSTRAINTS):
+        for j in range(self._params.max_num_so_constr):
             continue
 
-        for i in range(MAX_NUM_DO_CONSTRAINTS):
+        for i in range(self._params.max_num_do_constr):
             t = stage_idx * dt
             if i < n_do:
                 (ID, state, cov, length, width) = do_list[i]

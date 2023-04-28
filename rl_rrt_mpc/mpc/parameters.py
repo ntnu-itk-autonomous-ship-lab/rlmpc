@@ -61,6 +61,8 @@ class RLMPCParams(IParams):
     d_safe_do: float = 5.0
     spline_reference: bool = False
     so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.APPROXCONVEXSAFESET
+    max_num_so_constr: int = 5
+    max_num_do_constr: int = 0
     path_following: bool = False
     n_set_constraints: Optional[int] = None
 

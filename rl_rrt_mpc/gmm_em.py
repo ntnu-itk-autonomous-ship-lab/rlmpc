@@ -7,11 +7,12 @@
     Author: https://github.com/mr-easy/GMM-EM-Python, Trym Tengesdal
 """
 
+import random
+
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
 import numpy as np
 from matplotlib.patches import Ellipse
-from scipy import random
 from scipy.stats import multivariate_normal
 
 

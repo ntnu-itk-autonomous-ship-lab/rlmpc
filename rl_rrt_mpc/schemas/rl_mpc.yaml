@@ -50,12 +50,16 @@ mpc:
         so_constr_type:
           required: True
           type: string
+        max_num_so_constr:
+          required: True
+          type: integer
+        max_num_do_constr:
+          required: True
+          type: integer
         path_following:
           required: True
           type: boolean
-        n_so_set_constraints:
-          required: False
-          type: integer
+
 
     enable_acados:
       required: True

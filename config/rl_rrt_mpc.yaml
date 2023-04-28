@@ -23,6 +23,8 @@ mpc:
     d_safe_do: 10.0
     gamma: 0.99
     so_constr_type: "SURFACE_APPROX"
+    max_num_so_constr: 500 # per shooting node in the mpc
+    max_num_do_constr: 5 # per shooting node in the mpc
     path_following: False
   enable_acados: False
   solver_options:

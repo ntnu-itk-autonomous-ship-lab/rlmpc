@@ -36,14 +36,20 @@ def create_point_list_from_polygons(polygons: list) -> Tuple[np.ndarray, np.ndar
     Returns:
         Tuple[np.ndarray, np.ndarray]: A tuple of two numpy arrays containing the x and y coordinates of the polygons.
     """
-    poly_points_x: list = []
-    poly_points_y: list = []
-    for polygon in polygons:
-        y, x = polygon.exterior.coords.xy
-        poly_points_x.append(x.tolist())
-        poly_points_y.append(y.tolist())
+    px, py, ls = [], [], []
+    for i, poly in enumerate(polygons):
+        y, x = poly.exterior.coords.xy
+        a = np.array(x.tolist())
+        b = np.array(y.tolist())
+        la, lx = len(a), len(px)
+        c = [(i + lx, (i + 1) % la + lx) for i in range(la - 1)]
+        px += a.tolist()
+        py += b.tolist()
+        ls += c
 
-    return np.array(poly_points_x), np.array(poly_points_y)
+    points = np.array([px, py]).T
+    P1, P2 = points[ls][:, 0], points[ls][:, 1]
+    return P1, P2
 
 
 def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constraints: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -88,7 +94,7 @@ def decision_trajectories_from_solution(soln: np.ndarray, N: int, nu: int, nx: i
     return U, X, Sigma
 
 
-def k_means_clustering_for_polygons(n_clusters: int, polygon: Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+def k_means_clustering_for_polygon(n_clusters: int, polygon: Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
     """Performs k-means clustering on the input polygon
 
     Args:
@@ -116,6 +122,8 @@ def compute_circular_approximations_from_polygons(polygons: list, enc: Optional[
         list: List of circular approximations for each polygon.
     """
     circles = []
+    for polygon in polygons:
+        clusters = k_means_clustering_for_polygon(n_clusters=3, polygon=polygon, enc=enc, show_plots=show_plots)
 
     return circles
 

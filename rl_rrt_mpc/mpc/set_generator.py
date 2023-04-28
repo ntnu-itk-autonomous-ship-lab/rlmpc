@@ -9,7 +9,19 @@
 from typing import Optional, Tuple
 
 import numpy as np
+import seacharts.enc as senc
+import shapely.geometry as geometry
 from scipy.spatial import HalfspaceIntersection
+
+
+def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int) -> Tuple[np.ndarray, np.ndarray]:
+    if n_set_constr > A_full.shape[0]:
+        n_set_constr = A_full.shape[0]
+    A = np.zeros((n_set_constr, 2))
+    A[: A_full[0:n_set_constr].shape[0]] = A_full[0:n_set_constr]
+    b = np.zeros(n_set_constr)
+    b[: b_full[0:n_set_constr].shape[0]] = b_full[0:n_set_constr]
+    return A, b
 
 
 class SetGenerator(object):
@@ -191,3 +203,19 @@ class SetGenerator(object):
             return A, b
         else:
             raise ValueError("Unknown reduction method")
+
+
+def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, enc: senc.ENC) -> None:
+    """Plots the constraints in the halfspace intersection
+
+    Args:
+        A (np.ndarray): Constraint matrix
+        b (np.ndarray): Constraint vector
+        p (np.ndarray): Point inside the constrant set
+        enc (senc.ENC): Electronic Navigational Chart object.
+    """
+    hs = HalfspaceIntersection([A, b], p)
+    intersections = hs.intersections
+    set_polygon = geometry.Polygon(intersections)
+    enc.start_display()
+    enc.draw_polygon(set_polygon, color="green", fill=False)
