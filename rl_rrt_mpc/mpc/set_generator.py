@@ -15,11 +15,19 @@ from scipy.spatial import HalfspaceIntersection
 
 
 def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int) -> Tuple[np.ndarray, np.ndarray]:
-    if n_set_constr > A_full.shape[0]:
-        n_set_constr = A_full.shape[0]
+    """Reduces the number of constraints to n_set_constr, by removing the last constraints in A_full and b_full
+
+    Args:
+        A_full (np.ndarray): The full constraint matrix
+        b_full (np.ndarray): The full constraint vector
+        n_set_constr (int): The number of constraints to keep
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: The reduced constraint matrix and vector
+    """
     A = np.zeros((n_set_constr, 2))
-    A[: A_full[0:n_set_constr].shape[0]] = A_full[0:n_set_constr]
     b = np.zeros(n_set_constr)
+    A[: A_full[0:n_set_constr].shape[0]] = A_full[0:n_set_constr]
     b[: b_full[0:n_set_constr].shape[0]] = b_full[0:n_set_constr]
     return A, b
 
@@ -214,8 +222,13 @@ def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, enc: senc.ENC)
         p (np.ndarray): Point inside the constrant set
         enc (senc.ENC): Electronic Navigational Chart object.
     """
-    hs = HalfspaceIntersection([A, b], p)
+    # Extract non-zero rows of A and b
+    A_nonzero = A[~np.all(A == 0.0, axis=1)]
+    b_nonzero = b[~np.all(A == 0.0, axis=1)]
+    hs = HalfspaceIntersection(np.concatenate((A_nonzero, -b_nonzero.reshape((-1, 1))), axis=1), p)
     intersections = hs.intersections
-    set_polygon = geometry.Polygon(intersections)
+    points = [(p_i[1], p_i[0]) for p_i in intersections]
+    points.append(points[0])
+    set_polygon = geometry.Polygon(points)
     enc.start_display()
     enc.draw_polygon(set_polygon, color="green", fill=False)

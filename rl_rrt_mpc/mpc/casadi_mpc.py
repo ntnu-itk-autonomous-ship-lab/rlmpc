@@ -86,7 +86,6 @@ class CasadiMPC:
 
         self._dlag_v: csd.Function = csd.Function("dlag_v", [], [])
         self._dlag_q: csd.Function = csd.Function("dlag_q", [], [])
-        self._decision_trajectories_func: csd.Function = csd.Function("decision_trajectories_func", [], [])
 
         self._num_ocp_params: int = 0
         self._num_fixed_ocp_params: int = 0
@@ -292,18 +291,19 @@ class CasadiMPC:
         p_fixed.append(W)
         num_fixed_ocp_params += self._params.max_num_so_constr + self._params.max_num_do_constr  # W
 
-        epsilon_ell = 0.00001
-        # Dynamic obstacle augmented state parameters (x, y, Vx, Vy, length, width) * N + 1
-        nx_do = 6
-        X_do = csd.MX.sym("X_do", nx_do * self._params.max_num_do_constr, N + 1)
-        p_fixed.append(csd.reshape(X_do, -1, 1))
-
         # Safety zone parameters
         d_safe_so = csd.MX.sym("d_safe_so", 1)
         d_safe_do = csd.MX.sym("d_safe_do", 1)
         p_adjustable.append(d_safe_so)
         p_adjustable.append(d_safe_do)
         num_adjustable_ocp_params += 2  # d_safe_so and d_safe_do
+
+        ship_vertices = self._model.params().ship_vertices
+
+        # Dynamic obstacle augmented state parameters (x, y, Vx, Vy, length, width) * N + 1
+        nx_do = 6
+        X_do = csd.MX.sym("X_do", nx_do * self._params.max_num_do_constr, N + 1)
+        p_fixed.append(csd.reshape(X_do, -1, 1))
 
         # Static obstacle constraint parameters
         so_pars = csd.MX.sym("so_pars", 0)
@@ -340,7 +340,7 @@ class CasadiMPC:
             # Sum stage costs
             J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + W.T @ sigma_k)
 
-            so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, d_safe_so)
+            so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, d_safe_so)
             g_ineq_list.extend(so_constr_k)
 
             do_constr_k = self._create_dynamic_obstacle_constraint(x_k, sigma_k, X_do, nx_do, d_safe_do)
@@ -358,7 +358,7 @@ class CasadiMPC:
         # Terminal costs and constraints
         J += gamma**N * (quadratic_cost(x_k[:dim_Q], X_ref[:, N], Qmtrx) + W.T @ sigma_k)
 
-        so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, d_safe_so)
+        so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, d_safe_so)
         g_ineq_list.extend(so_constr_N)
 
         do_constr_N = self._create_dynamic_obstacle_constraint(x_k, sigma_k, X_do[:, N], nx_do, d_safe_do)
@@ -408,24 +408,28 @@ class CasadiMPC:
         self._qsolver = csd.nlpsol("qsolver", "ipopt", qnlp_prob, self._solver_options.to_opt_settings())
         # self._dlag_q = self.build_sensitivity(J, g_eq, g_ineq)
 
-        # Useful functions
-        self._decision_trajectories_func = csd.Function(
-            "decision_trajectories", [self._opt_vars], [csd.vertcat(*U), csd.vertcat(*X), csd.vertcat(*Sigma)], ["w"], ["U", "X", "Sigma"]
-        )
-
     def _create_static_obstacle_constraint(
-        self, x_k: csd.MX, sigma_k: csd.MX, so_pars: list, A_so_constr: Optional[csd.MX], b_so_constr: Optional[csd.MX], so_surfaces: Optional[list], d_safe_so: csd.MX
+        self,
+        x_k: csd.MX,
+        sigma_k: csd.MX,
+        so_pars: list,
+        A_so_constr: Optional[csd.MX],
+        b_so_constr: Optional[csd.MX],
+        so_surfaces: Optional[list],
+        ship_vertices: np.ndarray,
+        d_safe_so: csd.MX,
     ) -> list:
         """Creates the static obstacle constraints for the NLP at the current stage, based on the chosen static obstacle constraint type.
 
         Args:
-            x_k (csd.MX): State vector at the current stage in the OCP.
-            sigma_k (csd.MX): Sigma vector at the current stage in the OCP.
-            so_pars (csd.MX): Parameters of the static obstacles, used for circular, ellipsoidal constraints
-            A_so_constr (Optional[csd.MX]): Convex safe set constraint matrix if convex safe set constraints are used.
-            b_so_constr (Optional[csd.MX]): Convex safe set constraint vector if convex safe set constraints are used.
-            so_surfaces (Optional[list]): Parametric surface approximations for the static obstacles, if parametric surface constraints are used.
-            d_safe_so (csd.MX): Safety distance to static obstacles.
+            - x_k (csd.MX): State vector at the current stage in the OCP.
+            - sigma_k (csd.MX): Sigma vector at the current stage in the OCP.
+            - so_pars (csd.MX): Parameters of the static obstacles, used for circular, ellipsoidal constraints
+            - A_so_constr (Optional[csd.MX]): Convex safe set constraint matrix if convex safe set constraints are used.
+            - b_so_constr (Optional[csd.MX]): Convex safe set constraint vector if convex safe set constraints are used.
+            - so_surfaces (Optional[list]): Parametric surface approximations for the static obstacles, if parametric surface constraints are used.
+            - ship_vertices (np.ndarray): Vertices of the ship model.
+            - d_safe_so (csd.MX): Safety distance to static obstacles.
 
         Returns:
             list: List of static obstacle constraints at the current stage in the OCP.
@@ -434,7 +438,9 @@ class CasadiMPC:
         so_constr_list = []
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             assert A_so_constr is not None and b_so_constr is not None, "Convex safe set constraints must be provided for this constraint type."
-            so_constr_list.append(A_so_constr @ x_k[0:2] - b_so_constr - sigma_k[: self._params.max_num_so_constr])
+            so_constr_list.append(
+                A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - b_so_constr - sigma_k[: self._params.max_num_so_constr]
+            )
         else:
             if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
                 for j in range(self._params.max_num_so_constr):
