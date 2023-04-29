@@ -160,7 +160,7 @@ class CasadiMPC:
             self._set_generator = sg.SetGenerator(P1, P2)
 
     def plan(
-        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC]
     ) -> Tuple[np.ndarray, np.ndarray, dict]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -171,7 +171,6 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List ofrelevant static obstacle Polygon objects.
             - enc (Optional[senc.ENC]): ENC object containing the map info.
-            - **kwargs: Additional keyword arguments, such as the safe sea area, used to compute the safe set if the APPROXCONVEXSAFESET is selected.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray, dict]: Optimal trajectory and inputs for the ownship. Also, the NLP solution dictionary is returned.
@@ -188,7 +187,7 @@ class CasadiMPC:
         if nominal_inputs is not None:
             action = nominal_inputs[:, 0]
 
-        parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc, **kwargs)
+        parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc)
         soln = self._vsolver(
             x0=self._prev_vsoln["x"],
             lam_x0=self._prev_vsoln["lam_x"],
@@ -504,7 +503,7 @@ class CasadiMPC:
         return do_constr_list
 
     def create_parameter_values(
-        self, state: np.ndarray, action: Optional[np.ndarray], nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None, **kwargs
+        self, state: np.ndarray, action: Optional[np.ndarray], nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None
     ) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
@@ -515,7 +514,6 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacles.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
-            - **kwargs: Additional keyword arguments, such as the safe sea area in case convex safe sea area constraints are used.
 
         Returns:
             - np.ndarray: Parameter vector to be used as input to solver
@@ -551,28 +549,9 @@ class CasadiMPC:
                     fixed_parameter_values.extend([self._map_bbox[1], self._map_bbox[0], 0.0, 0.0, 5.0, 2.0])
 
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            A_full, b_full = self._set_generator(state[0:2])
+            A_full, b_full = self._set_generator(state[0:2], enc=enc)
+            A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._params.max_num_so_constr)
             sg.plot_constraints(A_full, b_full, state[0:2], "green", enc)
-            # Defining a view horizon in the area surrounding the current ship position
-            speed = np.sqrt(state[3] ** 2 + state[4] ** 2)
-            rect = alt_sg.object_horizon(state[1], state[0], state[2], 5 * speed * self._params.T, 5 * speed * self._params.T)
-            safe_sea_area = kwargs["safe_sea_area"]
-            safe_area = alt_sg.safe_area(rect, safe_sea_area)
-            # shift from east-north to north-east in safe_bound
-            y, x = safe_area.boundary.coords.xy
-            safe_bound_ne = geometry.LineString(np.array([x, y]).T)
-            constraint_lines, A_alt, b_alt = alt_sg.safe_convex_poly(safe_bound_ne, geometry.Point(state[0:2]))
-            # safe_set_polygon = mapf.convex_hull_from_constraint_lines(constraint_lines)
-            # x, y = safe_set_polygon.exterior.coords.xy
-            # safe_set_polygon = geometry.Polygon(np.array([y, x]).T)
-            enc.draw_polygon(safe_area.boundary, "black", alpha=0.5)
-            for line in constraint_lines:
-                x, y = line.coords.xy
-                enc.draw_line(np.array([y, x]).T, color="black", width=0.1, thickness=0.8)
-            # enc.draw_polygon(safe_set_polygon, color="red", alpha=0.5)
-            A_reduced, b_reduced = sg.reduce_constraints(A_alt, b_alt.reshape(-1) + A_alt @ state[0:2], self._params.max_num_so_constr)
-
-            sg.plot_constraints(A_reduced, b_reduced, state[0:2], "red", enc)
             self._p_fixed_so_values = np.concatenate((A_reduced.flatten(), b_reduced.flatten()), axis=0)
 
         fixed_parameter_values.extend(self._p_fixed_so_values.tolist())

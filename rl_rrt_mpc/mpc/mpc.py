@@ -110,7 +110,7 @@ class MPC:
             self._acados_mpc.construct_ocp(nominal_trajectory, do_list, so_list, enc)
 
     def plan(
-        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC]
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -121,7 +121,6 @@ class MPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (Optional[senc.ENC]): ENC object containing information about the ENC.
-            - **kwargs: Additional keyword arguments.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory [eta, nu] x N and inputs for the ownship.

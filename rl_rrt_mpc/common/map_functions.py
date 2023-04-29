@@ -299,22 +299,6 @@ def extract_safe_sea_area(min_depth: int, enveloping_polygon: geometry.Polygon, 
     return safe_sea
 
 
-def convex_hull_from_constraint_lines(constraint_lines: list) -> geometry.Polygon:
-    """Creates a convex hull polygon from a list of constraint lines.
-
-    Args:
-        constraint_lines (list): The constraint lines.
-
-    Returns:
-        geometry.Polygon: The convex hull polygon.
-    """
-    constraint_points = []
-    for line in constraint_lines:
-        constraint_points.append(line.coords[0])
-        constraint_points.append(line.coords[1])
-    return geometry.Polygon(constraint_points).convex_hull
-
-
 def extract_boundary_polygons_inside_envelope(poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None) -> list:
     """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
 

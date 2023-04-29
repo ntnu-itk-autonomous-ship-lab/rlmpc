@@ -228,6 +228,7 @@ class RLMPC(ci.ICOLAV):
         self._mpc_trajectory: np.ndarray = np.empty(6)
         self._mpc_inputs: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
+        self._relevant_mpc_poly_list: list = []
 
     def plan(
         self,
@@ -271,22 +272,20 @@ class RLMPC(ci.ICOLAV):
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            safe_sea_area = mapf.extract_safe_sea_area(self._min_depth, enveloping_polygon, enc)
-            self._relevant_poly_list = []
+            self._relevant_mpc_poly_list = []
             for poly_tuple in poly_tuple_list:
-                self._relevant_poly_list.extend(poly_tuple[0])
+                self._relevant_mpc_poly_list.extend(poly_tuple[0])
 
             triangle_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc=enc)
-            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._relevant_poly_list, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._relevant_mpc_poly_list, enc=enc)
 
         self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
             nominal_trajectory=self._ktp_trajectory,
             nominal_inputs=None,
             xs=ownship_state,
             do_list=do_list,
-            so_list=self._relevant_poly_list,
+            so_list=self._relevant_mpc_poly_list,
             enc=enc,
-            safe_sea_area=safe_sea_area,
         )
 
         hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
