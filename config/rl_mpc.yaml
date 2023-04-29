@@ -7,7 +7,7 @@ ktp:
 mpc:
   params:
     reference_traj_bbox_buffer: 300.0
-    T: 12.0
+    T: 20.0
     dt: 0.5
     Q: [100.0, 100.0] #, 0.1, 0.1, 0.1, 0.1]
     d_safe_so: 5.0
@@ -21,17 +21,17 @@ mpc:
   solver_options:
     casadi:
       solver_type: "ipopt"
-      solver_tol: 0.000001
-      print_level: 5
+      solver_tol: 0.0001
+      print_level: 0
       print_time: 0
-      mu_target: 0.000001
-      mu_init: 0.000001
-      acceptable_tol: 0.000001
-      acceptable_obj_change_tol: 0.000001
-      max_iter: 500
+      mu_target: 0.0001
+      mu_init: 0.0001
+      acceptable_tol: 0.0001
+      acceptable_obj_change_tol: 0.0001
+      max_iter: 300
       warm_start_init_point: "no"
       jit: True
-      jit_flags: ["-O0"]
+      jit_flags: ["-O3"]
       compiler: "shell"
       expand_mx_funcs_to_sx: True
     acados:

@@ -134,7 +134,7 @@ class MPC:
                 compatible_nominal_trajectory[3:6, k] = mf.Rpsi(psi).T @ compatible_nominal_trajectory[3:6, k]
 
         if self._acados_enabled:
-            trajectory, inputs = self._acados_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, **kwargs)
+            trajectory, inputs = self._acados_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list)
         else:
-            trajectory, inputs, _ = self._casadi_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
+            trajectory, inputs, _ = self._casadi_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc)
         return trajectory[:, :N], inputs[:, :N]

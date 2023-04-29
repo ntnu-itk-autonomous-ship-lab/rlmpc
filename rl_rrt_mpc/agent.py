@@ -158,11 +158,14 @@ class RLRRTMPC(ci.ICOLAV):
             if enc is not None:
                 hf.plot_trajectory(self._rrt_trajectory, times, enc, color="magenta")
 
-            polygons_considered_in_mpc = mapf.extract_polygons_near_trajectory(
-                self._rrt_trajectory, self._geometry_tree, buffer=self._config.mpc.reference_traj_bbox_buffer, enc=enc
+            poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
+                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            triangle_polygons = mapf.extract_triangle_boundaries_from_polygons(polygons_considered_in_mpc, enc=enc)
-            self._mpc_rel_polygons = hf.shift_polygon_coordinates(polygons_considered_in_mpc, enc.origin[0], enc.origin[1])
+            self._relevant_mpc_poly_list = []
+            for poly_tuple in poly_tuple_list:
+                self._relevant_mpc_poly_list.extend(poly_tuple[0])
+
+            # triangle_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc=enc)
             self._mpc.construct_ocp(nominal_trajectory=self._rel_rrt_trajectory, do_list=rel_do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
         rel_ownship_state = ownship_state.copy()
@@ -228,7 +231,7 @@ class RLMPC(ci.ICOLAV):
         self._mpc_trajectory: np.ndarray = np.empty(6)
         self._mpc_inputs: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
-        self._relevant_mpc_poly_list: list = []
+        self._mpc_rel_polygons: list = []
 
     def plan(
         self,
@@ -248,14 +251,13 @@ class RLMPC(ci.ICOLAV):
         assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
 
         x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
-        # spline_ktp_trajectory = [x_spline, y_spline, psi_spline, speed_spline]
-
         self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-        if enc is not None:
-            hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
 
         if not self._initialized:
             self._initialized = True
+            self._t_prev = t
+            if enc is not None:
+                hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
@@ -272,19 +274,17 @@ class RLMPC(ci.ICOLAV):
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            self._relevant_mpc_poly_list = []
             for poly_tuple in poly_tuple_list:
-                self._relevant_mpc_poly_list.extend(poly_tuple[0])
+                self._mpc_rel_polygons.extend(poly_tuple[0])
+            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
-            triangle_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc=enc)
-            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._relevant_mpc_poly_list, enc=enc)
-
+        self._ktp.update_path_variable(t - self._t_prev)
         self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
             nominal_trajectory=self._ktp_trajectory,
             nominal_inputs=None,
             xs=ownship_state,
             do_list=do_list,
-            so_list=self._relevant_mpc_poly_list,
+            so_list=self._mpc_rel_polygons,
             enc=enc,
         )
 
