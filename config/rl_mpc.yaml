@@ -7,14 +7,14 @@ ktp:
 mpc:
   params:
     reference_traj_bbox_buffer: 300.0
-    T: 5.0
+    T: 12.0
     dt: 0.5
-    Q: [1000.0, 1000.0] #, 0.1, 0.1, 0.1, 0.1]
+    Q: [100.0, 100.0] #, 0.1, 0.1, 0.1, 0.1]
     d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "APPROXCONVEXSAFESET"
-    max_num_so_constr: 100
+    max_num_so_constr: 15
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True
   enable_acados: False
@@ -30,6 +30,10 @@ mpc:
       acceptable_obj_change_tol: 0.000001
       max_iter: 500
       warm_start_init_point: "no"
+      jit: True
+      jit_flags: ["-O0"]
+      compiler: "shell"
+      expand_mx_funcs_to_sx: True
     acados:
       nlp_solver_type: "SQP"
       nlp_solver_max_iter: 300

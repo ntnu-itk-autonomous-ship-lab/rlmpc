@@ -280,21 +280,54 @@ def extract_polygons_near_trajectory(
     return poly_list, enveloping_polygon
 
 
-def extract_boundary_polygons_near_trajectory(trajectory: np.ndarray, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None) -> list:
-    """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
+def extract_safe_sea_area(min_depth: int, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None) -> geometry.MultiPolygon:
+    """Extracts the safe sea area from the ENC as a list of polygons.
+
+    This includes sea polygons that are above the vessel`s minimum depth.
 
     Args:
-        trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
-        geometry_tree (strtree.STRtree): The rtree containing the relevant grounding hazard polygons.
-        buffer (float): Buffer size
+        polygon_list (list): The list of polygons to check for safe sea area.
+        enveloping_polygon (geometry.Polygon): The query polygon.
         enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
 
     Returns:
-        list: _description_
+        list: The safe sea area.
     """
-    poly_list, enveloping_polygon = extract_polygons_near_trajectory(trajectory, geometry_tree, buffer, enc)
+    safe_sea = enc.seabed[min_depth].geometry.intersection(enveloping_polygon)
+    # if enc is not None:
+    #     enc.draw_polygon(safe_sea, color="orange", alpha=0.5)
+    return safe_sea
+
+
+def convex_hull_from_constraint_lines(constraint_lines: list) -> geometry.Polygon:
+    """Creates a convex hull polygon from a list of constraint lines.
+
+    Args:
+        constraint_lines (list): The constraint lines.
+
+    Returns:
+        geometry.Polygon: The convex hull polygon.
+    """
+    constraint_points = []
+    for line in constraint_lines:
+        constraint_points.append(line.coords[0])
+        constraint_points.append(line.coords[1])
+    return geometry.Polygon(constraint_points).convex_hull
+
+
+def extract_boundary_polygons_inside_envelope(poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None) -> list:
+    """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
+
+    Args:
+        - poly_list (list): List of tuples with relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to.
+        - enveloping_polygon (geometry.Polygon): The query polygon.
+        enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+
+    Returns:
+        list: List of boundary polygons.
+    """
     boundary_polygons = []
-    for relevant_poly_list, original_polygon in poly_list:
+    for relevant_poly_list, original_polygon in poly_tuple_list:
         for relevant_polygon in relevant_poly_list:
             triangle_boundaries = extract_triangle_boundaries_from_polygon(relevant_polygon, enveloping_polygon, original_polygon)
             if not triangle_boundaries:

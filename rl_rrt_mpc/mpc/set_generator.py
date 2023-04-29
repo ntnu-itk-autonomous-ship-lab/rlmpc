@@ -4,7 +4,7 @@
     Summary:
         Contains a class for generating a convex safe set around a point
 
-    Author: Trym Tengesdal
+    Author: Glenn Bitar, Andreas Martinsen, Trym Tengesdal
 """
 from typing import Optional, Tuple
 
@@ -28,7 +28,10 @@ def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int
     A = np.zeros((n_set_constr, 2))
     b = np.zeros(n_set_constr)
     A[: A_full[0:n_set_constr].shape[0]] = A_full[0:n_set_constr]
-    b[: b_full[0:n_set_constr].shape[0]] = b_full[0:n_set_constr]
+    if len(b_full.shape) == 1:
+        b[: b_full[0:n_set_constr].shape[0]] = b_full[0:n_set_constr]
+    else:
+        b[: b_full[0:n_set_constr, 0].shape[0]] = b_full[0:n_set_constr, 0]
     return A, b
 
 
@@ -213,7 +216,7 @@ class SetGenerator(object):
             raise ValueError("Unknown reduction method")
 
 
-def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, enc: senc.ENC) -> None:
+def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, color: str, enc: senc.ENC) -> None:
     """Plots the constraints in the halfspace intersection
 
     Args:
@@ -222,13 +225,14 @@ def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, enc: senc.ENC)
         p (np.ndarray): Point inside the constrant set
         enc (senc.ENC): Electronic Navigational Chart object.
     """
-    # Extract non-zero rows of A and b
-    A_nonzero = A[~np.all(A == 0.0, axis=1)]
-    b_nonzero = b[~np.all(A == 0.0, axis=1)]
+    enc.start_display()
+    A_nonzero = A[~np.any(A == 0.0, axis=1)]
+    b_nonzero = b[b != 0.0]
     hs = HalfspaceIntersection(np.concatenate((A_nonzero, -b_nonzero.reshape((-1, 1))), axis=1), p)
     intersections = hs.intersections
+    # x, y = intersections
     points = [(p_i[1], p_i[0]) for p_i in intersections]
-    points.append(points[0])
     set_polygon = geometry.Polygon(points)
-    enc.start_display()
-    enc.draw_polygon(set_polygon, color="green", fill=False)
+
+    enc.draw_polygon(set_polygon, color=color, fill=False)
+    print("Plotting constraints")

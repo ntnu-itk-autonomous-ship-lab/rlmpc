@@ -6,18 +6,21 @@
 
     Author: Trym Tengesdal
 """
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Optional, Tuple, TypeVar
 
 import casadi as csd
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
+import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.math_functions as mf
+import rl_rrt_mpc.mpc.alternative_set_generation as alt_sg
 import rl_rrt_mpc.mpc.integrators as integrators
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import rl_rrt_mpc.mpc.set_generator as sg
 import seacharts.enc as senc
+import shapely.geometry as geometry
 
 ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
@@ -34,6 +37,10 @@ class CasadiSolverOptions:
     acceptable_obj_change_tol: float = 1e-6
     max_iter: int = 1000
     warm_start_init_point: str = "no"
+    jit: bool = True
+    jit_flags: list = field(default_factory=lambda: ["-O0"])
+    compiler: str = "clang"
+    expand_mx_funcs_to_sx: bool = True
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -53,6 +60,10 @@ class CasadiSolverOptions:
             self.solver_type + ".acceptable_obj_change_tol": self.acceptable_obj_change_tol,
             self.solver_type + ".max_iter": self.max_iter,
             self.solver_type + ".warm_start_init_point": self.warm_start_init_point,
+            "jit": self.jit,
+            "jit_options": {"flags": self.jit_flags},
+            "compiler": self.compiler,
+            "expand": self.expand_mx_funcs_to_sx,
         }
         return opts
 
@@ -149,7 +160,7 @@ class CasadiMPC:
             self._set_generator = sg.SetGenerator(P1, P2)
 
     def plan(
-        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC]
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
     ) -> Tuple[np.ndarray, np.ndarray, dict]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -160,6 +171,7 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List ofrelevant static obstacle Polygon objects.
             - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - **kwargs: Additional keyword arguments, such as the safe sea area, used to compute the safe set if the APPROXCONVEXSAFESET is selected.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray, dict]: Optimal trajectory and inputs for the ownship. Also, the NLP solution dictionary is returned.
@@ -176,7 +188,7 @@ class CasadiMPC:
         if nominal_inputs is not None:
             action = nominal_inputs[:, 0]
 
-        parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc)
+        parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc, **kwargs)
         soln = self._vsolver(
             x0=self._prev_vsoln["x"],
             lam_x0=self._prev_vsoln["lam_x"],
@@ -299,6 +311,7 @@ class CasadiMPC:
         num_adjustable_ocp_params += 2  # d_safe_so and d_safe_do
 
         ship_vertices = self._model.params().ship_vertices
+        n_ship_vertices = len(ship_vertices)
 
         # Dynamic obstacle augmented state parameters (x, y, Vx, Vy, length, width) * N + 1
         nx_do = 6
@@ -439,14 +452,16 @@ class CasadiMPC:
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             assert A_so_constr is not None and b_so_constr is not None, "Convex safe set constraints must be provided for this constraint type."
             so_constr_list.append(
-                A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - b_so_constr - sigma_k[: self._params.max_num_so_constr]
+                csd.vec(A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - b_so_constr - sigma_k[: self._params.max_num_so_constr])
             )
         else:
             if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
+                assert so_pars.shape[0] == 3, "Static obstacle parameters with dim 3 in first axis must be provided for this constraint type."
                 for j in range(self._params.max_num_so_constr):
                     x_c, y_c, r_c = so_pars[0, j], so_pars[1, j], so_pars[2, j]
                     so_constr_list.append(csd.log(r_c**2 - sigma_k[j] + epsilon) - csd.log(((x_k[0] - x_c) ** 2) + (x_k[1] - y_c) ** 2 + epsilon))
             elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
+                assert so_pars.shape[0] == 4, "Static obstacle parameters with dim 4 in first axis must be provided for this constraint type."
                 for j in range(self._params.max_num_so_constr):
                     x_e, y_e, a_e, b_e = so_pars[0, j], so_pars[1, j], so_pars[2, j], so_pars[3, j]
                     p_diff_do_frame = x_k[0:2] - csd.vertcat(x_e, y_e)
@@ -489,7 +504,7 @@ class CasadiMPC:
         return do_constr_list
 
     def create_parameter_values(
-        self, state: np.ndarray, action: Optional[np.ndarray], nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None
+        self, state: np.ndarray, action: Optional[np.ndarray], nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None, **kwargs
     ) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
@@ -500,6 +515,7 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacles.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
+            - **kwargs: Additional keyword arguments, such as the safe sea area in case convex safe sea area constraints are used.
 
         Returns:
             - np.ndarray: Parameter vector to be used as input to solver
@@ -536,9 +552,28 @@ class CasadiMPC:
 
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             A_full, b_full = self._set_generator(state[0:2])
-            A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._params.max_num_so_constr)
+            sg.plot_constraints(A_full, b_full, state[0:2], "green", enc)
+            # Defining a view horizon in the area surrounding the current ship position
+            speed = np.sqrt(state[3] ** 2 + state[4] ** 2)
+            rect = alt_sg.object_horizon(state[1], state[0], state[2], 5 * speed * self._params.T, 5 * speed * self._params.T)
+            safe_sea_area = kwargs["safe_sea_area"]
+            safe_area = alt_sg.safe_area(rect, safe_sea_area)
+            # shift from east-north to north-east in safe_bound
+            y, x = safe_area.boundary.coords.xy
+            safe_bound_ne = geometry.LineString(np.array([x, y]).T)
+            constraint_lines, A_alt, b_alt = alt_sg.safe_convex_poly(safe_bound_ne, geometry.Point(state[0:2]))
+            # safe_set_polygon = mapf.convex_hull_from_constraint_lines(constraint_lines)
+            # x, y = safe_set_polygon.exterior.coords.xy
+            # safe_set_polygon = geometry.Polygon(np.array([y, x]).T)
+            enc.draw_polygon(safe_area.boundary, "black", alpha=0.5)
+            for line in constraint_lines:
+                x, y = line.coords.xy
+                enc.draw_line(np.array([y, x]).T, color="black", width=0.1, thickness=0.8)
+            # enc.draw_polygon(safe_set_polygon, color="red", alpha=0.5)
+            A_reduced, b_reduced = sg.reduce_constraints(A_alt, b_alt.reshape(-1) + A_alt @ state[0:2], self._params.max_num_so_constr)
+
+            sg.plot_constraints(A_reduced, b_reduced, state[0:2], "red", enc)
             self._p_fixed_so_values = np.concatenate((A_reduced.flatten(), b_reduced.flatten()), axis=0)
-            sg.plot_constraints(A_reduced, b_reduced, state[0:2], enc)
 
         fixed_parameter_values.extend(self._p_fixed_so_values.tolist())
         return np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0)

@@ -257,29 +257,36 @@ class RLMPC(ci.ICOLAV):
             self._initialized = True
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
-            self._geometry_tree, poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+            self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
             if enc is not None:
                 enc.start_display()
                 # for hazard in relevant_grounding_hazards:
                 #     enc.draw_polygon(hazard, color="red", fill=False)
-                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 3, 1.5)
-                enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
+                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.5, 1.5)
+                # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
-            triangle_polygons = mapf.extract_boundary_polygons_near_trajectory(
+            poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=poly_list, enc=enc)
+            safe_sea_area = mapf.extract_safe_sea_area(self._min_depth, enveloping_polygon, enc)
+            self._relevant_poly_list = []
+            for poly_tuple in poly_tuple_list:
+                self._relevant_poly_list.extend(poly_tuple[0])
+
+            triangle_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._relevant_poly_list, enc=enc)
 
         self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
             nominal_trajectory=self._ktp_trajectory,
             nominal_inputs=None,
             xs=ownship_state,
             do_list=do_list,
-            so_list=triangle_polygons,
+            so_list=self._relevant_poly_list,
             enc=enc,
+            safe_sea_area=safe_sea_area,
         )
 
         hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)

@@ -102,6 +102,20 @@ mpc:
               warm_start_init_point:
                 required: True
                 type: string
+              jit:
+                required: True
+                type: boolean
+              jit_flags:
+                required: True
+                type: list
+                schema:
+                  type: string
+              compiler:
+                required: True
+                type: string
+              expand_mx_funcs_to_sx:
+                required: True
+                type: boolean
 
           acados:
             required: True
