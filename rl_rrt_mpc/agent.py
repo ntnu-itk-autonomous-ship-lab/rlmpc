@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+import copy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -13,6 +14,7 @@ from typing import Optional, Tuple
 import colav_simulator.core.colav.colav_interface as ci
 import colav_simulator.core.guidances as guidances
 import informed_rrt_star_rust as rrt
+import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
@@ -128,11 +130,11 @@ class RLRRTMPC(ci.ICOLAV):
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
             hf.save_rrt_solution(rrt_solution)
-            tree_list = self._rrt.get_tree_as_list_of_dicts()
             if enc is not None:
                 enc.start_display()
                 for hazard in relevant_grounding_hazards:
                     enc.draw_polygon(hazard, color="red", fill=False)
+                # tree_list = self._rrt.get_tree_as_list_of_dicts()
                 # hf.plot_rrt_tree(tree_list, enc)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
                 enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
@@ -161,9 +163,9 @@ class RLRRTMPC(ci.ICOLAV):
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
             )
-            self._relevant_mpc_poly_list = []
+            self._mpc_rel_polygons = []
             for poly_tuple in poly_tuple_list:
-                self._relevant_mpc_poly_list.extend(poly_tuple[0])
+                self._mpc_rel_polygons.extend(poly_tuple[0])
 
             # triangle_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc=enc)
             self._mpc.construct_ocp(nominal_trajectory=self._rel_rrt_trajectory, do_list=rel_do_list, so_list=self._mpc_rel_polygons, enc=enc)
@@ -177,18 +179,25 @@ class RLRRTMPC(ci.ICOLAV):
             xs=rel_ownship_state,
             do_list=rel_do_list,
             so_list=self._mpc_rel_polygons,
+            enc=enc,
         )
         self._mpc_trajectory[0, :] += enc.origin[1]
         self._mpc_trajectory[1, :] += enc.origin[0]
 
         hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
         hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")
-        references = np.zeros((9, len(self._mpc_trajectory[0, :])))
-        references[:6, :] = self._mpc_trajectory
-        return references
+        self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        self._references[:6, :] = self._mpc_trajectory
+        return self._references
 
     def get_current_plan(self) -> np.ndarray:
         return self._references
+
+    def get_colav_data(self) -> dict:
+        return {}
+
+    def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
+        return []
 
 
 @dataclass
@@ -223,13 +232,13 @@ class RLMPC(ci.ICOLAV):
         self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
 
-        self._references = np.empty(9)
+        self._references = np.array([])
         self._initialized = False
         self._t_prev = 0.0
         self._min_depth: int = 0
-        self._ktp_trajectory: np.ndarray = np.empty(6)
-        self._mpc_trajectory: np.ndarray = np.empty(6)
-        self._mpc_inputs: np.ndarray = np.empty(3)
+        self._ktp_trajectory: np.ndarray = np.array([])
+        self._mpc_trajectory: np.ndarray = np.array([])
+        self._mpc_inputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
         self._mpc_rel_polygons: list = []
 
@@ -255,15 +264,13 @@ class RLMPC(ci.ICOLAV):
 
         if not self._initialized:
             self._initialized = True
-            self._t_prev = t
-            if enc is not None:
-                hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
-            if enc is not None:
+            if enc is not None and self._mpc.params.debug:
                 enc.start_display()
+                hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
                 # for hazard in relevant_grounding_hazards:
                 #     enc.draw_polygon(hazard, color="red", fill=False)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.5, 1.5)
@@ -272,28 +279,53 @@ class RLMPC(ci.ICOLAV):
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
+                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
             )
             for poly_tuple in poly_tuple_list:
                 self._mpc_rel_polygons.extend(poly_tuple[0])
             self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
         self._ktp.update_path_variable(t - self._t_prev)
-        self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
-            nominal_trajectory=self._ktp_trajectory,
-            nominal_inputs=None,
-            xs=ownship_state,
-            do_list=do_list,
-            so_list=self._mpc_rel_polygons,
-            enc=enc,
-        )
 
-        hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
-        hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
-        references = np.zeros((9, len(self._mpc_trajectory[0, :])))
-        references[:6, :] = self._mpc_trajectory
-        self._t_prev = t
-        return references
+        if t == 0 or t - self._t_prev >= self._mpc.params.time_between_runs:
+            self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
+                nominal_trajectory=self._ktp_trajectory,
+                nominal_inputs=None,
+                xs=ownship_state,
+                do_list=do_list,
+                so_list=self._mpc_rel_polygons,
+                enc=enc,
+            )
+            self._t_prev = t
+        else:
+            self._mpc_trajectory = self._mpc_trajectory[:, 1:]
+            self._mpc_inputs = self._mpc_inputs[:, 1:]
+
+        if enc is not None and self._mpc.params.debug:
+            hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
+            hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
+        self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        self._references[:6, :] = self._mpc_trajectory
+
+        return self._references
 
     def get_current_plan(self) -> np.ndarray:
         return self._references
+
+    def get_colav_data(self) -> dict:
+        return {}
+
+    def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
+
+        if self._ktp_trajectory.size > 6:
+            plt_handles["colav_nominal_trajectory"].set_xdata(self._ktp_trajectory[1, 0:-1:10])
+            plt_handles["colav_nominal_trajectory"].set_ydata(self._ktp_trajectory[0, 0:-1:10])
+
+        if self._mpc_trajectory.size > 6:
+            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, :])
+            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, :])
+
+        # plot convex safe set or relevant static obstacles
+
+        # plot dynamic obstacles
+        return plt_handles

@@ -52,6 +52,7 @@ class IParams(ABC):
 class RLMPCParams(IParams):
     """Class for parameters used by the RL(N)MPC mid-level COLAV. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
 
+    time_between_runs: float = 5.0
     reference_traj_bbox_buffer: float = 500.0
     T: float = 10.0
     dt: float = 0.5
@@ -64,7 +65,7 @@ class RLMPCParams(IParams):
     max_num_so_constr: int = 5
     max_num_do_constr: int = 0
     path_following: bool = False
-    n_set_constraints: Optional[int] = None
+    debug: bool = False
 
     @classmethod
     def from_dict(self, config_dict: dict):

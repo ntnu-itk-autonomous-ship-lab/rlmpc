@@ -49,6 +49,9 @@ mpc:
       required: True
       type: dict
       schema:
+        time_between_runs:
+          required: True
+          type: float
         reference_traj_bbox_buffer:
           required: True
           type: float
@@ -86,6 +89,10 @@ mpc:
         path_following:
           required: True
           type: boolean
+        debug:
+          required: True
+          type: boolean
+
     enable_acados:
       required: True
       type: boolean
@@ -127,6 +134,9 @@ mpc:
             warm_start_init_point:
               required: True
               type: string
+            verbose:
+              required: True
+              type: boolean
             jit:
                 required: True
                 type: boolean

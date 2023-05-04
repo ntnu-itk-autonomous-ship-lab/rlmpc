@@ -37,6 +37,7 @@ class CasadiSolverOptions:
     acceptable_obj_change_tol: float = 1e-6
     max_iter: int = 1000
     warm_start_init_point: str = "no"
+    verbose: bool = True
     jit: bool = True
     jit_flags: list = field(default_factory=lambda: ["-O0"])
     compiler: str = "clang"
@@ -60,6 +61,7 @@ class CasadiSolverOptions:
             self.solver_type + ".acceptable_obj_change_tol": self.acceptable_obj_change_tol,
             self.solver_type + ".max_iter": self.max_iter,
             self.solver_type + ".warm_start_init_point": self.warm_start_init_point,
+            "verbose": self.verbose,
             "jit": self.jit,
             "jit_options": {"flags": self.jit_flags},
             "compiler": self.compiler,
@@ -551,7 +553,9 @@ class CasadiMPC:
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             A_full, b_full = self._set_generator(state[0:2], enc=enc)
             A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._params.max_num_so_constr)
-            sg.plot_constraints(A_full, b_full, state[0:2], "green", enc)
+
+            if self._params.debug:
+                sg.plot_constraints(A_full, b_full, state[0:2], "green", enc)
             self._p_fixed_so_values = np.concatenate((A_reduced.flatten(), b_reduced.flatten()), axis=0)
 
         fixed_parameter_values.extend(self._p_fixed_so_values.tolist())

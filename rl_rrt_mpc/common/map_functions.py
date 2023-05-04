@@ -210,7 +210,7 @@ def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]
     """Fills an rtree with the given multipolygon geometries. Used for fast spatial queries.
 
     Args:
-        geometries (list): The geometries to fill the rtree with.
+        - geometries (list): The geometries to fill the rtree with.
 
     Returns:
         Tuple[strtree.STRtree, list]: The rtree containing the geometries, and the Polygon objects used to build it.
@@ -227,8 +227,8 @@ def generate_enveloping_polygon(trajectory: np.ndarray, buffer: float) -> geomet
     """Creates an enveloping polygon around the trajectory of the vessel, buffered by the given amount.
 
     Args:
-        trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
-        buffer (float): Buffer size
+        - trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
+        - buffer (float): Buffer size
 
     Returns:
         geometry.Polygon: The query polygon
@@ -241,15 +241,16 @@ def generate_enveloping_polygon(trajectory: np.ndarray, buffer: float) -> geomet
 
 
 def extract_polygons_near_trajectory(
-    trajectory: np.ndarray, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None
+    trajectory: np.ndarray, geometry_tree: strtree.STRtree, buffer: float, enc: Optional[senc.ENC] = None, show_plots: bool = False
 ) -> Tuple[list, geometry.Polygon]:
     """Extracts the polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
 
     Args:
-        trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
-        geometry_tree (strtree.STRtree): The rtree containing the relevant grounding hazard polygons.
-        buffer (float): Buffer size
-        enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+        - trajectory (np.ndarray): Trajectory with columns [x, y, psi, u, v, r]
+        - geometry_tree (strtree.STRtree): The rtree containing the relevant grounding hazard polygons.
+        - buffer (float): Buffer size
+        - enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+        - show_plots (bool, optional): Whether to show plots or not. Defaults to False.
 
     Returns:
         Tuple[list, geometry.Polygon]: List of tuples of relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to. Also returns the query polygon.
@@ -270,7 +271,7 @@ def extract_polygons_near_trajectory(
             relevant_poly_list.append(intersection_poly)
         poly_list.append((relevant_poly_list, poly))
 
-    if enc is not None:
+    if enc is not None and show_plots:
         enc.start_display()
         enc.draw_polygon(enveloping_polygon, color="yellow", alpha=0.2)
         # for poly_sublist, _ in poly_list:
@@ -286,9 +287,9 @@ def extract_safe_sea_area(min_depth: int, enveloping_polygon: geometry.Polygon, 
     This includes sea polygons that are above the vessel`s minimum depth.
 
     Args:
-        polygon_list (list): The list of polygons to check for safe sea area.
-        enveloping_polygon (geometry.Polygon): The query polygon.
-        enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+        - polygon_list (list): The list of polygons to check for safe sea area.
+        - enveloping_polygon (geometry.Polygon): The query polygon.
+        - enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
 
     Returns:
         list: The safe sea area.
@@ -299,13 +300,16 @@ def extract_safe_sea_area(min_depth: int, enveloping_polygon: geometry.Polygon, 
     return safe_sea
 
 
-def extract_boundary_polygons_inside_envelope(poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None) -> list:
+def extract_boundary_polygons_inside_envelope(
+    poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = False
+) -> list:
     """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
 
     Args:
         - poly_list (list): List of tuples with relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to.
         - enveloping_polygon (geometry.Polygon): The query polygon.
-        enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+        - enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+        - show_plots (bool, optional): Whether to show plots or not. Defaults to False.
 
     Returns:
         list: List of boundary polygons.
@@ -332,9 +336,9 @@ def extract_triangle_boundaries_from_polygon(polygon: geometry.Polygon, planning
     Triangles are filtered out if they have two vertices on the envelope boundary and is inside of the original polygon.
 
     Args:
-        polygon (geometry.Polygon): The polygon in consideration inside the envelope polygon.
-        planning_area_envelope (geometry.Polygon): A polygon representing the relevant area the vessel is planning to navigate in.
-        original_polygon (geometry.Polygon): The original polygon that the relevant polygon belongs to.
+        - polygon (geometry.Polygon): The polygon in consideration inside the envelope polygon.
+        - planning_area_envelope (geometry.Polygon): A polygon representing the relevant area the vessel is planning to navigate in.
+        - original_polygon (geometry.Polygon): The original polygon that the relevant polygon belongs to.
 
     Returns:
         list: List of shapely polygons representing the boundary triangles for the polygon.
@@ -402,7 +406,7 @@ def constrained_delaunay_triangulation_custom(polygon: geometry.Polygon) -> list
     """Converts a polygon to a list of triangles. Basically constrained delaunay triangulation.
 
     Args:
-        polygon (geometry.Polygon): The polygon to triangulate.
+        - polygon (geometry.Polygon): The polygon to triangulate.
 
     Returns:
         list: List of triangles as shapely polygons.
@@ -471,7 +475,7 @@ def linestring_to_ndarray(line: geometry.LineString) -> np.ndarray:
     """Converts a shapely LineString to a numpy array
 
     Args:
-        line (LineString): Any LineString object
+        - line (LineString): Any LineString object
 
     Returns:
         np.ndarray: Numpy array containing the coordinates of the LineString
@@ -483,7 +487,7 @@ def ndarray_to_linestring(array: np.ndarray) -> geometry.LineString:
     """Converts a 2D numpy array to a shapely LineString
 
     Args:
-        array (np.ndarray): Numpy array of 2 x n_samples, containing the coordinates of the LineString
+        - array (np.ndarray): Numpy array of 2 x n_samples, containing the coordinates of the LineString
 
     Returns:
         LineString: Any LineString object
@@ -492,20 +496,21 @@ def ndarray_to_linestring(array: np.ndarray) -> geometry.LineString:
     return geometry.LineString(list(zip(array[0, :], array[1, :])))
 
 
-def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel_depth: int, enc: senc.ENC, show_enc: bool = False) -> Tuple[float, np.ndarray, int]:
+def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel_depth: int, enc: senc.ENC, show_plots: bool = False) -> Tuple[float, np.ndarray, int]:
     """Computes the closest distance to grounding for the given vessel trajectory.
 
     Args:
-        vessel_trajectory (np.ndarray): The vessel`s trajectory, 2 x n_samples.
-        minimum_vessel_depth (int): The minimum depth required for the vessel to avoid grounding.
-        enc (senc.ENC): The ENC to check for grounding.
+        - vessel_trajectory (np.ndarray): The vessel`s trajectory, 2 x n_samples.
+        - minimum_vessel_depth (int): The minimum depth required for the vessel to avoid grounding.
+        - enc (senc.ENC): The ENC to check for grounding.
+        - show_plots (bool, optional): Whether to show plots or not. Defaults to False.
 
     Returns:
         Tuple[float, int]: The closest distance to grounding, corresponding distance vector and the index of the trajectory point.
     """
     dangerous_seabed = extract_relevant_grounding_hazards(minimum_vessel_depth, enc)
     vessel_traj_linestring = ndarray_to_linestring(vessel_trajectory)
-    # if enc and show_enc:
+    # if enc and show_plots:
     #     enc.start_display()
     #     for hazard in dangerous_seabed:
     #         enc.draw_polygon(hazard, color="red")
@@ -533,14 +538,14 @@ def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel
             (np.asarray(point.coords.xy[0])[0], np.asarray(point.coords.xy[1])[0]),
         ]
 
-        if enc and show_enc:
+        if enc and show_plots:
             enc.draw_line(points, color="cyan", marker_type="o")
 
         min_dist_vec = np.array([points[1][0] - points[0][0], points[1][1] - points[0][1]])
         if np.linalg.norm(min_dist_vec) <= min_dist + epsilon and np.linalg.norm(min_dist_vec) >= min_dist - epsilon:
             break
 
-    # if enc and show_enc:
+    # if enc and show_plots:
     #     enc.close_display()
     return min_dist, min_dist_vec, min_idx
 
