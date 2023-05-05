@@ -89,11 +89,11 @@ class CasadiMPC:
         self._lbw: np.ndarray = np.array([])
         self._ubw: np.ndarray = np.array([])
         self._vsolver: csd.Function = csd.Function("vsolver", [], [])
-        self._prev_vsoln: dict = {}
+        self._prev_vsoln: dict = {"x": [], "lam_x0": [], "lam_g": []}
         self._lbg_v: np.ndarray = np.array([])
         self._ubg_v: np.ndarray = np.array([])
         self._qsolver: csd.Function = csd.Function("qsolver", [], [])
-        self._prev_qsoln: dict = {}
+        self._prev_qsoln: dict = {"x": [], "lam_x0": [], "lam_g": []}
         self._lbg_q: np.ndarray = np.array([])
         self._ubg_q: np.ndarray = np.array([])
 
@@ -141,10 +141,12 @@ class CasadiMPC:
         else:
             w = np.zeros(N * nu)
         w = np.concatenate((w, nominal_trajectory[0:nx, 0 : N + 1].T.flatten(), np.zeros((self._params.max_num_so_constr + self._params.max_num_do_constr) * (N + 1))))
-        self._prev_vsoln["x"] = w
+        self._prev_vsoln["x"] = w.tolist()
 
-        self._prev_vsoln["lam_x"] = np.zeros(w.shape[0])
-        self._prev_vsoln["lam_g"] = np.zeros(self._lbg_v.shape[0])
+        self._prev_vsoln["lam_x"] = np.zeros(w.shape[0]).tolist()
+        self._prev_vsoln["lam_g"] = np.zeros(self._lbg_v.shape[0]).tolist()
+
+        self._prev_vsoln = {"x": [], "lam_x": [], "lam_g": []}
 
     def _setup_fixed_static_obstacle_parameter_values(self, so_list: list, enc: Optional[senc.ENC]) -> None:
         """Sets up the fixed static obstacle parameters.
@@ -206,9 +208,21 @@ class CasadiMPC:
             RuntimeError("Problem is Infeasible")
 
         soln_trajectory = soln["x"].full()
-        U, X, _ = hf.decision_trajectories_from_solution(soln_trajectory, N, nu, nx, ns)
-
+        U, X, Sigma = hf.decision_trajectories_from_solution(soln_trajectory, N, nu, nx, ns)
         return X[:, :N], U, soln
+
+    def call_vsolver(self, p: np.ndarray, lbx: np.ndarray, ubx: np.ndarray, lbg: np.ndarray, ubg: np.ndarray, sol: dict = {"x": [], "lam_x": [], "lam_g": []}) -> dict:
+
+        return self._vsolver(
+            x0=sol["x"],
+            lam_x0=sol["lam_x"],
+            lam_g0=sol["lam_g"],
+            p=p,
+            lbx=lbx,
+            ubx=ubx,
+            lbg=lbg,
+            ubg=ubg,
+        )
 
     def construct_ocp(self, so_list: list, enc: senc.ENC) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
@@ -312,7 +326,6 @@ class CasadiMPC:
         num_adjustable_ocp_params += 2  # d_safe_so and d_safe_do
 
         ship_vertices = self._model.params().ship_vertices
-        n_ship_vertices = len(ship_vertices)
 
         # Dynamic obstacle augmented state parameters (x, y, Vx, Vy, length, width) * N + 1
         nx_do = 6
@@ -453,7 +466,7 @@ class CasadiMPC:
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             assert A_so_constr is not None and b_so_constr is not None, "Convex safe set constraints must be provided for this constraint type."
             so_constr_list.append(
-                csd.vec(A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - b_so_constr - sigma_k[: self._params.max_num_so_constr])
+                csd.vec(A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - b_so_constr - 0.0 * sigma_k[: self._params.max_num_so_constr])
             )
         else:
             if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
@@ -536,7 +549,7 @@ class CasadiMPC:
 
         fixed_parameter_values.extend(nominal_trajectory[0:dim_Q, : N + 1].T.flatten().tolist())
         fixed_parameter_values.append(self._params.gamma)
-        W = np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        W = 1e3 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
         fixed_parameter_values.extend(W.tolist())
         n_do = len(do_list)
         for k in range(N + 1):

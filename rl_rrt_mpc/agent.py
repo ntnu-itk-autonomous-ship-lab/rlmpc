@@ -108,7 +108,7 @@ class RLRRTMPC(ci.ICOLAV):
         do_list: list,
         enc: Optional[senc.ENC] = None,
         goal_state: Optional[np.ndarray] = None,
-        **kwargs
+        **kwargs,
     ) -> np.ndarray:
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
         in order to extract relevant grounding hazards.
@@ -251,7 +251,7 @@ class RLMPC(ci.ICOLAV):
         do_list: list,
         enc: Optional[senc.ENC] = None,
         goal_state: Optional[np.ndarray] = None,
-        **kwargs
+        **kwargs,
     ) -> np.ndarray:
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
         in order to extract relevant grounding hazards.
@@ -306,7 +306,7 @@ class RLMPC(ci.ICOLAV):
             hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         self._references[:6, :] = self._mpc_trajectory
-
+        print(f"RLMPC references: {self._references[:, 0]}")
         return self._references
 
     def get_current_plan(self) -> np.ndarray:
