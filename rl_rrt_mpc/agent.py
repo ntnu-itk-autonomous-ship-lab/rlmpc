@@ -234,7 +234,8 @@ class RLMPC(ci.ICOLAV):
 
         self._references = np.array([])
         self._initialized = False
-        self._t_prev = 0.0
+        self._t_prev: float = 0.0
+        self._t_prev_mpc: float = 0.0
         self._min_depth: int = 0
         self._ktp_trajectory: np.ndarray = np.array([])
         self._mpc_trajectory: np.ndarray = np.array([])
@@ -259,14 +260,21 @@ class RLMPC(ci.ICOLAV):
         assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
         assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
 
-        x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
-        self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-
         if not self._initialized:
             self._initialized = True
+            x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
+            self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
+
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+
+            poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
+                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
+            )
+            for poly_tuple in poly_tuple_list:
+                self._mpc_rel_polygons.extend(poly_tuple[0])
+            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
             if enc is not None and self._mpc.params.debug:
                 enc.start_display()
@@ -278,16 +286,10 @@ class RLMPC(ci.ICOLAV):
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
-            poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
-            )
-            for poly_tuple in poly_tuple_list:
-                self._mpc_rel_polygons.extend(poly_tuple[0])
-            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
-
+        self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
         self._ktp.update_path_variable(t - self._t_prev)
 
-        if t == 0 or t - self._t_prev >= self._mpc.params.time_between_runs:
+        if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
                 nominal_trajectory=self._ktp_trajectory,
                 nominal_inputs=None,
@@ -296,7 +298,7 @@ class RLMPC(ci.ICOLAV):
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
             )
-            self._t_prev = t
+            self._t_prev_mpc = t
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
@@ -307,6 +309,7 @@ class RLMPC(ci.ICOLAV):
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         self._references[:6, :] = self._mpc_trajectory
         print(f"RLMPC references: {self._references[:, 0]}")
+        self._t_prev = t
         return self._references
 
     def get_current_plan(self) -> np.ndarray:

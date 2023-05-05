@@ -47,7 +47,7 @@ class Telemetron(MPCModel):
         return self._params
 
     def dims(self) -> Tuple[int, int]:
-        return 6, 3
+        return 6, 2
 
     def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the Telemetron vessel
@@ -56,7 +56,7 @@ class Telemetron(MPCModel):
             Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state and input symbolic vectors
         """
         x = csd.MX.sym("x", 6)
-        u = csd.MX.sym("u", 3)
+        u = csd.MX.sym("u", 2)  # Fx, Fy as inputs
         xdot = csd.MX.sym("x_dot", 6)
 
         M = self._params.M_rb + self._params.M_a
@@ -68,7 +68,8 @@ class Telemetron(MPCModel):
         Rpsi = mf.Rpsi_casadi(x[2])
 
         kinematics = Rpsi @ x[3:6]
-        kinetics = Minv @ (-C @ x[3:6] - D @ x[3:6] + u)
+        B = np.array([[1, 0], [0, 1], [0, -self._params.l_r]])
+        kinetics = Minv @ (-C @ x[3:6] - D @ x[3:6] + B @ u)
 
         f_expl = csd.vertcat(kinematics, kinetics)
         f_impl = xdot - f_expl
@@ -85,17 +86,15 @@ class Telemetron(MPCModel):
         max_Fx = self._params.Fx_limits[1]
         min_Fy = self._params.Fy_limits[0]
         max_Fy = self._params.Fy_limits[1]
-        lever_arm = self._params.l_r
         max_turn_rate = self._params.r_max
         max_speed = self._params.U_max
         lbu = np.array(
             [
                 min_Fx,
                 min_Fy,
-                lever_arm * min_Fy,
             ]
         )
-        ubu = np.array([max_Fx, max_Fy, lever_arm * max_Fy])
+        ubu = np.array([max_Fx, max_Fy])
 
         approx_inf = 1e10
         lbx = np.array([-approx_inf, -approx_inf, -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])

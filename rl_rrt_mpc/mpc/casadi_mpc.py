@@ -463,6 +463,9 @@ class CasadiMPC:
         """
         epsilon = 1e-6
         so_constr_list = []
+        if self._params.max_num_so_constr == 0:
+            return so_constr_list
+
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             assert A_so_constr is not None and b_so_constr is not None, "Convex safe set constraints must be provided for this constraint type."
             so_constr_list.append(

@@ -52,7 +52,7 @@ class IParams(ABC):
 class RLMPCParams(IParams):
     """Class for parameters used by the RL(N)MPC mid-level COLAV. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
 
-    time_between_runs: float = 5.0
+    rate: float = 5.0
     reference_traj_bbox_buffer: float = 500.0
     T: float = 10.0
     dt: float = 0.5

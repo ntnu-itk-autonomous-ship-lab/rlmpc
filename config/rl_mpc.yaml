@@ -6,16 +6,16 @@ ktp:
 
 mpc:
   params:
-    time_between_runs: 5.0
+    rate: 0.2
     reference_traj_bbox_buffer: 300.0
-    T: 15.0
+    T: 25.0
     dt: 0.5
-    Q: [10.0, 10.0] #, 0.1, 0.1, 0.1, 0.1]
+    Q: [100.0, 100.0] #, 0.1, 0.1, 0.1, 0.1]
     d_safe_so: 1.0
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "APPROXCONVEXSAFESET"
-    max_num_so_constr: 8
+    max_num_so_constr: 0
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True
     debug: True

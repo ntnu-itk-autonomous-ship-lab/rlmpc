@@ -22,7 +22,7 @@ mpc:
       required: True
       type: dict
       schema:
-        time_between_runs:
+        rate:
           required: True
           type: float
         reference_traj_bbox_buffer:
