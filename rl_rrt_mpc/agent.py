@@ -292,9 +292,8 @@ class RLMPC(ci.ICOLAV):
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
-        self._nominal_trajectory = create_los_based_trajectory(
-            ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt
-        )  # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
+        self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
+        # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
         # self._ktp.update_path_variable(t - self._t_prev)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
@@ -328,9 +327,9 @@ class RLMPC(ci.ICOLAV):
 
     def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
 
-        if self._ktp_trajectory.size > 6:
-            plt_handles["colav_nominal_trajectory"].set_xdata(self._ktp_trajectory[1, 0:-1:10])
-            plt_handles["colav_nominal_trajectory"].set_ydata(self._ktp_trajectory[0, 0:-1:10])
+        if self._nominal_trajectory.size > 6:
+            plt_handles["colav_nominal_trajectory"].set_xdata(self._nominal_trajectory[1, 0:-1:10])
+            plt_handles["colav_nominal_trajectory"].set_ydata(self._nominal_trajectory[0, 0:-1:10])
 
         if self._mpc_trajectory.size > 6:
             plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:2])
@@ -366,10 +365,10 @@ def create_los_based_trajectory(
     trajectory = []
     xs_k = xs
     t = 0.0
-    while t < 200.0:
+    while t < 2000.0:
         trajectory.append(xs_k)
         references = los.compute_references(waypoints, speed_plan, None, xs_k, dt)
-        u = controller.compute_inputs(references, xs, dt, model)
+        u = controller.compute_inputs(references, xs_k, dt, model)
         xs_dot = model.dynamics(xs_k, u)
         xs_k = xs_k + xs_dot * dt
 
@@ -377,5 +376,4 @@ def create_los_based_trajectory(
         t += dt
         if dist2goal < 10.0:
             break
-    trajectory = np.array(trajectory).T
-    return trajectory
+    return np.array(trajectory).T

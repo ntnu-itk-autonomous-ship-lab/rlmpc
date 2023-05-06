@@ -141,15 +141,14 @@ class CasadiMPC:
             w = nominal_inputs.T.flatten()
         else:
             w = np.zeros(N * nu)
-        x_init_v2 = np.repeat(xs.reshape(nx, 1), N + 1, axis=1)
-        w = nominal_trajectory[0:nx, 0 : N + 1].T.flatten()
+        w = np.concatenate((w, nominal_trajectory[0:nx, 0 : N + 1].T.flatten()))
         w = np.concatenate((w, np.zeros((self._params.max_num_so_constr + self._params.max_num_do_constr) * (N + 1))))
         self._prev_vsoln["x"] = w.tolist()
 
         self._prev_vsoln["lam_x"] = np.zeros(w.shape[0]).tolist()
         self._prev_vsoln["lam_g"] = np.zeros(self._lbg_v.shape[0]).tolist()
 
-        self._prev_vsoln = {"x": [], "lam_x": [], "lam_g": []}
+        # self._prev_vsoln = {"x": [], "lam_x": [], "lam_g": []}
 
     def _setup_fixed_static_obstacle_parameter_values(self, so_list: list, enc: Optional[senc.ENC]) -> None:
         """Sets up the fixed static obstacle parameters.
