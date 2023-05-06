@@ -127,10 +127,11 @@ class CasadiMPC:
         """
         return self._params.adjustable
 
-    def _set_initial_warm_start(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
+    def _set_initial_warm_start(self, xs: np.ndarray, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
 
         Args:
+            - xs (np.ndarray): Initial state of the system.
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow. Used to set the initial warm start state trajectory.
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected. Used to set the initial warm start input trajectory, if provided.
         """
@@ -140,7 +141,9 @@ class CasadiMPC:
             w = nominal_inputs.T.flatten()
         else:
             w = np.zeros(N * nu)
-        w = np.concatenate((w, nominal_trajectory[0:nx, 0 : N + 1].T.flatten(), np.zeros((self._params.max_num_so_constr + self._params.max_num_do_constr) * (N + 1))))
+        x_init_v2 = np.repeat(xs.reshape(nx, 1), N + 1, axis=1)
+        w = nominal_trajectory[0:nx, 0 : N + 1].T.flatten()
+        w = np.concatenate((w, np.zeros((self._params.max_num_so_constr + self._params.max_num_do_constr) * (N + 1))))
         self._prev_vsoln["x"] = w.tolist()
 
         self._prev_vsoln["lam_x"] = np.zeros(w.shape[0]).tolist()
@@ -180,7 +183,7 @@ class CasadiMPC:
             - Tuple[np.ndarray, np.ndarray, dict]: Optimal trajectory and inputs for the ownship. Also, the NLP solution dictionary is returned.
         """
         if not self._initialized:
-            self._set_initial_warm_start(nominal_trajectory, nominal_inputs)
+            self._set_initial_warm_start(xs, nominal_trajectory, nominal_inputs)
             self._setup_fixed_static_obstacle_parameter_values(so_list, enc)
             self._initialized = True
 
@@ -210,19 +213,6 @@ class CasadiMPC:
         soln_trajectory = soln["x"].full()
         U, X, Sigma = hf.decision_trajectories_from_solution(soln_trajectory, N, nu, nx, ns)
         return X[:, :N], U, soln
-
-    def call_vsolver(self, p: np.ndarray, lbx: np.ndarray, ubx: np.ndarray, lbg: np.ndarray, ubg: np.ndarray, sol: dict = {"x": [], "lam_x": [], "lam_g": []}) -> dict:
-
-        return self._vsolver(
-            x0=sol["x"],
-            lam_x0=sol["lam_x"],
-            lam_g0=sol["lam_g"],
-            p=p,
-            lbx=lbx,
-            ubx=ubx,
-            lbg=lbg,
-            ubg=ubg,
-        )
 
     def construct_ocp(self, so_list: list, enc: senc.ENC) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
@@ -469,7 +459,10 @@ class CasadiMPC:
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             assert A_so_constr is not None and b_so_constr is not None, "Convex safe set constraints must be provided for this constraint type."
             so_constr_list.append(
-                csd.vec(A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - b_so_constr - 0.0 * sigma_k[: self._params.max_num_so_constr])
+                A_so_constr @ x_k[0:2]
+                - b_so_constr
+                - sigma_k[: self._params.max_num_so_constr]
+                # csd.vec(A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - b_so_constr - sigma_k[: self._params.max_num_so_constr])
             )
         else:
             if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:

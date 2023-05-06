@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import colav_simulator.core.colav.colav_interface as ci
+import colav_simulator.core.controllers as controllers
 import colav_simulator.core.guidances as guidances
+import colav_simulator.core.models as sim_models
 import informed_rrt_star_rust as rrt
 import matplotlib.pyplot as plt
 import numpy as np
@@ -204,6 +206,7 @@ class RLRRTMPC(ci.ICOLAV):
 class RLMPCParams:
     rl: rl.RLParams
     ktp: guidances.KTPGuidanceParams
+    los: guidances.LOSGuidanceParams
     mpc: mpc.Config
 
     @classmethod
@@ -211,6 +214,7 @@ class RLMPCParams:
         config = RLMPCParams(
             rl=rl.RLParams.from_dict(config_dict["rl"]),
             ktp=guidances.KTPGuidanceParams.from_dict(config_dict["ktp"]),
+            los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
             mpc=mpc.Config.from_dict(config_dict["mpc"]),
         )
         return config
@@ -230,6 +234,7 @@ class RLMPC(ci.ICOLAV):
 
         self._rl = rl.RL(self._config.rl)
         self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
+        self._los = guidances.LOSGuidance(self._config.los)
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
 
         self._references = np.array([])
@@ -237,7 +242,7 @@ class RLMPC(ci.ICOLAV):
         self._t_prev: float = 0.0
         self._t_prev_mpc: float = 0.0
         self._min_depth: int = 0
-        self._ktp_trajectory: np.ndarray = np.array([])
+        self._nominal_trajectory: np.ndarray = np.array([])
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
@@ -259,26 +264,27 @@ class RLMPC(ci.ICOLAV):
         """
         assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
         assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
-
+        nx = ownship_state.size
         if not self._initialized:
             self._initialized = True
-            x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
-            self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-
+            # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
+            # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
+            self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
+                self._nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
             )
             for poly_tuple in poly_tuple_list:
                 self._mpc_rel_polygons.extend(poly_tuple[0])
-            self._mpc.construct_ocp(nominal_trajectory=self._ktp_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
             if enc is not None and self._mpc.params.debug:
                 enc.start_display()
-                hf.plot_trajectory(self._ktp_trajectory, np.array([]), enc, color="magenta")
+                hf.plot_trajectory(waypoints, np.array([]), enc, color="green")
+                hf.plot_trajectory(self._nominal_trajectory, np.array([]), enc, color="magenta")
                 # for hazard in relevant_grounding_hazards:
                 #     enc.draw_polygon(hazard, color="red", fill=False)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.5, 1.5)
@@ -286,12 +292,14 @@ class RLMPC(ci.ICOLAV):
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
-        self._ktp_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-        self._ktp.update_path_variable(t - self._t_prev)
+        self._nominal_trajectory = create_los_based_trajectory(
+            ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt
+        )  # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
+        # self._ktp.update_path_variable(t - self._t_prev)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
-                nominal_trajectory=self._ktp_trajectory,
+                nominal_trajectory=self._nominal_trajectory,
                 nominal_inputs=None,
                 xs=ownship_state,
                 do_list=do_list,
@@ -299,13 +307,13 @@ class RLMPC(ci.ICOLAV):
                 enc=enc,
             )
             self._t_prev_mpc = t
+            if enc is not None and self._mpc.params.debug:
+                hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
+                hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
-        if enc is not None and self._mpc.params.debug:
-            hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
-            hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         self._references[:6, :] = self._mpc_trajectory
         print(f"RLMPC references: {self._references[:, 0]}")
@@ -325,10 +333,49 @@ class RLMPC(ci.ICOLAV):
             plt_handles["colav_nominal_trajectory"].set_ydata(self._ktp_trajectory[0, 0:-1:10])
 
         if self._mpc_trajectory.size > 6:
-            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, :])
-            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, :])
+            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:2])
+            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:2])
 
         # plot convex safe set or relevant static obstacles
 
         # plot dynamic obstacles
         return plt_handles
+
+
+def create_los_based_trajectory(
+    xs: np.ndarray,
+    waypoints: np.ndarray,
+    speed_plan: np.ndarray,
+    los: guidances.LOSGuidance,
+    dt: float,
+) -> np.ndarray:
+    """Creates a trajectory based on the provided LOS guidance, controller and model.
+
+    Args:
+        - xs (np.ndarray): State vector
+        - waypoints (np.ndarray): Waypoints
+        - speed_plan (np.ndarray): Speed plan
+        - los (guidances.LOSGuidance): LOS guidance object
+        - dt (float): Time step
+
+    Returns:
+        np.ndarray: Trajectory
+    """
+    controller = controllers.FLSH()
+    model = sim_models.Telemetron()
+    trajectory = []
+    xs_k = xs
+    t = 0.0
+    while t < 200.0:
+        trajectory.append(xs_k)
+        references = los.compute_references(waypoints, speed_plan, None, xs_k, dt)
+        u = controller.compute_inputs(references, xs, dt, model)
+        xs_dot = model.dynamics(xs_k, u)
+        xs_k = xs_k + xs_dot * dt
+
+        dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
+        t += dt
+        if dist2goal < 10.0:
+            break
+    trajectory = np.array(trajectory).T
+    return trajectory

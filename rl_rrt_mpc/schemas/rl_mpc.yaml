@@ -7,6 +7,24 @@ rl:
       required: True
       type: float
 
+los:
+  type: dict
+  schema:
+    pass_angle_threshold:
+      required: True
+      type: float
+    R_a:
+      required: True
+      type: float
+    K_p:
+      required: True
+      type: float
+    K_i:
+      required: True
+      type: float
+    e_int_max:
+      required: True
+      type: float
 ktp:
   required: True
   type: dict
