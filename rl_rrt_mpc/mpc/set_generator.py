@@ -236,12 +236,16 @@ def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, color: str, en
     b_nonzero = b[b != 0.0]
     hs = HalfspaceIntersection(np.concatenate((A_nonzero, -b_nonzero.reshape((-1, 1))), axis=1), p)
     x, y = hs.intersections.T
-    # for i in range(len(x)):  # pylint: disable=consider-using-enumerate
-    #     enc.draw_circle((y[i], x[i]), color="black", radius=1)
 
     convex_hull = ConvexHull(hs.intersections)
     conv_hull_pts = convex_hull.points[convex_hull.vertices]
     x, y = conv_hull_pts.T
     set_polygon = geometry.Polygon(np.array([y, x]).T)
-
+    min_x, min_y, max_x, max_y = set_polygon.bounds
     enc.draw_polygon(set_polygon, color=color, fill=False)
+    # for row in range(A_nonzero.shape[0]):  # pylint: disable=consider-using-enumerate
+    #     x_1 = (min_x, min_y)
+    #     x_2 = (max_x, max_y)
+    #     line_point_1 = (x_1[0], (b_nonzero[row] - A_nonzero[row, 1] * x_1[0]) / A_nonzero[row, 0])
+    #     line_point_2 = (x_2[0], (b_nonzero[row] - A_nonzero[row, 1] * x_2[0]) / A_nonzero[row, 0])
+    #     enc.draw_line([line_point_1, line_point_2], color=color, width=0.3)

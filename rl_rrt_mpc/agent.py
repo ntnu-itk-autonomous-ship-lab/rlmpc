@@ -14,6 +14,7 @@ from typing import Optional, Tuple
 import colav_simulator.core.colav.colav_interface as ci
 import colav_simulator.core.controllers as controllers
 import colav_simulator.core.guidances as guidances
+import colav_simulator.core.integrators as sim_integrators
 import colav_simulator.core.models as sim_models
 import informed_rrt_star_rust as rrt
 import matplotlib.pyplot as plt
@@ -270,16 +271,17 @@ class RLMPC(ci.ICOLAV):
             # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
             # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
+            mpc_nominal_trajectory = self._nominal_trajectory.copy()
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-                self._nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
+                mpc_nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
             )
             for poly_tuple in poly_tuple_list:
                 self._mpc_rel_polygons.extend(poly_tuple[0])
-            self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=mpc_nominal_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
             if enc is not None and self._mpc.params.debug:
                 enc.start_display()
@@ -292,13 +294,27 @@ class RLMPC(ci.ICOLAV):
                 enc.draw_polygon(ship_poly, color="pink")
                 enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
-        self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
+        shifted_nominal_trajectory = self._nominal_trajectory.copy()
+        if t > 0.0:
+            self._nominal_trajectory = self._nominal_trajectory[:, 1:]
+            nx = 6
+            N = int(self._mpc.params.T / self._mpc.params.dt)
+            n_samples = self._nominal_trajectory.shape[1]
+            if n_samples == 0:  # Done with following nominal trajectory, stop
+                shifted_nominal_trajectory = np.tile(np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)).T
+            elif n_samples < N + 1:
+                shifted_nominal_trajectory = np.zeros((nx, N + 1))
+                shifted_nominal_trajectory[:, :n_samples] = self._nominal_trajectory
+                shifted_nominal_trajectory[:, n_samples:] = np.tile(self._nominal_trajectory[:, -1], (N + 1 - n_samples, 1)).T
+            else:
+                shifted_nominal_trajectory = self._nominal_trajectory[:, : N + 1]
+
         # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
         # self._ktp.update_path_variable(t - self._t_prev)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
-                nominal_trajectory=self._nominal_trajectory,
+                nominal_trajectory=shifted_nominal_trajectory,
                 nominal_inputs=None,
                 xs=ownship_state,
                 do_list=do_list,
@@ -309,13 +325,14 @@ class RLMPC(ci.ICOLAV):
             if enc is not None and self._mpc.params.debug:
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
+
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         self._references[:6, :] = self._mpc_trajectory
-        print(f"RLMPC references: {self._references[:, 0]}")
+        # print(f"RLMPC references: {self._references[:, 0]}")
         self._t_prev = t
         return self._references
 
@@ -369,8 +386,7 @@ def create_los_based_trajectory(
         trajectory.append(xs_k)
         references = los.compute_references(waypoints, speed_plan, None, xs_k, dt)
         u = controller.compute_inputs(references, xs_k, dt, model)
-        xs_dot = model.dynamics(xs_k, u)
-        xs_k = xs_k + xs_dot * dt
+        xs_k = sim_integrators.erk4_integration_step(model.dynamics, model.bounds, xs_k, u, dt)
 
         dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
         t += dt

@@ -97,8 +97,8 @@ class Telemetron(MPCModel):
         ubu = np.array([max_Fx, max_Fy])
 
         approx_inf = 1e10
-        lbx = np.array([-approx_inf, -approx_inf, -np.pi, 0.0, -0.6 * max_speed, -max_turn_rate])
-        ubx = np.array([approx_inf, approx_inf, np.pi, max_speed, 0.6 * max_speed, max_turn_rate])
+        lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -max_speed, -max_speed, -max_turn_rate])
+        ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, max_speed, max_turn_rate])
         return lbu, ubu, lbx, ubx
 
     def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX]:

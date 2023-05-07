@@ -110,8 +110,28 @@ def k_means_clustering_for_polygon(n_clusters: int, polygon: Polygon, enc: Optio
     return clusters
 
 
-def compute_circular_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
-    """Computes circular approximations from the input polygon list.
+def compute_smallest_enclosing_circle_for_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Computes the smallest enclosing circle for each polygon in the the input list.
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of smallest enclosing circles (center.north, center.east, radius) for each polygon.
+    """
+    circles = []
+    for polygon in polygons:
+        centroid = polygon.centroid
+        min_y, min_x, max_y, max_x = polygon.bounds
+        radius = max(np.sqrt((min_x - centroid.y) ** 2 + (min_y - centroid.x) ** 2), np.sqrt((max_x - centroid.y) ** 2 + (max_y - centroid.x) ** 2))
+        circles.append((centroid.y, centroid.x, radius))
+    return circles
+
+
+def compute_multi_circular_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Computes multiple circular approximations from the input polygon list.
 
     Args:
         polygons (list): List of shapely polygons
@@ -382,7 +402,7 @@ def plot_trajectory(trajectory: np.ndarray, times: np.ndarray, enc: senc.ENC, co
     trajectory_line = []
     for k in range(trajectory.shape[1]):
         trajectory_line.append((trajectory[1, k], trajectory[0, k]))
-    enc.draw_line(trajectory_line, color=color, width=1.0, thickness=1.0, marker_type=None)
+    enc.draw_line(trajectory_line, color=color, width=0.5, thickness=0.5, marker_type=None)
 
 
 def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC, T: float, dt: float) -> None:
@@ -409,7 +429,7 @@ def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
         for sub_node in node_list:
             if node["id"] == sub_node["id"] or sub_node["parent_id"] != node["id"]:
                 continue
-            enc.draw_line([(node["state"][1], node["state"][0]), (sub_node["state"][1], sub_node["state"][0])], color="white", width=1.0, thickness=1.0, marker_type=None)
+            enc.draw_line([(node["state"][1], node["state"][0]), (sub_node["state"][1], sub_node["state"][0])], color="white", width=0.5, thickness=0.5, marker_type=None)
 
 
 def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, length_scaling: float = 1.0, width_scaling: float = 1.0) -> Polygon:
