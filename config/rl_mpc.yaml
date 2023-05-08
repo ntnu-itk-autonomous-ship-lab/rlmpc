@@ -20,7 +20,7 @@ mpc:
     d_safe_so: 1.0
     d_safe_do: 10.0
     gamma: 1.0
-    so_constr_type: "CIRCULAR"
+    so_constr_type: "ELLIPSOIDAL"
     max_num_so_constr: 10
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True

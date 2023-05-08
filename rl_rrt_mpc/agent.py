@@ -271,17 +271,16 @@ class RLMPC(ci.ICOLAV):
             # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
             # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
-            mpc_nominal_trajectory = self._nominal_trajectory.copy()
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-                mpc_nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
+                self._nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
             )
             for poly_tuple in poly_tuple_list:
                 self._mpc_rel_polygons.extend(poly_tuple[0])
-            self._mpc.construct_ocp(nominal_trajectory=mpc_nominal_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
             if enc is not None and self._mpc.params.debug:
                 enc.start_display()

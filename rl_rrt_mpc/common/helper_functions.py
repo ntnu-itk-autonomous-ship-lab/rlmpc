@@ -16,15 +16,16 @@ import numpy as np
 import rl_rrt_mpc.common.file_utils as fu
 import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.common.paths as dp
+import rl_rrt_mpc.common.smallestenclosingcircle as smallestenclosingcircle
 import rl_rrt_mpc.gmm_em as gmm_em
 import scipy.cluster.vq as scipyvq
 import scipy.interpolate as scipyintp
 import seacharts.enc as senc
 import shapely.affinity as affinity
+import shapely.geometry as geometry
 import yaml
 from matplotlib import cm
 from scipy.stats import chi2
-from shapely.geometry import Polygon
 
 
 def create_point_list_from_polygons(polygons: list) -> Tuple[np.ndarray, np.ndarray]:
@@ -94,7 +95,7 @@ def decision_trajectories_from_solution(soln: np.ndarray, N: int, nu: int, nx: i
     return U, X, Sigma
 
 
-def k_means_clustering_for_polygon(n_clusters: int, polygon: Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+def k_means_clustering_for_polygon(n_clusters: int, polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
     """Performs k-means clustering on the input polygon
 
     Args:
@@ -123,11 +124,63 @@ def compute_smallest_enclosing_circle_for_polygons(polygons: list, enc: Optional
     """
     circles = []
     for polygon in polygons:
-        centroid = polygon.centroid
-        min_y, min_x, max_y, max_x = polygon.bounds
-        radius = max(np.sqrt((min_x - centroid.y) ** 2 + (min_y - centroid.x) ** 2), np.sqrt((max_x - centroid.y) ** 2 + (max_y - centroid.x) ** 2))
-        circles.append((centroid.y, centroid.x, radius))
+        points = [(p[1], p[0]) for p in polygon.exterior.coords]
+        circle = smallestenclosingcircle.make_circle(points)
+        circles.append(circle)
+        if enc is not None and show_plots:
+            enc.draw_circle((circle[1], circle[0]), circle[2], color="red", fill=False)
     return circles
+
+
+def compute_mvee(points, tol: float = 0.001) -> Tuple[np.ndarray, float, float, np.ndarray]:
+    """
+    Find the minimum volume ellipse.
+    Return A, c where the equation for the ellipse given in "center form" is
+    (x-c).T * A * (x-c) = 1
+
+    Args:
+        - points: A np array of points, each row is a point.
+        - tol: The tolerance for convergence of the algorithm.
+
+    Returns:
+        tuple: A tuple of the ellipse parameters (A, c).
+    """
+    points = np.asmatrix(points)
+    N, d = points.shape
+    Q = np.column_stack((points, np.ones(N))).T
+    err = tol + 1.0
+    u = np.ones(N) / N
+    while err > tol:
+        # assert u.sum() == 1 # invariant
+        X = Q * np.diag(u) * Q.T
+        M = np.diag(Q.T * np.linalg.inv(X) * Q)
+        jdx = np.argmax(M)
+        step_size = (M[jdx] - d - 1.0) / ((d + 1) * (M[jdx] - 1.0))
+        new_u = (1 - step_size) * u
+        new_u[jdx] += step_size
+        err = np.linalg.norm(new_u - u)
+        u = new_u
+    c = u * points
+    A = np.linalg.inv(points.T * np.diag(u) * points - c.T * c) / d
+    c = np.squeeze(np.asarray(c))
+    U, S, Vh = np.linalg.svd(A)
+    a = 1.0 / np.sqrt(S[0])
+    b = 1.0 / np.sqrt(S[1])
+    return c, a, b, Vh
+
+
+def compute_smallest_enclosing_ellipse_for_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    ellipses = []
+    for poly in polygons:
+        y, x = poly.exterior.coords.xy
+        c, a, b, Vh = compute_mvee(np.array([x, y]).T)
+        A = np.dot(np.dot(Vh.T, np.diag([1.0 / a**2, 1.0 / b**2])), Vh)
+        ellipses.append((A, c))
+        ell_x, ell_y = create_ellipse(A)
+        ell = geometry.Polygon(zip(ell_y + c[1], ell_x + c[0]))
+        if enc is not None and show_plots:
+            enc.draw_polygon(ell, color="red", fill=False)
+    return ellipses
 
 
 def compute_multi_circular_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
@@ -348,6 +401,49 @@ def shift_polygon_coordinates(polygons: list, x_shift: float, y_shift: float) ->
     return shifted_polygons
 
 
+def create_ellipse(A: np.ndarray) -> Tuple[list, list]:
+    """Create standard ellipse from matrix A in (p - c)^T A (p - c) = 1
+
+    Args:
+        A (np.ndarray): Hessian matrix
+
+    Returns:
+        Tuple[list, list]: List of x and y coordinates
+    """
+    # eigenvalues and eigenvectors of the covariance matrix
+    eigenval, eigenvec = np.linalg.eig(A[0:2, 0:2])
+
+    largest_eigenval = max(eigenval)
+    largest_eigenvec_idx = np.argwhere(eigenval == max(eigenval))[0][0]
+    largest_eigenvec = eigenvec[:, largest_eigenvec_idx]
+
+    smallest_eigenval = min(eigenval)
+    # if largest_eigenvec_idx == 0:
+    #     smallest_eigenvec = eigenvec[:, 1]
+    # else:
+    #     smallest_eigenvec = eigenvec[:, 0]
+
+    angle = np.arctan2(largest_eigenvec[1], largest_eigenvec[0])
+    angle = mf.wrap_angle_to_02pi(angle)
+
+    a = np.sqrt(largest_eigenval)
+    b = np.sqrt(smallest_eigenval)
+
+    # the ellipse in "body" x and y coordinates
+    t = np.linspace(0, 2.01 * np.pi, 100)
+    x = a * np.cos(t)
+    y = b * np.sin(t)
+
+    R = mf.Rpsi2D(angle)
+
+    # Rotate to NED by angle phi, N_ell_points x 2
+    ellipse_xy = np.array([x, y])
+    for i in range(len(ellipse_xy)):
+        ellipse_xy[:, i] = R @ ellipse_xy[:, i]
+
+    return ellipse_xy[0, :].tolist(), ellipse_xy[1, :].tolist()
+
+
 def create_probability_ellipse(P: np.ndarray, probability: float = 0.99) -> Tuple[list, list]:
     """Creates a probability ellipse for a covariance matrix P and a given
     confidence level (default 0.99).
@@ -410,7 +506,7 @@ def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC, T: float, dt:
     enc.start_display()
     for (ID, state, cov, length, width) in dynamic_obstacles:
         ellipse_x, ellipse_y = create_probability_ellipse(cov, 0.99)
-        ell_geometry = Polygon(zip(ellipse_y + state[1], ellipse_x + state[0]))
+        ell_geometry = geometry.Polygon(zip(ellipse_y + state[1], ellipse_x + state[0]))
         enc.draw_polygon(ell_geometry, color="orange", alpha=0.3)
 
         for k in range(0, N, 10):
@@ -432,7 +528,7 @@ def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
             enc.draw_line([(node["state"][1], node["state"][0]), (sub_node["state"][1], sub_node["state"][0])], color="white", width=0.5, thickness=0.5, marker_type=None)
 
 
-def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, length_scaling: float = 1.0, width_scaling: float = 1.0) -> Polygon:
+def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, length_scaling: float = 1.0, width_scaling: float = 1.0) -> geometry.Polygon:
     """Creates a ship polygon from the ship`s position, heading, length and width.
 
     Args:
@@ -455,5 +551,5 @@ def create_ship_polygon(x: float, y: float, heading: float, length: float, width
     left_aft, right_aft = (y_min, x_min), (y_max, x_min)
     left_bow, right_bow = (y_min, x_max), (y_max, x_max)
     coords = [left_aft, left_bow, (y, x + eff_length / 2.0), right_bow, right_aft]
-    poly = Polygon(coords)
+    poly = geometry.Polygon(coords)
     return affinity.rotate(poly, -heading, origin=(y, x), use_radians=True)

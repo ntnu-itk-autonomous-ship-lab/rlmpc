@@ -163,7 +163,7 @@ class CasadiMPC:
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
             circle_list = hf.compute_smallest_enclosing_circle_for_polygons(so_list, enc)
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
-            ellipsoid_list = hf.compute_ellipsoidal_approximations_from_polygons(so_list, enc)
+            ellipsoid_list = hf.compute_smallest_enclosing_ellipse_for_polygons(so_list, enc)
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             P1, P2 = hf.create_point_list_from_polygons(so_list)
             self._set_generator = sg.SetGenerator(P1, P2)
