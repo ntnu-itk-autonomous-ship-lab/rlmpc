@@ -161,7 +161,7 @@ class RLRRTMPC(ci.ICOLAV):
             self._rel_rrt_trajectory[1, :] -= enc.origin[0]
 
             if enc is not None:
-                hf.plot_trajectory(self._rrt_trajectory, times, enc, color="magenta")
+                hf.plot_trajectory(self._rrt_trajectory, enc, color="magenta")
 
             poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
                 self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
@@ -188,7 +188,7 @@ class RLRRTMPC(ci.ICOLAV):
         self._mpc_trajectory[1, :] += enc.origin[0]
 
         hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
-        hf.plot_trajectory(self._mpc_trajectory, times, enc, color="cyan")
+        hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         self._references[:6, :] = self._mpc_trajectory
         return self._references
@@ -284,10 +284,10 @@ class RLMPC(ci.ICOLAV):
 
             if enc is not None and self._mpc.params.debug:
                 enc.start_display()
-                hf.plot_trajectory(waypoints, np.array([]), enc, color="green")
-                hf.plot_trajectory(self._nominal_trajectory, np.array([]), enc, color="magenta")
-                # for hazard in relevant_grounding_hazards:
-                #     enc.draw_polygon(hazard, color="red", fill=False)
+                hf.plot_trajectory(waypoints, enc, color="green")
+                hf.plot_trajectory(self._nominal_trajectory, enc, color="magenta")
+                for hazard in relevant_grounding_hazards:
+                    enc.draw_polygon(hazard, color="red", fill=False)
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.5, 1.5)
                 # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
                 enc.draw_polygon(ship_poly, color="pink")
@@ -323,7 +323,7 @@ class RLMPC(ci.ICOLAV):
             self._t_prev_mpc = t
             if enc is not None and self._mpc.params.debug:
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
-                hf.plot_trajectory(self._mpc_trajectory, np.array([]), enc, color="cyan")
+                hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
 
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]

@@ -163,7 +163,7 @@ class CasadiMPC:
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
             circle_list = hf.compute_smallest_enclosing_circle_for_polygons(so_list, enc)
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
-            ellipsoid_list = hf.compute_smallest_enclosing_ellipse_for_polygons(so_list, enc)
+            ellipsoid_list = hf.compute_multi_ellipsoidal_approximations_from_polygons(so_list, enc)
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             P1, P2 = hf.create_point_list_from_polygons(so_list)
             self._set_generator = sg.SetGenerator(P1, P2)
@@ -621,6 +621,21 @@ class CasadiMPC:
                 else:
                     fixed_parameter_values.extend([self._map_bbox[1], self._map_bbox[0], 0.0, 0.0, 5.0, 2.0])
 
+        so_parameter_values = self._create_fixed_so_parameter_values(state, nominal_trajectory, enc)
+        fixed_parameter_values.extend(so_parameter_values)
+        return np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0)
+
+    def _create_fixed_so_parameter_values(self, state: np.ndarray, nominal_trajectory: np.ndarray, enc: senc.ENC) -> np.ndarray:
+        """Creates the fixed parameter values for the static obstacle constraints.
+
+        Args:
+            - state (np.ndarray): Current state of the system.
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow.
+            - enc (senc.ENC): Electronic Navigation Chart (ENC) object.
+
+        Returns:
+            np.ndarray: Fixed parameter vector for static obstacles to be used as input to solver
+        """
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
             A_full, b_full = self._set_generator(state[0:2], enc=enc)
             A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._params.max_num_so_constr)
@@ -628,9 +643,7 @@ class CasadiMPC:
             if self._params.debug:
                 sg.plot_constraints(A_full, b_full, state[0:2], "black", enc)
             self._p_fixed_so_values = np.concatenate((A_reduced.flatten(), b_reduced.flatten()), axis=0)
-
-        fixed_parameter_values.extend(self._p_fixed_so_values.tolist())
-        return np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0)
+        return self._p_fixed_so_values.tolist()
 
     def build_sensitivity(self, cost: csd.MX, g_eq: csd.MX, g_ineq: csd.MX) -> dict:
         """Builds the sensitivity of the Lagrangian (lag) defined by the inputs.

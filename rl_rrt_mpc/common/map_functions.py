@@ -203,7 +203,11 @@ def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> 
     """
     dangerous_seabed = enc.seabed[0].geometry.difference(enc.seabed[vessel_min_depth].geometry)
     # return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
-    return [enc.land.geometry.union(enc.shore.geometry).union(dangerous_seabed)]
+    relevant_hazards = [enc.land.geometry.union(enc.shore.geometry).union(dangerous_seabed)]
+    for hazard in relevant_hazards:
+        for geom in hazard.geoms:
+            geom.interiors = []
+    return relevant_hazards
 
 
 def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]:

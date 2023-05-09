@@ -8,6 +8,7 @@
 """
 
 import random
+from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
 import matplotlib.transforms as transforms
@@ -17,7 +18,15 @@ from scipy.stats import multivariate_normal
 
 
 class GMM_EM:
-    def __init__(self, k, dim, init_mu=None, init_sigma=None, init_pi=None, colors=None) -> None:
+    def __init__(
+        self,
+        k: int,
+        dim: int,
+        init_mu: Optional[np.ndarray] = None,
+        init_sigma: Optional[np.ndarray] = None,
+        init_pi: Optional[np.ndarray] = None,
+        colors: Optional[np.ndarray] = None,
+    ) -> None:
         """
         Define a model with known number of clusters and dimensions.
         input:
@@ -35,7 +44,7 @@ class GMM_EM:
         self.k = k
         self.dim = dim
         if init_mu is None:
-            init_mu = random.rand(k, dim) * 20 - 10
+            init_mu = np.random.uniform(low=0.0, high=1.0, size=(k, dim)) * 20.0 - 10.0
         self.mu = init_mu
         if init_sigma is None:
             init_sigma = np.zeros((k, dim, dim))
@@ -46,10 +55,15 @@ class GMM_EM:
             init_pi = np.ones(self.k) / self.k
         self.pi = init_pi
         if colors is None:
-            colors = random.rand(k, 3)
+            colors = np.random.uniform(low=0.0, high=1.0, size=(k, 3))
         self.colors = colors
+        self.sigma_inject = np.eye(dim) * 100.0
+        self.fig: Optional[plt.Figure] = None
+        self.data: np.ndarray = np.zeros((0, dim))
+        self.num_points: int = 0
+        self.z: np.ndarray = np.zeros((0, k))
 
-    def run(self, num_iters: int) -> np.ndarray:
+    def run(self, num_iters: int, show_plots: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Run EM algorithm for a number of iterations.
 
         Args:
@@ -58,15 +72,16 @@ class GMM_EM:
         Returns:
             np.ndarray: Cluster means.
         """
-        num_iters = 30
         log_likelihood = [self.log_likelihood(self.data)]
-        self.plot("Iteration:  0")
+        if show_plots:
+            self.plot("Iteration:  0")
         for e in range(num_iters):
             self.e_step()
             self.m_step()
             log_likelihood.append(self.log_likelihood(self.data))
-            print(f"Iteration: {e + 1}, log-likelihood: {log_likelihood[-1]}")
-            self.plot(title="Iteration: " + str(e + 1))
+            if show_plots:
+                print(f"Iteration: {e + 1}, log-likelihood: {log_likelihood[-1]}")
+                self.plot(title="Iteration: " + str(e + 1))
         return self.mu, self.sigma, self.pi
 
     def init_em(self, X: np.ndarray) -> None:
@@ -79,7 +94,7 @@ class GMM_EM:
         self.num_points = X.shape[0]
         self.z = np.zeros((self.num_points, self.k))
 
-    def e_step(self):
+    def e_step(self) -> None:
         """
         E-step of EM algorithm.
         """
@@ -87,7 +102,7 @@ class GMM_EM:
             self.z[:, i] = self.pi[i] * multivariate_normal.pdf(self.data, mean=self.mu[i], cov=self.sigma[i])
         self.z /= self.z.sum(axis=1, keepdims=True)
 
-    def m_step(self):
+    def m_step(self) -> None:
         """
         M-step of EM algorithm.
         """
@@ -100,6 +115,8 @@ class GMM_EM:
             s = np.matmul(j.transpose([0, 2, 1]), j)
             self.sigma[i] = np.matmul(s.transpose(1, 2, 0), self.z[:, i])
             self.sigma[i] /= sum_z[i]
+            if np.linalg.det(self.sigma[i]) < 1e-4:
+                self.sigma[i] = self.sigma[i] + self.sigma_inject
 
     def log_likelihood(self, X: np.ndarray) -> float:
         """
@@ -123,13 +140,17 @@ class GMM_EM:
         input:
             - title: title of plot and name with which it will be saved.
         """
-        fig = plt.figure(figsize=(8, 8))
-        ax = fig.gca()
+        if not self.fig:
+            self.fig = plt.figure(figsize=(8, 8))
+        ax = self.fig.gca()
         ax.scatter(self.data[:, 0], self.data[:, 1], s=3, alpha=0.4)
         ax.scatter(self.mu[:, 0], self.mu[:, 1], c=self.colors)
         self.draw(ax, lw=3)
-        ax.set_xlim((-12, 12))
-        ax.set_ylim((-12, 12))
+        min_x, max_x = np.min(self.data[:, 0]), np.max(self.data[:, 0])
+        min_y, max_y = np.min(self.data[:, 1]), np.max(self.data[:, 1])
+        buffer = 1000
+        ax.set_xlim((min_x - buffer, max_x + buffer))
+        ax.set_ylim((min_y - buffer, max_y + buffer))
 
         plt.title(title)
         plt.savefig(title.replace(":", "_"))
@@ -152,7 +173,7 @@ class GMM_EM:
         ellipse.set_transform(transf + ax.transData)
         return ax.add_patch(ellipse)
 
-    def draw(self, ax: plt.Axes, n_std: float = 2.0, facecolor: str = "none", **kwargs) -> None:
+    def draw(self, ax: plt.Axes, n_std: float = 2.0, **kwargs) -> None:
         """
         Function to draw the Gaussians.
         Note: Only for two-dimensionl dataset

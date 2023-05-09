@@ -132,7 +132,7 @@ def compute_smallest_enclosing_circle_for_polygons(polygons: list, enc: Optional
     return circles
 
 
-def compute_mvee(points, tol: float = 0.001) -> Tuple[np.ndarray, float, float, np.ndarray]:
+def compute_mvee(points, tol: float = 0.001) -> Tuple[np.ndarray, np.ndarray]:
     """
     Find the minimum volume ellipse.
     Return A, c where the equation for the ellipse given in "center form" is
@@ -143,7 +143,7 @@ def compute_mvee(points, tol: float = 0.001) -> Tuple[np.ndarray, float, float, 
         - tol: The tolerance for convergence of the algorithm.
 
     Returns:
-        tuple: A tuple of the ellipse parameters (A, c).
+        tuple: A tuple of the ellipse parameters (c (center), a (major axis), b (minor axis), phi (ellipse angle)).
     """
     points = np.asmatrix(points)
     N, d = points.shape
@@ -162,22 +162,17 @@ def compute_mvee(points, tol: float = 0.001) -> Tuple[np.ndarray, float, float, 
         u = new_u
     c = u * points
     A = np.linalg.inv(points.T * np.diag(u) * points - c.T * c) / d
-    c = np.squeeze(np.asarray(c))
-    U, S, Vh = np.linalg.svd(A)
-    a = 1.0 / np.sqrt(S[0])
-    b = 1.0 / np.sqrt(S[1])
-    return c, a, b, Vh
+    return c, np.asarray(A)
 
 
 def compute_smallest_enclosing_ellipse_for_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
     ellipses = []
     for poly in polygons:
         y, x = poly.exterior.coords.xy
-        c, a, b, Vh = compute_mvee(np.array([x, y]).T)
-        A = np.dot(np.dot(Vh.T, np.diag([1.0 / a**2, 1.0 / b**2])), Vh)
-        ellipses.append((A, c))
-        ell_x, ell_y = create_ellipse(A)
-        ell = geometry.Polygon(zip(ell_y + c[1], ell_x + c[0]))
+        c, A = compute_mvee(np.array([x, y]).T)
+        ellipses.append((c, A))
+        ell_x, ell_y = create_ellipse(c, np.asarray(np.linalg.inv(A)))
+        ell = geometry.Polygon(zip(ell_y, ell_x))
         if enc is not None and show_plots:
             enc.draw_polygon(ell, color="red", fill=False)
     return ellipses
@@ -197,11 +192,10 @@ def compute_multi_circular_approximations_from_polygons(polygons: list, enc: Opt
     circles = []
     for polygon in polygons:
         clusters = k_means_clustering_for_polygon(n_clusters=3, polygon=polygon, enc=enc, show_plots=show_plots)
-
     return circles
 
 
-def compute_ellipsoidal_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+def compute_multi_ellipsoidal_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
     """Computes ellipsoidal approximations from the input polygon list.
 
     Args:
@@ -213,12 +207,27 @@ def compute_ellipsoidal_approximations_from_polygons(polygons: list, enc: Option
         list: List of ellipsoidal approximations for each polygon.
     """
     ellipses = []
+    ellipses_per_m2 = 5e-4
 
     for polygon in polygons:
-        gmm_em_object = gmm_em.GMM_EM(k=3, dim=2, init_mu=None, init_sigma=None, init_pi=None)
-        mu_c, sigma_c, pi_c = gmm_em_object.run(num_iters=100)
-
-        ellipses.append((mu_c, sigma_c, pi_c))
+        centroid = [polygon.centroid.y, polygon.centroid.x]
+        min_y, min_x, max_y, max_x = polygon.bounds
+        num_ellipses = int(polygon.area * ellipses_per_m2)
+        init_mu = np.zeros((num_ellipses, 2))
+        init_sigma = np.zeros((num_ellipses, 2, 2))
+        for i in range(num_ellipses):
+            init_mu[i, :] = centroid + np.random.uniform(low=np.array([min_x, min_y]) - centroid, high=np.array([max_x, max_y]) - centroid, size=(2,))
+            init_sigma[i, :, :] = 1e4 * np.eye(2)
+        gmm_em_object = gmm_em.GMM_EM(k=num_ellipses, dim=2, init_mu=init_mu, init_sigma=init_sigma, init_pi=None)
+        y, x = polygon.exterior.coords.xy
+        gmm_em_object.init_em(X=np.array([x, y]).T)
+        mu_c, sigma_c, _ = gmm_em_object.run(num_iters=50)
+        for i in range(num_ellipses):
+            ellipses.append((mu_c[i, :].T, sigma_c[i, :, :]))
+            ell_x, ell_y = create_ellipse(center=mu_c[i, :], A=np.squeeze(sigma_c[i, :, :]))
+            ell = geometry.Polygon(zip(ell_y, ell_x))
+            if enc is not None and show_plots:
+                enc.draw_polygon(ell, color="orange", fill=False)
 
     return ellipses
 
@@ -290,9 +299,6 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             ax2.plot_surface(yY, xX, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
             plt.show()
     return surfaces
-
-
-# REKNE UT DATAPUNKTER SOM TRENGD UT FRÅ 1 PUNKT PER 2 METER:  MAX_NORTH - MIN_NORTH / 2.0
 
 
 def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> Tuple[list, list]:
@@ -401,33 +407,53 @@ def shift_polygon_coordinates(polygons: list, x_shift: float, y_shift: float) ->
     return shifted_polygons
 
 
-def create_ellipse(A: np.ndarray) -> Tuple[list, list]:
-    """Create standard ellipse from matrix A in (p - c)^T A (p - c) = 1
+def create_ellipse(center: np.ndarray, A: Optional[np.ndarray] = None, a: float | None = 1.0, b: float | None = 1.0, phi: float | None = 0.0) -> Tuple[list, list]:
+    """Create standard ellipse at center, with input semi-major axis, semi-minor axis and angle.
+
+    Either specified by c, A or c, a, b, phi:
+
+    (p - c)^T A (p - c) = 1
+
+    or
+
+    (p - c)^T R^T D R (p - c) = 1
+
+    with R = R(phi) and D = diag(1 / a^2, 1 / b^2)
+
 
     Args:
-        A (np.ndarray): Hessian matrix
+        - center (np.ndarray): Center of ellipse
+        - A (Optional[np.ndarray], optional): Hessian matrix. Defaults to None.
+        - a (float | None, optional): Semi-major axis. Defaults to 1.0.
+        - b (float | None, optional): Semi-minor axis. Defaults to 1.0.
+        - phi (float | None, optional): Angle. Defaults to 0.0.
+
 
     Returns:
         Tuple[list, list]: List of x and y coordinates
     """
-    # eigenvalues and eigenvectors of the covariance matrix
-    eigenval, eigenvec = np.linalg.eig(A[0:2, 0:2])
 
-    largest_eigenval = max(eigenval)
-    largest_eigenvec_idx = np.argwhere(eigenval == max(eigenval))[0][0]
-    largest_eigenvec = eigenvec[:, largest_eigenvec_idx]
+    if A is not None:
+        # eigenvalues and eigenvectors of the covariance matrix
+        eigenval, eigenvec = np.linalg.eig(A[0:2, 0:2])
 
-    smallest_eigenval = min(eigenval)
-    # if largest_eigenvec_idx == 0:
-    #     smallest_eigenvec = eigenvec[:, 1]
-    # else:
-    #     smallest_eigenvec = eigenvec[:, 0]
+        largest_eigenval = max(eigenval)
+        largest_eigenvec_idx = np.argwhere(eigenval == max(eigenval))[0][0]
+        largest_eigenvec = eigenvec[:, largest_eigenvec_idx]
 
-    angle = np.arctan2(largest_eigenvec[1], largest_eigenvec[0])
-    angle = mf.wrap_angle_to_02pi(angle)
+        smallest_eigenval = min(eigenval)
+        # if largest_eigenvec_idx == 0:
+        #     smallest_eigenvec = eigenvec[:, 1]
+        # else:
+        #     smallest_eigenvec = eigenvec[:, 0]
 
-    a = np.sqrt(largest_eigenval)
-    b = np.sqrt(smallest_eigenval)
+        angle = np.arctan2(largest_eigenvec[1], largest_eigenvec[0])
+        angle = mf.wrap_angle_to_02pi(angle)
+
+        a = np.sqrt(largest_eigenval)
+        b = np.sqrt(smallest_eigenval)
+    else:
+        angle = phi
 
     # the ellipse in "body" x and y coordinates
     t = np.linspace(0, 2.01 * np.pi, 100)
@@ -438,8 +464,8 @@ def create_ellipse(A: np.ndarray) -> Tuple[list, list]:
 
     # Rotate to NED by angle phi, N_ell_points x 2
     ellipse_xy = np.array([x, y])
-    for i in range(len(ellipse_xy)):
-        ellipse_xy[:, i] = R @ ellipse_xy[:, i]
+    for i in range(ellipse_xy.shape[1]):
+        ellipse_xy[:, i] = R @ ellipse_xy[:, i] + center
 
     return ellipse_xy[0, :].tolist(), ellipse_xy[1, :].tolist()
 
@@ -493,7 +519,7 @@ def create_probability_ellipse(P: np.ndarray, probability: float = 0.99) -> Tupl
     return ellipse_xy[0, :].tolist(), ellipse_xy[1, :].tolist()
 
 
-def plot_trajectory(trajectory: np.ndarray, times: np.ndarray, enc: senc.ENC, color: str) -> None:
+def plot_trajectory(trajectory: np.ndarray, enc: senc.ENC, color: str) -> None:
     enc.start_display()
     trajectory_line = []
     for k in range(trajectory.shape[1]):
