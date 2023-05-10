@@ -14,14 +14,14 @@ mpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 300.0
-    T: 15.0
+    T: 30.0
     dt: 0.5
-    Q: [10.0, 10.0] #, 0.1, 1.0, 1.0, 1.0]
+    Q: [100.0, 100.0] #, 0.1, 1.0, 1.0, 1.0]
     d_safe_so: 1.0
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 0
+    max_num_so_constr: 15
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True
     debug: True
@@ -30,13 +30,13 @@ mpc:
     casadi:
       solver_type: "ipopt"
       solver_tol: 0.000001
-      print_level: 5
+      print_level: 3
       print_time: 0
       mu_target: 0.000001
       mu_init: 0.000001
       acceptable_tol: 0.000001
       acceptable_obj_change_tol: 0.000001
-      max_iter: 300
+      max_iter: 500
       warm_start_init_point: "yes"
       verbose: False
       jit: False
