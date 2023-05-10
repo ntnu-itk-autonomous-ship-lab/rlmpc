@@ -6,7 +6,6 @@
 
     Author: Trym Tengesdal
 """
-import copy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -25,6 +24,8 @@ import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.models as mpc_models
 import rl_rrt_mpc.mpc.mpc as mpc
+import rl_rrt_mpc.mpc.parameters as mpc_params
+import rl_rrt_mpc.mpc.set_generator as sg
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
 from shapely import strtree
@@ -248,6 +249,9 @@ class RLMPC(ci.ICOLAV):
         self._mpc_inputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
         self._mpc_rel_polygons: list = []
+        self._rel_polygons: list = []
+        self._original_poly_list: list = []
+        self._set_generator: Optional[sg.SetGenerator] = None
 
     def plan(
         self,
@@ -271,34 +275,17 @@ class RLMPC(ci.ICOLAV):
             # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
             # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
-            self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
-            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
-            self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
-            poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-                self._nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
-            )
-            for poly_tuple in poly_tuple_list:
-                self._mpc_rel_polygons.extend(poly_tuple[0])
+            self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
             self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
-            if enc is not None and self._mpc.params.debug:
-                enc.start_display()
-                hf.plot_trajectory(waypoints, enc, color="green")
-                hf.plot_trajectory(self._nominal_trajectory, enc, color="magenta")
-                for hazard in relevant_grounding_hazards:
-                    enc.draw_polygon(hazard, color="red", fill=False)
-                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.5, 1.5)
-                # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
-                enc.draw_polygon(ship_poly, color="pink")
-                enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
-
-        shifted_nominal_trajectory = self._nominal_trajectory.copy()
-        if t > 0.0:
-            self._nominal_trajectory = self._nominal_trajectory[:, 1:]
-            nx = 6
+        self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
+        if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
+            # Find closest point on nominal trajectory to the current state
+            closest_idx = int(np.argmin(np.linalg.norm(self._nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(self._nominal_trajectory[0, :]), 1)).T, axis=0)))
+            shifted_nominal_trajectory = self._nominal_trajectory[:, closest_idx:]
             N = int(self._mpc.params.T / self._mpc.params.dt)
-            n_samples = self._nominal_trajectory.shape[1]
+            n_samples = shifted_nominal_trajectory.shape[1]
             if n_samples == 0:  # Done with following nominal trajectory, stop
                 shifted_nominal_trajectory = np.tile(np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)).T
             elif n_samples < N + 1:
@@ -306,12 +293,10 @@ class RLMPC(ci.ICOLAV):
                 shifted_nominal_trajectory[:, :n_samples] = self._nominal_trajectory
                 shifted_nominal_trajectory[:, n_samples:] = np.tile(self._nominal_trajectory[:, -1], (N + 1 - n_samples, 1)).T
             else:
-                shifted_nominal_trajectory = self._nominal_trajectory[:, : N + 1]
+                shifted_nominal_trajectory = shifted_nominal_trajectory[:, : N + 1]
 
-        # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-        # self._ktp.update_path_variable(t - self._t_prev)
-
-        if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
+            # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
+            # self._ktp.update_path_variable(t - self._t_prev)
             self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
                 nominal_trajectory=shifted_nominal_trajectory,
                 nominal_inputs=None,
@@ -322,18 +307,75 @@ class RLMPC(ci.ICOLAV):
             )
             self._t_prev_mpc = t
             if enc is not None and self._mpc.params.debug:
+                hf.plot_trajectory(shifted_nominal_trajectory, enc, "magenta")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
-
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
-        self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
-        self._references[:6, :] = self._mpc_trajectory
-        # print(f"RLMPC references: {self._references[:, 0]}")
+        self._references = np.zeros((nx + 3, len(self._mpc_trajectory[0, :])))
+        self._references[:nx, :] = self._mpc_trajectory
+        print(f"RLMPC references: {self._references[:, 0]}")
         self._t_prev = t
         return self._references
+
+    def _setup_mpc_static_obstacle_input(self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs) -> None:
+        """Sets up the fixed static obstacle parameters for the MPC.
+
+        Args:
+            - ownship_state (np.ndarray): The ownship state.
+            - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - show_plots (bool): Whether to show plots or not.
+            - **kwargs: Additional keyword arguments.
+        """
+        self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
+        relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
+        self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+
+        poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
+            self._nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
+        )
+        for poly_tuple in poly_tuple_list:
+            self._rel_polygons.extend(poly_tuple[0])
+
+        self._mpc_rel_polygons = self._rel_polygons.copy()
+        if enc is not None and show_plots:
+            enc.start_display()
+            # hf.plot_trajectory(waypoints, enc, color="green")
+            hf.plot_trajectory(self._nominal_trajectory, enc, color="magenta")
+            for hazard in relevant_grounding_hazards:
+                enc.draw_polygon(hazard, color="red", fill=False)
+            ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.5, 1.5)
+            # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
+            enc.draw_polygon(ship_poly, color="pink")
+            # enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
+
+        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.CIRCULAR:
+            self._mpc_rel_polygons = mapf.compute_smallest_enclosing_circle_for_polygons(self._rel_polygons, enc)
+        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL:
+            self._mpc_rel_polygons = mapf.compute_multi_ellipsoidal_approximations_from_polygons(poly_tuple_list, enveloping_polygon, enc)
+        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+            P1, P2 = mapf.create_point_list_from_polygons(self._rel_polygons)
+            self._set_generator = sg.SetGenerator(P1, P2)
+        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
+            self._mpc_rel_polygons = self._rel_polygons.copy()
+        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.TRIANGULARBOUNDARY:
+            self._mpc_rel_polygons = mapf.extract_boundary_polygons_inside_envelope(self._rel_polygons, enc)
+
+    def _update_mpc_so_polygon_input(self, state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> None:
+        """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.
+
+        Args:
+            state (np.ndarray): _description_
+            so_list (list): _description_
+        """
+        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+            A_full, b_full = self._set_generator(state[0:2])
+            A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._mpc.params.max_num_so_constr)
+            if show_plots:
+                sg.plot_constraints(A_reduced, b_reduced, state[0:2], "black", enc)
+            self._mpc_rel_polygons = [A_reduced, b_reduced]
 
     def get_current_plan(self) -> np.ndarray:
         return self._references

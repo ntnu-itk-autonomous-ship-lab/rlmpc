@@ -104,7 +104,9 @@ class AcadosMPC:
         if nominal_inputs is not None and nominal_inputs.size > 0:
             self._u_warm_start = nominal_inputs
 
-    def plan(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> Tuple[np.ndarray, np.ndarray]:
+    def plan(
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, **kwargs
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
@@ -113,6 +115,7 @@ class AcadosMPC:
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of static obstacle Polygon objects.
+            - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory and inputs for the ownship.
@@ -138,7 +141,7 @@ class AcadosMPC:
         self._u_warm_start = inputs.copy()
         return trajectory[:, : self._acados_ocp.dims.N], inputs[:, : self._acados_ocp.dims.N]
 
-    def _update_ocp(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> None:
+    def _update_ocp(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, **kwargs) -> None:
         """Updates the OCP (cost and constraints) with the current info available
 
         Args:
@@ -147,6 +150,8 @@ class AcadosMPC:
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             - so_list (list): List of static obstacle Polygon objects
+            - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
+
         """
         self._acados_ocp_solver.constraints_set(0, "lbx", xs)
         self._acados_ocp_solver.constraints_set(0, "ubx", xs)

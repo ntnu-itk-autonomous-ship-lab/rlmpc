@@ -20,7 +20,6 @@ import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import rl_rrt_mpc.mpc.set_generator as sg
 import seacharts.enc as senc
-import shapely.geometry as geometry
 
 ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
@@ -80,8 +79,6 @@ class CasadiMPC:
             self._params: ParamClass = params
 
         self._solver_options: CasadiSolverOptions = solver_options
-
-        nx, nu = self._model.dims()
         self._initialized = False
         self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
 
@@ -153,23 +150,8 @@ class CasadiMPC:
 
         # self._prev_vsoln = {"x": [], "lam_x": [], "lam_g": []}
 
-    def _setup_fixed_static_obstacle_parameter_values(self, so_list: list, enc: Optional[senc.ENC]) -> None:
-        """Sets up the fixed static obstacle parameters.
-
-        Args:
-            so_list (list): List of relevant static obstacle Polygon objects.
-            enc (Optional[senc.ENC]): ENC object containing the map info.
-        """
-        if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
-            circle_list = hf.compute_smallest_enclosing_circle_for_polygons(so_list, enc)
-        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
-            ellipsoid_list = hf.compute_multi_ellipsoidal_approximations_from_polygons(so_list, enc)
-        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            P1, P2 = hf.create_point_list_from_polygons(so_list)
-            self._set_generator = sg.SetGenerator(P1, P2)
-
     def plan(
-        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC]
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
     ) -> Tuple[np.ndarray, np.ndarray, dict]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -180,23 +162,21 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List ofrelevant static obstacle Polygon objects.
             - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray, dict]: Optimal trajectory and inputs for the ownship. Also, the NLP solution dictionary is returned.
         """
         if not self._initialized:
             self._set_initial_warm_start(xs, nominal_trajectory, nominal_inputs)
-            self._setup_fixed_static_obstacle_parameter_values(so_list, enc)
+            self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, nominal_trajectory, enc, **kwargs)
             self._initialized = True
-
-        nx, nu = self._model.dims()
-        ns = self._params.max_num_so_constr + self._params.max_num_do_constr
         N = int(self._params.T / self._params.dt)
         action = None
         if nominal_inputs is not None:
             action = nominal_inputs[:, 0]
 
-        parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc)
+        parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc, **kwargs)
         soln = self._vsolver(
             x0=self._prev_vsoln["x"],
             lam_x0=self._prev_vsoln["lam_x"],
@@ -207,6 +187,10 @@ class CasadiMPC:
             lbg=self._lbg_v,
             ubg=self._ubg_v,
         )
+        stats = self._vsolver.stats()
+        if not stats["success"]:
+            RuntimeError("Problem is Infeasible")
+
         g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
         X, U, Sigma = self._decision_trajectories(soln["x"])
@@ -219,10 +203,6 @@ class CasadiMPC:
         self._prev_vsoln["x"] = self._decision_variables(X, U, Sigma)
         self._prev_vsoln["lam_x"] = soln["lam_x"].full()
         self._prev_vsoln["lam_g"] = soln["lam_g"].full()
-        stats = self._vsolver.stats()
-        if not stats["success"]:
-            RuntimeError("Problem is Infeasible")
-
         return X[:, :N], U, soln
 
     def construct_ocp(self, so_list: list, enc: senc.ENC) -> None:
@@ -240,8 +220,8 @@ class CasadiMPC:
 
             Since this is Casadi, this OCP must be converted to an NLP on the form
 
-            min     J(w, p)
-            s.t.    lbw <= x <= ubw ∀ w
+            min_w     J(w, p)
+            s.t.    lbw <= w <= ubw ∀ w
                     lbg <= g(w, p) <= ubg
 
         Args:
@@ -339,13 +319,13 @@ class CasadiMPC:
         b_so_constr = csd.MX.sym("b_so_constr", 0)
         so_surfaces = []
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-            so_surfaces = hf.compute_surface_approximations_from_polygons(so_list, enc)
+            so_surfaces = mapf.compute_surface_approximations_from_polygons(so_list, enc)
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
             so_pars = csd.MX.sym("so_pars", 3, self._params.max_num_so_constr)  # (x_c, y_c, r) x self._params.max_num_so_constr
             p_fixed.append(csd.reshape(so_pars, -1, 1))
             num_fixed_ocp_params += 3 * self._params.max_num_so_constr  # so_pars
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
-            so_pars = csd.MX.sym("so_pars", 4, self._params.max_num_so_constr)  # (x_c, y_c, a, b) x self._params.max_num_so_constr
+            so_pars = csd.MX.sym("so_pars", 2 + 2 * 2, self._params.max_num_so_constr)  # (x_c, y_c, A_c.flatten().tolist()) x self._params.max_num_so_constr
             p_fixed.append(csd.reshape(so_pars, -1, 1))
             num_fixed_ocp_params += 4 * self._params.max_num_so_constr  # so_pars
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
@@ -535,16 +515,17 @@ class CasadiMPC:
             elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
                 assert so_pars.shape[0] == 4, "Static obstacle parameters with dim 4 in first axis must be provided for this constraint type."
                 for j in range(self._params.max_num_so_constr):
-                    x_e, y_e, a_e, b_e = so_pars[0, j], so_pars[1, j], so_pars[2, j], so_pars[3, j]
+                    x_e, y_e, A_e = so_pars[0, j], so_pars[1, j], so_pars[2:, j]
+                    A_e = csd.reshape(A_e, 2, 2)
                     p_diff_do_frame = x_k[0:2] - csd.vertcat(x_e, y_e)
-                    weights = hf.casadi_matrix_from_nested_list([[1.0 / (a_e + d_safe_so) ** 2, 0.0], [0.0, 1.0 / (b_e + d_safe_so) ** 2]])
+                    weights = A_e / d_safe_so**2
                     so_constr_list.append(csd.log(1 - sigma_k[j] + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon))
             elif self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
                 assert so_surfaces is not None, "Parametric surfaces must be provided for this constraint type."
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
-                        so_constr_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
+                        so_constr_list.append(csd.vec(so_surfaces[j](mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - sigma_k[j]))
                     else:
                         so_constr_list.append(-sigma_k[j])
         return so_constr_list
@@ -576,7 +557,7 @@ class CasadiMPC:
         return do_constr_list
 
     def create_parameter_values(
-        self, state: np.ndarray, action: Optional[np.ndarray], nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None
+        self, state: np.ndarray, action: Optional[np.ndarray], nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None, **kwargs
     ) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
@@ -587,6 +568,8 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacles.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
+            - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
+
 
         Returns:
             - np.ndarray: Parameter vector to be used as input to solver
@@ -621,14 +604,39 @@ class CasadiMPC:
                 else:
                     fixed_parameter_values.extend([self._map_bbox[1], self._map_bbox[0], 0.0, 0.0, 5.0, 2.0])
 
-        so_parameter_values = self._create_fixed_so_parameter_values(state, nominal_trajectory, enc)
+        so_parameter_values = self._update_so_parameter_values(so_list, state, nominal_trajectory, enc, **kwargs)
         fixed_parameter_values.extend(so_parameter_values)
         return np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0)
 
-    def _create_fixed_so_parameter_values(self, state: np.ndarray, nominal_trajectory: np.ndarray, enc: senc.ENC) -> np.ndarray:
+    def _create_fixed_so_parameter_values(self, so_list: list, state: np.ndarray, nominal_trajectory: np.ndarray, enc: Optional[senc.ENC] = None, **kwargs) -> np.ndarray:
         """Creates the fixed parameter values for the static obstacle constraints.
 
         Args:
+            - so_list (list): List of static obstacles.
+            - state (np.ndarray): Current state of the system.
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow.
+            - enc (senc.ENC): Electronic Navigation Chart (ENC) object.
+
+        Returns:
+            np.ndarray: Fixed parameter vector for static obstacles to be used as input to solver
+        """
+        fixed_so_parameter_values = []
+        if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
+            for (c, r) in so_list:
+                fixed_so_parameter_values.extend([c[0], c[1], r])
+        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
+            for (c, A) in so_list:
+                fixed_so_parameter_values.extend([c[0], c[1], *A.flatten().tolist()])
+        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.TRIANGULARBOUNDARY:
+            for triangle in so_list:
+                fixed_so_parameter_values.extend(*triangle)
+        return np.array(fixed_so_parameter_values)
+
+    def _update_so_parameter_values(self, so_list: list, state: np.ndarray, nominal_trajectory: np.ndarray, enc: senc.ENC, **kwargs) -> list:
+        """Updates the parameter values for the static obstacle constraints in case of changing constraints.
+
+        Args:
+            - so_list (list): List of static obstacles.
             - state (np.ndarray): Current state of the system.
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow.
             - enc (senc.ENC): Electronic Navigation Chart (ENC) object.
@@ -637,12 +645,9 @@ class CasadiMPC:
             np.ndarray: Fixed parameter vector for static obstacles to be used as input to solver
         """
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            A_full, b_full = self._set_generator(state[0:2], enc=enc)
-            A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._params.max_num_so_constr)
-
-            if self._params.debug:
-                sg.plot_constraints(A_full, b_full, state[0:2], "black", enc)
-            self._p_fixed_so_values = np.concatenate((A_reduced.flatten(), b_reduced.flatten()), axis=0)
+            assert len(so_list) == 2, "Approximate convex safe set constraint requires constraint variables A and b"
+            A, b = so_list[0], so_list[1]
+            self._p_fixed_so_values = np.concatenate((A.flatten(), b.flatten()), axis=0)
         return self._p_fixed_so_values.tolist()
 
     def build_sensitivity(self, cost: csd.MX, g_eq: csd.MX, g_ineq: csd.MX) -> dict:

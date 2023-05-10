@@ -7,7 +7,6 @@
     Author: https://github.com/mr-easy/GMM-EM-Python, Trym Tengesdal
 """
 
-import random
 from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -57,7 +56,7 @@ class GMM_EM:
         if colors is None:
             colors = np.random.uniform(low=0.0, high=1.0, size=(k, 3))
         self.colors = colors
-        self.sigma_inject = np.eye(dim) * 100.0
+        self.sigma_inject = np.eye(dim) * 1000.0
         self.fig: Optional[plt.Figure] = None
         self.data: np.ndarray = np.zeros((0, dim))
         self.num_points: int = 0

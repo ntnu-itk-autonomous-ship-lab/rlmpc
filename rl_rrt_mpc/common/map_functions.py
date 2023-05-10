@@ -10,13 +10,21 @@
 import unittest
 from typing import Optional, Tuple
 
+import casadi as csd
 import geopandas as gpd
 import geopy.distance
+import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
+import rl_rrt_mpc.common.helper_functions as hf
+import rl_rrt_mpc.common.smallestenclosingcircle as smallestenclosingcircle
+import rl_rrt_mpc.gmm_em as gmm_em
+import scipy.cluster.vq as scipyvq
+import scipy.interpolate as scipyintp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
+from matplotlib import cm
 
 # import triangle as tr
 from osgeo import osr
@@ -204,10 +212,35 @@ def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> 
     dangerous_seabed = enc.seabed[0].geometry.difference(enc.seabed[vessel_min_depth].geometry)
     # return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
     relevant_hazards = [enc.land.geometry.union(enc.shore.geometry).union(dangerous_seabed)]
+    filtered_relevant_hazards = []
     for hazard in relevant_hazards:
-        for geom in hazard.geoms:
-            geom.interiors = []
-    return relevant_hazards
+        filtered_relevant_hazards.append(geometry.MultiPolygon(geometry.Polygon(p.exterior) for p in hazard.geoms))
+    return filtered_relevant_hazards
+
+
+def create_point_list_from_polygons(polygons: list) -> Tuple[np.ndarray, np.ndarray]:
+    """Creates a list of x and y coordinates from a list of polygons.
+
+    Args:
+        polygons (list): List of shapely polygons.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: A tuple of two numpy arrays containing the x and y coordinates of the polygons.
+    """
+    px, py, ls = [], [], []
+    for i, poly in enumerate(polygons):
+        y, x = poly.exterior.coords.xy
+        a = np.array(x.tolist())
+        b = np.array(y.tolist())
+        la, lx = len(a), len(px)
+        c = [(i + lx, (i + 1) % la + lx) for i in range(la - 1)]
+        px += a.tolist()
+        py += b.tolist()
+        ls += c
+
+    points = np.array([px, py]).T
+    P1, P2 = points[ls][:, 0], points[ls][:, 1]
+    return P1, P2
 
 
 def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]:
@@ -305,12 +338,12 @@ def extract_safe_sea_area(min_depth: int, enveloping_polygon: geometry.Polygon, 
 
 
 def extract_boundary_polygons_inside_envelope(
-    poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = False
+    poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True
 ) -> list:
     """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
 
     Args:
-        - poly_list (list): List of tuples with relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to.
+        - poly_tuple_list (list): List of tuples with relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to.
         - enveloping_polygon (geometry.Polygon): The query polygon.
         - enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
         - show_plots (bool, optional): Whether to show plots or not. Defaults to False.
@@ -325,7 +358,7 @@ def extract_boundary_polygons_inside_envelope(
             if not triangle_boundaries:
                 continue
 
-            if enc is not None:
+            if enc is not None and show_plots:
                 # enc.draw_polygon(poly, color="pink", alpha=0.3)
                 for tri in triangle_boundaries:
                     enc.draw_polygon(tri, color="red", fill=False)
@@ -475,29 +508,273 @@ def constrained_delaunay_triangulation_custom(polygon: geometry.Polygon) -> list
     return cdt_triangles
 
 
-def linestring_to_ndarray(line: geometry.LineString) -> np.ndarray:
-    """Converts a shapely LineString to a numpy array
+def k_means_clustering_for_polygon(n_clusters: int, polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Performs k-means clustering on the input polygon
 
     Args:
-        - line (LineString): Any LineString object
+        n_clusters (int): Number of clusters.
+        polygons (Polygon): Shapely polygon
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
-        np.ndarray: Numpy array containing the coordinates of the LineString
+        list: List of clusters.
     """
-    return np.array(line.coords).transpose()
+    clusters = scipyvq.kmeans2(np.array(polygon.exterior.coords.xy).T, n_clusters, minit="points")[0]
+    return clusters
 
 
-def ndarray_to_linestring(array: np.ndarray) -> geometry.LineString:
-    """Converts a 2D numpy array to a shapely LineString
+def compute_smallest_enclosing_circle_for_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Computes the smallest enclosing circle for each polygon in the the input list.
 
     Args:
-        - array (np.ndarray): Numpy array of 2 x n_samples, containing the coordinates of the LineString
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
-        LineString: Any LineString object
+        list: List of smallest enclosing circles (center.north, center.east, radius) for each polygon.
     """
-    assert array.shape[0] == 2 and array.shape[1] > 1, "Array must be 2 x n_samples with n_samples > 1"
-    return geometry.LineString(list(zip(array[0, :], array[1, :])))
+    circles = []
+    for polygon in polygons:
+        points = [(p[1], p[0]) for p in polygon.exterior.coords]
+        circle = smallestenclosingcircle.make_circle(points)
+        circles.append(circle)
+        if enc is not None and show_plots:
+            enc.draw_circle((circle[1], circle[0]), circle[2], color="red", fill=False)
+    return circles
+
+
+def compute_mvee(points, tol: float = 0.001) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Find the minimum volume ellipse.
+    Return A, c where the equation for the ellipse given in "center form" is
+    (x-c).T * A * (x-c) = 1
+
+    Args:
+        - points: A np array of points, each row is a point.
+        - tol: The tolerance for convergence of the algorithm.
+
+    Returns:
+        tuple: A tuple of the ellipse parameters (c (center), a (major axis), b (minor axis), phi (ellipse angle)).
+    """
+    points = np.asmatrix(points)
+    N, d = points.shape
+    Q = np.column_stack((points, np.ones(N))).T
+    err = tol + 1.0
+    u = np.ones(N) / N
+    while err > tol:
+        # assert u.sum() == 1 # invariant
+        X = Q * np.diag(u) * Q.T
+        M = np.diag(Q.T * np.linalg.inv(X) * Q)
+        jdx = np.argmax(M)
+        step_size = (M[jdx] - d - 1.0) / ((d + 1) * (M[jdx] - 1.0))
+        new_u = (1 - step_size) * u
+        new_u[jdx] += step_size
+        err = np.linalg.norm(new_u - u)
+        u = new_u
+    c = u * points
+    A = np.linalg.inv(points.T * np.diag(u) * points - c.T * c) / d
+    return c, np.asarray(A)
+
+
+def compute_smallest_enclosing_ellipse_for_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Computes smallest enclosing ellipse for each polygon in the list.
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of ellipse approximations for each polygon.
+    """
+    ellipses = []
+    for poly in polygons:
+        y, x = poly.exterior.coords.xy
+        c, A = compute_mvee(np.array([x, y]).T)
+        ellipses.append((c, A))
+        ell_x, ell_y = hf.create_ellipse(c, np.asarray(np.linalg.inv(A)))
+        ell = geometry.Polygon(zip(ell_y, ell_x))
+        if enc is not None and show_plots:
+            enc.draw_polygon(ell, color="red", fill=False)
+    return ellipses
+
+
+def compute_multi_circular_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+    """Computes multiple circular approximations from the input polygon list.
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of circular approximations for each polygon.
+    """
+    circles = []
+    for polygon in polygons:
+        clusters = k_means_clustering_for_polygon(n_clusters=3, polygon=polygon, enc=enc, show_plots=show_plots)
+    return circles
+
+
+def compute_multi_ellipsoidal_approximations_from_polygons(
+    poly_tuple_list: list, planning_area_envelope: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True
+) -> list:
+    """Computes ellipsoidal approximations from the input polygon list.
+
+    Args:
+        - poly_tuple_list (list): List of tuples with relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to.
+        - planning_area_envelope (geometry.Polygon): Planning area envelope.
+        - enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        - show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of ellipsoidal approximations for each polygon.
+    """
+    envelope_boundary = geometry.LineString(planning_area_envelope.exterior.coords).buffer(0.0001)
+    ellipses = []
+    ellipses_per_m2 = 5e-4
+
+    for (polygons, original_poly) in poly_tuple_list:
+        original_polygon_boundary = geometry.LineString(original_poly.exterior.coords).buffer(0.0001)
+        for polygon in polygons:
+            centroid = [polygon.centroid.y, polygon.centroid.x]
+            min_y, min_x, max_y, max_x = polygon.bounds
+            num_ellipses = max(int(polygon.area * ellipses_per_m2), 1)
+            init_mu = np.zeros((num_ellipses, 2))
+            init_sigma = np.zeros((num_ellipses, 2, 2))
+            for i in range(num_ellipses):
+                init_mu[i, :] = centroid + np.random.uniform(low=np.array([min_x, min_y]) - centroid, high=np.array([max_x, max_y]) - centroid, size=(2,))
+                init_sigma[i, :, :] = 1e4 * np.eye(2)
+            gmm_em_object = gmm_em.GMM_EM(k=num_ellipses, dim=2, init_mu=init_mu, init_sigma=init_sigma, init_pi=None)
+
+            # Remove points that are on the enveloping polygon boundary
+            y, x = polygon.exterior.coords.xy
+            relevant_boundary_points = []
+            for (xcoord, ycoord) in zip(x, y):
+                if original_polygon_boundary.contains(geometry.Point(ycoord, xcoord)):
+                    relevant_boundary_points.append([xcoord, ycoord])
+            relevant_boundary_points = np.array(relevant_boundary_points)
+
+            if enc is not None and show_plots:
+                enc.draw_polygon(envelope_boundary, color="green", fill=False)
+                enc.draw_polygon(polygon, color="red", fill=False)
+                enc.draw_polygon(original_polygon_boundary, color="blue")
+
+            gmm_em_object.init_em(X=relevant_boundary_points)
+            mu_c, sigma_c, _ = gmm_em_object.run(num_iters=50)
+            for i in range(num_ellipses):
+                ellipses.append((mu_c[i, :].T, sigma_c[i, :, :]))
+                ell_x, ell_y = hf.create_ellipse(center=mu_c[i, :], A=np.squeeze(sigma_c[i, :, :]))
+                ell = geometry.Polygon(zip(ell_y, ell_x))
+                if enc is not None and show_plots:
+                    enc.draw_polygon(ell, color="orange", fill=False)
+
+    return ellipses
+
+
+def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
+    """Computes smooth 2D surface approximations from the input polygon list.
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        show_plots (bool, optional): Whether to show plots. Defaults to False.
+
+    Returns:
+        list: List of surface approximations for each polygon.
+    """
+    surfaces = []
+    npx_min = 10
+    npy_min = 10
+    if show_plots:
+        ax = plt.figure().add_subplot(111, projection="3d")
+        # ax2 = plt.figure().add_subplot(111, projection="3d")
+    for j, polygon in enumerate(polygons):
+        # Sjå på CDL for å forenkle problemet.
+        # Finne "kystlinjepolygons"
+        # rekne ut hensiktsmessig npx og npy basert på n_vertices og polygon.bounds
+        n_vertices = len(polygon.exterior.coords)
+        npx = int(max(npx_min, n_vertices / 1.5))
+        npy = int(max(npy_min, n_vertices / 1.5))
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(3.0).bounds
+        north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
+        east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
+        X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
+        map_coords = np.hstack((X.reshape(-1, 1), Y.reshape(-1, 1)))
+        y_poly, x_poly = polygon.buffer(0.2).exterior.coords.xy
+        poly_path = mpath.Path(np.array([x_poly, y_poly]).T)
+        mask = poly_path.contains_points(points=map_coords, radius=0.1)
+        mask = mask.astype(float).reshape((npy, npx))
+        mask[mask > 0.0] = 1.0
+        polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
+
+        surfaces.append(polygon_surface)
+
+        if show_plots:
+            ax.clear()
+            assert enc is not None
+            enc.draw_polygon(polygon, color="black")
+            extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=100)
+            extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=100)
+            surface_points = np.zeros((100, 100))
+            surface_points2 = np.zeros((100, 100))
+            for i, north_coord in enumerate(extra_north_coords):
+                for j, east_coord in enumerate(extra_east_coords):
+                    surface_points[i, j] = polygon_surface([north_coord, east_coord])
+                    # surface_points2[i, j] = polygon_surface2.ev(north_coord, east_coord)
+            xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
+
+            ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
+            ax.set_xlabel("North")
+            ax.set_ylabel("East")
+            ax.set_zlabel("Mask")
+
+            # yY_new = yY[:-1, :-1] + np.diff(yY[:2, 0])[0] / 2.0
+            # xX_new = xX[:-1, :-1] + np.diff(xX[0, :2])[0] / 2.0
+            # surface_coords2 = scipyintp.bisplev(yY_new[:, 0], xX_new[0, :], polygon_surface2_tck)
+            # plt.figure()
+            # plt.pcolormesh(yY, xX, surface_coords2, shading="flat", cmap=cm.coolwarm)
+            # plt.colorbar()
+
+            # polygon_surface2 = scipyintp.RectBivariateSpline(east_coords, north_coords, mask)
+            # ax2.clear()
+            # ax2.plot_surface(yY, xX, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
+            plt.show()
+    return surfaces
+
+
+def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> Tuple[list, list]:
+    """Computes splines from a list of polygons
+
+    Args:
+        polygons (list): List of shapely polygons
+        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+
+    Returns:
+        Tuple[list, list]: List of tuples with splines for x and y, and similarly for the derivatives
+    """
+    splines = []
+    spline_derivatives = []
+    for polygon in polygons:
+        east, north = polygon.exterior.xy
+        if len(east) < 3:
+            continue
+
+        linspace = np.linspace(0.0, 1.0, len(east))
+        spline_x = scipyintp.PchipInterpolator(linspace, north, extrapolate=False)
+        spline_y = scipyintp.PchipInterpolator(linspace, east, extrapolate=False)
+        splines.append((spline_x, spline_y))
+        spline_derivatives.append((spline_x.derivative(), spline_y.derivative()))
+        # if enc is not None:
+        #     enc.start_display()
+        #     x_spline_vals = spline_x(linspace)
+        #     y_spline_vals = spline_y(linspace)
+        #     pairs = list(zip(y_spline_vals, x_spline_vals))
+        #     enc.draw_line(pairs, color="black", width=0)
+
+    return splines, spline_derivatives
 
 
 def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel_depth: int, enc: senc.ENC, show_plots: bool = False) -> Tuple[float, np.ndarray, int]:
@@ -513,7 +790,7 @@ def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel
         Tuple[float, int]: The closest distance to grounding, corresponding distance vector and the index of the trajectory point.
     """
     dangerous_seabed = extract_relevant_grounding_hazards(minimum_vessel_depth, enc)
-    vessel_traj_linestring = ndarray_to_linestring(vessel_trajectory)
+    vessel_traj_linestring = hf.ndarray_to_linestring(vessel_trajectory)
     # if enc and show_plots:
     #     enc.start_display()
     #     for hazard in dangerous_seabed:
@@ -580,16 +857,7 @@ def find_intersections_line_polygon(line: geometry.LineString, polygon: geometry
 
 
 class TestMapFunctions(unittest.TestCase):
-    def test_to_triangle(self):
-        polygon = geometry.Polygon([(3.0, 0.0), (2.0, 0.0), (2.0, 0.75), (2.5, 0.75), (2.5, 0.6), (2.25, 0.6), (2.25, 0.2), (3.0, 0.2), (3.0, 0.0)])
-        triangles = to_triangles(polygon)
-
-        x, y = polygon.exterior.xy
-        plt.plot(x, y, color="b", alpha=0.7, linewidth=3, solid_capstyle="round", zorder=2)
-        for triangle in triangles:
-            x_t, y_t = triangle.exterior.xy
-            plt.plot(x_t, y_t, color="r", alpha=0.7, linewidth=3, solid_capstyle="round", zorder=1)
-        plt.show()
+    pass
 
 
 if __name__ == "__main__":

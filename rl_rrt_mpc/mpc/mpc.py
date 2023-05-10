@@ -110,7 +110,7 @@ class MPC:
             self._acados_mpc.construct_ocp(nominal_trajectory, do_list, so_list, enc)
 
     def plan(
-        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC]
+        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -120,7 +120,8 @@ class MPC:
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of ALL static obstacle Polygon objects.
-            - enc (Optional[senc.ENC]): ENC object containing information about the ENC.
+            - enc (Optional[senc.ENC]): Electronic Navigational Chart object.
+            - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory [eta, nu] x N and inputs for the ownship.
@@ -134,7 +135,7 @@ class MPC:
                 compatible_nominal_trajectory[3:6, k] = mf.Rpsi(psi).T @ compatible_nominal_trajectory[3:6, k]
 
         if self._acados_enabled:
-            trajectory, inputs = self._acados_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list)
+            trajectory, inputs = self._acados_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, **kwargs)
         else:
-            trajectory, inputs, _ = self._casadi_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc)
+            trajectory, inputs, _ = self._casadi_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
         return trajectory[:, :N], inputs[:, :N]
