@@ -211,7 +211,7 @@ class CasadiMPC:
         self._prev_vsoln["x"] = self._decision_variables(X, U, Sigma)
         self._prev_vsoln["lam_x"] = soln["lam_x"].full()
         self._prev_vsoln["lam_g"] = soln["lam_g"].full()
-        plot_solver_stats(stats, show_plots)
+        # plot_solver_stats(stats, show_plots)
         print(f"Inf norm opt slack variables: {np.max(Sigma)} | Max g_ineq: {np.max(g_ineq_vals)}")
         return X[:, :N], U, soln
 

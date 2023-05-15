@@ -28,6 +28,7 @@ import rl_rrt_mpc.mpc.parameters as mpc_params
 import rl_rrt_mpc.mpc.set_generator as sg
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
+from scipy.interpolate import interp1d
 from shapely import strtree
 
 
@@ -267,8 +268,8 @@ class RLMPC(ci.ICOLAV):
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
         in order to extract relevant grounding hazards.
         """
-        assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
-        assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
+        assert goal_state is not None, "Goal state must be provided to the RL-MPC"
+        assert enc is not None, "ENC must be provided to the RL-MPC"
         nx = ownship_state.size
         if not self._initialized:
             self._initialized = True
@@ -310,6 +311,8 @@ class RLMPC(ci.ICOLAV):
                 hf.plot_trajectory(shifted_nominal_trajectory, enc, "magenta")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
+
+            self._mpc_trajectory, self._mpc_inputs = self._interpolate_solution(t)
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
@@ -376,6 +379,39 @@ class RLMPC(ci.ICOLAV):
             if show_plots:
                 sg.plot_constraints(A_reduced, b_reduced, state[0:2], "black", enc)
             self._mpc_rel_polygons = [A_reduced, b_reduced]
+
+    def _interpolate_solution(self, t: float) -> Tuple[np.ndarray, np.ndarray]:
+        """Interpolates the solution from the MPC to the time step in the simulation.
+
+        Args:
+            t (float): The current time step.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: The interpolated solution state trajectory and input trajectory.
+        """
+        if self._mpc.params.dt > t - self._t_prev:
+            dt_sim = np.max([t - self._t_prev, 0.5])
+            sim_times = np.arange(0.0, self._mpc.params.T, dt_sim)
+            mpc_times = np.arange(0.0, self._mpc.params.T, self._mpc.params.dt)
+            x_d = interp1d(mpc_times, self._mpc_trajectory[0, :], kind="linear", bounds_error=False)
+            y_d = interp1d(mpc_times, self._mpc_trajectory[1, :], kind="linear", bounds_error=False)
+            psi_d = interp1d(mpc_times, self._mpc_trajectory[2, :], kind="linear", bounds_error=False)
+            u_d = interp1d(mpc_times, self._mpc_trajectory[3, :], kind="linear", bounds_error=False)
+            v_d = interp1d(mpc_times, self._mpc_trajectory[4, :], kind="linear", bounds_error=False)
+            r_d = interp1d(mpc_times, self._mpc_trajectory[5, :], kind="linear", bounds_error=False)
+            self._mpc_trajectory = np.zeros((6, len(sim_times)))
+            self._mpc_trajectory[0, :] = x_d(sim_times)
+            self._mpc_trajectory[1, :] = y_d(sim_times)
+            self._mpc_trajectory[2, :] = psi_d(sim_times)
+            self._mpc_trajectory[3, :] = u_d(sim_times)
+            self._mpc_trajectory[4, :] = v_d(sim_times)
+            self._mpc_trajectory[5, :] = r_d(sim_times)
+            X_d = interp1d(mpc_times, self._mpc_inputs[0, :], kind="linear", bounds_error=False)
+            Y_d = interp1d(mpc_times, self._mpc_inputs[1, :], kind="linear", bounds_error=False)
+            self._mpc_inputs = np.zeros((2, len(sim_times)))
+            self._mpc_inputs[0, :] = X_d(sim_times)
+            self._mpc_inputs[1, :] = Y_d(sim_times)
+        return self._mpc_trajectory, self._mpc_inputs
 
     def get_current_plan(self) -> np.ndarray:
         return self._references

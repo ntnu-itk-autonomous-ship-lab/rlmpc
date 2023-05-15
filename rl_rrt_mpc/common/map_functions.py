@@ -708,7 +708,7 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
         surfaces.append(polygon_surface)
 
-        if show_plots:
+        if enc is not None and show_plots:
             ax.clear()
             assert enc is not None
             enc.draw_polygon(polygon, color="black")
@@ -746,7 +746,7 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
     return surfaces
 
 
-def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None) -> Tuple[list, list]:
+def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> Tuple[list, list]:
     """Computes splines from a list of polygons
 
     Args:
@@ -768,12 +768,12 @@ def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None
         spline_y = scipyintp.PchipInterpolator(linspace, east, extrapolate=False)
         splines.append((spline_x, spline_y))
         spline_derivatives.append((spline_x.derivative(), spline_y.derivative()))
-        # if enc is not None:
-        #     enc.start_display()
-        #     x_spline_vals = spline_x(linspace)
-        #     y_spline_vals = spline_y(linspace)
-        #     pairs = list(zip(y_spline_vals, x_spline_vals))
-        #     enc.draw_line(pairs, color="black", width=0)
+        if enc is not None and show_plots:
+            enc.start_display()
+            x_spline_vals = spline_x(linspace)
+            y_spline_vals = spline_y(linspace)
+            pairs = list(zip(y_spline_vals, x_spline_vals))
+            enc.draw_line(pairs, color="black", width=0)
 
     return splines, spline_derivatives
 
@@ -832,7 +832,9 @@ def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel
     return min_dist, min_dist_vec, min_idx
 
 
-def find_intersections_line_polygon(line: geometry.LineString, polygon: geometry.Polygon | geometry.MultiPolygon, enc: Optional[senc.ENC] = None) -> np.ndarray:
+def find_intersections_line_polygon(
+    line: geometry.LineString, polygon: geometry.Polygon | geometry.MultiPolygon, enc: Optional[senc.ENC] = None, show_plots: bool = False
+) -> np.ndarray:
     """Finds the intersection points between a line and a polygon.
 
     Args:
@@ -850,8 +852,8 @@ def find_intersections_line_polygon(line: geometry.LineString, polygon: geometry
         coords = [list(x), list(y)]
     elif intersection_points.type == "MultiLineString":
         for line in intersection_points.geoms:
-            # if enc:
-            #     enc.draw_line(line.coords, color="red", marker_type="o")
+            if enc and show_plots:
+                enc.draw_line(line.coords, color="red", marker_type="o")
             x, y = line.coords.xy
             coords.append([list(x), list(y)])
     return np.array(coords, dtype=object)
