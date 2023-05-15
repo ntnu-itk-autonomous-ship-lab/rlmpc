@@ -10,11 +10,11 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional, Tuple, TypeVar
 
 import casadi as csd
+import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.math_functions as mf
-import rl_rrt_mpc.mpc.alternative_set_generation as alt_sg
 import rl_rrt_mpc.mpc.integrators as integrators
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
@@ -151,7 +151,15 @@ class CasadiMPC:
         # self._prev_vsoln = {"x": [], "lam_x": [], "lam_g": []}
 
     def plan(
-        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
+        self,
+        nominal_trajectory: np.ndarray,
+        nominal_inputs: Optional[np.ndarray],
+        xs: np.ndarray,
+        do_list: list,
+        so_list: list,
+        enc: Optional[senc.ENC],
+        show_plots: bool = True,
+        **kwargs,
     ) -> Tuple[np.ndarray, np.ndarray, dict]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -203,6 +211,8 @@ class CasadiMPC:
         self._prev_vsoln["x"] = self._decision_variables(X, U, Sigma)
         self._prev_vsoln["lam_x"] = soln["lam_x"].full()
         self._prev_vsoln["lam_g"] = soln["lam_g"].full()
+        plot_solver_stats(stats, show_plots)
+        print(f"Inf norm opt slack variables: {np.max(Sigma)} | Max g_ineq: {np.max(g_ineq_vals)}")
         return X[:, :N], U, soln
 
     def construct_ocp(self, so_list: list, enc: senc.ENC) -> None:
@@ -525,6 +535,7 @@ class CasadiMPC:
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
+                        # so_constr_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
                         so_constr_list.append(csd.vec(so_surfaces[j](mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - sigma_k[j]))
                     else:
                         so_constr_list.append(-sigma_k[j])
@@ -820,3 +831,38 @@ def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
         csd.MX: Cost function
     """
     return (var_ref - var).T @ W @ (var_ref - var)
+
+
+def plot_solver_stats(stats: dict, show_plots: bool = True) -> None:
+    """Plots solver statistics for the COLAV MPC method.
+
+    Args:
+        - stats (dict): Dictionary of solver statistics
+        - show_plots (bool, optional): Whether to show plots or not. Defaults to True.
+    """
+    if show_plots:
+        fig = plt.figure()
+        axs = fig.subplot_mosaic(
+            [
+                ["cost"],
+                ["inf"],
+                ["step_lengths"],
+            ]
+        )
+
+        axs["cost"].plot(stats["iterations"]["obj"], "b")
+        axs["cost"].set_xlabel("Iteration number")
+        axs["cost"].set_ylabel("J")
+
+        axs["inf"].plot(np.array(stats["iterations"]["inf_pr"]), "b--")
+        axs["inf"].plot(np.array(stats["iterations"]["inf_du"]), "r--")
+        axs["inf"].legend(["Primal Infeasibility", "Dual Infeasibility"])
+        axs["inf"].set_xlabel("Iteration number")
+
+        axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_pr"]), "b--")
+        axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_du"]), "r--")
+        axs["step_lengths"].legend(["Primal Step Length", "Dual Step Length"])
+        axs["step_lengths"].set_xlabel("Iteration number")
+        axs["step_lengths"].set_ylabel("Step Length")
+        plt.show(block=False)
+    return None

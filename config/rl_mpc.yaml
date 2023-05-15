@@ -12,12 +12,12 @@ ktp:
 
 mpc:
   params:
-    rate: 0.2
+    rate: 0.1
     reference_traj_bbox_buffer: 300.0
-    T: 30.0
+    T: 25.0
     dt: 0.5
-    Q: [100.0, 100.0] #, 0.1, 1.0, 1.0, 1.0]
-    d_safe_so: 1.0
+    Q: [10.0, 10.0] #, 0.1, 1.0, 1.0, 1.0]
+    d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
@@ -30,7 +30,7 @@ mpc:
     casadi:
       solver_type: "ipopt"
       solver_tol: 0.000001
-      print_level: 3
+      print_level: 0
       print_time: 0
       mu_target: 0.000001
       mu_init: 0.000001

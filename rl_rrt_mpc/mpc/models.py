@@ -97,7 +97,7 @@ class Telemetron(MPCModel):
         ubu = np.array([max_Fx, max_Fy])
 
         approx_inf = 1e10
-        lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -max_speed, -max_speed, -max_turn_rate])
+        lbx = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -max_speed, -max_turn_rate])
         ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, max_speed, max_turn_rate])
         return lbu, ubu, lbx, ubx
 

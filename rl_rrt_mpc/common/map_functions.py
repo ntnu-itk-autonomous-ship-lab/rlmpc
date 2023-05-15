@@ -686,30 +686,26 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         list: List of surface approximations for each polygon.
     """
     surfaces = []
-    npx_min = 10
-    npy_min = 10
+    npx_min = 5
+    npy_min = 5
     if show_plots:
         ax = plt.figure().add_subplot(111, projection="3d")
         # ax2 = plt.figure().add_subplot(111, projection="3d")
     for j, polygon in enumerate(polygons):
-        # Sjå på CDL for å forenkle problemet.
-        # Finne "kystlinjepolygons"
-        # rekne ut hensiktsmessig npx og npy basert på n_vertices og polygon.bounds
         n_vertices = len(polygon.exterior.coords)
-        npx = int(max(npx_min, n_vertices / 1.5))
-        npy = int(max(npy_min, n_vertices / 1.5))
-        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(3.0).bounds
+        npx = int(max(npx_min, n_vertices / 2.0))
+        npy = int(max(npy_min, n_vertices / 2.0))
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(10.0).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
         X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
         map_coords = np.hstack((X.reshape(-1, 1), Y.reshape(-1, 1)))
-        y_poly, x_poly = polygon.buffer(0.2).exterior.coords.xy
+        y_poly, x_poly = polygon.exterior.coords.xy
         poly_path = mpath.Path(np.array([x_poly, y_poly]).T)
         mask = poly_path.contains_points(points=map_coords, radius=0.1)
         mask = mask.astype(float).reshape((npy, npx))
         mask[mask > 0.0] = 1.0
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
-
         surfaces.append(polygon_surface)
 
         if show_plots:
@@ -724,9 +720,14 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
                 for j, east_coord in enumerate(extra_east_coords):
                     surface_points[i, j] = polygon_surface([north_coord, east_coord])
                     # surface_points2[i, j] = polygon_surface2.ev(north_coord, east_coord)
-            xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
+                # fig = plt.figure()
+                # ax = fig.add_subplot(111)
+                # ax.plot(extra_east_coords - poly_min_east, surface_points[i, :])
+                # plt.show()
 
+            xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
             ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
+            ax.plot_surface(xX, yY, np.zeros((100, 100)), rcount=200, ccount=200, cmap=cm.autumn)
             ax.set_xlabel("North")
             ax.set_ylabel("East")
             ax.set_zlabel("Mask")

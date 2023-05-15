@@ -316,7 +316,7 @@ class RLMPC(ci.ICOLAV):
 
         self._references = np.zeros((nx + 3, len(self._mpc_trajectory[0, :])))
         self._references[:nx, :] = self._mpc_trajectory
-        print(f"RLMPC references: {self._references[:, 0]}")
+        # print(f"RLMPC references: {self._references[:, 0]}")
         self._t_prev = t
         return self._references
 
@@ -359,9 +359,9 @@ class RLMPC(ci.ICOLAV):
             P1, P2 = mapf.create_point_list_from_polygons(self._rel_polygons)
             self._set_generator = sg.SetGenerator(P1, P2)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
-            self._mpc_rel_polygons = self._rel_polygons.copy()
+            self._mpc_rel_polygons = self._rel_polygons  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.TRIANGULARBOUNDARY:
-            self._mpc_rel_polygons = mapf.extract_boundary_polygons_inside_envelope(self._rel_polygons, enc)
+            self._mpc_rel_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
 
     def _update_mpc_so_polygon_input(self, state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> None:
         """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.
