@@ -25,7 +25,7 @@ mpc:
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True
     debug: True
-  enable_acados: False
+  enable_acados: True
   solver_options:
     casadi:
       solver_type: "ipopt"
@@ -56,5 +56,5 @@ mpc:
       qp_solver_warm_start: 1
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
-      levenberg_marquardt: 0.0
-      print_level: 0
+      levenberg_marquardt: 0.1
+      print_level: 1

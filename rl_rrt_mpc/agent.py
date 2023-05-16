@@ -278,7 +278,7 @@ class RLMPC(ci.ICOLAV):
             self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
 
             self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
-            self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
+            self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, xs=ownship_state, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:

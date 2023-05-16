@@ -116,7 +116,7 @@ class Telemetron(MPCModel):
         Returns:
             AcadosModel: Telemetron model as acados compatible object
         """
-        f_impl, f_expl, x, xdot, u = self.setup_equations_of_motion()
+        f_impl, f_expl, xdot, x, u = self.setup_equations_of_motion()
 
         self._acados_model.f_impl_expr = f_impl
         self._acados_model.f_expl_expr = f_expl

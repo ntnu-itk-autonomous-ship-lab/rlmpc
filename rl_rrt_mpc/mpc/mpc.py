@@ -96,18 +96,19 @@ class MPC:
     def train(self, data) -> None:
         """Trains the RL-MPC using data (s, a, s+, a+, r+)"""
 
-    def construct_ocp(self, nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
+    def construct_ocp(self, nominal_trajectory: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
         Args:
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow.
+            - xs (np.ndarray): Current state of the ownship.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
         """
         self._casadi_mpc.construct_ocp(so_list, enc)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_trajectory, do_list, so_list, enc)
+            self._acados_mpc.construct_ocp(nominal_trajectory, xs, do_list, so_list, enc)
 
     def plan(
         self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
@@ -115,7 +116,7 @@ class MPC:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
-            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track (in NED!) or path to follow.
+            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track (position in NED and velocity in BODY) or path to follow.
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
@@ -126,16 +127,8 @@ class MPC:
         Returns:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory [eta, nu] x N and inputs for the ownship.
         """
-        N = int(self._params.T / self._params.dt)
-        # Convert velocity part of trajectory to body frame
-        compatible_nominal_trajectory = nominal_trajectory.copy()
-        if nominal_trajectory.shape[0] > 2:
-            for k in range(nominal_trajectory.shape[1]):
-                psi = compatible_nominal_trajectory[2, k]
-                compatible_nominal_trajectory[3:6, k] = mf.Rpsi(psi).T @ compatible_nominal_trajectory[3:6, k]
-
         if self._acados_enabled:
-            trajectory, inputs = self._acados_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, **kwargs)
+            trajectory, inputs = self._acados_mpc.plan(nominal_trajectory, nominal_inputs, xs, do_list, so_list, **kwargs)
         else:
-            trajectory, inputs, _ = self._casadi_mpc.plan(compatible_nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
-        return trajectory[:, :N], inputs[:, :N]
+            trajectory, inputs, _ = self._casadi_mpc.plan(nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
+        return trajectory, inputs

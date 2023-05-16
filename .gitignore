@@ -135,11 +135,6 @@ dmypy.json
 .pyre/
 
 # Package main
-output/animation/
-output/ais/
-output/figures/
-
-main.py
 todo.txt
 .vscode/
-/scenarios/saved/
+acados_code_gen/
