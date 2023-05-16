@@ -42,6 +42,8 @@ class Telemetron(MPCModel):
     def __init__(self, params: cs_models.TelemetronParams = cs_models.TelemetronParams()):
         self._acados_model = AcadosModel()
         self._params = params
+        self.f_impl, self.f_expl, self.xdot, self.x, self.u = self.setup_equations_of_motion()
+        self.dynamics = csd.Function("dynamics", [self.x, self.u], [self.f_expl], ["x", "u"], ["f_expl"])
 
     def params(self) -> cs_models.TelemetronParams:
         return self._params
@@ -75,6 +77,26 @@ class Telemetron(MPCModel):
         f_impl = xdot - f_expl
         return f_impl, f_expl, xdot, x, u
 
+    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, dt: float, N: int) -> np.ndarray:
+        """Simulate N Euler steps for the Telemetron vessel
+
+        Args:
+            - xs (np.ndarray): State vector
+            - u (np.ndarray): Input vector
+            - dt (float): Time step
+            - N (int): Number of steps to simulate
+
+        Returns:
+            np.ndarray: Next state vector
+        """
+        soln = np.zeros((self.x.shape[0], N))
+        xs_k = xs
+        for k in range(N):
+            soln[:, k] = xs_k
+            xdot = self.dynamics(xs_k, u).full().flatten()
+            xs_k = xs_k + dt * xdot
+        return soln
+
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Returns the bounds for the state and input vectors.
 
@@ -107,8 +129,7 @@ class Telemetron(MPCModel):
         Returns:
             Tuple[csd.MX, csd.MX, csd.MX]: Returns the Telemetron model dynamics f(x, u), the state and input vector symbolics
         """
-        _, f_expl, _, x, u = self.setup_equations_of_motion()
-        return f_expl, x, u
+        return self.f_expl, self.x, self.u
 
     def as_acados(self) -> AcadosModel:
         """Returns an AcadosModel object for the Telemetron
@@ -116,13 +137,11 @@ class Telemetron(MPCModel):
         Returns:
             AcadosModel: Telemetron model as acados compatible object
         """
-        f_impl, f_expl, xdot, x, u = self.setup_equations_of_motion()
-
-        self._acados_model.f_impl_expr = f_impl
-        self._acados_model.f_expl_expr = f_expl
-        self._acados_model.x = x
-        self._acados_model.xdot = xdot
-        self._acados_model.u = u
+        self._acados_model.f_impl_expr = self.f_impl
+        self._acados_model.f_expl_expr = self.f_expl
+        self._acados_model.x = self.x
+        self._acados_model.xdot = self.xdot
+        self._acados_model.u = self.u
         self._acados_model.name = "telemetron"
         return self._acados_model
 

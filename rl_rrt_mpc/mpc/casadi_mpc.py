@@ -86,7 +86,7 @@ class CasadiMPC:
         self._lbw: np.ndarray = np.array([])
         self._ubw: np.ndarray = np.array([])
         self._vsolver: csd.Function = csd.Function("vsolver", [], [])
-        self._prev_vsoln: dict = {"x": [], "lam_x0": [], "lam_g": []}
+        self._current_warmstart_v: dict = {"x": [], "lam_x0": [], "lam_g": []}
         self._lbg_v: np.ndarray = np.array([])
         self._ubg_v: np.ndarray = np.array([])
         self._qsolver: csd.Function = csd.Function("qsolver", [], [])
@@ -113,6 +113,7 @@ class CasadiMPC:
         self._decision_variables: csd.Function = csd.Function("decision_variables", [], [])
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
+        self._t_prev: float = 0.0
 
     @property
     def params(self):
@@ -149,14 +150,37 @@ class CasadiMPC:
         nominal_trajectory_cpy[2, :] = psi_unwrapped
         w = np.concatenate((w, nominal_trajectory_cpy[0:nx, 0 : N + 1].T.flatten()))
         w = np.concatenate((w, np.zeros((self._params.max_num_so_constr + self._params.max_num_do_constr) * (N + 1))))
-        self._prev_vsoln["x"] = w.tolist()
-        self._prev_vsoln["lam_x"] = np.zeros(w.shape[0]).tolist()
-        self._prev_vsoln["lam_g"] = np.zeros(self._lbg_v.shape[0]).tolist()
+        self._current_warmstart_v["x"] = w.tolist()
+        self._current_warmstart_v["lam_x"] = np.zeros(w.shape[0]).tolist()
+        self._current_warmstart_v["lam_g"] = np.zeros(self._lbg_v.shape[0]).tolist()
 
-        # self._prev_vsoln = {"x": [], "lam_x": [], "lam_g": []}
+        # self._current_warmstart_v = {"x": [], "lam_x": [], "lam_g": []}
+
+    def _shift_warm_start(self, xs: np.ndarray, dt: float) -> None:
+        """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
+
+        Args:
+            - xs (np.ndarray): Current state of the system.
+            - dt (float): Time to shift the warm start decision trajectory.
+        """
+        n_shifts = int(dt / self._params.dt)
+        w_prev = np.array(self._current_warmstart_v["x"])
+        X_prev, U_prev, Sigma_prev = self._decision_trajectories(w_prev)
+        X_prev = X_prev.full()
+        U_prev = U_prev.full()
+        Sigma_prev = Sigma_prev.full()
+        U_shifted = np.concatenate((U_prev[:, n_shifts:], np.tile(U_prev[:, -1], (n_shifts, 1)).T), axis=1)
+
+        # Simulate the system from t_N to t_N+n_shifts with the last input
+        X_past_N = self._model.euler_n_step(X_prev[:, -1], U_prev[:, -1], self._params.dt, n_shifts)
+        X_shifted = np.concatenate((X_prev[:, n_shifts:], X_past_N), axis=1)
+        Sigma_shifted = np.concatenate((Sigma_prev[:, n_shifts:], np.tile(Sigma_prev[:, -1], (n_shifts, 1)).T), axis=1)
+        w_shifted = np.concatenate((U_shifted.T.flatten(), X_shifted.T.flatten(), Sigma_shifted.T.flatten()))
+        self._current_warmstart_v["x"] = w_shifted.tolist()
 
     def plan(
         self,
+        t: float,
         nominal_trajectory: np.ndarray,
         nominal_inputs: Optional[np.ndarray],
         xs: np.ndarray,
@@ -189,11 +213,15 @@ class CasadiMPC:
         if nominal_inputs is not None:
             action = nominal_inputs[:, 0]
 
+        dt = t - self._t_prev
+        if dt > 0.0:
+            self._shift_warm_start(xs, dt)
+
         parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc, **kwargs)
         soln = self._vsolver(
-            x0=self._prev_vsoln["x"],
-            lam_x0=self._prev_vsoln["lam_x"],
-            lam_g0=self._prev_vsoln["lam_g"],
+            x0=self._current_warmstart_v["x"],
+            lam_x0=self._current_warmstart_v["lam_x"],
+            lam_g0=self._current_warmstart_v["lam_g"],
             p=parameter_values,
             lbx=self._lbw,
             ubx=self._ubw,
@@ -213,11 +241,12 @@ class CasadiMPC:
         psi = X[2, :]
         psi = np.unwrap(np.concatenate(([xs[2]], psi)))[1:]
         X[2, :] = psi
-        self._prev_vsoln["x"] = self._decision_variables(X, U, Sigma)
-        self._prev_vsoln["lam_x"] = soln["lam_x"].full()
-        self._prev_vsoln["lam_g"] = soln["lam_g"].full()
+        self._current_warmstart_v["x"] = self._decision_variables(X, U, Sigma)
+        self._current_warmstart_v["lam_x"] = soln["lam_x"].full()
+        self._current_warmstart_v["lam_g"] = soln["lam_g"].full()
         # plot_solver_stats(stats, show_plots)
-        print(f"Inf norm opt slack variables: {np.max(Sigma)} | Max g_ineq: {np.max(g_ineq_vals)}")
+        print(f"Inf norm opt slack variables: {np.max(Sigma)} | Max g_ineq: {np.max(g_ineq_vals)} | Max g_eq: {np.max(g_eq_vals)}")
+        self._t_prev = t
         return X[:, :N], U, soln
 
     def construct_ocp(self, so_list: list, enc: senc.ENC) -> None:

@@ -299,6 +299,7 @@ class RLMPC(ci.ICOLAV):
             # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             # self._ktp.update_path_variable(t - self._t_prev)
             self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
+                t,
                 nominal_trajectory=shifted_nominal_trajectory,
                 nominal_inputs=None,
                 xs=ownship_state,
@@ -311,7 +312,8 @@ class RLMPC(ci.ICOLAV):
                 hf.plot_trajectory(shifted_nominal_trajectory, enc, "magenta")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
-
+                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
+                enc.draw_polygon(ship_poly, color="pink")
             self._mpc_trajectory, self._mpc_inputs = self._interpolate_solution(t)
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]

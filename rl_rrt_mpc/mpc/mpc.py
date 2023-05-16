@@ -111,11 +111,20 @@ class MPC:
             self._acados_mpc.construct_ocp(nominal_trajectory, xs, do_list, so_list, enc)
 
     def plan(
-        self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC], **kwargs
+        self,
+        t: float,
+        nominal_trajectory: np.ndarray,
+        nominal_inputs: Optional[np.ndarray],
+        xs: np.ndarray,
+        do_list: list,
+        so_list: list,
+        enc: Optional[senc.ENC],
+        **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
+            - t (float): Current time.
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track (position in NED and velocity in BODY) or path to follow.
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - xs (np.ndarray): Current state.
@@ -128,7 +137,7 @@ class MPC:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory [eta, nu] x N and inputs for the ownship.
         """
         if self._acados_enabled:
-            trajectory, inputs = self._acados_mpc.plan(nominal_trajectory, nominal_inputs, xs, do_list, so_list, **kwargs)
+            trajectory, inputs = self._acados_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, **kwargs)
         else:
-            trajectory, inputs, _ = self._casadi_mpc.plan(nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
+            trajectory, inputs, _ = self._casadi_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
         return trajectory, inputs
