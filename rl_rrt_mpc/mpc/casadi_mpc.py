@@ -109,6 +109,11 @@ class CasadiMPC:
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
 
+        self._decision_trajectories: csd.Function = csd.Function("decision_trajectories", [], [])
+        self._decision_variables: csd.Function = csd.Function("decision_variables", [], [])
+        self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
+        self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
+
     @property
     def params(self):
         return self._params
@@ -403,7 +408,7 @@ class CasadiMPC:
         self._num_adjustable_ocp_params = num_adjustable_ocp_params
         self._num_ocp_params = num_fixed_ocp_params + num_adjustable_ocp_params
         self._p_fixed_values = np.zeros((self._num_fixed_ocp_params, 1))
-        self._p_adjustable_values = np.zeros((self._num_adjustable_ocp_params, 1))
+        self._p_adjustable_values = self.get_adjustable_params()
 
         self._opt_vars = csd.vertcat(*U, *X, *Sigma)
 
