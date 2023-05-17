@@ -674,7 +674,7 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
     return ellipses
 
 
-def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
+def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
@@ -690,12 +690,15 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
     npy_min = 5
     if show_plots:
         ax = plt.figure().add_subplot(111, projection="3d")
+        # ax.axis("equal")
         # ax2 = plt.figure().add_subplot(111, projection="3d")
+        # ax2.axis("equal")
+        ax3 = plt.figure().add_subplot(111)
     for j, polygon in enumerate(polygons):
         n_vertices = len(polygon.exterior.coords)
-        npx = int(max(npx_min, n_vertices / 2.0))
-        npy = int(max(npy_min, n_vertices / 2.0))
-        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(10.0).bounds
+        npx = int(max(npx_min, n_vertices / 1.0))
+        npy = int(max(npy_min, n_vertices / 1.0))
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(5.0).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
         X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
@@ -709,8 +712,9 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         surfaces.append(polygon_surface)
 
         if enc is not None and show_plots:
-            ax.clear()
             assert enc is not None
+            ax.clear()
+            # ax.axis("equal")
             enc.draw_polygon(polygon, color="black")
             extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=100)
             extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=100)
@@ -720,10 +724,10 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
                 for j, east_coord in enumerate(extra_east_coords):
                     surface_points[i, j] = polygon_surface([north_coord, east_coord])
                     # surface_points2[i, j] = polygon_surface2.ev(north_coord, east_coord)
-                # fig = plt.figure()
-                # ax = fig.add_subplot(111)
-                # ax.plot(extra_east_coords - poly_min_east, surface_points[i, :])
-                # plt.show()
+
+                # ax3.plot(extra_east_coords - poly_min_east, surface_points[i, :])
+                # plt.show(block=False)
+                # ax3.clear()
 
             xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
             ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
@@ -742,7 +746,7 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             # polygon_surface2 = scipyintp.RectBivariateSpline(east_coords, north_coords, mask)
             # ax2.clear()
             # ax2.plot_surface(yY, xX, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
-            plt.show()
+            plt.show(block=False)
     return surfaces
 
 

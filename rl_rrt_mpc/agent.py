@@ -351,7 +351,7 @@ class RLMPC(ci.ICOLAV):
             hf.plot_trajectory(self._nominal_trajectory, enc, color="magenta")
             for hazard in relevant_grounding_hazards:
                 enc.draw_polygon(hazard, color="red", fill=False)
-            ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.5, 1.5)
+            ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
             # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
             enc.draw_polygon(ship_poly, color="pink")
             # enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)

@@ -569,8 +569,8 @@ class CasadiMPC:
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
-                        # so_constr_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
-                        so_constr_list.append(csd.vec(so_surfaces[j](mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - sigma_k[j]))
+                        so_constr_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
+                        # so_constr_list.append(csd.vec(so_surfaces[j](mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - sigma_k[j]))
                     else:
                         so_constr_list.append(-sigma_k[j])
         return so_constr_list
