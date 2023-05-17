@@ -711,6 +711,19 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
         surfaces.append(polygon_surface)
 
+        # alternative method using unstructured grid data
+        n_levels = int(polygon.area / 1000.0)
+        x_poly_unstructured = []
+        y_poly_unstructured = []
+        mask_unstructured = []
+        for level in range(n_levels):
+            buff_l = -level * 5.0
+            y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
+            x_poly_unstructured.extend(x_poly.tolist())
+            y_poly_unstructured.extend(y_poly.tolist())
+            mask_unstructured.extend([1.0] * len(x_poly))
+        polygon_surface2 = scipyintp.SmoothBivariateSpline(x_poly_unstructured, y_poly_unstructured, mask_unstructured, kx=3, ky=3)
+
         if enc is not None and show_plots:
             assert enc is not None
             ax.clear()
