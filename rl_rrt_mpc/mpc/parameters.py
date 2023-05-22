@@ -44,8 +44,8 @@ class IParams(ABC):
         """Converts the parameters to a dictionary."""
 
     @abstractmethod
-    def adjustable(self) -> list:
-        """Returns a list of the adjustable parameters by an RL scheme."""
+    def adjustable(self) -> np.ndarray:
+        """Returns an array of the adjustable parameters by an RL scheme."""
 
 
 @dataclass
@@ -86,7 +86,6 @@ class RLMPCParams(IParams):
         config_dict["Q"] = self.Q.diagonal().tolist()
         return config_dict
 
-    @property
     def adjustable(self) -> np.ndarray:
         """Returns an array of the adjustable parameters by the RL scheme.
 

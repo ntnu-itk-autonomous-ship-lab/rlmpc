@@ -691,13 +691,13 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
     if show_plots:
         ax = plt.figure().add_subplot(111, projection="3d")
         # ax.axis("equal")
-        # ax2 = plt.figure().add_subplot(111, projection="3d")
+        ax2 = plt.figure().add_subplot(111, projection="3d")
         # ax2.axis("equal")
         ax3 = plt.figure().add_subplot(111)
     for j, polygon in enumerate(polygons):
         n_vertices = len(polygon.exterior.coords)
-        npx = int(max(npx_min, n_vertices / 1.0))
-        npy = int(max(npy_min, n_vertices / 1.0))
+        npx = int(max(npx_min, n_vertices / 1.2))
+        npy = int(max(npy_min, n_vertices / 1.2))
         poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(5.0).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
@@ -712,22 +712,27 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         surfaces.append(polygon_surface)
 
         # alternative method using unstructured grid data
-        n_levels = int(polygon.area / 1000.0)
-        x_poly_unstructured = []
-        y_poly_unstructured = []
-        mask_unstructured = []
-        for level in range(n_levels):
-            buff_l = -level * 5.0
-            y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
-            x_poly_unstructured.extend(x_poly.tolist())
-            y_poly_unstructured.extend(y_poly.tolist())
-            mask_unstructured.extend([1.0] * len(x_poly))
-        polygon_surface2 = scipyintp.SmoothBivariateSpline(x_poly_unstructured, y_poly_unstructured, mask_unstructured, kx=3, ky=3)
+        # range_max = np.sqrt((poly_max_east - polygon.centroid.x) ** 2 + (poly_max_north - polygon.centroid.y) ** 2)
+        # step_buffer = 2.0
+        # n_levels = min(10, int(range_max / 2.0))
+        # x_poly_unstructured = []
+        # y_poly_unstructured = []
+        # mask_unstructured = []
+        # for level in range(n_levels):
+        #     buff_l = -level * step_buffer
+        #     y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
+        #     x_poly_unstructured.extend(x_poly.tolist())
+        #     y_poly_unstructured.extend(y_poly.tolist())
+        #     mask_unstructured.extend([1.0] * len(x_poly))
+        # y_poly, x_poly = polygon.buffer(1.0).exterior.coords.xy
+        # x_poly_unstructured.extend(x_poly.tolist())
+        # y_poly_unstructured.extend(y_poly.tolist())
+        # mask_unstructured.extend([0.0] * len(x_poly))
+        # polygon_surface2 = scipyintp.SmoothBivariateSpline(x_poly_unstructured, y_poly_unstructured, mask_unstructured, kx=3, ky=3)
 
         if enc is not None and show_plots:
             assert enc is not None
-            ax.clear()
-            # ax.axis("equal")
+
             enc.draw_polygon(polygon, color="black")
             extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=100)
             extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=100)
@@ -738,13 +743,12 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
                     surface_points[i, j] = polygon_surface([north_coord, east_coord])
                     # surface_points2[i, j] = polygon_surface2.ev(north_coord, east_coord)
 
-                # ax3.plot(extra_east_coords - poly_min_east, surface_points[i, :])
-                # plt.show(block=False)
-                # ax3.clear()
+                ax3.plot(extra_east_coords - poly_min_east, surface_points[i, :])
+                plt.show(block=False)
+                ax3.clear()
 
             xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
             ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
-            ax.plot_surface(xX, yY, np.zeros((100, 100)), rcount=200, ccount=200, cmap=cm.autumn)
             ax.set_xlabel("North")
             ax.set_ylabel("East")
             ax.set_zlabel("Mask")
@@ -756,10 +760,13 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             # plt.pcolormesh(yY, xX, surface_coords2, shading="flat", cmap=cm.coolwarm)
             # plt.colorbar()
 
-            # polygon_surface2 = scipyintp.RectBivariateSpline(east_coords, north_coords, mask)
-            # ax2.clear()
-            # ax2.plot_surface(yY, xX, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
+            # ax2.plot_surface(xX, yY, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
+            # ax2.set_xlabel("North")
+            # ax2.set_ylabel("East")
+            # ax2.set_zlabel("Mask")
             plt.show(block=False)
+            ax.clear()
+            ax2.clear()
     return surfaces
 
 

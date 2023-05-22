@@ -128,7 +128,7 @@ class CasadiMPC:
                 - d_safe_so
                 - d_safe_do
         """
-        return self._params.adjustable
+        return self._params.adjustable()
 
     def _set_initial_warm_start(self, xs: np.ndarray, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
