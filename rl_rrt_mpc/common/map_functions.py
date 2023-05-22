@@ -711,7 +711,15 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
         surfaces.append(polygon_surface)
 
-        # alternative method using unstructured grid data
+        # xy_mx = csd.MX.sym("xy", 2)
+        # rbf_surface = scipyintp.RBFInterpolator(np.array([x_poly, y_poly]).T, np.ones((len(x_poly), 1)))
+        # coeff = rbf_surface._coeffs
+        # coefficients_mx = csd.MX.sym("coefficients", coeff.shape)
+        # spline_mx = csd.bspline(xy_mx, coefficients_mx, {X, Y}, [3, 3], 1, {})
+        # spline_func = csd.Function("surface_spline", {xy_mx, coefficients_mx}, {spline_mx}, ["xy", "coefficients"], ["spline"])
+        # z = spline_func([0.5, 0.3333], coeff)
+
+        # # alternative method using unstructured grid data
         # range_max = np.sqrt((poly_max_east - polygon.centroid.x) ** 2 + (poly_max_north - polygon.centroid.y) ** 2)
         # step_buffer = 2.0
         # n_levels = min(10, int(range_max / 2.0))
@@ -728,7 +736,20 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         # x_poly_unstructured.extend(x_poly.tolist())
         # y_poly_unstructured.extend(y_poly.tolist())
         # mask_unstructured.extend([0.0] * len(x_poly))
-        # polygon_surface2 = scipyintp.SmoothBivariateSpline(x_poly_unstructured, y_poly_unstructured, mask_unstructured, kx=3, ky=3)
+
+        north_coords2 = np.insert(north_coords, 1, np.mean(north_coords[0:2]))
+        east_coords2 = np.insert(east_coords, 1, np.mean(east_coords[0:2]))
+        X2, Y2 = np.meshgrid(north_coords2, east_coords2, indexing="ij")
+        map_coords2 = np.hstack((X2.reshape(-1, 1), Y2.reshape(-1, 1)))
+        mask2 = poly_path.contains_points(points=map_coords2, radius=0.1)
+        mask2 = mask2.astype(float).reshape((len(north_coords2), len(east_coords2)))
+        mask2[mask2 > 0.0] = 1.0
+        polygon_surface2 = scipyintp.SmoothBivariateSpline(X2.flatten(), Y2.flatten(), mask2.ravel(order="F"), kx=3, ky=3, s=0.25)
+        coeff = polygon_surface2.get_coeffs()
+        xy_mx = csd.MX.sym("xy", 2)
+        coefficients_mx = csd.MX.sym("coefficients", coeff.shape[0])
+        spline_mx = csd.bspline(xy_mx, coefficients_mx, [X2.flatten(), Y2.flatten()], [3, 3], 1, {})
+        spline_func = csd.Function("surface_spline", [xy_mx, coefficients_mx], [spline_mx], ["xy", "coefficients"], ["spline"])
 
         if enc is not None and show_plots:
             assert enc is not None
@@ -741,7 +762,7 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             for i, north_coord in enumerate(extra_north_coords):
                 for j, east_coord in enumerate(extra_east_coords):
                     surface_points[i, j] = polygon_surface([north_coord, east_coord])
-                    # surface_points2[i, j] = polygon_surface2.ev(north_coord, east_coord)
+                    surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
 
                 ax3.plot(extra_east_coords - poly_min_east, surface_points[i, :])
                 plt.show(block=False)
@@ -760,10 +781,10 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             # plt.pcolormesh(yY, xX, surface_coords2, shading="flat", cmap=cm.coolwarm)
             # plt.colorbar()
 
-            # ax2.plot_surface(xX, yY, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
-            # ax2.set_xlabel("North")
-            # ax2.set_ylabel("East")
-            # ax2.set_zlabel("Mask")
+            ax2.plot_surface(xX, yY, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
+            ax2.set_xlabel("North")
+            ax2.set_ylabel("East")
+            ax2.set_zlabel("Mask")
             plt.show(block=False)
             ax.clear()
             ax2.clear()
