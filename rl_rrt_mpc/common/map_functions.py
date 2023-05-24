@@ -17,6 +17,7 @@ import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
+import rl_rrt_mpc.common.rbf_casadi as rbf_casadi
 import rl_rrt_mpc.common.smallestenclosingcircle as smallestenclosingcircle
 import rl_rrt_mpc.gmm_em as gmm_em
 import scipy.cluster.vq as scipyvq
@@ -696,9 +697,9 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         ax3 = plt.figure().add_subplot(111)
     for j, polygon in enumerate(polygons):
         n_vertices = len(polygon.exterior.coords)
-        npx = int(max(npx_min, n_vertices / 1.2))
-        npy = int(max(npy_min, n_vertices / 1.2))
-        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(5.0).bounds
+        npx = int(max(npx_min, n_vertices / 1.0))
+        npy = int(max(npy_min, n_vertices / 1.0))
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(0.5).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
         X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
@@ -711,49 +712,72 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
         surfaces.append(polygon_surface)
 
-        # xy_mx = csd.MX.sym("xy", 2)
-        # rbf_surface = scipyintp.RBFInterpolator(np.array([x_poly, y_poly]).T, np.ones((len(x_poly), 1)))
-        # coeff = rbf_surface._coeffs
-        # coefficients_mx = csd.MX.sym("coefficients", coeff.shape)
-        # spline_mx = csd.bspline(xy_mx, coefficients_mx, {X, Y}, [3, 3], 1, {})
-        # spline_func = csd.Function("surface_spline", {xy_mx, coefficients_mx}, {spline_mx}, ["xy", "coefficients"], ["spline"])
-        # z = spline_func([0.5, 0.3333], coeff)
+        # alternative method using unstructured grid data
+        range_max = np.sqrt((poly_max_east - polygon.centroid.x) ** 2 + (poly_max_north - polygon.centroid.y) ** 2)
+        step_buffer = 10.0
+        n_levels = min(1, int(range_max / 2.0))
+        x_poly_unstructured = []
+        y_poly_unstructured = []
+        mask_unstructured = []
+        for level in range(n_levels):
+            buff_l = -level * step_buffer
+            enc.draw_polygon(polygon.buffer(buff_l), color="red", fill=False)
+            try:
+                y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
+            except AttributeError:
+                break
+            x_poly_unstructured.extend(x_poly.tolist())
+            y_poly_unstructured.extend(y_poly.tolist())
+            mask_unstructured.extend([1.0] * len(x_poly))
 
-        # # alternative method using unstructured grid data
-        # range_max = np.sqrt((poly_max_east - polygon.centroid.x) ** 2 + (poly_max_north - polygon.centroid.y) ** 2)
-        # step_buffer = 2.0
-        # n_levels = min(10, int(range_max / 2.0))
-        # x_poly_unstructured = []
-        # y_poly_unstructured = []
-        # mask_unstructured = []
-        # for level in range(n_levels):
-        #     buff_l = -level * step_buffer
-        #     y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
-        #     x_poly_unstructured.extend(x_poly.tolist())
-        #     y_poly_unstructured.extend(y_poly.tolist())
-        #     mask_unstructured.extend([1.0] * len(x_poly))
-        # y_poly, x_poly = polygon.buffer(1.0).exterior.coords.xy
-        # x_poly_unstructured.extend(x_poly.tolist())
-        # y_poly_unstructured.extend(y_poly.tolist())
-        # mask_unstructured.extend([0.0] * len(x_poly))
+        step_buffer = 2.0
+        n_levels = min(10, int(range_max / 2.0))
+        for level in range(n_levels):
+            buff_l = 1.0 + level * step_buffer
+            try:
+                y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
+            except AttributeError:
+                break
+            x_poly_unstructured.extend(x_poly.tolist())
+            y_poly_unstructured.extend(y_poly.tolist())
+            mask_unstructured.extend([-5.0] * len(x_poly))
+            enc.draw_polygon(polygon.buffer(buff_l), color="orange", fill=False)
 
-        north_coords2 = np.insert(north_coords, 1, np.mean(north_coords[0:2]))
-        east_coords2 = np.insert(east_coords, 1, np.mean(east_coords[0:2]))
-        X2, Y2 = np.meshgrid(north_coords2, east_coords2, indexing="ij")
-        map_coords2 = np.hstack((X2.reshape(-1, 1), Y2.reshape(-1, 1)))
-        mask2 = poly_path.contains_points(points=map_coords2, radius=0.1)
-        mask2 = mask2.astype(float).reshape((len(north_coords2), len(east_coords2)))
-        mask2[mask2 > 0.0] = 1.0
-        polygon_surface2 = scipyintp.SmoothBivariateSpline(X2.flatten(), Y2.flatten(), mask2.ravel(order="F"), kx=3, ky=3, s=0.25)
+        # grid = scipyintp.griddata(np.array([x_poly_unstructured, y_poly_unstructured]).T, mask_unstructured, (X, Y), method="cubic", fill_value=0.0)
+        rbf = scipyintp.RBFInterpolator(
+            np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=5.0, smoothing=1e-5
+        )
+        rbf_csd = rbf_casadi.RBFInterpolatorCasadi(
+            np.array([x_poly_unstructured, y_poly_unstructured]).T,
+            np.array(mask_unstructured),
+            rbf._coeffs,
+            rbf.powers,
+            rbf._shift,
+            rbf._scale,
+            rbf.smoothing,
+            "thin_plate_spline",
+            rbf.epsilon,
+        )
+        x = csd.MX.sym("x", 2)
+        intp = rbf_csd(x)
+        north_coords2 = np.concatenate((north_coords[0] * np.ones(3), north_coords, north_coords[-1] * np.ones(3)))
+        east_coords2 = np.concatenate((east_coords[0] * np.ones(3), east_coords, east_coords[-1] * np.ones(3)))
+        # X2, Y2 = np.meshgrid(north_coords2, east_coords2, indexing="ij")
+        # map_coords2 = np.hstack((X2.reshape(-1, 1), Y2.reshape(-1, 1)))
+        # mask2 = poly_path.contains_points(points=map_coords2, radius=0.1)
+        # mask2 = mask2.astype(float).reshape((len(north_coords2), len(east_coords2)))
+        # mask2[mask2 > 0.0] = 1.0
+        polygon_surface2 = scipyintp.RectBivariateSpline(
+            north_coords, east_coords, mask, bbox=[poly_min_north, poly_max_north, poly_min_east, poly_max_east], kx=3, ky=3, s=0.0
+        )
         coeff = polygon_surface2.get_coeffs()
         xy_mx = csd.MX.sym("xy", 2)
         coefficients_mx = csd.MX.sym("coefficients", coeff.shape[0])
-        spline_mx = csd.bspline(xy_mx, coefficients_mx, [X2.flatten(), Y2.flatten()], [3, 3], 1, {})
+        spline_mx = csd.bspline(xy_mx, coefficients_mx, [north_coords2, east_coords2], [3, 3], 1, {})
         spline_func = csd.Function("surface_spline", [xy_mx, coefficients_mx], [spline_mx], ["xy", "coefficients"], ["spline"])
 
         if enc is not None and show_plots:
             assert enc is not None
-
             enc.draw_polygon(polygon, color="black")
             extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=100)
             extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=100)
@@ -762,9 +786,11 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
             for i, north_coord in enumerate(extra_north_coords):
                 for j, east_coord in enumerate(extra_east_coords):
                     surface_points[i, j] = polygon_surface([north_coord, east_coord])
-                    surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
+                    surface_points2[i, j] = rbf(np.array([north_coord, east_coord]).reshape(1, 2))
+                    # surface_points2[i, j] = polygon_surface2([north_coord, east_coord])
+                    # surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
 
-                ax3.plot(extra_east_coords - poly_min_east, surface_points[i, :])
+                ax3.plot(extra_east_coords - poly_min_east, surface_points2[i, :])
                 plt.show(block=False)
                 ax3.clear()
 
