@@ -31,10 +31,7 @@ def linear(r: csd.MX) -> csd.MX:
 
 
 def thin_plate_spline(r: csd.MX) -> csd.MX:
-    if r == 0:
-        return 0.0
-    else:
-        return r**2 * csd.log(r)
+    return r**2 * csd.log(r + 0.000001)
 
 
 def cubic(r: csd.MX) -> csd.MX:
@@ -77,15 +74,15 @@ def kernel_vector(x: csd.MX, y: np.ndarray, kernel_func) -> csd.MX:
     """Evaluate RBFs, with centers at `y`, at the point `x`."""
     out = csd.MX.zeros(y.shape[0], 1)
     for i in range(y.shape[0]):
-        out[i] = kernel_func(np.linalg.norm(x - y[i]))
+        out[i] = kernel_func(csd.norm_2(x - y[i].reshape(1, 2)))
     return out
 
 
 def polynomial_vector(x: csd.MX, powers: np.ndarray) -> csd.MX:
     """Evaluate monomials, with exponents from `powers`, at the point `x`."""
-    out = csd.MX.zeros(powers.shape[0], dtype=float)
+    out = csd.MX.zeros((powers.shape[0], 1))
     for i in range(powers.shape[0]):
-        out[i] = np.prod(x ** powers[i])
+        out[i] = (x[0] ** powers[i, 0]) * (x[1] ** powers[i, 1])
     return out
 
 
@@ -94,7 +91,7 @@ def kernel_matrix(x, kernel_func) -> csd.MX:
     out = csd.MX.zeros((x.shape[0], x.shape[0]), dtype=float)
     for i in range(x.shape[0]):
         for j in range(i + 1):
-            out[i, j] = kernel_func(np.linalg.norm(x[i] - x[j]))
+            out[i, j] = kernel_func(csd.norm_2(x[i] - x[j]))
             out[j, i] = out[i, j]
     return out
 
@@ -186,16 +183,15 @@ def _build_evaluation_coefficients(x: csd.MX, y: np.ndarray, kernel: str, epsilo
 
     yeps = y * epsilon
     xeps = x * epsilon
-    xhat = (x - shift) / scale
-
-    vec = np.empty((q, p + r), dtype=float)
+    xhat = (x - shift.reshape(1, 2)) / scale.reshape(1, 2)
+    vec = csd.MX.zeros(q, p + r)
     for i in range(q):
-        vec[i, :p] = kernel_vector(xeps[i], yeps, kernel_func)
-        vec[i, p:] = polynomial_vector(xhat[i], powers)
+        vec[i, :p] = kernel_vector(xeps[i, :], yeps, kernel_func)
+        vec[i, p:] = polynomial_vector(xhat[i, :], powers)
     return vec
 
 
-class RBFInterpolatorCasadi:
+class RBFInterpolator:
     """A class for radial basis function interpolation using CasADi."""
 
     def __init__(
@@ -286,7 +282,7 @@ class RBFInterpolatorCasadi:
                 out[i : i + chunksize, :] = np.dot(vec, coeffs)
         else:
             vec = _build_evaluation_coefficients(x, y, self.kernel, self.epsilon, self.powers, shift, scale)
-            out = csd.dot(vec, coeffs)
+            out = vec @ coeffs
         return out
 
     def __call__(self, x: csd.MX) -> csd.MX:
@@ -316,10 +312,9 @@ class RBFInterpolatorCasadi:
         # If this number is below 1e6 we just use 1e6
         # This memory budget is used to decide how we chunk
         # the inputs
-        memory_budget = max(x.size + self.y.size + self.d.size, 1000000)
+        memory_budget = 1000000  # max(x.size + self.y.size + self.d.size, 1000000)
 
         # No neighbours are considered for simplicity
         assert self.neighbors is None, "Nearest neighbours are not supported yet"
         out = self._chunk_evaluator(x, self.y, self.shift, self.scale, self.coeffs, memory_budget=memory_budget)
-        out = out.reshape((nx,) + self.d_shape)
         return out

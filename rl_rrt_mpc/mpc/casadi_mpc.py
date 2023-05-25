@@ -111,6 +111,7 @@ class CasadiMPC:
 
         self._decision_trajectories: csd.Function = csd.Function("decision_trajectories", [], [])
         self._decision_variables: csd.Function = csd.Function("decision_variables", [], [])
+        self._static_obstacle_constraints: csd.Function = csd.Function("static_obstacle_constraints", [], [])
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
         self._t_prev: float = 0.0
@@ -232,6 +233,7 @@ class CasadiMPC:
         if not stats["success"]:
             RuntimeError("Problem is Infeasible")
 
+        so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
         X, U, Sigma = self._decision_trajectories(soln["x"])
@@ -384,6 +386,8 @@ class CasadiMPC:
         # Cost function
         J = 0.0
 
+        so_constr_list = []
+
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
         stage_cost = quadratic_cost(x_k[0:dim_Q], X_ref[:, 0], Qmtrx)
         erk4 = integrators.ERK4(x=x, p=u, ode=xdot, quad=stage_cost, h=dt)
@@ -395,6 +399,7 @@ class CasadiMPC:
             J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + W.T @ sigma_k)
 
             so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, d_safe_so)
+            so_constr_list.extend(so_constr_k)
             g_ineq_list.extend(so_constr_k)
 
             do_constr_k = self._create_dynamic_obstacle_constraint(x_k, sigma_k, X_do, nx_do, d_safe_do)
@@ -413,6 +418,7 @@ class CasadiMPC:
         J += gamma**N * (quadratic_cost(x_k[:dim_Q], X_ref[:, N], Qmtrx) + W.T @ sigma_k)
 
         so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, d_safe_so)
+        so_constr_list.extend(so_constr_N)
         g_ineq_list.extend(so_constr_N)
 
         do_constr_N = self._create_dynamic_obstacle_constraint(x_k, sigma_k, X_do[:, N], nx_do, d_safe_do)
@@ -450,6 +456,9 @@ class CasadiMPC:
         }
         self._vsolver = csd.nlpsol("vsolver", "ipopt", vnlp_prob, self._solver_options.to_opt_settings())
 
+        self._static_obstacle_constraints = csd.Function(
+            "static_obstacle_constraints", [self._opt_vars, self._p], [csd.vertcat(*so_constr_list)], ["w", "p"], ["so_constr"]
+        )
         self._equality_constraints = csd.Function("equality_constraints", [self._opt_vars, self._p], [g_eq], ["w", "p"], ["g_eq"])
         self._inequality_constraints = csd.Function("inequality_constraints", [self._opt_vars, self._p], [g_ineq], ["w", "p"], ["g_ineq"])
         if self._params.max_num_so_constr + self._params.max_num_do_constr == 0.0:
@@ -569,7 +578,7 @@ class CasadiMPC:
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
-                        so_constr_list.append(so_surfaces[j](x_k[0:2]) - sigma_k[j])
+                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))))
                         # so_constr_list.append(csd.vec(so_surfaces[j](mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]) - sigma_k[j]))
                     else:
                         so_constr_list.append(-sigma_k[j])
