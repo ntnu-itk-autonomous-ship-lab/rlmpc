@@ -675,11 +675,12 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
     return ellipses
 
 
-def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
+def compute_surface_approximations_from_polygons(polygons: list, casadi_opts: dict, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
         polygons (list): List of shapely polygons
+        casadi_opts (dict): CasADi options used for the function generation.
         enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
         show_plots (bool, optional): Whether to show plots. Defaults to False.
 
@@ -709,28 +710,21 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         mask = poly_path.contains_points(points=map_coords, radius=0.1)
         mask = mask.astype(float).reshape((npy, npx))
         mask[mask > 0.0] = 1.0
-        polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
+        # polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
 
         # alternative method using unstructured grid data
         range_max = np.sqrt((poly_max_east - polygon.centroid.x) ** 2 + (poly_max_north - polygon.centroid.y) ** 2)
-        step_buffer = 10.0
-        n_levels = min(1, int(range_max / 2.0))
         x_poly_unstructured = []
         y_poly_unstructured = []
         mask_unstructured = []
-        for level in range(n_levels):
-            buff_l = -level * step_buffer
-            try:
-                y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
-            except AttributeError:
-                break
-            x_poly_unstructured.extend(x_poly.tolist())
-            y_poly_unstructured.extend(y_poly.tolist())
-            mask_unstructured.extend([1.0] * len(x_poly))
-            if enc is not None and show_plots:
-                enc.draw_polygon(polygon.buffer(buff_l), color="red", fill=False)
+        y_poly, x_poly = polygon.exterior.coords.xy
+        x_poly_unstructured.extend(x_poly.tolist())
+        y_poly_unstructured.extend(y_poly.tolist())
+        mask_unstructured.extend([1.0] * len(x_poly))
+        if enc is not None and show_plots:
+            enc.draw_polygon(polygon.buffer(buff_l), color="red", fill=False)
 
-        step_buffer = 1.0
+        step_buffer = 2000.0
         n_levels = min(2, int(range_max / 2.0))
         for level in range(n_levels):
             buff_l = 0.5 + level * step_buffer
@@ -740,11 +734,10 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
                 break
             x_poly_unstructured.extend(x_poly.tolist())
             y_poly_unstructured.extend(y_poly.tolist())
-            mask_unstructured.extend([-100.0] * len(x_poly))
+            mask_unstructured.extend([-buff_l] * len(x_poly))
             if enc is not None and show_plots:
                 enc.draw_polygon(polygon.buffer(buff_l), color="orange", fill=False)
 
-        # grid = scipyintp.griddata(np.array([x_poly_unstructured, y_poly_unstructured]).T, mask_unstructured, (X, Y), method="cubic", fill_value=0.0)
         rbf = scipyintp.RBFInterpolator(
             np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=10.0, smoothing=1e-5
         )
@@ -761,29 +754,20 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
         )
         x = csd.MX.sym("x", 2)
         intp = rbf_csd(x.reshape((1, 2)))
-        rbf_surface_func = csd.Function("surface_func", [x.reshape((1, 2))], [intp])
+        if False:  # casadi_opts["jit"]:
+            rbf_surface_func = csd.Function(
+                "surface_func", [x.reshape((1, 2))], [intp], {"jit": True, "compiler": casadi_opts["compiler"], "jit_options": casadi_opts["jit_options"]}
+            )
+        else:
+            rbf_surface_func = csd.Function("surface_func", [x.reshape((1, 2))], [intp])
         surfaces.append(rbf_surface_func)
-        # north_coords2 = np.concatenate((north_coords[0] * np.ones(3), north_coords, north_coords[-1] * np.ones(3)))
-        # east_coords2 = np.concatenate((east_coords[0] * np.ones(3), east_coords, east_coords[-1] * np.ones(3)))
-        # X2, Y2 = np.meshgrid(north_coords2, east_coords2, indexing="ij")
-        # map_coords2 = np.hstack((X2.reshape(-1, 1), Y2.reshape(-1, 1)))
-        # mask2 = poly_path.contains_points(points=map_coords2, radius=0.1)
-        # mask2 = mask2.astype(float).reshape((len(north_coords2), len(east_coords2)))
-        # mask2[mask2 > 0.0] = 1.0
-        # polygon_surface2 = scipyintp.RectBivariateSpline(
-        #     north_coords, east_coords, mask, bbox=[poly_min_north, poly_max_north, poly_min_east, poly_max_east], kx=3, ky=3, s=0.0
-        # )
-        # coeff = polygon_surface2.get_coeffs()
-        # xy_mx = csd.MX.sym("xy", 2)
-        # coefficients_mx = csd.MX.sym("coefficients", coeff.shape[0])
-        # spline_mx = csd.bspline(xy_mx, coefficients_mx, [north_coords2, east_coords2], [3, 3], 1, {})
-        # spline_func = csd.Function("surface_spline", [xy_mx, coefficients_mx], [spline_mx], ["xy", "coefficients"], ["spline"])
 
         if enc is not None and show_plots:
             assert enc is not None
             # enc.draw_polygon(polygon, color="black")
-            extra_north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=100)
-            extra_east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=100)
+            buffer = 0.0
+            extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=100)
+            extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=100)
             surface_points = np.zeros((100, 100))
             surface_points2 = np.zeros((100, 100))
             for i, north_coord in enumerate(extra_north_coords):
@@ -793,10 +777,9 @@ def compute_surface_approximations_from_polygons(polygons: list, enc: Optional[s
                     # surface_points2[i, j] = polygon_surface2([north_coord, east_coord])
                     # surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
 
-                ax3.plot(extra_east_coords - poly_min_east, surface_points2[i, :], "b")
+                ax3.plot(extra_east_coords, surface_points2[i, :], "b")
                 ax3.plot(np.array(y_poly_unstructured) - poly_min_east, mask_unstructured, "ro")
                 ax3.set_ylim([-3.1, 1.1])
-                ax3.set_xlim([0.0, poly_max_east - poly_min_east])
                 plt.show(block=False)
                 ax3.clear()
 

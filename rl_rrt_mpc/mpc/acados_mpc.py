@@ -6,7 +6,7 @@
 
     Author: Trym Tengesdal
 """
-from typing import Optional, Tuple, Type, TypeVar
+from typing import Optional, Tuple, TypeVar
 
 import casadi as csd
 import numpy as np
@@ -39,6 +39,7 @@ def parse_acados_solver_options(config_dict: dict):
     acados_solver_options.globalization = config_dict["globalization"]
     acados_solver_options.levenberg_marquardt = config_dict["levenberg_marquardt"]
     acados_solver_options.print_level = config_dict["print_level"]
+    acados_solver_options.ext_fun_compile_flags = config_dict["ext_fun_compile_flags"]
     return acados_solver_options
 
 
@@ -52,8 +53,8 @@ class AcadosMPC:
         self._params: ParamClass = params
 
         nx, nu = self._model.dims()
-        self._x_warm_start: np.ndarray = np.zeros(nx)
-        self._u_warm_start: np.ndarray = np.zeros(nu)
+        self._x_warm_start: np.ndarray = np.array([])
+        self._u_warm_start: np.ndarray = np.array([])
         self._initialized = False
         self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
 
@@ -65,6 +66,8 @@ class AcadosMPC:
         self._p_adjustable_values: np.ndarray = np.zeros(0)
         self._num_fixed_params: int = 0
         self._num_adjustable_params: int = 0
+
+        self._t_prev: float = 0.0
 
     @property
     def params(self):
@@ -100,7 +103,7 @@ class AcadosMPC:
                 - d_safe_so
                 - d_safe_do
         """
-        return self._params.adjustable
+        return self._params.adjustable()
 
     def _set_initial_warm_start(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
         """Sets the initial warm start state (and input) trajectory for the NMPC.
@@ -109,10 +112,27 @@ class AcadosMPC:
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
         """
+        N = int(self._params.T / self._params.dt)
         self._x_warm_start = nominal_trajectory[:6, :]
 
         if nominal_inputs is not None and nominal_inputs.size > 0:
             self._u_warm_start = nominal_inputs
+        else:
+            self._u_warm_start = np.zeros((2, N))
+
+    def _shift_warm_start(self, xs: np.ndarray, dt: float) -> None:
+        """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
+
+        Args:
+            - xs (np.ndarray): Current state of the system.
+            - dt (float): Time to shift the warm start decision trajectory.
+        """
+        n_shifts = int(dt / self._params.dt)
+        self._u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], np.tile(self._u_warm_start[:, -1], (n_shifts, 1)).T), axis=1)
+
+        # Simulate the system from t_N to t_N+n_shifts with the last input
+        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], self._u_warm_start[:, -1], self._params.dt, n_shifts)
+        self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:], states_past_N), axis=1)
 
     def plan(
         self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None
@@ -136,12 +156,17 @@ class AcadosMPC:
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(nominal_trajectory, xs, so_list, enc)
             self._initialized = True
 
+        dt = t - self._t_prev
+        if dt > 0.0:
+            self._shift_warm_start(xs, dt)
+
         self._update_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list)
         status = self._acados_ocp_solver.solve()
         self._acados_ocp_solver.print_statistics()
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
 
+        slacks = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1))
         trajectory = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1))
         inputs = np.zeros((self._acados_ocp.dims.nu, self._acados_ocp.dims.N))
         for i in range(self._acados_ocp.dims.N + 1):
@@ -151,6 +176,7 @@ class AcadosMPC:
         print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val}")
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
+        self._t_prev = t
         return trajectory[:, : self._acados_ocp.dims.N], inputs[:, : self._acados_ocp.dims.N]
 
     def _update_ocp(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> None:
@@ -167,7 +193,7 @@ class AcadosMPC:
         self._acados_ocp_solver.constraints_set(0, "ubx", xs)
         for i in range(self._acados_ocp.dims.N + 1):
             self._acados_ocp_solver.set(i, "x", self._x_warm_start[:, i])
-            if i < self._acados_ocp.dims.N and nominal_inputs is not None and nominal_inputs.size > 0:
+            if i < self._acados_ocp.dims.N:
                 self._acados_ocp_solver.set(i, "u", self._u_warm_start[:, i])
             p_i = self.create_parameter_values(nominal_trajectory, xs, do_list, so_list, i)
             self._acados_ocp_solver.set(i, "p", p_i)
@@ -274,7 +300,9 @@ class AcadosMPC:
         self._num_adjustable_params += 2
 
         n_ship_vertices = ship_vertices.shape[1]
-        n_path_constr = self._params.max_num_so_constr * n_ship_vertices + self._params.max_num_do_constr
+        #        n_path_constr = self._params.max_num_so_constr * n_ship_vertices + self._params.max_num_do_constr
+        n_path_constr = self._params.max_num_so_constr + self._params.max_num_do_constr
+
         self._acados_ocp.constraints.lh = np.zeros(n_path_constr)
         self._acados_ocp.constraints.lh_e = self._acados_ocp.constraints.lh
         self._acados_ocp.constraints.uh = approx_inf * np.ones(n_path_constr)
@@ -288,10 +316,10 @@ class AcadosMPC:
         self._acados_ocp.cost.Zl_e = np.zeros(n_path_constr)
         self._acados_ocp.cost.Zu = np.zeros(n_path_constr)
         self._acados_ocp.cost.Zu_e = np.zeros(n_path_constr)
-        self._acados_ocp.cost.zl = 1e5 * np.ones(n_path_constr)
-        self._acados_ocp.cost.zl_e = 1e5 * np.ones(n_path_constr)
-        self._acados_ocp.cost.zu = 1e5 * np.ones(n_path_constr)
-        self._acados_ocp.cost.zu_e = 1e5 * np.ones(n_path_constr)
+        self._acados_ocp.cost.zl = 1e3 * np.ones(n_path_constr)
+        self._acados_ocp.cost.zl_e = 1e3 * np.ones(n_path_constr)
+        self._acados_ocp.cost.zu = 1e3 * np.ones(n_path_constr)
+        self._acados_ocp.cost.zu_e = 1e3 * np.ones(n_path_constr)
 
         con_h_expr = []
         so_constr_list = self._create_static_obstacle_constraint(x, so_list, d_safe_so, ship_vertices, enc)
@@ -376,7 +404,10 @@ class AcadosMPC:
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
-                        so_constr_list.append(csd.vec(so_surfaces[j](mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2])))
+                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))))
+                        # vertices = mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]
+                        # vertices = vertices.reshape((-1, 2))
+                        # so_constr_list.append(csd.vec(so_surfaces[j](vertices)))
                     else:
                         so_constr_list.append(0.0)
 

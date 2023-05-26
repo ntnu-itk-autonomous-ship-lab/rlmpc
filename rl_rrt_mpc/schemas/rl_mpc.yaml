@@ -190,4 +190,7 @@ mpc:
               print_level:
                 required: True
                 type: integer
+              ext_fun_compile_flags:
+                required: True
+                type: string
 

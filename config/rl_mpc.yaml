@@ -51,10 +51,11 @@ mpc:
       nlp_solver_tol_ineq: 0.000001
       nlp_solver_tol_comp: 0.000001
       nlp_solver_ext_qp_res: 0
-      qp_solver_type: "PARTIAL_CONDENSING_HPIPM"
+      qp_solver_type: "FULL_CONDENSING_QPOASES" #"PARTIAL_CONDENSING_HPIPM"
       qp_solver_iter_max: 100
       qp_solver_warm_start: 1
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
-      levenberg_marquardt: 0.1
+      levenberg_marquardt: 0.0
       print_level: 1
+      ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"
