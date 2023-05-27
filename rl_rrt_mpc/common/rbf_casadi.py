@@ -8,22 +8,6 @@
 """
 import casadi as csd
 import numpy as np
-from scipy.special import comb
-
-# These RBFs are implemented.
-_AVAILABLE = {"linear", "thin_plate_spline", "cubic", "quintic", "multiquadric", "inverse_multiquadric", "inverse_quadratic", "gaussian"}
-
-
-# The shape parameter does not need to be specified when using these RBFs.
-_SCALE_INVARIANT = {"linear", "thin_plate_spline", "cubic", "quintic"}
-
-
-# For RBFs that are conditionally positive definite of order m, the interpolant
-# should include polynomial terms with degree >= m - 1. Define the minimum
-# degrees here. These values are from Chapter 8 of Fasshauer's "Meshfree
-# Approximation Methods with MATLAB". The RBFs that are not in this dictionary
-# are positive definite and do not need polynomial terms.
-_NAME_TO_MIN_DEGREE = {"multiquadric": 0, "linear": 0, "thin_plate_spline": 1, "cubic": 1, "quintic": 2}
 
 
 def linear(r: csd.MX) -> csd.MX:
@@ -70,82 +54,27 @@ NAME_TO_FUNC = {
 }
 
 
-def kernel_vector(x: csd.MX, y: np.ndarray, kernel_func) -> csd.MX:
+def kernel_vector(x: csd.MX, y: np.ndarray, kernel_func, out: csd.MX) -> csd.MX:
     """Evaluate RBFs, with centers at `y`, at the point `x`."""
-    out = csd.MX.zeros(y.shape[0], 1)
     for i in range(y.shape[0]):
         out[i] = kernel_func(csd.norm_2(x - y[i].reshape(1, 2)))
         # out[i] = csd.if_else(out[i] < 1e-5, 0.0, out[i])
     return out
 
 
-def polynomial_vector(x: csd.MX, powers: np.ndarray) -> csd.MX:
+def kernel_vector2(x: csd.MX, y: np.ndarray, out: csd.MX) -> csd.MX:
+    """Evaluate RBFs, with centers at `y`, at the point `x`."""
+    for i in range(y.shape[0]):
+        out[i] = thin_plate_spline(csd.norm_2(x - y[i].reshape(1, 2)))
+        out[i] = csd.if_else(out[i] < 1e-5, 0.0, out[i])
+    return out
+
+
+def polynomial_vector(x: csd.MX, powers: np.ndarray, out: csd.MX) -> csd.MX:
     """Evaluate monomials, with exponents from `powers`, at the point `x`."""
-    out = csd.MX.zeros((powers.shape[0], 1))
     for i in range(powers.shape[0]):
         out[i] = (x[0] ** powers[i, 0]) * (x[1] ** powers[i, 1])
     return out
-
-
-def kernel_matrix(x, kernel_func) -> csd.MX:
-    """Evaluate RBFs, with centers at `x`, at `x`."""
-    out = csd.MX.zeros((x.shape[0], x.shape[0]), dtype=float)
-    for i in range(x.shape[0]):
-        for j in range(i + 1):
-            out[i, j] = kernel_func(csd.norm_2(x[i] - x[j]))
-            # out[i, j] = csd.if_else(out[i, j] < 1e-5, 0.0, out[i, j])
-            out[j, i] = out[i, j]
-    return out
-
-
-def polynomial_matrix(x, powers) -> csd.MX:
-    """Evaluate monomials, with exponents from `powers`, at `x`."""
-    out = csd.MX.zeros((x.shape[0], powers.shape[0]), dtype=float)
-    for i in range(x.shape[0]):
-        for j in range(powers.shape[0]):
-            out[i, j] = np.prod(x[i] ** powers[j])
-    return out
-
-
-def _build_evaluation_coefficients(x: csd.MX, y: np.ndarray, kernel: str, epsilon: float, powers: np.ndarray, shift: np.ndarray, scale: np.ndarray) -> csd.MX:
-    """Construct the coefficients needed to evaluate
-    the RBF.
-
-    Parameters
-    ----------
-    x : (Q, N) float ndarray
-        Evaluation point coordinates. Q is the number of evaluation points. N is the number of dimensions.
-    y : (P, N) float ndarray
-        Data point coordinates. P is the number of data points.
-    kernel : str
-        Name of the RBF.
-    epsilon : float
-        Shape parameter.
-    powers : (R, N) int ndarray
-        The exponents for each monomial in the polynomial.
-    shift : (N,) float ndarray
-        Shifts the polynomial domain for numerical stability.
-    scale : (N,) float ndarray
-        Scales the polynomial domain for numerical stability.
-
-    Returns
-    -------
-    (Q, P + R) csd.MX array
-
-    """
-    q = x.shape[0]
-    p = y.shape[0]
-    r = powers.shape[0]
-    kernel_func = NAME_TO_FUNC[kernel]
-
-    yeps = y * epsilon
-    xeps = x * epsilon
-    xhat = (x - shift.reshape(1, 2)) / scale.reshape(1, 2)
-    vec = csd.MX.zeros(q, p + r)
-    for i in range(q):
-        vec[i, :p] = kernel_vector(xeps[i, :], yeps, kernel_func)
-        vec[i, p:] = polynomial_vector(xhat[i, :], powers)
-    return vec
 
 
 class RBFInterpolator:
@@ -161,7 +90,7 @@ class RBFInterpolator:
         scale: np.ndarray,
         smoothing: float = 0.0,
         kernel: str = "thin_plate_spline",
-        epsilon: float | None = None,
+        epsilon: float = 1.0,
     ) -> None:
         """Initialize the RBFInterpolatorCasadi class.
 
@@ -174,73 +103,62 @@ class RBFInterpolator:
             scale (np.ndarray): Scales the polynomial domain for numerical stability. Defaults to None.
             smoothing (float): Smoothing parameter for the RBF interpolant. Defaults to 0.0.
             kernel (str): Name of the RBF kernel used. Defaults to "thin_plate_spline".
-            epsilon (float | None): Scaling parameter for the RBF kernel. Defaults to None.
+            epsilon (float): Scaling parameter for the RBF kernel.
         """
-        self.shift = shift
-        self.scale = scale
+        self.shift = shift.reshape(1, 2)
+        self.scale = scale.reshape(1, 2)
         self.coeffs = coeffs
         self.powers = powers
         self.y = y
         self.d = d
-        d_shape = d.shape[1:]
-        self.d_shape = d_shape
-        self.neighbors = None
+        self.p = self.y.shape[0]
+        self.r = self.powers.shape[0]
         self.smoothing = smoothing
         self.kernel = kernel
-
-        if epsilon is None:
-            if kernel in _SCALE_INVARIANT:
-                epsilon = 1.0
-            else:
-                raise ValueError("`epsilon` must be specified if `kernel` is not one of " f"{_SCALE_INVARIANT}.")
-        else:
-            epsilon = float(epsilon)
         self.epsilon = epsilon
+        self.yeps = y * epsilon
 
-    def _chunk_evaluator(self, x: csd.MX, y: np.ndarray, shift: np.ndarray, scale: np.ndarray, coeffs: np.ndarray, memory_budget: int = 1000000) -> csd.MX:
+    def _build_evaluation_coefficients(self, x: csd.MX) -> csd.MX:
+        """Construct the coefficients needed to evaluate
+        the RBF.
+
+        Parameters
+        ----------
+        x : (Q, N) float ndarray
+            Evaluation point coordinates. Q==1 is the number of evaluation points. N is the number of dimensions.
+
+        Returns
+        -------
+        (Q, P + R) csd.MX array
+
+        """
+        # kernel_func = NAME_TO_FUNC[kernel]
+
+        xeps = x * self.epsilon
+        xhat = (x - self.shift) / self.scale
+        vec = csd.MX.zeros(self.p + self.r)
+        # vec[: self.p] = kernel_vector(xeps[i, :], yeps, kernel_func, vec[:p])
+        vec[: self.p] = kernel_vector2(xeps, self.yeps, vec[: self.p])
+        vec[self.p :] = polynomial_vector(xhat, self.powers, vec[self.p :])
+        return vec.T
+
+    def _chunk_evaluator(self, x: csd.MX) -> csd.MX:
         """
         Evaluate the interpolation while controlling memory consumption.
         We chunk the input if we need more memory than specified.
 
         Parameters
         ----------
-        x : (Q, N) csd.MX array. Q is the number of points to evaluate, N is the number of dimensions.
+        x : (Q, N) csd.MX array. Q==1 is the number of points to evaluate, N is the number of dimensions.
             array of points on which to evaluate
-        y: (P, N) float ndarray
-            array of points on which we know function values. P is the number of points.
-        shift: (N, ) ndarray
-            Domain shift used to create the polynomial matrix.
-        scale : (N,) float ndarray
-            Domain scaling used to create the polynomial matrix.
-        coeffs: (P+R, S) float ndarray
-            Coefficients in front of basis functions
-        memory_budget: int
-            Total amount of memory (in units of sizeof(float)) we wish
-            to devote for storing the array of coefficients for
-            interpolated points. If we need more memory than that, we
-            chunk the input.
 
         Returns
         -------
         (Q, S) csd.MX array
         Interpolated array
         """
-        nx, _ = x.shape
-        if self.neighbors is None:
-            nnei = len(y)
-        else:
-            nnei = self.neighbors
-        # in each chunk we consume the same space we already occupy
-        chunksize = memory_budget // ((self.powers.shape[0] + nnei)) + 1
-        if chunksize <= nx:
-            out = csd.MX.sym("out", (nx, self.d.shape[1]))
-            for i in range(0, nx, chunksize):
-                vec = _build_evaluation_coefficients(x[i : i + chunksize, :], y, self.kernel, self.epsilon, self.powers, shift, scale)
-                out[i : i + chunksize, :] = np.dot(vec, coeffs)
-        else:
-            vec = _build_evaluation_coefficients(x, y, self.kernel, self.epsilon, self.powers, shift, scale)
-            out = vec @ coeffs
-        return out
+        vec = self._build_evaluation_coefficients(x)
+        return vec @ self.coeffs
 
     def __call__(self, x: csd.MX) -> csd.MX:
         """Evaluate the interpolant at `x`.
@@ -248,7 +166,7 @@ class RBFInterpolator:
         Parameters
         ----------
         x : (Q, N) csd.MX array
-            Evaluation point coordinates. Q is the number of points to evaluate.
+            Evaluation point coordinates. Q==1 is the number of points to evaluate.
 
         Returns
         -------
@@ -256,22 +174,4 @@ class RBFInterpolator:
             Values of the interpolant at `x`.
 
         """
-        _, N = x.shape
-        if N != 2:
-            raise ValueError("`x` must be a 2-dimensional array.")
-
-        nx, ndim = x.shape
-        if ndim != self.y.shape[1]:
-            raise ValueError("Expected the second axis of `x` to have length " f"{self.y.shape[1]}.")
-
-        # Our memory budget for storing RBF coefficients is
-        # based on how many floats in memory we already occupy
-        # If this number is below 1e6 we just use 1e6
-        # This memory budget is used to decide how we chunk
-        # the inputs
-        memory_budget = 1000000  # max(x.size + self.y.size + self.d.size, 1000000)
-
-        # No neighbours are considered for simplicity
-        assert self.neighbors is None, "Nearest neighbours are not supported yet"
-        out = self._chunk_evaluator(x, self.y, self.shift, self.scale, self.coeffs, memory_budget=memory_budget)
-        return out
+        return self._chunk_evaluator(x)

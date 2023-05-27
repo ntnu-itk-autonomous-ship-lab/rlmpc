@@ -700,7 +700,7 @@ def compute_surface_approximations_from_polygons(polygons: list, casadi_opts: di
         n_vertices = len(polygon.exterior.coords)
         npx = int(max(npx_min, n_vertices / 1.0))
         npy = int(max(npy_min, n_vertices / 1.0))
-        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(0.5).bounds
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(1.0).bounds
         north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
         east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
         X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
@@ -710,7 +710,7 @@ def compute_surface_approximations_from_polygons(polygons: list, casadi_opts: di
         mask = poly_path.contains_points(points=map_coords, radius=0.1)
         mask = mask.astype(float).reshape((npy, npx))
         mask[mask > 0.0] = 1.0
-        # polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
+        polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
 
         # alternative method using unstructured grid data
         range_max = np.sqrt((poly_max_east - polygon.centroid.x) ** 2 + (poly_max_north - polygon.centroid.y) ** 2)
@@ -718,14 +718,20 @@ def compute_surface_approximations_from_polygons(polygons: list, casadi_opts: di
         y_poly_unstructured = []
         mask_unstructured = []
         y_poly, x_poly = polygon.exterior.coords.xy
+        # remove last point if it is the same as the first
+        if x_poly[0] == x_poly[-1] and y_poly[0] == y_poly[-1]:
+            x_poly = x_poly[:-1]
+            y_poly = y_poly[:-1]
+
         x_poly_unstructured.extend(x_poly.tolist())
         y_poly_unstructured.extend(y_poly.tolist())
         mask_unstructured.extend([1.0] * len(x_poly))
         if enc is not None and show_plots:
-            enc.draw_polygon(polygon.buffer(buff_l), color="red", fill=False)
+            enc.draw_polygon(polygon, color="red", fill=False)
 
-        step_buffer = 2000.0
-        n_levels = min(2, int(range_max / 2.0))
+        # Add buffer points just outside the polygon, where the mask is zero or negative (no collision)
+        step_buffer = 1000.0
+        n_levels = min(1, int(range_max / 2.0))
         for level in range(n_levels):
             buff_l = 0.5 + level * step_buffer
             try:
@@ -734,10 +740,19 @@ def compute_surface_approximations_from_polygons(polygons: list, casadi_opts: di
                 break
             x_poly_unstructured.extend(x_poly.tolist())
             y_poly_unstructured.extend(y_poly.tolist())
-            mask_unstructured.extend([-buff_l] * len(x_poly))
+            mask_unstructured.extend([-10.0 * buff_l] * len(x_poly))
             if enc is not None and show_plots:
                 enc.draw_polygon(polygon.buffer(buff_l), color="orange", fill=False)
 
+        # Add polygon boundary points
+        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(5.0).bounds
+        x_poly_unstructured.extend([poly_min_north, poly_max_north, poly_max_north, poly_min_north])
+        y_poly_unstructured.extend([poly_min_east, poly_min_east, poly_max_east, poly_max_east])
+        mask_unstructured.extend([-100.0, -100.0, -100.0, -100.0])
+
+        # rbf = scipyintp.RBFInterpolator(
+        #     np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="gaussian", epsilon=0.08, smoothing=1e-3
+        # )
         rbf = scipyintp.RBFInterpolator(
             np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=10.0, smoothing=1e-5
         )

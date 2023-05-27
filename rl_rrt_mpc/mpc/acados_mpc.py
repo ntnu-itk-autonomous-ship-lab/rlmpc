@@ -166,14 +166,18 @@ class AcadosMPC:
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
 
-        slacks = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1))
+        slacks_upper = np.zeros((self._acados_ocp.dims.ns, self._acados_ocp.dims.N + 1))
         trajectory = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1))
         inputs = np.zeros((self._acados_ocp.dims.nu, self._acados_ocp.dims.N))
         for i in range(self._acados_ocp.dims.N + 1):
+            slacks_upper[:, i] = self._acados_ocp_solver.get(i, "su")
             trajectory[:, i] = self._acados_ocp_solver.get(i, "x")
             if i < self._acados_ocp.dims.N:
                 inputs[:, i] = self._acados_ocp_solver.get(i, "u").T
-        print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val}")
+        print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | Max slack var and time idx: ({np.max(slacks_upper)}, {np.argmax(slacks_upper)})")
+        psi = trajectory[2, :]
+        psi = np.unwrap(np.concatenate(([xs[2]], psi)))[1:]
+        trajectory[2, :] = psi
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
         self._t_prev = t
@@ -207,7 +211,8 @@ class AcadosMPC:
             s.t.    xdot = f_expl(x, u)
                     lbx <= x <= ubx ∀ x
                     lbu <= u <= ubu ∀ u
-                    lbh <= h(x, u, p) <= ubh
+                    lbh - slh <= h(x, u, p) <= ubh + suh
+                    slh, suh >= 0
 
             where x, u and p are the state, input and parameter vector, respectively.
 
@@ -303,9 +308,9 @@ class AcadosMPC:
         #        n_path_constr = self._params.max_num_so_constr * n_ship_vertices + self._params.max_num_do_constr
         n_path_constr = self._params.max_num_so_constr + self._params.max_num_do_constr
 
-        self._acados_ocp.constraints.lh = np.zeros(n_path_constr)
+        self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
         self._acados_ocp.constraints.lh_e = self._acados_ocp.constraints.lh
-        self._acados_ocp.constraints.uh = approx_inf * np.ones(n_path_constr)
+        self._acados_ocp.constraints.uh = np.zeros(n_path_constr)
         self._acados_ocp.constraints.uh_e = self._acados_ocp.constraints.uh
 
         # Slacks on dynamic obstacle and static obstacle constraints
@@ -316,10 +321,12 @@ class AcadosMPC:
         self._acados_ocp.cost.Zl_e = np.zeros(n_path_constr)
         self._acados_ocp.cost.Zu = np.zeros(n_path_constr)
         self._acados_ocp.cost.Zu_e = np.zeros(n_path_constr)
-        self._acados_ocp.cost.zl = 1e3 * np.ones(n_path_constr)
-        self._acados_ocp.cost.zl_e = 1e3 * np.ones(n_path_constr)
+        self._acados_ocp.cost.zl = np.zeros(n_path_constr)
+        self._acados_ocp.cost.zl_e = np.zeros(n_path_constr)
         self._acados_ocp.cost.zu = 1e3 * np.ones(n_path_constr)
         self._acados_ocp.cost.zu_e = 1e3 * np.ones(n_path_constr)
+        self._acados_ocp.constraints.ush = np.zeros(n_path_constr)
+        self._acados_ocp.constraints.ush_e = np.zeros(n_path_constr)
 
         con_h_expr = []
         so_constr_list = self._create_static_obstacle_constraint(x, so_list, d_safe_so, ship_vertices, enc)

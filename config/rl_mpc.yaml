@@ -21,11 +21,11 @@ mpc:
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 15
+    max_num_so_constr: 11
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True
     debug: True
-  enable_acados: False
+  enable_acados: True
   solver_options:
     casadi:
       solver_type: "ipopt"
@@ -51,7 +51,7 @@ mpc:
       nlp_solver_tol_ineq: 0.000001
       nlp_solver_tol_comp: 0.000001
       nlp_solver_ext_qp_res: 0
-      qp_solver_type: "FULL_CONDENSING_QPOASES" #"PARTIAL_CONDENSING_HPIPM"
+      qp_solver_type: "PARTIAL_CONDENSING_HPIPM"
       qp_solver_iter_max: 100
       qp_solver_warm_start: 1
       hessian_approx_type: "EXACT"
