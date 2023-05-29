@@ -786,13 +786,14 @@ def compute_surface_approximations_from_polygons(polygons: list, casadi_opts: di
                 rbf.epsilon,
             )
             x = csd.MX.sym("x", 2)
-            intp = rbf_csd(x.reshape((1, 2)))
+            d_safe = csd.MX.sym("d_safe", 1)
+            intp = rbf_csd(x.reshape((1, 2)), d_safe)
             if False:  # casadi_opts["jit"]:
                 rbf_surface_func = csd.Function(
                     "surface_func", [x.reshape((1, 2))], [intp], {"jit": True, "compiler": casadi_opts["compiler"], "jit_options": casadi_opts["jit_options"]}
                 )
             else:
-                rbf_surface_func = csd.Function("so_surface_func_" + str(j), [x.reshape((1, 2))], [intp])
+                rbf_surface_func = csd.Function("so_surface_func_" + str(j), [x.reshape((1, 2)), d_safe], [intp])
             surfaces.append(rbf_surface_func)
             code_gen.add(rbf_surface_func)
             j += 1

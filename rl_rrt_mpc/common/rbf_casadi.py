@@ -54,27 +54,27 @@ NAME_TO_FUNC = {
 }
 
 
-def kernel_vector(x: csd.MX, y: np.ndarray, kernel_func, out: csd.MX) -> csd.MX:
+def kernel_vector(x: csd.MX, d_safe: csd.MX, y: np.ndarray, kernel_func, out: csd.MX) -> csd.MX:
     """Evaluate RBFs, with centers at `y`, at the point `x`."""
     for i in range(y.shape[0]):
-        out[i] = kernel_func(csd.norm_2(x - y[i].reshape(1, 2)))
+        out[i] = kernel_func(csd.fabs(csd.norm_2(x - y[i].reshape(1, 2)) - d_safe))
         # out[i] = csd.if_else(out[i] < 1e-5, 0.0, out[i])
     return out
 
 
-def kernel_vector2(x: csd.MX, y: np.ndarray, out: csd.MX) -> csd.MX:
-    """Evaluate RBFs, with centers at `y`, at the point `x`."""
+def kernel_vector2(x: csd.MX, d_safe: csd.MX, y: np.ndarray, out: csd.MX) -> csd.MX:
+    """Evaluate RBFs, with centers at `y`, at the point `x`, with a safe distance `d_safe`."""
     for i in range(y.shape[0]):
-        out[i] = thin_plate_spline(csd.norm_2(x - y[i].reshape(1, 2)))
-        out[i] = csd.if_else(out[i] < 1e-5, 0.0, out[i])
+        out[i] = thin_plate_spline(csd.fabs(csd.norm_2(x - y[i].reshape(1, 2)) - d_safe))
+        # out[i] = csd.if_else(out[i] < 1e-5, 0.0, out[i])
     return out
 
 
-def polynomial_vector(x: csd.MX, powers: np.ndarray, out: csd.MX) -> csd.MX:
-    """Evaluate monomials, with exponents from `powers`, at the point `x`."""
+def polynomial_vector(x: csd.MX, d_safe: csd.MX, powers: np.ndarray, out: csd.MX) -> csd.MX:
+    """Evaluate monomials, with exponents from `powers`, at the point `x`, with a safe distance `d_safe`."""
     for i in range(powers.shape[0]):
         out[i] = (x[0] ** powers[i, 0]) * (x[1] ** powers[i, 1])
-    return out
+    return out + d_safe
 
 
 class RBFInterpolator:
@@ -120,12 +120,12 @@ class RBFInterpolator:
         self.p: int = self.y.shape[0]
         self.r: int = self.powers.shape[0]
         self.smoothing: float = smoothing
-        self.kernel: str = kernel
+        self.kernel_func = NAME_TO_FUNC[kernel]
         self.epsilon: float = epsilon
         self.yeps: np.ndarray = y * epsilon
         self.vec: csd.MX = csd.MX.zeros(self.p + self.r)
 
-    def __call__(self, x: csd.MX) -> csd.MX:
+    def __call__(self, x: csd.MX, d_safe: csd.MX) -> csd.MX:
         """Evaluate the interpolant at `x`.
 
         Parameters
@@ -142,7 +142,7 @@ class RBFInterpolator:
         xeps = x * self.epsilon
         xhat = (x - self.shift) / self.scale
 
-        # self.vec[: self.p] = kernel_vector(xeps[i, :], yeps, kernel_func, vec[:p])
-        self.vec[: self.p] = kernel_vector2(xeps, self.yeps, self.vec[: self.p])
-        self.vec[self.p :] = polynomial_vector(xhat, self.powers, self.vec[self.p :])
+        self.vec[: self.p] = kernel_vector(xeps, d_safe, self.yeps, self.kernel_func, self.vec[: self.p])
+        # self.vec[: self.p] = kernel_vector2(xeps, d_safe, self.yeps, self.vec[: self.p])
+        self.vec[self.p :] = polynomial_vector(xhat, d_safe, self.powers, self.vec[self.p :])
         return self.vec.T @ self.coeffs

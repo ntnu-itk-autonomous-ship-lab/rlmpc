@@ -269,54 +269,40 @@ class RLMPC(ci.ICOLAV):
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
         in order to extract relevant grounding hazards.
         """
-        assert goal_state is not None, "Goal state must be provided to the RL-MPC"
         assert enc is not None, "ENC must be provided to the RL-MPC"
-        nx = ownship_state.size
         if not self._initialized:
             self._initialized = True
             # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
             # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
-
             self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
             self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, xs=ownship_state, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
 
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
-            # Find closest point on nominal trajectory to the current state
-            closest_idx = int(np.argmin(np.linalg.norm(self._nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(self._nominal_trajectory[0, :]), 1)).T, axis=0)))
-            shifted_nominal_trajectory = self._nominal_trajectory[:, closest_idx:]
-            N = int(self._mpc.params.T / self._mpc.params.dt)
-            n_samples = shifted_nominal_trajectory.shape[1]
-            if n_samples == 0:  # Done with following nominal trajectory, stop
-                shifted_nominal_trajectory = np.tile(np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)).T
-            elif n_samples < N + 1:
-                shifted_nominal_trajectory = np.zeros((nx, N + 1))
-                shifted_nominal_trajectory[:, :n_samples] = self._nominal_trajectory
-                shifted_nominal_trajectory[:, n_samples:] = np.tile(self._nominal_trajectory[:, -1], (N + 1 - n_samples, 1)).T
-            else:
-                shifted_nominal_trajectory = shifted_nominal_trajectory[:, : N + 1]
+            nominal_trajectory = self._update_nominal_trajectory(ownship_state)
 
             # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             # self._ktp.update_path_variable(t - self._t_prev)
             self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
                 t,
-                nominal_trajectory=shifted_nominal_trajectory,
+                nominal_trajectory=nominal_trajectory,
                 nominal_inputs=None,
                 xs=ownship_state,
                 do_list=do_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
             )
-            self._t_prev_mpc = t
+
             if enc is not None and self._mpc.params.debug:
-                hf.plot_trajectory(shifted_nominal_trajectory, enc, "magenta")
+                hf.plot_trajectory(nominal_trajectory, enc, "magenta")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
                 enc.draw_polygon(ship_poly, color="pink")
             self._mpc_trajectory, self._mpc_inputs = self._interpolate_solution(t)
             # self._los.reset_wp_counter()
+            self._t_prev_mpc = t
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
@@ -389,6 +375,30 @@ class RLMPC(ci.ICOLAV):
             if show_plots:
                 sg.plot_constraints(A_reduced, b_reduced, state[0:2], "black", enc)
             self._mpc_rel_polygons = [A_reduced, b_reduced]
+
+    def _update_nominal_trajectory(self, ownship_state: np.ndarray) -> np.ndarray:
+        """Updates the nominal trajectory to the MPC based on the current ownship state.
+
+        Args:
+            - ownship_state (np.ndarray): The ownship state.
+
+        Returns:
+            np.ndarray: The updated nominal trajectory.
+        """
+        # Find closest point on nominal trajectory to the current state
+        closest_idx = int(np.argmin(np.linalg.norm(self._nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(self._nominal_trajectory[0, :]), 1)).T, axis=0)))
+        shifted_nominal_trajectory = self._nominal_trajectory[:, closest_idx:]
+        N = int(self._mpc.params.T / self._mpc.params.dt)
+        n_samples = shifted_nominal_trajectory.shape[1]
+        if n_samples == 0:  # Done with following nominal trajectory, stop
+            shifted_nominal_trajectory = np.tile(np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)).T
+        elif n_samples < N + 1:
+            shifted_nominal_trajectory = np.zeros((nx, N + 1))
+            shifted_nominal_trajectory[:, :n_samples] = self._nominal_trajectory
+            shifted_nominal_trajectory[:, n_samples:] = np.tile(self._nominal_trajectory[:, -1], (N + 1 - n_samples, 1)).T
+        else:
+            shifted_nominal_trajectory = shifted_nominal_trajectory[:, : N + 1]
+        return shifted_nominal_trajectory
 
     def _interpolate_solution(self, t: float) -> Tuple[np.ndarray, np.ndarray]:
         """Interpolates the solution from the MPC to the time step in the simulation.
