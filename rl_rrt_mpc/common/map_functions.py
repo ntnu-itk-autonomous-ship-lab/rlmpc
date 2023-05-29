@@ -690,140 +690,152 @@ def compute_surface_approximations_from_polygons(polygons: list, casadi_opts: di
     surfaces = []
     npx_min = 5
     npy_min = 5
+    code_gen = csd.CodeGenerator("surface_functions")
     if show_plots:
-        ax = plt.figure().add_subplot(111, projection="3d")
+        # ax = plt.figure().add_subplot(111, projection="3d")
         # ax.axis("equal")
         ax2 = plt.figure().add_subplot(111, projection="3d")
         # ax2.axis("equal")
-        ax3 = plt.figure().add_subplot(111)
-    for j, polygon in enumerate(polygons):
-        n_vertices = len(polygon.exterior.coords)
-        npx = int(max(npx_min, n_vertices / 1.0))
-        npy = int(max(npy_min, n_vertices / 1.0))
-        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(1.0).bounds
-        north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
-        east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
-        X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
-        map_coords = np.hstack((X.reshape(-1, 1), Y.reshape(-1, 1)))
-        y_poly, x_poly = polygon.exterior.coords.xy
-        poly_path = mpath.Path(np.array([x_poly, y_poly]).T)
-        mask = poly_path.contains_points(points=map_coords, radius=0.1)
-        mask = mask.astype(float).reshape((npy, npx))
-        mask[mask > 0.0] = 1.0
-        polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
+        # ax3 = plt.figure().add_subplot(111)
 
-        # alternative method using unstructured grid data
-        range_max = np.sqrt((poly_max_east - polygon.centroid.x) ** 2 + (poly_max_north - polygon.centroid.y) ** 2)
-        x_poly_unstructured = []
-        y_poly_unstructured = []
-        mask_unstructured = []
-        y_poly, x_poly = polygon.exterior.coords.xy
-        # remove last point if it is the same as the first
-        if x_poly[0] == x_poly[-1] and y_poly[0] == y_poly[-1]:
-            x_poly = x_poly[:-1]
-            y_poly = y_poly[:-1]
+    j = 0
+    for polygons, original_poly in polygons:
+        original_polygon_boundary = geometry.LineString(original_poly.exterior.coords).buffer(0.0001)
+        for polygon in polygons:
+            # n_vertices = len(polygon.exterior.coords)
+            # npx = int(max(npx_min, n_vertices / 1.0))
+            # npy = int(max(npy_min, n_vertices / 1.0))
+            # poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(1.0).bounds
+            # north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
+            # east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
+            # X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
+            # map_coords = np.hstack((X.reshape(-1, 1), Y.reshape(-1, 1)))
+            # y_poly, x_poly = polygon.exterior.coords.xy
+            # poly_path = mpath.Path(np.array([x_poly, y_poly]).T)
+            # mask = poly_path.contains_points(points=map_coords, radius=0.1)
+            # mask = mask.astype(float).reshape((npy, npx))
+            # mask[mask > 0.0] = 1.0
+            # polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
 
-        x_poly_unstructured.extend(x_poly.tolist())
-        y_poly_unstructured.extend(y_poly.tolist())
-        mask_unstructured.extend([1.0] * len(x_poly))
-        if enc is not None and show_plots:
-            enc.draw_polygon(polygon, color="red", fill=False)
+            # Method using unstructured grid data
+            # Remove the last point and points that are on the enveloping polygon boundary
+            y, x = polygon.exterior.coords.xy
+            if x[0] == x[-1] and y[0] == y[-1]:
+                x = x[:-1]
+                y = y[:-1]
+            x_poly_unstructured = []
+            y_poly_unstructured = []
+            mask_unstructured = []
+            for (xcoord, ycoord) in zip(x, y):
+                if original_polygon_boundary.contains(geometry.Point(ycoord, xcoord)):
+                    x_poly_unstructured.append(xcoord)
+                    y_poly_unstructured.append(ycoord)
+            mask_unstructured.extend([1.0] * len(x_poly_unstructured))
+            coastline = geometry.LineString(zip(y_poly_unstructured, x_poly_unstructured))
 
-        # Add buffer points just outside the polygon, where the mask is zero or negative (no collision)
-        step_buffer = 1000.0
-        n_levels = min(1, int(range_max / 2.0))
-        for level in range(n_levels):
-            buff_l = 0.5 + level * step_buffer
-            try:
-                y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
-            except AttributeError:
-                break
-            x_poly_unstructured.extend(x_poly.tolist())
-            y_poly_unstructured.extend(y_poly.tolist())
-            mask_unstructured.extend([-10.0 * buff_l] * len(x_poly))
             if enc is not None and show_plots:
-                enc.draw_polygon(polygon.buffer(buff_l), color="orange", fill=False)
+                enc.draw_polygon(polygon, color="red", fill=False)
 
-        # Add polygon boundary points
-        poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(5.0).bounds
-        x_poly_unstructured.extend([poly_min_north, poly_max_north, poly_max_north, poly_min_north])
-        y_poly_unstructured.extend([poly_min_east, poly_min_east, poly_max_east, poly_max_east])
-        mask_unstructured.extend([-100.0, -100.0, -100.0, -100.0])
+            # Add buffer points just outside the polygon coastline, where the mask is zero or negative (no collision)
+            step_buffer = 1000.0
+            n_levels = 1
+            for level in range(n_levels):
+                buff_l = 0.5 + level * step_buffer
+                try:
+                    y_poly, x_poly = polygon.buffer(buff_l).exterior.coords.xy
+                    for (xcoord, ycoord) in zip(x_poly, y_poly):
+                        if original_polygon_boundary.buffer(buff_l).contains(geometry.Point(ycoord, xcoord)):
+                            x_poly_unstructured.append(xcoord)
+                            y_poly_unstructured.append(ycoord)
+                            mask_unstructured.append(-100.0)
+                except AttributeError:
+                    break
+                if enc is not None and show_plots:
+                    enc.draw_polygon(coastline.buffer(buff_l), color="orange", fill=False)
 
-        # rbf = scipyintp.RBFInterpolator(
-        #     np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="gaussian", epsilon=0.08, smoothing=1e-3
-        # )
-        rbf = scipyintp.RBFInterpolator(
-            np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=10.0, smoothing=1e-5
-        )
-        rbf_csd = rbf_casadi.RBFInterpolator(
-            np.array([x_poly_unstructured, y_poly_unstructured]).T,
-            np.array(mask_unstructured),
-            rbf._coeffs,
-            rbf.powers,
-            rbf._shift,
-            rbf._scale,
-            rbf.smoothing,
-            "thin_plate_spline",
-            rbf.epsilon,
-        )
-        x = csd.MX.sym("x", 2)
-        intp = rbf_csd(x.reshape((1, 2)))
-        if False:  # casadi_opts["jit"]:
-            rbf_surface_func = csd.Function(
-                "surface_func", [x.reshape((1, 2))], [intp], {"jit": True, "compiler": casadi_opts["compiler"], "jit_options": casadi_opts["jit_options"]}
+            # Add polygon boundary points
+            poly_min_east, poly_min_north, poly_max_east, poly_max_north = coastline.buffer(5.0).bounds
+            x_poly_unstructured.extend([poly_min_north, poly_max_north, poly_max_north, poly_min_north])
+            y_poly_unstructured.extend([poly_min_east, poly_min_east, poly_max_east, poly_max_east])
+            mask_unstructured.extend([-1000.0, -1000.0, -1000.0, -1000.0])
+
+            # Add points in the middle between the polygon boundary points
+            x_poly_unstructured.extend(
+                [poly_min_north + 0.5 * (poly_max_north - poly_min_north), poly_max_north, poly_min_north + 0.5 * (poly_max_north - poly_min_north), poly_min_north]
             )
-        else:
-            rbf_surface_func = csd.Function("surface_func", [x.reshape((1, 2))], [intp])
-        surfaces.append(rbf_surface_func)
+            y_poly_unstructured.extend(
+                [poly_min_east, poly_min_east + 0.5 * (poly_max_east - poly_min_east), poly_max_east, poly_min_east + 0.5 * (poly_max_east - poly_min_east)]
+            )
+            mask_unstructured.extend([-1000.0, -1000.0, -1000.0, -1000.0])
 
-        if enc is not None and show_plots:
-            assert enc is not None
-            # enc.draw_polygon(polygon, color="black")
-            buffer = 0.0
-            extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=100)
-            extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=100)
-            surface_points = np.zeros((100, 100))
-            surface_points2 = np.zeros((100, 100))
-            for i, north_coord in enumerate(extra_north_coords):
-                for j, east_coord in enumerate(extra_east_coords):
-                    surface_points[i, j] = polygon_surface([north_coord, east_coord])
-                    surface_points2[i, j] = rbf_surface_func(np.array([north_coord, east_coord]).reshape(1, 2))
-                    # surface_points2[i, j] = polygon_surface2([north_coord, east_coord])
-                    # surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
+            # rbf = scipyintp.RBFInterpolator(
+            #     np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="gaussian", epsilon=0.08, smoothing=1e-3
+            # )
+            rbf = scipyintp.RBFInterpolator(
+                np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=10.0, smoothing=1e-5
+            )
+            rbf_csd = rbf_casadi.RBFInterpolator(
+                np.array([x_poly_unstructured, y_poly_unstructured]).T,
+                np.array(mask_unstructured),
+                rbf._coeffs,
+                rbf.powers,
+                rbf._shift,
+                rbf._scale,
+                rbf.smoothing,
+                "thin_plate_spline",
+                rbf.epsilon,
+            )
+            x = csd.MX.sym("x", 2)
+            intp = rbf_csd(x.reshape((1, 2)))
+            if False:  # casadi_opts["jit"]:
+                rbf_surface_func = csd.Function(
+                    "surface_func", [x.reshape((1, 2))], [intp], {"jit": True, "compiler": casadi_opts["compiler"], "jit_options": casadi_opts["jit_options"]}
+                )
+            else:
+                rbf_surface_func = csd.Function("so_surface_func_" + str(j), [x.reshape((1, 2))], [intp])
+            surfaces.append(rbf_surface_func)
+            code_gen.add(rbf_surface_func)
+            j += 1
+            if enc is not None and show_plots:
+                assert enc is not None
+                buffer = 0.0
+                extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=100)
+                extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=100)
+                surface_points = np.zeros((100, 100))
+                surface_points2 = np.zeros((100, 100))
+                for i, north_coord in enumerate(extra_north_coords):
+                    for j, east_coord in enumerate(extra_east_coords):
+                        # surface_points[i, j] = polygon_surface([north_coord, east_coord])
+                        surface_points2[i, j] = rbf_surface_func(np.array([north_coord, east_coord]).reshape(1, 2))
+                        # surface_points2[i, j] = polygon_surface2([north_coord, east_coord])
+                        # surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
 
-                ax3.plot(extra_east_coords, surface_points2[i, :], "b")
-                ax3.plot(np.array(y_poly_unstructured) - poly_min_east, mask_unstructured, "ro")
-                ax3.set_ylim([-3.1, 1.1])
+                    # ax3.plot(extra_east_coords, surface_points2[i, :], "b")
+                    # ax3.plot(np.array(y_poly_unstructured) - poly_min_east, mask_unstructured, "ro")
+                    # ax3.set_ylim([-3.1, 1.1])
+                    # plt.show(block=False)
+                    # ax3.clear()
+
+                xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
+                # ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
+                # ax.set_xlabel("North")
+                # ax.set_ylabel("East")
+                # ax.set_zlabel("Mask")
+
+                fig, ax4 = plt.subplots()
+                ax4.pcolormesh(xX, yY, surface_points2, shading="gouraud")
+                p = ax4.scatter(x_poly_unstructured, y_poly_unstructured, c=np.array(mask_unstructured), s=50, ec="k")
+                fig.colorbar(p)
+
+                ax2.plot_surface(xX, yY, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
+                ax2.set_xlabel("North")
+                ax2.set_ylabel("East")
+                ax2.set_zlabel("Mask")
                 plt.show(block=False)
-                ax3.clear()
+                # ax.clear()
+                ax2.clear()
 
-            xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
-            ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
-            ax.set_xlabel("North")
-            ax.set_ylabel("East")
-            ax.set_zlabel("Mask")
-
-            # yY_new = yY[:-1, :-1] + np.diff(yY[:2, 0])[0] / 2.0
-            # xX_new = xX[:-1, :-1] + np.diff(xX[0, :2])[0] / 2.0
-            # surface_coords2 = scipyintp.bisplev(yY_new[:, 0], xX_new[0, :], polygon_surface2_tck)
-            # plt.figure()
-            # plt.pcolormesh(yY, xX, surface_coords2, shading="flat", cmap=cm.coolwarm)
-            # plt.colorbar()
-
-            fig, ax4 = plt.subplots()
-            ax4.pcolormesh(xX, yY, surface_points2, shading="gouraud")
-            p = ax4.scatter(x_poly_unstructured, y_poly_unstructured, c=np.array(mask_unstructured), s=50, ec="k")
-            fig.colorbar(p)
-
-            ax2.plot_surface(xX, yY, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
-            ax2.set_xlabel("North")
-            ax2.set_ylabel("East")
-            ax2.set_zlabel("Mask")
-            plt.show(block=False)
-            ax.clear()
-            ax2.clear()
-
+    code_gen.generate()
     return surfaces
 
 

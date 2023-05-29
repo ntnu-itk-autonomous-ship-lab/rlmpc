@@ -82,7 +82,7 @@ class CasadiMPC:
         self._initialized = False
         self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
 
-        self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)  # Optimization variables w
+        self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)
         self._lbw: np.ndarray = np.array([])
         self._ubw: np.ndarray = np.array([])
         self._vsolver: csd.Function = csd.Function("vsolver", [], [])
@@ -255,7 +255,7 @@ class CasadiMPC:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
         Class constructs a "CASADI" (ipopt) tailored OCP on the form (same as for the ACADOS MPC):
-            min     ∫ Lc(x, u, p) dt + Tc_theta(xf)  (from 0 to Tf)
+            min     ∫ Lc(x, u, p) dt + Tc(xf)  (from 0 to Tf)
             s.t.    xdot = f_expl(x, u)
                     lbx <= x <= ubx ∀ x
                     lbu <= u <= ubu ∀ u
@@ -578,10 +578,11 @@ class CasadiMPC:
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
-                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
+                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) + d_safe_so - sigma_k[j])
                         # vertices = mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]
                         # vertices = vertices.reshape((-1, 2))
-                        # so_constr_list.append(csd.vec(so_surfaces[j](vertices) - sigma_k[j]))
+                        # for i in range(vertices.shape[0]):
+                        #     so_constr_list.append(csd.vec(so_surfaces[j](vertices[i, :]) - sigma_k[j]))
                     else:
                         so_constr_list.append(-sigma_k[j])
         return so_constr_list

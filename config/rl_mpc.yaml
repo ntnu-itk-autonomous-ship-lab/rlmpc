@@ -15,9 +15,9 @@ mpc:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
     T: 30.0
-    dt: 1.0
+    dt: 0.5
     Q: [5.0, 5.0] #, 0.01, 10.0, 1.0, 1.0]
-    d_safe_so: 1.2
+    d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
@@ -25,7 +25,7 @@ mpc:
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True
     debug: True
-  enable_acados: True
+  enable_acados: False
   solver_options:
     casadi:
       solver_type: "ipopt"
@@ -44,12 +44,12 @@ mpc:
       compiler: "shell"
       expand_mx_funcs_to_sx: False
     acados:
-      nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 300
+      nlp_solver_type: "SQP_RTI"
+      nlp_solver_max_iter: 200
       nlp_solver_tol_stat: 0.000001
-      nlp_solver_tol_eq: 0.000001
-      nlp_solver_tol_ineq: 0.000001
-      nlp_solver_tol_comp: 0.000001
+      nlp_solver_tol_eq: 0.00001
+      nlp_solver_tol_ineq: 0.00001
+      nlp_solver_tol_comp: 0.00001
       nlp_solver_ext_qp_res: 0
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM"
       qp_solver_iter_max: 100

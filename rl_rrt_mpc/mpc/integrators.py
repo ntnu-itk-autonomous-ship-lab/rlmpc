@@ -86,7 +86,7 @@ class ERK4(Integrator):
     Fixed step Explicit Runge-Kutta 4 integrator
     """
 
-    def __init__(self, x, p, ode, quad, h, M=4):
+    def __init__(self, x, p, ode, quad, h, M=1):
         """
         Keyword Arguments
         -----------------

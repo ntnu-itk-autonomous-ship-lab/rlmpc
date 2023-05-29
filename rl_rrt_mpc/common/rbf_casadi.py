@@ -78,7 +78,13 @@ def polynomial_vector(x: csd.MX, powers: np.ndarray, out: csd.MX) -> csd.MX:
 
 
 class RBFInterpolator:
-    """A class for radial basis function interpolation using CasADi."""
+    """A class for radial basis function interpolation using CasADi.
+
+    The interpolant is constructed by summing a radial basis function interpolant + a polynomial interpolant:
+
+    f(x) = sum_i=1^n * phi(||x - x_i||) + p(x)
+
+    """
 
     def __init__(
         self,
@@ -105,60 +111,19 @@ class RBFInterpolator:
             kernel (str): Name of the RBF kernel used. Defaults to "thin_plate_spline".
             epsilon (float): Scaling parameter for the RBF kernel.
         """
-        self.shift = shift.reshape(1, 2)
-        self.scale = scale.reshape(1, 2)
-        self.coeffs = coeffs
-        self.powers = powers
-        self.y = y
-        self.d = d
-        self.p = self.y.shape[0]
-        self.r = self.powers.shape[0]
-        self.smoothing = smoothing
-        self.kernel = kernel
-        self.epsilon = epsilon
-        self.yeps = y * epsilon
-
-    def _build_evaluation_coefficients(self, x: csd.MX) -> csd.MX:
-        """Construct the coefficients needed to evaluate
-        the RBF.
-
-        Parameters
-        ----------
-        x : (Q, N) float ndarray
-            Evaluation point coordinates. Q==1 is the number of evaluation points. N is the number of dimensions.
-
-        Returns
-        -------
-        (Q, P + R) csd.MX array
-
-        """
-        # kernel_func = NAME_TO_FUNC[kernel]
-
-        xeps = x * self.epsilon
-        xhat = (x - self.shift) / self.scale
-        vec = csd.MX.zeros(self.p + self.r)
-        # vec[: self.p] = kernel_vector(xeps[i, :], yeps, kernel_func, vec[:p])
-        vec[: self.p] = kernel_vector2(xeps, self.yeps, vec[: self.p])
-        vec[self.p :] = polynomial_vector(xhat, self.powers, vec[self.p :])
-        return vec.T
-
-    def _chunk_evaluator(self, x: csd.MX) -> csd.MX:
-        """
-        Evaluate the interpolation while controlling memory consumption.
-        We chunk the input if we need more memory than specified.
-
-        Parameters
-        ----------
-        x : (Q, N) csd.MX array. Q==1 is the number of points to evaluate, N is the number of dimensions.
-            array of points on which to evaluate
-
-        Returns
-        -------
-        (Q, S) csd.MX array
-        Interpolated array
-        """
-        vec = self._build_evaluation_coefficients(x)
-        return vec @ self.coeffs
+        self.shift: np.ndarray = shift.reshape(1, 2)
+        self.scale: np.ndarray = scale.reshape(1, 2)
+        self.coeffs: np.ndarray = coeffs
+        self.powers: np.ndarray = powers
+        self.y: np.ndarray = y
+        self.d: np.ndarray = d
+        self.p: int = self.y.shape[0]
+        self.r: int = self.powers.shape[0]
+        self.smoothing: float = smoothing
+        self.kernel: str = kernel
+        self.epsilon: float = epsilon
+        self.yeps: np.ndarray = y * epsilon
+        self.vec: csd.MX = csd.MX.zeros(self.p + self.r)
 
     def __call__(self, x: csd.MX) -> csd.MX:
         """Evaluate the interpolant at `x`.
@@ -174,4 +139,10 @@ class RBFInterpolator:
             Values of the interpolant at `x`.
 
         """
-        return self._chunk_evaluator(x)
+        xeps = x * self.epsilon
+        xhat = (x - self.shift) / self.scale
+
+        # self.vec[: self.p] = kernel_vector(xeps[i, :], yeps, kernel_func, vec[:p])
+        self.vec[: self.p] = kernel_vector2(xeps, self.yeps, self.vec[: self.p])
+        self.vec[self.p :] = polynomial_vector(xhat, self.powers, self.vec[self.p :])
+        return self.vec.T @ self.coeffs

@@ -179,6 +179,7 @@ class RLRRTMPC(ci.ICOLAV):
         rel_ownship_state[0] -= enc.origin[1]
         rel_ownship_state[1] -= enc.origin[0]
         self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
+            t,
             nominal_trajectory=self._rel_rrt_trajectory,
             nominal_inputs=self._rrt_inputs,
             xs=rel_ownship_state,
@@ -315,12 +316,19 @@ class RLMPC(ci.ICOLAV):
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
                 enc.draw_polygon(ship_poly, color="pink")
             self._mpc_trajectory, self._mpc_inputs = self._interpolate_solution(t)
+            # self._los.reset_wp_counter()
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
-        self._references = np.zeros((nx + 3, len(self._mpc_trajectory[0, :])))
-        self._references[:nx, :] = self._mpc_trajectory
+        # Use LOS-guidance to track the MPC trajectory
+        # self._references = self._los.compute_references(
+        #     self._mpc_trajectory[:2, :], speed_plan=self._mpc_trajectory[3, :], times=None, xs=ownship_state, dt=t - self._t_prev
+        # )
+        # self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        # self._references[:nx, :] = self._mpc_trajectory
+        self._references = np.zeros((9, len(self._mpc_inputs[0, :])))
+        self._references[:2, :] = self._mpc_inputs
         # print(f"RLMPC references: {self._references[:, 0]}")
         self._t_prev = t
         return self._references
@@ -364,7 +372,7 @@ class RLMPC(ci.ICOLAV):
             P1, P2 = mapf.create_point_list_from_polygons(self._rel_polygons)
             self._set_generator = sg.SetGenerator(P1, P2)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
-            self._mpc_rel_polygons = self._rel_polygons  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
+            self._mpc_rel_polygons = poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.TRIANGULARBOUNDARY:
             self._mpc_rel_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
 
