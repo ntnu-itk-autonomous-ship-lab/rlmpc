@@ -7,7 +7,7 @@
     Author: Trym Tengesdal
 """
 from abc import ABC, abstractmethod
-from typing import Optional, Tuple
+from typing import Tuple
 
 import casadi as csd
 import colav_simulator.core.models as cs_models

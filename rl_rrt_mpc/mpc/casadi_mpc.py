@@ -233,6 +233,10 @@ class CasadiMPC:
         if not stats["success"]:
             RuntimeError("Problem is Infeasible")
 
+        # if max iterations are reached, use the last solution
+        if stats["max_iter"]:
+            soln = self._current_warmstart_v
+
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
@@ -365,7 +369,7 @@ class CasadiMPC:
         b_so_constr = csd.MX.sym("b_so_constr", 0)
         so_surfaces = []
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-            so_surfaces = mapf.compute_surface_approximations_from_polygons(so_list, self._solver_options.to_opt_settings(), enc)
+            so_surfaces = mapf.compute_surface_approximations_from_polygons(so_list, self._solver_options.to_opt_settings(), enc, [self._params.d_safe_so])[0]
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
             so_pars = csd.MX.sym("so_pars", 3, self._params.max_num_so_constr)  # (x_c, y_c, r) x self._params.max_num_so_constr
             p_fixed.append(csd.reshape(so_pars, -1, 1))
@@ -578,7 +582,7 @@ class CasadiMPC:
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
-                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2)), d_safe_so) - sigma_k[j])
+                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
                         # vertices = mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * d_safe_so + x_k[0:2]
                         # vertices = vertices.reshape((-1, 2))
                         # for i in range(vertices.shape[0]):
