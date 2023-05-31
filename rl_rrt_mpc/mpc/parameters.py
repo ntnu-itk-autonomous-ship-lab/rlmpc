@@ -21,14 +21,12 @@ class StaticObstacleConstraint(Enum):
         CIRCULAR: Uses a set of circular constraint types.
         ELLIPSOIDAL: Uses a set of elliptic constraint types.
         APPROXCONVEXSAFESET: Uses an approximate maximum coverage convex set constraint for the own-ship to stay within.
-        TRIANGULARBOUNDARY: Uses a triangular boundary constraint for each static obstacle.
     """
 
     PARAMETRICSURFACE = 0
     CIRCULAR = 1
     ELLIPSOIDAL = 2
     APPROXCONVEXSAFESET = 3
-    TRIANGULARBOUNDARY = 4
 
 
 @dataclass
@@ -51,20 +49,20 @@ class IParams(ABC):
 class RLMPCParams(IParams):
     """Class for parameters used by the RL(N)MPC mid-level COLAV. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
 
-    rate: float = 5.0
-    reference_traj_bbox_buffer: float = 500.0
-    T: float = 10.0
-    dt: float = 0.5
-    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-    gamma: float = 0.9
-    d_safe_so: float = 5.0
-    d_safe_do: float = 5.0
-    spline_reference: bool = False
-    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.APPROXCONVEXSAFESET
-    max_num_so_constr: int = 5
-    max_num_do_constr: int = 0
-    path_following: bool = False
-    debug: bool = False
+    rate: float = 5.0  # rate of the controller
+    reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box
+    T: float = 10.0  # prediction horizon
+    dt: float = 0.5  # time step
+    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])  # state cost matrix
+    w: float = 1e4  # slack variable weight
+    gamma: float = 0.9  # discount factor in RL setting
+    d_safe_so: float = 5.0  # safety distance to static obstacles
+    d_safe_do: float = 5.0  # safety distance to dynamic obstacles
+    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
+    max_num_so_constr: int = 5  # maximum number of static obstacle constraints
+    max_num_do_constr: int = 0  # maximum number of dynamic obstacle constraints
+    path_following: bool = False  # whether to use path following or trajectory tracking
+    debug: bool = False  # whether to print debug information
 
     @classmethod
     def from_dict(self, config_dict: dict):

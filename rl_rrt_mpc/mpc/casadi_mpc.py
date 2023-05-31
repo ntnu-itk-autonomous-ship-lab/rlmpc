@@ -230,11 +230,13 @@ class CasadiMPC:
             ubg=self._ubg_v,
         )
         stats = self._vsolver.stats()
-        if not stats["success"]:
-            RuntimeError("Problem is Infeasible")
 
-        # if max iterations are reached, use the last solution
-        if stats["max_iter"]:
+        if stats["return_status"] == "Maximum_Iterations_Exceeded":
+            # Use solution unless it is infeasible, then use previous solution.
+            g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
+            g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
+            if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
+                raise RuntimeError("Infeasible solution found.")
             soln = self._current_warmstart_v
 
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
@@ -651,7 +653,7 @@ class CasadiMPC:
 
         fixed_parameter_values.extend(nominal_trajectory[0:dim_Q, : N + 1].T.flatten().tolist())
         fixed_parameter_values.append(self._params.gamma)
-        W = 1e3 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        W = self._params.w * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
         fixed_parameter_values.extend(W.tolist())
         n_do = len(do_list)
         for k in range(N + 1):
@@ -688,9 +690,6 @@ class CasadiMPC:
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
             for (c, A) in so_list:
                 fixed_so_parameter_values.extend([c[0], c[1], *A.flatten().tolist()])
-        elif self._params.so_constr_type == parameters.StaticObstacleConstraint.TRIANGULARBOUNDARY:
-            for triangle in so_list:
-                fixed_so_parameter_values.extend(*triangle)
         return np.array(fixed_so_parameter_values)
 
     def _update_so_parameter_values(self, so_list: list, state: np.ndarray, nominal_trajectory: np.ndarray, enc: senc.ENC, **kwargs) -> list:

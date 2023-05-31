@@ -26,6 +26,7 @@ import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
 from matplotlib import cm
+
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
@@ -690,46 +691,48 @@ def compute_surface_approximations_from_polygons(
         list: List of surface approximations for each polygon.
     """
     surfaces_list = []
-    npx_min = 5
-    npy_min = 5
+    cap_style = 2
+    join_style = 2
     code_gen = csd.CodeGenerator("surface_functions")
     if show_plots:
-        # ax = plt.figure().add_subplot(111, projection="3d")
+        ax = plt.figure().add_subplot(111, projection="3d")
         # ax.axis("equal")
-        ax2 = plt.figure().add_subplot(111, projection="3d")
-        # ax2.axis("equal")
         # ax3 = plt.figure().add_subplot(111)
-
-    j = 0
 
     if safety_margins is None:
         safety_margins = [0.0]
+
+    j = 0
     for d_safe in safety_margins:
         surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
         for polygons, original_poly in polygons:
-            original_polygon_boundary = geometry.LineString(original_poly.buffer(d_safe).exterior.coords).buffer(1.0)
+            original_polygon_boundary = geometry.LineString(original_poly.exterior.coords).buffer(0.5, cap_style=cap_style, join_style=join_style)
+            original_polygon_boundary_d_safe = geometry.LineString(original_poly.buffer(d_safe, cap_style=cap_style, join_style=join_style).exterior.coords).buffer(
+                0.5, cap_style=cap_style, join_style=join_style
+            )
             for polygon in polygons:
-                # n_vertices = len(polygon.exterior.coords)
-                # npx = int(max(npx_min, n_vertices / 1.0))
-                # npy = int(max(npy_min, n_vertices / 1.0))
-                # poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(1.0).bounds
-                # north_coords = np.linspace(start=poly_min_north, stop=poly_max_north, num=npx)
-                # east_coords = np.linspace(start=poly_min_east, stop=poly_max_east, num=npy)
-                # X, Y = np.meshgrid(north_coords, east_coords, indexing="ij")
-                # map_coords = np.hstack((X.reshape(-1, 1), Y.reshape(-1, 1)))
-                # y_poly, x_poly = polygon.exterior.coords.xy
-                # poly_path = mpath.Path(np.array([x_poly, y_poly]).T)
-                # mask = poly_path.contains_points(points=map_coords, radius=0.1)
-                # mask = mask.astype(float).reshape((npy, npx))
-                # mask[mask > 0.0] = 1.0
-                # polygon_surface = csd.interpolant("so_surface" + str(j), "bspline", [north_coords, east_coords], mask.ravel(order="F"))
 
-                # Method using unstructured grid data
+                coastline_original = polygon.intersection(original_polygon_boundary)
+                n_orig_boundary_points = len(coastline_original.exterior.coords.xy[0])
                 mask_unstructured = []
-                coastline = polygon.buffer(d_safe).intersection(original_polygon_boundary)
+                coastline = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style).intersection(original_polygon_boundary_d_safe)
                 y_poly_unstructured, x_poly_unstructured = coastline.exterior.coords.xy
+
+                for i in range(len(y_poly_unstructured) - 1):
+                    pi = np.array([x_poly_unstructured[i], y_poly_unstructured[i]])
+                    pj = np.array([x_poly_unstructured[i + 1], y_poly_unstructured[i + 1]])
+                    d2next = np.linalg.norm(pi - pj)
+                    if d2next > 35.0:
+                        # insert a point in between the two points
+                        p_mid = (pi + pj) / 2.0
+                        x_poly_unstructured.insert(i + 1, p_mid[0])
+                        y_poly_unstructured.insert(i + 1, p_mid[1])
+                    # print(f"Distance between vertex {i} and {i+1}: {d2next}")
+
                 mask_unstructured = [1.0] * len(y_poly_unstructured)
+                n_boundary_points = len(y_poly_unstructured)
+                # print(f"n_boundary_points before: {n_orig_boundary_points} | after: {n_boundary_points}")
 
                 # Add buffer points just outside the polygon coastline, where the mask is zero or negative (no collision)
                 step_buffer = 1000.0
@@ -737,22 +740,22 @@ def compute_surface_approximations_from_polygons(
                 for level in range(n_levels):
                     buff_l = 0.1 + level * step_buffer
                     try:
-                        y_poly, x_poly = polygon.buffer(d_safe + buff_l).exterior.coords.xy
+                        y_poly, x_poly = polygon.buffer(d_safe + buff_l, cap_style=cap_style, join_style=join_style).exterior.coords.xy
                         for (xcoord, ycoord) in zip(x_poly, y_poly):
-                            if original_polygon_boundary.buffer(buff_l).contains(geometry.Point(ycoord, xcoord)):
+                            if original_polygon_boundary_d_safe.buffer(buff_l, cap_style=cap_style, join_style=join_style).contains(geometry.Point(ycoord, xcoord)):
                                 x_poly_unstructured.append(xcoord)
                                 y_poly_unstructured.append(ycoord)
-                                mask_unstructured.append(-10.0)
+                                mask_unstructured.append(-1.0)
                     except AttributeError:
                         break
                     if enc is not None and show_plots:
-                        enc.draw_polygon(coastline.buffer(buff_l), color="orange", fill=False)
+                        enc.draw_polygon(coastline.buffer(buff_l, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
 
                 # Add polygon boundary points
-                poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 10.0).bounds
+                poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 10.0, cap_style=cap_style, join_style=join_style).bounds
                 x_poly_unstructured.extend([poly_min_north, poly_max_north, poly_max_north, poly_min_north])
                 y_poly_unstructured.extend([poly_min_east, poly_min_east, poly_max_east, poly_max_east])
-                mask_unstructured.extend([-1000.0, -1000.0, -1000.0, -1000.0])
+                mask_unstructured.extend([-10.0, -10.0, -10.0, -10.0])
 
                 # Add points in the middle between the polygon boundary points
                 # x_poly_unstructured.extend(
@@ -795,6 +798,9 @@ def compute_surface_approximations_from_polygons(
                     rbf_surface_func = csd.Function("so_surface_func_" + str(j) + "_" + safety_margin_str, [x.reshape((1, 2))], [intp])
                 surfaces.append(rbf_surface_func)
 
+                grad_rbf = csd.gradient(rbf_surface_func(x.reshape((1, 2))), x.reshape((1, 2)))
+                grad_rbf_func = csd.Function("grad_f", [x.reshape((1, 2))], [grad_rbf])
+
                 code_gen.add(rbf_surface_func)
                 j += 1
                 if enc is not None and show_plots:
@@ -803,11 +809,9 @@ def compute_surface_approximations_from_polygons(
                     extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=100)
                     extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=100)
                     surface_points = np.zeros((100, 100))
-                    surface_points2 = np.zeros((100, 100))
                     for i, north_coord in enumerate(extra_north_coords):
                         for j, east_coord in enumerate(extra_east_coords):
-                            # surface_points[i, j] = polygon_surface([north_coord, east_coord])
-                            surface_points2[i, j] = rbf_surface_func(np.array([north_coord, east_coord]).reshape(1, 2))
+                            surface_points[i, j] = rbf_surface_func(np.array([north_coord, east_coord]).reshape(1, 2))
                             # surface_points2[i, j] = polygon_surface2([north_coord, east_coord])
                             # surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
 
@@ -818,23 +822,18 @@ def compute_surface_approximations_from_polygons(
                         # ax3.clear()
 
                     xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
-                    # ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
-                    # ax.set_xlabel("North")
-                    # ax.set_ylabel("East")
-                    # ax.set_zlabel("Mask")
 
                     fig, ax4 = plt.subplots()
-                    ax4.pcolormesh(xX, yY, surface_points2, shading="gouraud")
+                    ax4.pcolormesh(xX, yY, surface_points, shading="gouraud")
                     p = ax4.scatter(x_poly_unstructured, y_poly_unstructured, c=np.array(mask_unstructured), s=50, ec="k")
                     fig.colorbar(p)
 
-                    ax2.plot_surface(xX, yY, surface_points2, rcount=200, ccount=200, cmap=cm.coolwarm)
-                    ax2.set_xlabel("North")
-                    ax2.set_ylabel("East")
-                    ax2.set_zlabel("Mask")
+                    ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
+                    ax.set_xlabel("North")
+                    ax.set_ylabel("East")
+                    ax.set_zlabel("Mask")
                     plt.show(block=False)
-                    # ax.clear()
-                    ax2.clear()
+                    ax.clear()
         surfaces_list.append(surfaces)
         code_gen.generate()
     return surfaces_list

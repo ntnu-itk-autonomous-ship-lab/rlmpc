@@ -68,6 +68,9 @@ mpc:
           minlength: 2
           schema:
             type: float
+        w:
+          required: True
+          type: float
         gamma:
           required: True
           type: float
@@ -186,10 +189,25 @@ mpc:
             qp_solver_warm_start:
               required: True
               type: integer
+            qp_solver_tol_stat:
+                required: True
+                type: float
+            qp_solver_tol_eq:
+              required: True
+              type: float
+            qp_solver_tol_ineq:
+              required: True
+              type: float
+            qp_solver_tol_comp:
+              required: True
+              type: float
             hessian_approx_type:
               required: True
               type: string
             globalization:
+              required: True
+              type: string
+            regularize_method:
               required: True
               type: string
             levenberg_marquardt:
