@@ -343,13 +343,15 @@ class RLMPC(ci.ICOLAV):
             enc.start_display()
             # hf.plot_trajectory(waypoints, enc, color="green")
             hf.plot_trajectory(self._nominal_trajectory, enc, color="magenta")
-            for hazard in relevant_grounding_hazards:
+            for hazard in self._rel_polygons:
                 enc.draw_polygon(hazard, color="red", fill=False)
+
             ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
             # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
             enc.draw_polygon(ship_poly, color="pink")
             # enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
+        # enc.save_image(name="enc_hazards", path=dp.figures, extension="pdf")
         if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.CIRCULAR:
             self._mpc_rel_polygons = mapf.compute_smallest_enclosing_circle_for_polygons(self._rel_polygons, enc)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL:
@@ -359,8 +361,6 @@ class RLMPC(ci.ICOLAV):
             self._set_generator = sg.SetGenerator(P1, P2)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
             self._mpc_rel_polygons = poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
-        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.TRIANGULARBOUNDARY:
-            self._mpc_rel_polygons = mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
 
     def _update_mpc_so_polygon_input(self, state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> None:
         """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.

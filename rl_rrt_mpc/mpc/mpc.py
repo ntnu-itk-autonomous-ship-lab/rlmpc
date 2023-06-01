@@ -106,7 +106,7 @@ class MPC:
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
         """
-        self._casadi_mpc.construct_ocp(so_list, enc)
+        # self._casadi_mpc.construct_ocp(so_list, enc)
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_trajectory, xs, do_list, so_list, enc)
 

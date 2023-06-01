@@ -13,10 +13,10 @@ from typing import Optional, Tuple
 import casadi as csd
 import geopandas as gpd
 import geopy.distance
-import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
+import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.rbf_casadi as rbf_casadi
 import rl_rrt_mpc.common.smallestenclosingcircle as smallestenclosingcircle
 import rl_rrt_mpc.gmm_em as gmm_em
@@ -676,15 +676,15 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
 
 
 def compute_surface_approximations_from_polygons(
-    polygons: list, casadi_opts: dict, enc: Optional[senc.ENC] = None, safety_margins: Optional[list] = None, show_plots: bool = False
+    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: Optional[list] = None, scale_data: bool = True, show_plots: bool = False
 ) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
         polygons (list): List of shapely polygons
-        casadi_opts (dict): CasADi options used for the function generation.
         enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
         safety_margins (Optional[list], optional): List of safety margins to buffer the polygon. Defaults to None.
+        scale_data (bool, optional): Whether to scale the data to within -1 and 1, for better numerical conditioning. Defaults to True.
         show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
@@ -696,6 +696,7 @@ def compute_surface_approximations_from_polygons(
     code_gen = csd.CodeGenerator("surface_functions")
     if show_plots:
         ax = plt.figure().add_subplot(111, projection="3d")
+        # ax2 = plt.figure().add_subplot(111, projection="3d")
         # ax.axis("equal")
         # ax3 = plt.figure().add_subplot(111)
 
@@ -712,10 +713,8 @@ def compute_surface_approximations_from_polygons(
                 0.5, cap_style=cap_style, join_style=join_style
             )
             for polygon in polygons:
-
                 coastline_original = polygon.intersection(original_polygon_boundary)
                 n_orig_boundary_points = len(coastline_original.exterior.coords.xy[0])
-                mask_unstructured = []
                 coastline = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style).intersection(original_polygon_boundary_d_safe)
                 y_poly_unstructured, x_poly_unstructured = coastline.exterior.coords.xy
 
@@ -745,37 +744,41 @@ def compute_surface_approximations_from_polygons(
                             if original_polygon_boundary_d_safe.buffer(buff_l, cap_style=cap_style, join_style=join_style).contains(geometry.Point(ycoord, xcoord)):
                                 x_poly_unstructured.append(xcoord)
                                 y_poly_unstructured.append(ycoord)
-                                mask_unstructured.append(-1.0)
+                                mask_unstructured.append(-10.0)
                     except AttributeError:
                         break
-                    if enc is not None and show_plots:
-                        enc.draw_polygon(coastline.buffer(buff_l, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
+                    # if enc is not None and show_plots:
+                    #     enc.draw_polygon(coastline.buffer(buff_l, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
 
-                # Add polygon boundary points
-                poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 10.0, cap_style=cap_style, join_style=join_style).bounds
-                x_poly_unstructured.extend([poly_min_north, poly_max_north, poly_max_north, poly_min_north])
-                y_poly_unstructured.extend([poly_min_east, poly_min_east, poly_max_east, poly_max_east])
-                mask_unstructured.extend([-10.0, -10.0, -10.0, -10.0])
+                relevant_boundary = polygon.buffer(d_safe + 100.0).intersection(
+                    geometry.LineString(original_poly.buffer(d_safe + 100.0).exterior.coords).buffer(1.0, cap_style=cap_style, join_style=join_style)
+                )
+                y_boundary, x_boundary = relevant_boundary.exterior.coords.xy
+                n_boundary_points = 8
+                if len(y_boundary) < n_boundary_points:
+                    n_boundary_points = len(y_boundary)
+                elif len(y_boundary) > 300:
+                    n_boundary_points = 20
+                step = int(len(y_boundary) / n_boundary_points)
+                for i in range(0, len(y_boundary), step):
+                    x_poly_unstructured.append(x_boundary[i])
+                    y_poly_unstructured.append(y_boundary[i])
+                    mask_unstructured.append(-100.0)
 
-                # Add points in the middle between the polygon boundary points
-                # x_poly_unstructured.extend(
-                #     [poly_min_north + 0.5 * (poly_max_north - poly_min_north), poly_max_north, poly_min_north + 0.5 * (poly_max_north - poly_min_north), poly_min_north]
-                # )
-                # y_poly_unstructured.extend(
-                #     [poly_min_east, poly_min_east + 0.5 * (poly_max_east - poly_min_east), poly_max_east, poly_min_east + 0.5 * (poly_max_east - poly_min_east)]
-                # )
-                # mask_unstructured.extend([-100.0, -100.0, -100.0, -100.0])
-
-                # poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 5000.0).bounds
-                # x_poly_unstructured.extend([poly_min_north, poly_max_north, poly_max_north, poly_min_north])
-                # y_poly_unstructured.extend([poly_min_east, poly_min_east, poly_max_east, poly_max_east])
-                # mask_unstructured.extend([-1000.0, -1000.0, -1000.0, -1000.0])
+                poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 100.0, cap_style=cap_style, join_style=join_style).bounds
 
                 # rbf = scipyintp.RBFInterpolator(
                 #     np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="gaussian", epsilon=0.08, smoothing=1e-3
                 # )
+
+                if scale_data:
+                    map_xmin, map_ymin, map_xmax, map_ymax = enc.bbox
+                    for i in range(len(x_poly_unstructured)):  # pylint: disable=consider-using-enumerate
+                        x_poly_unstructured[i] = (x_poly_unstructured[i] - map_ymin) / (map_ymax - map_ymin)
+                        y_poly_unstructured[i] = (y_poly_unstructured[i] - map_xmin) / (map_xmax - map_xmin)
+
                 rbf = scipyintp.RBFInterpolator(
-                    np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=10.0, smoothing=1e-6
+                    np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=10.0, smoothing=1e-5
                 )
                 rbf_csd = rbf_casadi.RBFInterpolator(
                     np.array([x_poly_unstructured, y_poly_unstructured]).T,
@@ -784,18 +787,12 @@ def compute_surface_approximations_from_polygons(
                     rbf.powers,
                     rbf._shift,
                     rbf._scale,
-                    rbf.smoothing,
                     "thin_plate_spline",
                     rbf.epsilon,
                 )
                 x = csd.MX.sym("x", 2)
                 intp = rbf_csd(x.reshape((1, 2)))
-                if False:  # casadi_opts["jit"]:
-                    rbf_surface_func = csd.Function(
-                        "surface_func", [x.reshape((1, 2))], [intp], {"jit": True, "compiler": casadi_opts["compiler"], "jit_options": casadi_opts["jit_options"]}
-                    )
-                else:
-                    rbf_surface_func = csd.Function("so_surface_func_" + str(j) + "_" + safety_margin_str, [x.reshape((1, 2))], [intp])
+                rbf_surface_func = csd.Function("so_surface_func_" + str(j) + "_" + safety_margin_str, [x.reshape((1, 2))], [intp])
                 surfaces.append(rbf_surface_func)
 
                 grad_rbf = csd.gradient(rbf_surface_func(x.reshape((1, 2))), x.reshape((1, 2)))
@@ -803,17 +800,39 @@ def compute_surface_approximations_from_polygons(
 
                 code_gen.add(rbf_surface_func)
                 j += 1
+
                 if enc is not None and show_plots:
+                    # if j == 2:
+                    #     enc.draw_polygon(polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style), color="black", fill=False)
+                    #     save_path = dp.figures
+                    #     enc.save_image(name="enc_island_polygon", path=save_path, extension="pdf")
+                    #     enc.save_image(name="enc_island_polygon", path=save_path, scale=2.0)
                     assert enc is not None
                     buffer = 0.0
-                    extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=100)
-                    extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=100)
-                    surface_points = np.zeros((100, 100))
-                    for i, north_coord in enumerate(extra_north_coords):
-                        for j, east_coord in enumerate(extra_east_coords):
-                            surface_points[i, j] = rbf_surface_func(np.array([north_coord, east_coord]).reshape(1, 2))
-                            # surface_points2[i, j] = polygon_surface2([north_coord, east_coord])
-                            # surface_points2[i, j] = spline_func([north_coord, east_coord], coeff).full()
+                    n_points = 150
+
+                    if scale_data:
+                        extra_north_coords = np.linspace(
+                            start=(poly_min_north - buffer - map_ymin) / (map_ymax - map_ymin),
+                            stop=(poly_max_north + buffer - map_ymin) / (map_ymax - map_ymin),
+                            num=n_points,
+                        )
+                        extra_east_coords = np.linspace(
+                            start=(poly_min_east - buffer - map_xmin) / (map_xmax - map_xmin),
+                            stop=(poly_max_east + buffer - map_xmin) / (map_xmax - map_xmin),
+                            num=n_points,
+                        )
+                    else:
+                        extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=n_points)
+                        extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=n_points)
+
+                    surface_points = np.zeros((n_points, n_points))
+                    surface_grad_points = np.zeros((n_points, n_points, 2))
+                    for i, east_coord in enumerate(extra_east_coords):
+                        for ii, north_coord in enumerate(extra_north_coords):
+                            point = np.array([north_coord, east_coord]).reshape(1, 2)
+                            surface_points[i, ii] = rbf_surface_func(point)
+                            surface_grad_points[i, ii, :] = grad_rbf_func(point).full().flatten()
 
                         # ax3.plot(extra_east_coords, surface_points2[i, :], "b")
                         # ax3.plot(np.array(y_poly_unstructured) - poly_min_east, mask_unstructured, "ro")
@@ -821,19 +840,30 @@ def compute_surface_approximations_from_polygons(
                         # plt.show(block=False)
                         # ax3.clear()
 
-                    xX, yY = np.meshgrid(extra_north_coords, extra_east_coords, indexing="ij")
+                    print(f"Number of gradient NaNs: {np.count_nonzero(np.isnan(surface_grad_points))}")
+                    yY, xX = np.meshgrid(extra_east_coords, extra_north_coords, indexing="ij")
 
                     fig, ax4 = plt.subplots()
-                    ax4.pcolormesh(xX, yY, surface_points, shading="gouraud")
-                    p = ax4.scatter(x_poly_unstructured, y_poly_unstructured, c=np.array(mask_unstructured), s=50, ec="k")
+                    ax4.pcolormesh(yY, xX, surface_points, shading="gouraud")
+                    p = ax4.scatter(y_poly_unstructured, x_poly_unstructured, c=np.array(mask_unstructured), s=50, ec="k")
                     fig.colorbar(p)
+                    ax4.set_xlabel("East")
+                    ax4.set_ylabel("North")
 
-                    ax.plot_surface(xX, yY, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
-                    ax.set_xlabel("North")
-                    ax.set_ylabel("East")
+                    ax.plot_surface(yY, xX, surface_points, rcount=200, ccount=200, cmap=cm.coolwarm)
+                    ax.set_ylabel("North")
+                    ax.set_xlabel("East")
                     ax.set_zlabel("Mask")
+                    # ax.set_title("Spline surface")
+
+                    # ax2.plot_surface(xX, yY, surface_grad_points[:, :, 0], rcount=200, ccount=200, cmap=cm.coolwarm)
+                    # ax2.set_xlabel("North")
+                    # ax2.set_ylabel("East")
+                    # ax2.set_zlabel("Mask")
+                    # ax2.set_title("Spline surface gradient x")
                     plt.show(block=False)
                     ax.clear()
+                    # ax2.clear()
         surfaces_list.append(surfaces)
         code_gen.generate()
     return surfaces_list

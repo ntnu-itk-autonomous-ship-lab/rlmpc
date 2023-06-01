@@ -18,12 +18,12 @@ mpc:
     T: 40.0
     dt: 0.5
     Q: [5.0, 5.0] #, 0.01, 10.0, 1.0, 1.0]
-    w: 10.0
+    w: 100.0
     d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 11
+    max_num_so_constr: 1
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: True
     debug: True

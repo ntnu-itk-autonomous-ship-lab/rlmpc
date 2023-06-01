@@ -15,7 +15,7 @@ def linear(r: csd.MX) -> csd.MX:
 
 
 def thin_plate_spline(r: csd.MX) -> csd.MX:
-    return r**2 * csd.log(r + 0.000001)
+    return r**2 * csd.log(r)
 
 
 def cubic(r: csd.MX) -> csd.MX:
@@ -93,7 +93,6 @@ class RBFInterpolator:
         powers: np.ndarray,
         shift: np.ndarray,
         scale: np.ndarray,
-        smoothing: float = 0.0,
         kernel: str = "thin_plate_spline",
         epsilon: float = 1.0,
     ) -> None:
@@ -106,7 +105,6 @@ class RBFInterpolator:
             powers (np.ndarray): Exponents for the polynomial interpolant.
             shift (np.ndarray): Shifts the polynomial domain for numerical stability.
             scale (np.ndarray): Scales the polynomial domain for numerical stability. Defaults to None.
-            smoothing (float): Smoothing parameter for the RBF interpolant. Defaults to 0.0.
             kernel (str): Name of the RBF kernel used. Defaults to "thin_plate_spline".
             epsilon (float): Scaling parameter for the RBF kernel.
         """
@@ -118,7 +116,6 @@ class RBFInterpolator:
         self.d: np.ndarray = d
         self.p: int = self.y.shape[0]
         self.r: int = self.powers.shape[0]
-        self.smoothing: float = smoothing
         self.kernel_func = NAME_TO_FUNC[kernel]
         self.epsilon: float = epsilon
         self.yeps: np.ndarray = y * epsilon
