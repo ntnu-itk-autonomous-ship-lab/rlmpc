@@ -80,7 +80,7 @@ class CasadiMPC:
 
         self._solver_options: CasadiSolverOptions = solver_options
         self._initialized = False
-        self._map_bbox: Tuple[int, int, int, int] = (0, 0, 0, 0)  # In east-north coordinates
+        self._map_origin: np.ndarray = np.array([])
 
         self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)
         self._lbw: np.ndarray = np.array([])
@@ -257,7 +257,7 @@ class CasadiMPC:
         self._t_prev = t
         return X[:, :N], U, soln
 
-    def construct_ocp(self, so_list: list, enc: senc.ENC) -> None:
+    def construct_ocp(self, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0])) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
         Class constructs a "CASADI" (ipopt) tailored OCP on the form (same as for the ACADOS MPC):
@@ -279,8 +279,9 @@ class CasadiMPC:
         Args:
             - so_list (list): List of compatible static obstacle Polygon objects with the static obstacle constraint type.
             - enc (senc.ENC): ENC object.
+            - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
         """
-        self._map_bbox = enc.bbox
+        self._map_origin = map_origin
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
 
@@ -289,10 +290,6 @@ class CasadiMPC:
 
         # Box constraints on NLP decision variables
         lbu_k, ubu_k, lbx_k, ubx_k = self._model.get_input_state_bounds()
-        lbx_k[0] = self._map_bbox[1]
-        lbx_k[1] = self._map_bbox[0]
-        ubx_k[0] = self._map_bbox[3]
-        ubx_k[1] = self._map_bbox[2]
         lbu = np.tile(lbu_k, N)
         ubu = np.tile(ubu_k, N)
         lbx = np.tile(lbx_k, N + 1)
@@ -371,7 +368,7 @@ class CasadiMPC:
         b_so_constr = csd.MX.sym("b_so_constr", 0)
         so_surfaces = []
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-            so_surfaces = mapf.compute_surface_approximations_from_polygons(so_list, enc, safety_margins=[self._params.d_safe_so], scale_data=False)[0]
+            so_surfaces = mapf.compute_surface_approximations_from_polygons(so_list, enc, safety_margins=[self._params.d_safe_so], map_origin=self._map_origin)[0]
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
             so_pars = csd.MX.sym("so_pars", 3, self._params.max_num_so_constr)  # (x_c, y_c, r) x self._params.max_num_so_constr
             p_fixed.append(csd.reshape(so_pars, -1, 1))
@@ -660,12 +657,12 @@ class CasadiMPC:
             t = k * self._params.dt
             for i in range(self._params.max_num_do_constr):
                 if i < n_do:
-                    (ID, state, cov, length, width) = do_list[i]
-                    chi = np.atan2(state[3], state[2])
-                    U = np.sqrt(state[2] ** 2 + state[3] ** 2)
-                    fixed_parameter_values.extend([state[0] + t * U * np.cos(chi), state[1] + t * U * np.sin(chi), chi, U, length, width])
+                    (ID, do_state, cov, length, width) = do_list[i]
+                    chi = np.atan2(do_state[3], do_state[2])
+                    U = np.sqrt(do_state[2] ** 2 + do_state[3] ** 2)
+                    fixed_parameter_values.extend([do_state[0] + t * U * np.cos(chi), do_state[1] + t * U * np.sin(chi), chi, U, length, width])
                 else:
-                    fixed_parameter_values.extend([self._map_bbox[1], self._map_bbox[0], 0.0, 0.0, 5.0, 2.0])
+                    fixed_parameter_values.extend([state[0] - 10000.0, state[1] - 10000.0, 0.0, 0.0, 5.0, 2.0])
 
         so_parameter_values = self._update_so_parameter_values(so_list, state, nominal_trajectory, enc, **kwargs)
         fixed_parameter_values.extend(so_parameter_values)

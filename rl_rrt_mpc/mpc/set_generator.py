@@ -9,6 +9,7 @@
 from typing import Optional, Tuple
 
 import numpy as np
+import rl_rrt_mpc.common.helper_functions as hf
 import seacharts.enc as senc
 import shapely.geometry as geometry
 from scipy.spatial import ConvexHull, HalfspaceIntersection
@@ -222,14 +223,15 @@ class SetGenerator(object):
             raise ValueError("Unknown reduction method")
 
 
-def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, color: str, enc: senc.ENC) -> None:
+def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, color: str, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0])) -> None:
     """Plots the constraints in the halfspace intersection
 
     Args:
-        A (np.ndarray): Constraint matrix
-        b (np.ndarray): Constraint vector
-        p (np.ndarray): Point inside the constrant set
-        enc (senc.ENC): Electronic Navigational Chart object.
+        - A (np.ndarray): Constraint matrix
+        - b (np.ndarray): Constraint vector
+        - p (np.ndarray): Point inside the constrant set
+        - enc (senc.ENC): Electronic Navigational Chart object.
+        - map_origin (np.ndarray, optional): Origin of the map (north, east) in meters. Defaults to np.array([0.0, 0.0]).
     """
     enc.start_display()
     A_nonzero = A[~np.any(A == 0.0, axis=1)]
@@ -242,10 +244,10 @@ def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, color: str, en
     x, y = conv_hull_pts.T
     set_polygon = geometry.Polygon(np.array([y, x]).T)
     min_x, min_y, max_x, max_y = set_polygon.bounds
-    enc.draw_polygon(set_polygon, color=color, fill=False)
+    enc.draw_polygon(hf.translate_polygons([set_polygon], -map_origin[1], -map_origin[0]), color=color, fill=False)
     # for row in range(A_nonzero.shape[0]):  # pylint: disable=consider-using-enumerate
-    #     x_1 = (min_x, min_y)
-    #     x_2 = (max_x, max_y)
+    #     x_1 = (min_x + map_origin[1], min_y + map_origin[0])
+    #     x_2 = (max_x + map_origin[1], max_y + map_origin[0])
     #     line_point_1 = (x_1[0], (b_nonzero[row] - A_nonzero[row, 1] * x_1[0]) / A_nonzero[row, 0])
     #     line_point_2 = (x_2[0], (b_nonzero[row] - A_nonzero[row, 1] * x_2[0]) / A_nonzero[row, 0])
     #     enc.draw_line([line_point_1, line_point_2], color=color, width=0.3)

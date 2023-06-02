@@ -94,7 +94,8 @@ class Telemetron(MPCModel):
         for k in range(N):
             soln[:, k] = xs_k
             xdot = self.dynamics(xs_k, u).full().flatten()
-            xs_k = xs_k + dt * xdot
+            dxs = xdot * dt
+            xs_k = xs_k + dxs
         return soln
 
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

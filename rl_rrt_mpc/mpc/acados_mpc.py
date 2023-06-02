@@ -63,8 +63,7 @@ class AcadosMPC:
         self._x_warm_start: np.ndarray = np.array([])
         self._u_warm_start: np.ndarray = np.array([])
         self._initialized = False
-        self._map_pos_min: np.ndarray = np.array([])
-        self._map_pos_max: np.ndarray = np.array([])
+        self._map_origin: np.ndarray = np.array([0.0, 0.0])
 
         self._p_fixed: csd.MX = csd.MX.sym("p_fixed", 0)
         self._p_adjustable: csd.MX = csd.MX.sym("p_adjustable", 0)
@@ -122,7 +121,6 @@ class AcadosMPC:
         """
         N = int(self._params.T / self._params.dt)
         self._x_warm_start = nominal_trajectory[:6, :]
-
         if nominal_inputs is not None and nominal_inputs.size > 0:
             self._u_warm_start = nominal_inputs
         else:
@@ -169,7 +167,7 @@ class AcadosMPC:
             self._shift_warm_start(xs, dt)
 
         self._update_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list)
-        status = self._acados_ocp_solver.solve()
+        status = self._acados_ocp_solver.solve_for_x0(x0_bar=xs)
         self._acados_ocp_solver.print_statistics()
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
@@ -177,7 +175,11 @@ class AcadosMPC:
         self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
         inputs, trajectory, lower_slacks, upper_slacks = self._get_solution(xs)
 
-        print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | Max slack var and time idx: ({np.max(lower_slacks)}, {np.argmax(lower_slacks)})")
+        if lower_slacks.size > 0 and upper_slacks.size > 0:
+            print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | Max slack var and time idx: ({np.max(lower_slacks)}, {np.argmax(lower_slacks)})")
+        else:
+            print(f"NMPC: | Runtime: {t_solve} | Cost: {cost_val}")
+
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
         self._t_prev = t
@@ -205,7 +207,6 @@ class AcadosMPC:
         psi = trajectory[2, :]
         psi = np.unwrap(np.concatenate(([xs[2]], psi)))[1:]
         trajectory[2, :] = psi
-        trajectory[:2, :] = mf.scale_min_max(trajectory[:2, :], self._map_pos_min, self._map_pos_max)
         return inputs, trajectory, lower_slacks, upper_slacks
 
     def _update_ocp(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list) -> None:
@@ -218,8 +219,8 @@ class AcadosMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             - so_list (list): List of static obstacle Polygon objects
         """
-        self._acados_ocp_solver.constraints_set(0, "lbx", xs)
-        self._acados_ocp_solver.constraints_set(0, "ubx", xs)
+        # self._acados_ocp_solver.constraints_set(0, "lbx", xs)
+        # self._acados_ocp_solver.constraints_set(0, "ubx", xs)
         for i in range(self._acados_ocp.dims.N + 1):
             self._acados_ocp_solver.set(i, "x", self._x_warm_start[:, i])
             if i < self._acados_ocp.dims.N:
@@ -228,7 +229,9 @@ class AcadosMPC:
             self._acados_ocp_solver.set(i, "p", p_i)
         print("OCP updated")
 
-    def construct_ocp(self, nominal_trajectory: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
+    def construct_ocp(
+        self, nominal_trajectory: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0])
+    ) -> None:
         """Constructs the OCP for the NMPC problem using ACADOS.
 
          Class constructs an ACADOS tailored OCP on the form:
@@ -247,10 +250,11 @@ class AcadosMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             - so_list (list): List of static obstacle Polygon objects
             - enc (senc.ENC): ENC object.
+            - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
 
         """
-        self._map_pos_min = np.array([enc.bbox[1], enc.bbox[0]])
-        self._map_pos_max = np.array([enc.bbox[3], enc.bbox[2]])
+        self._map_origin = map_origin
+
         self._acados_ocp.model = self._model.as_acados()
         ship_vertices = self._model.params().ship_vertices
         self._acados_ocp.dims.N = int(self._params.T / self._params.dt)
@@ -273,7 +277,7 @@ class AcadosMPC:
             Qscaling = np.eye(2)
         else:  # trajectory tracking
             dim_Q = nx
-            Qscaling = np.eye(dim_Q)
+            # Qscaling = np.eye(dim_Q)
             # Qscaling = np.diag(
             #     [
             #         1.0 / (self._map_bbox[3] - self._map_bbox[1]) ** 2,
@@ -285,13 +289,10 @@ class AcadosMPC:
             #     ]
             # )
         Q_vec = csd.MX.sym("Q_vec", dim_Q * dim_Q, 1)
-        Qmtrx = (
-            hf.casadi_matrix_from_vector(
-                Q_vec,
-                dim_Q,
-                dim_Q,
-            )
-            @ Qscaling
+        Qmtrx = hf.casadi_matrix_from_vector(
+            Q_vec,
+            dim_Q,
+            dim_Q,
         )
         self._p_adjustable = csd.vertcat(Q_vec)
         self._num_adjustable_params += dim_Q * dim_Q
@@ -303,7 +304,7 @@ class AcadosMPC:
         self._p_fixed = csd.vertcat(x_ref, gamma)
         self._num_fixed_params += dim_Q + 1
 
-        approx_inf = 1e10
+        approx_inf = 1e6
         lbu, ubu, lbx, ubx = self._model.get_input_state_bounds()
 
         # Input constraints
@@ -312,10 +313,7 @@ class AcadosMPC:
         self._acados_ocp.constraints.ubu = ubu
 
         # State constraints
-        self._acados_ocp.constraints.idxbx_0 = np.array([0, 1, 2, 3, 4, 5])
-        self._acados_ocp.constraints.lbx_0 = lbx[self._acados_ocp.constraints.idxbx_0]
-        self._acados_ocp.constraints.ubx_0 = ubx[self._acados_ocp.constraints.idxbx_0]
-
+        self._acados_ocp.constraints.x0 = xs
         self._acados_ocp.constraints.idxbx = np.array([3, 4, 5])
         self._acados_ocp.constraints.lbx = lbx[self._acados_ocp.constraints.idxbx]
         self._acados_ocp.constraints.ubx = ubx[self._acados_ocp.constraints.idxbx]
@@ -334,41 +332,42 @@ class AcadosMPC:
         #        n_path_constr = self._params.max_num_so_constr * n_ship_vertices + self._params.max_num_do_constr
         n_path_constr = self._params.max_num_so_constr + self._params.max_num_do_constr
 
-        self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
-        self._acados_ocp.constraints.lh_e = self._acados_ocp.constraints.lh
-        self._acados_ocp.constraints.uh = np.zeros(n_path_constr)
-        self._acados_ocp.constraints.uh_e = self._acados_ocp.constraints.uh
+        if n_path_constr:
+            self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
+            self._acados_ocp.constraints.lh_e = self._acados_ocp.constraints.lh
+            self._acados_ocp.constraints.uh = np.zeros(n_path_constr)
+            self._acados_ocp.constraints.uh_e = self._acados_ocp.constraints.uh
 
-        # Slacks on dynamic obstacle and static obstacle constraints
-        self._acados_ocp.constraints.idxsh = np.array(range(n_path_constr))
-        self._acados_ocp.constraints.idxsh_e = np.array(range(n_path_constr))
+            # Slacks on dynamic obstacle and static obstacle constraints
+            self._acados_ocp.constraints.idxsh = np.array(range(n_path_constr))
+            self._acados_ocp.constraints.idxsh_e = np.array(range(n_path_constr))
 
-        self._acados_ocp.cost.Zl = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.cost.Zl_e = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.cost.Zu = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.cost.Zu_e = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.cost.zl = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.cost.zl_e = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.cost.zu = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.cost.zu_e = self._params.w * np.ones(n_path_constr)
-        self._acados_ocp.constraints.ush = np.zeros(n_path_constr)
-        self._acados_ocp.constraints.ush_e = np.zeros(n_path_constr)
+            self._acados_ocp.cost.Zl = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.cost.Zl_e = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.cost.Zu = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.cost.Zu_e = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.cost.zl = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.cost.zl_e = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.cost.zu = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.cost.zu_e = self._params.w * np.ones(n_path_constr)
+            self._acados_ocp.constraints.ush = np.zeros(n_path_constr)
+            self._acados_ocp.constraints.ush_e = np.zeros(n_path_constr)
 
-        con_h_expr = []
-        so_constr_list = self._create_static_obstacle_constraint(x, so_list, d_safe_so, ship_vertices, enc)
-        con_h_expr.extend(so_constr_list)
+            con_h_expr = []
+            so_constr_list = self._create_static_obstacle_constraint(x, so_list, d_safe_so, ship_vertices, enc)
+            con_h_expr.extend(so_constr_list)
 
-        do_constr_list = self._create_dynamic_obstacle_constraint(x, d_safe_do)
-        con_h_expr.extend(do_constr_list)
+            do_constr_list = self._create_dynamic_obstacle_constraint(x, d_safe_do)
+            con_h_expr.extend(do_constr_list)
+
+            self._acados_ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
+            self._acados_ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
 
         # Parameters consist of RL adjustable parameters, and fixed parameters
         # (either nominal trajectory or dynamic obstacle related).
         # The model parameters are considered fixed.
         self._acados_ocp.model.p = csd.vertcat(self._p_adjustable, self._p_fixed)
         self._acados_ocp.dims.np = self._acados_ocp.model.p.size()[0]
-
-        self._acados_ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
-        self._acados_ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
 
         self._p_fixed_so_values = self._create_fixed_so_parameter_values(nominal_trajectory, xs, so_list, enc)
         self._acados_ocp.parameter_values = self.create_parameter_values(nominal_trajectory, xs, do_list, so_list, 0, enc)
@@ -433,7 +432,7 @@ class AcadosMPC:
                     so_constr_list.append(csd.log(1 + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon))
 
             elif self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-                so_surfaces = mapf.compute_surface_approximations_from_polygons(so_list, enc, safety_margins=[self._params.d_safe_so], scale_data=True)[0]
+                so_surfaces = mapf.compute_surface_approximations_from_polygons(so_list, enc, safety_margins=[self._params.d_safe_so], map_origin=self._map_origin)[0]
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
@@ -489,8 +488,6 @@ class AcadosMPC:
             x_ref_stage = nominal_trajectory[0:2, stage_idx]
         else:
             x_ref_stage = nominal_trajectory[:6, stage_idx]
-
-        x_ref_stage[:2] = mf.normalize_min_max(x_ref_stage[:2], self._map_pos_min, self._map_pos_max)
 
         fixed_parameter_values.extend(x_ref_stage.tolist())
         fixed_parameter_values.append(self._params.gamma)
@@ -562,8 +559,6 @@ class AcadosMPC:
             t = stage_idx * dt
             if i < n_do:
                 (ID, state, cov, length, width) = do_list[i]
-                next_state = [state[0] + t * state[2], state[1] + t * state[3], state[2], state[3], length, width]
-                next_state[:2] = mf.normalize_min_max(next_state[:2], self._map_pos_min, self._map_pos_max)
                 do_parameter_values.extend([state[0] + t * state[2], state[1] + t * state[3], state[2], state[3], length, width])
             else:
                 do_parameter_values.extend([0.0, 0.0, 0.0, 0.0, 5.0, 2.0])

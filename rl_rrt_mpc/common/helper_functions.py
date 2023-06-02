@@ -108,8 +108,8 @@ def save_rrt_solution(rrt_solution: dict, save_file: Path = dp.rrt_solution) -> 
         yaml.dump(rrt_solution, file)
 
 
-def shift_dynamic_obstacle_coordinates(dynamic_obstacles: list, x_shift: float, y_shift: float) -> list:
-    """Shifts the coordinates of a list of dynamic obstacles by (-y_shift, -x_shift)
+def translate_dynamic_obstacle_coordinates(dynamic_obstacles: list, x_shift: float, y_shift: float) -> list:
+    """Translates the coordinates of a list of dynamic obstacles by (-y_shift, -x_shift)
 
     Args:
         dynamic_obstacles (list): List of dynamic obstacle objects on the form (ID, state, cov, length, width)
@@ -119,14 +119,14 @@ def shift_dynamic_obstacle_coordinates(dynamic_obstacles: list, x_shift: float, 
     Returns:
         list: List of dynamic obstacles with shifted coordinates
     """
-    shifted_dynamic_obstacles = []
+    translated_dynamic_obstacles = []
     for (ID, state, cov, length, width) in dynamic_obstacles:
-        shifted_state = state - np.array([y_shift, x_shift, 0.0, 0.0])
-        shifted_dynamic_obstacles.append((ID, shifted_state, cov, length, width))
-    return shifted_dynamic_obstacles
+        translated_state = state - np.array([y_shift, x_shift, 0.0, 0.0])
+        translated_dynamic_obstacles.append((ID, translated_state, cov, length, width))
+    return translated_dynamic_obstacles
 
 
-def shift_polygon_coordinates(polygons: list, x_shift: float, y_shift: float) -> list:
+def translate_polygons(polygons: list, x_shift: float, y_shift: float) -> list:
     """Shifts the coordinates of a list of polygons by (-x_shift, -y_shift)
 
     Args:
@@ -137,11 +137,11 @@ def shift_polygon_coordinates(polygons: list, x_shift: float, y_shift: float) ->
     Returns:
         list: List of shifted polygons
     """
-    shifted_polygons = []
+    translated_polygons = []
     for polygon in polygons:
-        shifted_polygon = affinity.translate(polygon, xoff=-x_shift, yoff=-y_shift)
-        shifted_polygons.append(shifted_polygon)
-    return shifted_polygons
+        translated_polygon = affinity.translate(polygon, xoff=-x_shift, yoff=-y_shift)
+        translated_polygons.append(translated_polygon)
+    return translated_polygons
 
 
 def create_ellipse(center: np.ndarray, A: Optional[np.ndarray] = None, a: float | None = 1.0, b: float | None = 1.0, phi: float | None = 0.0) -> Tuple[list, list]:

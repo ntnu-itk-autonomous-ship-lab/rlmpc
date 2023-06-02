@@ -11,6 +11,7 @@ from abc import ABC, abstractmethod
 
 import casadi as csd
 import numpy as np
+import rl_rrt_mpc.common.math_functions as mf
 
 
 class Integrator(ABC):
@@ -115,7 +116,8 @@ class ERK4(Integrator):
             k3, k3_q = f(X + DT / 2 * k2, P)
             k4, k4_q = f(X + DT * k3, P)
 
-            X = X + DT / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+            dX = DT / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+            X = X + dX
             Q = Q + DT / 6 * (k1_q + 2 * k2_q + 2 * k3_q + k4_q)
 
         self.F = csd.Function("F", [X0, P], [X, Q], ["x0", "p"], ["xf", "qf"])

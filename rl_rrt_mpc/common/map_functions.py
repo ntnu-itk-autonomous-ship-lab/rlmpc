@@ -509,23 +509,9 @@ def constrained_delaunay_triangulation_custom(polygon: geometry.Polygon) -> list
     return cdt_triangles
 
 
-def k_means_clustering_for_polygon(n_clusters: int, polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
-    """Performs k-means clustering on the input polygon
-
-    Args:
-        n_clusters (int): Number of clusters.
-        polygons (Polygon): Shapely polygon
-        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
-        show_plots (bool, optional): Whether to show plots. Defaults to False.
-
-    Returns:
-        list: List of clusters.
-    """
-    clusters = scipyvq.kmeans2(np.array(polygon.exterior.coords.xy).T, n_clusters, minit="points")[0]
-    return clusters
-
-
-def compute_smallest_enclosing_circle_for_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+def compute_smallest_enclosing_circle_for_polygons(
+    polygons: list, enc: Optional[senc.ENC] = None, map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = True
+) -> list:
     """Computes the smallest enclosing circle for each polygon in the the input list.
 
     Args:
@@ -542,7 +528,7 @@ def compute_smallest_enclosing_circle_for_polygons(polygons: list, enc: Optional
         circle = smallestenclosingcircle.make_circle(points)
         circles.append(circle)
         if enc is not None and show_plots:
-            enc.draw_circle((circle[1], circle[0]), circle[2], color="red", fill=False)
+            enc.draw_circle((circle[1] + map_origin[1], circle[0] + map_origin[0]), circle[2], color="red", fill=False)
     return circles
 
 
@@ -579,13 +565,16 @@ def compute_mvee(points, tol: float = 0.001) -> Tuple[np.ndarray, np.ndarray]:
     return c, np.asarray(A)
 
 
-def compute_smallest_enclosing_ellipse_for_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
+def compute_smallest_enclosing_ellipse_for_polygons(
+    polygons: list, enc: Optional[senc.ENC] = None, map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = True
+) -> list:
     """Computes smallest enclosing ellipse for each polygon in the list.
 
     Args:
-        polygons (list): List of shapely polygons
-        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
-        show_plots (bool, optional): Whether to show plots. Defaults to False.
+        - polygons (list): List of shapely polygons
+        - enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        - map_origin: Origin of the map (north, east) in meters. Defaults to np.array([0.0, 0.0]).
+        - show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
         list: List of ellipse approximations for each polygon.
@@ -598,29 +587,16 @@ def compute_smallest_enclosing_ellipse_for_polygons(polygons: list, enc: Optiona
         ell_x, ell_y = hf.create_ellipse(c, np.asarray(np.linalg.inv(A)))
         ell = geometry.Polygon(zip(ell_y, ell_x))
         if enc is not None and show_plots:
-            enc.draw_polygon(ell, color="red", fill=False)
+            enc.draw_polygon(hf.translate_polygons([ell], -map_origin[1], -map_origin[0]), color="red", fill=False)
     return ellipses
 
 
-def compute_multi_circular_approximations_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = True) -> list:
-    """Computes multiple circular approximations from the input polygon list.
-
-    Args:
-        polygons (list): List of shapely polygons
-        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
-        show_plots (bool, optional): Whether to show plots. Defaults to False.
-
-    Returns:
-        list: List of circular approximations for each polygon.
-    """
-    circles = []
-    for polygon in polygons:
-        clusters = k_means_clustering_for_polygon(n_clusters=3, polygon=polygon, enc=enc, show_plots=show_plots)
-    return circles
-
-
 def compute_multi_ellipsoidal_approximations_from_polygons(
-    poly_tuple_list: list, planning_area_envelope: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True
+    poly_tuple_list: list,
+    planning_area_envelope: geometry.Polygon,
+    enc: Optional[senc.ENC] = None,
+    map_origin: np.ndarray = np.array([0.0, 0.0]),
+    show_plots: bool = True,
 ) -> list:
     """Computes ellipsoidal approximations from the input polygon list.
 
@@ -628,6 +604,7 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
         - poly_tuple_list (list): List of tuples with relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to.
         - planning_area_envelope (geometry.Polygon): Planning area envelope.
         - enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        - map_origin (np.ndarray, optional): Origin of the map (north, east) in meters. Defaults to np.array([0.0, 0.0]).
         - show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
@@ -659,9 +636,9 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
             relevant_boundary_points = np.array(relevant_boundary_points)
 
             if enc is not None and show_plots:
-                enc.draw_polygon(envelope_boundary, color="green", fill=False)
-                enc.draw_polygon(polygon, color="red", fill=False)
-                enc.draw_polygon(original_polygon_boundary, color="blue")
+                enc.draw_polygon(hf.translate_polygons([envelope_boundary], -map_origin[1], -map_origin[0])[0], color="green", fill=False)
+                enc.draw_polygon(hf.translate_polygons([polygon], -map_origin[1], -map_origin[0])[0], color="red", fill=False)
+                enc.draw_polygon(hf.translate_polygons([original_polygon_boundary], -map_origin[1], -map_origin[0])[0], color="blue")
 
             gmm_em_object.init_em(X=relevant_boundary_points)
             mu_c, sigma_c, _ = gmm_em_object.run(num_iters=50)
@@ -670,13 +647,13 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
                 ell_x, ell_y = hf.create_ellipse(center=mu_c[i, :], A=np.squeeze(sigma_c[i, :, :]))
                 ell = geometry.Polygon(zip(ell_y, ell_x))
                 if enc is not None and show_plots:
-                    enc.draw_polygon(ell, color="orange", fill=False)
+                    enc.draw_polygon(hf.translate_polygons([ell], -map_origin[1], -map_origin[0])[0], color="orange", fill=False)
 
     return ellipses
 
 
 def compute_surface_approximations_from_polygons(
-    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: Optional[list] = None, scale_data: bool = True, show_plots: bool = False
+    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: list = [0.0], map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = False
 ) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
@@ -684,7 +661,7 @@ def compute_surface_approximations_from_polygons(
         polygons (list): List of shapely polygons
         enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
         safety_margins (Optional[list], optional): List of safety margins to buffer the polygon. Defaults to None.
-        scale_data (bool, optional): Whether to scale the data to within -1 and 1, for better numerical conditioning. Defaults to True.
+        map_origin (np.ndarray, optional): Map origin. Defaults to np.array([0.0, 0.0]).
         show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
@@ -696,13 +673,9 @@ def compute_surface_approximations_from_polygons(
     code_gen = csd.CodeGenerator("surface_functions")
     if show_plots:
         ax = plt.figure().add_subplot(111, projection="3d")
-        # ax2 = plt.figure().add_subplot(111, projection="3d")
-        # ax.axis("equal")
+        ax2 = plt.figure().add_subplot(111, projection="3d")
+        ax3 = plt.figure().add_subplot(111, projection="3d")
         # ax3 = plt.figure().add_subplot(111)
-
-    if safety_margins is None:
-        safety_margins = [0.0]
-
     j = 0
     for d_safe in safety_margins:
         surfaces = []
@@ -717,7 +690,8 @@ def compute_surface_approximations_from_polygons(
                 n_orig_boundary_points = len(coastline_original.exterior.coords.xy[0])
                 coastline = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style).intersection(original_polygon_boundary_d_safe)
                 y_poly_unstructured, x_poly_unstructured = coastline.exterior.coords.xy
-
+                y_poly_unstructured = list(y_poly_unstructured)
+                x_poly_unstructured = list(x_poly_unstructured)
                 for i in range(len(y_poly_unstructured) - 1):
                     pi = np.array([x_poly_unstructured[i], y_poly_unstructured[i]])
                     pj = np.array([x_poly_unstructured[i + 1], y_poly_unstructured[i + 1]])
@@ -729,7 +703,7 @@ def compute_surface_approximations_from_polygons(
                         y_poly_unstructured.insert(i + 1, p_mid[1])
                     # print(f"Distance between vertex {i} and {i+1}: {d2next}")
 
-                mask_unstructured = [1.0] * len(y_poly_unstructured)
+                mask_unstructured = [10.0] * len(y_poly_unstructured)
                 n_boundary_points = len(y_poly_unstructured)
                 # print(f"n_boundary_points before: {n_orig_boundary_points} | after: {n_boundary_points}")
 
@@ -747,38 +721,40 @@ def compute_surface_approximations_from_polygons(
                                 mask_unstructured.append(-10.0)
                     except AttributeError:
                         break
-                    # if enc is not None and show_plots:
-                    #     enc.draw_polygon(coastline.buffer(buff_l, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
+                    if enc is not None and show_plots:
+                        translated_coastline = hf.translate_polygons([coastline], -map_origin[1], -map_origin[0])[0]
+                        enc.draw_polygon(translated_coastline.buffer(buff_l, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
 
-                relevant_boundary = polygon.buffer(d_safe + 100.0).intersection(
-                    geometry.LineString(original_poly.buffer(d_safe + 100.0).exterior.coords).buffer(1.0, cap_style=cap_style, join_style=join_style)
-                )
+                buff_l = 10.0
+                relevant_boundary = polygon.buffer(d_safe + buff_l).intersection(geometry.LineString(original_poly.buffer(d_safe + buff_l).exterior.coords).buffer(1.0))
                 y_boundary, x_boundary = relevant_boundary.exterior.coords.xy
-                n_boundary_points = 8
+                n_boundary_points = 12
                 if len(y_boundary) < n_boundary_points:
                     n_boundary_points = len(y_boundary)
                 elif len(y_boundary) > 300:
-                    n_boundary_points = 20
+                    n_boundary_points = 24
                 step = int(len(y_boundary) / n_boundary_points)
                 for i in range(0, len(y_boundary), step):
                     x_poly_unstructured.append(x_boundary[i])
                     y_poly_unstructured.append(y_boundary[i])
                     mask_unstructured.append(-100.0)
 
-                poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 100.0, cap_style=cap_style, join_style=join_style).bounds
+                poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + buff_l, cap_style=cap_style, join_style=join_style).bounds
 
+                # scaled_x_data = []
+                # scaled_y_data = []
+                # for x, y in zip(x_poly_unstructured, y_poly_unstructured):
+                #     scaled_x_data.append((x - poly_min_east) / (poly_max_east - poly_min_east))
                 # rbf = scipyintp.RBFInterpolator(
                 #     np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="gaussian", epsilon=0.08, smoothing=1e-3
                 # )
 
-                if scale_data:
-                    map_xmin, map_ymin, map_xmax, map_ymax = enc.bbox
-                    for i in range(len(x_poly_unstructured)):  # pylint: disable=consider-using-enumerate
-                        x_poly_unstructured[i] = (x_poly_unstructured[i] - map_ymin) / (map_ymax - map_ymin)
-                        y_poly_unstructured[i] = (y_poly_unstructured[i] - map_xmin) / (map_xmax - map_xmin)
-
                 rbf = scipyintp.RBFInterpolator(
-                    np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="thin_plate_spline", epsilon=10.0, smoothing=1e-5
+                    np.array([x_poly_unstructured, y_poly_unstructured]).T,
+                    np.array(mask_unstructured),
+                    kernel="thin_plate_spline",
+                    epsilon=1.0,
+                    smoothing=10.0,
                 )
                 rbf_csd = rbf_casadi.RBFInterpolator(
                     np.array([x_poly_unstructured, y_poly_unstructured]).T,
@@ -803,28 +779,16 @@ def compute_surface_approximations_from_polygons(
 
                 if enc is not None and show_plots:
                     # if j == 2:
-                    #     enc.draw_polygon(polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style), color="black", fill=False)
+                    #     translated_polygon = hf.translate_polygons([polygon], -map_origin[1], -map_origin[0])[0]
+                    #     enc.draw_polygon(translated_polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style), color="black", fill=False)
                     #     save_path = dp.figures
                     #     enc.save_image(name="enc_island_polygon", path=save_path, extension="pdf")
                     #     enc.save_image(name="enc_island_polygon", path=save_path, scale=2.0)
-                    assert enc is not None
                     buffer = 0.0
                     n_points = 150
 
-                    if scale_data:
-                        extra_north_coords = np.linspace(
-                            start=(poly_min_north - buffer - map_ymin) / (map_ymax - map_ymin),
-                            stop=(poly_max_north + buffer - map_ymin) / (map_ymax - map_ymin),
-                            num=n_points,
-                        )
-                        extra_east_coords = np.linspace(
-                            start=(poly_min_east - buffer - map_xmin) / (map_xmax - map_xmin),
-                            stop=(poly_max_east + buffer - map_xmin) / (map_xmax - map_xmin),
-                            num=n_points,
-                        )
-                    else:
-                        extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=n_points)
-                        extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=n_points)
+                    extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=n_points)
+                    extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=n_points)
 
                     surface_points = np.zeros((n_points, n_points))
                     surface_grad_points = np.zeros((n_points, n_points, 2))
@@ -841,11 +805,11 @@ def compute_surface_approximations_from_polygons(
                         # ax3.clear()
 
                     print(f"Number of gradient NaNs: {np.count_nonzero(np.isnan(surface_grad_points))}")
-                    yY, xX = np.meshgrid(extra_east_coords, extra_north_coords, indexing="ij")
+                    yY, xX = np.meshgrid(extra_east_coords + map_origin[1], extra_north_coords + map_origin[0], indexing="ij")
 
                     fig, ax4 = plt.subplots()
                     ax4.pcolormesh(yY, xX, surface_points, shading="gouraud")
-                    p = ax4.scatter(y_poly_unstructured, x_poly_unstructured, c=np.array(mask_unstructured), s=50, ec="k")
+                    p = ax4.scatter(y_poly_unstructured + map_origin[1], x_poly_unstructured + map_origin[0], c=np.array(mask_unstructured), s=50, ec="k")
                     fig.colorbar(p)
                     ax4.set_xlabel("East")
                     ax4.set_ylabel("North")
@@ -856,14 +820,21 @@ def compute_surface_approximations_from_polygons(
                     ax.set_zlabel("Mask")
                     # ax.set_title("Spline surface")
 
-                    # ax2.plot_surface(xX, yY, surface_grad_points[:, :, 0], rcount=200, ccount=200, cmap=cm.coolwarm)
-                    # ax2.set_xlabel("North")
-                    # ax2.set_ylabel("East")
-                    # ax2.set_zlabel("Mask")
-                    # ax2.set_title("Spline surface gradient x")
+                    ax2.plot_surface(xX, yY, surface_grad_points[:, :, 0], rcount=200, ccount=200, cmap=cm.coolwarm)
+                    ax2.set_xlabel("North")
+                    ax2.set_ylabel("East")
+                    ax2.set_zlabel("Mask")
+                    ax2.set_title("Spline surface gradient x")
+
+                    ax3.plot_surface(xX, yY, surface_grad_points[:, :, 1], rcount=200, ccount=200, cmap=cm.coolwarm)
+                    ax3.set_xlabel("North")
+                    ax3.set_ylabel("East")
+                    ax3.set_zlabel("Mask")
+                    ax3.set_title("Spline surface gradient y")
                     plt.show(block=False)
                     ax.clear()
-                    # ax2.clear()
+                    ax2.clear()
+                    ax3.clear()
         surfaces_list.append(surfaces)
         code_gen.generate()
     return surfaces_list

@@ -14,7 +14,7 @@ import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
 
 
-def scale_min_max(x: float | np.ndarray, x_min: float | np.ndarray, x_max: float | np.ndarray) -> float | np.ndarray:
+def scale_min_max(x: float | np.ndarray | csd.MX, x_min: float | np.ndarray, x_max: float | np.ndarray) -> float | np.ndarray:
     """Scales input x to [x_min, x_max]
 
     Args:
@@ -28,7 +28,7 @@ def scale_min_max(x: float | np.ndarray, x_min: float | np.ndarray, x_max: float
     return x_min + x * (x_max - x_min)
 
 
-def normalize_min_max(x: float | np.ndarray, x_min: float | np.ndarray, x_max: float | np.ndarray) -> float | np.ndarray:
+def normalize_min_max(x: float | np.ndarray | csd.MX, x_min: float | np.ndarray, x_max: float | np.ndarray) -> float | np.ndarray:
     """Normalizes input x to [0, 1]
 
     Args:

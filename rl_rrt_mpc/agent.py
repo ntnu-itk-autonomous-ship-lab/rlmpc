@@ -241,6 +241,7 @@ class RLMPC(ci.ICOLAV):
         self._los = guidances.LOSGuidance(self._config.los)
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
 
+        self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
         self._initialized = False
         self._t_prev: float = 0.0
@@ -271,16 +272,27 @@ class RLMPC(ci.ICOLAV):
         """
         assert enc is not None, "ENC must be provided to the RL-MPC"
         if not self._initialized:
+            # self._map_origin = np.array([0.0, 0.0])
+            self._map_origin = ownship_state[:2]
             self._initialized = True
             # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
             # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
             self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
-            self._mpc.construct_ocp(nominal_trajectory=self._nominal_trajectory, xs=ownship_state, do_list=do_list, so_list=self._mpc_rel_polygons, enc=enc)
-
+            self._nominal_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
+            translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
+            self._mpc.construct_ocp(
+                nominal_trajectory=self._nominal_trajectory,
+                xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                do_list=translated_do_list,
+                so_list=self._mpc_rel_polygons,
+                enc=enc,
+                map_origin=self._map_origin,
+            )
+        translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
-            nominal_trajectory = self._update_nominal_trajectory(ownship_state)
+            nominal_trajectory = self._update_nominal_trajectory(ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]))
 
             # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             # self._ktp.update_path_variable(t - self._t_prev)
@@ -288,14 +300,15 @@ class RLMPC(ci.ICOLAV):
                 t,
                 nominal_trajectory=nominal_trajectory,
                 nominal_inputs=None,
-                xs=ownship_state,
-                do_list=do_list,
+                xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
             )
+            self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if enc is not None and self._mpc.params.debug:
-                hf.plot_trajectory(nominal_trajectory, enc, "magenta")
+                hf.plot_trajectory(nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "magenta")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
@@ -338,7 +351,6 @@ class RLMPC(ci.ICOLAV):
         for poly_tuple in poly_tuple_list:
             self._rel_polygons.extend(poly_tuple[0])
 
-        self._mpc_rel_polygons = self._rel_polygons.copy()
         if enc is not None and show_plots:
             enc.start_display()
             # hf.plot_trajectory(waypoints, enc, color="green")
@@ -351,29 +363,46 @@ class RLMPC(ci.ICOLAV):
             enc.draw_polygon(ship_poly, color="pink")
             # enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
+        # Translate the polygons to the origin of the map
+        translated_rel_polygons = hf.translate_polygons(self._rel_polygons.copy(), self._map_origin[1], self._map_origin[0])
+        translated_poly_tuple_list = []
+        for polygons, original_polygon in poly_tuple_list:
+            translated_poly_tuple_list.append(
+                (
+                    hf.translate_polygons(polygons, self._map_origin[1], self._map_origin[0]),
+                    hf.translate_polygons([original_polygon], self._map_origin[1], self._map_origin[0])[0],
+                )
+            )
+        translated_enveloping_polygon = hf.translate_polygons([enveloping_polygon], self._map_origin[1], self._map_origin[0])[0]
+
         # enc.save_image(name="enc_hazards", path=dp.figures, extension="pdf")
         if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.CIRCULAR:
-            self._mpc_rel_polygons = mapf.compute_smallest_enclosing_circle_for_polygons(self._rel_polygons, enc)
+            self._mpc_rel_polygons = mapf.compute_smallest_enclosing_circle_for_polygons(translated_rel_polygons, enc, self._map_origin)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL:
-            self._mpc_rel_polygons = mapf.compute_multi_ellipsoidal_approximations_from_polygons(poly_tuple_list, enveloping_polygon, enc)
+            self._mpc_rel_polygons = mapf.compute_multi_ellipsoidal_approximations_from_polygons(
+                translated_poly_tuple_list, translated_enveloping_polygon, enc, self._map_origin
+            )
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            P1, P2 = mapf.create_point_list_from_polygons(self._rel_polygons)
+            P1, P2 = mapf.create_point_list_from_polygons(translated_rel_polygons)
             self._set_generator = sg.SetGenerator(P1, P2)
         elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
-            self._mpc_rel_polygons = poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
+            self._mpc_rel_polygons = translated_poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
+        else:
+            raise ValueError(f"Unknown static obstacle constraint type: {self._mpc.params.so_constr_type}")
 
-    def _update_mpc_so_polygon_input(self, state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> None:
+    def _update_mpc_so_polygon_input(self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> None:
         """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.
 
         Args:
-            state (np.ndarray): _description_
-            so_list (list): _description_
+            - state (np.ndarray): The current ownship state.
+            - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - show_plots (bool): Whether to show plots or not.
         """
         if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            A_full, b_full = self._set_generator(state[0:2])
+            A_full, b_full = self._set_generator(ownship_state[0:2] - self._map_origin)
             A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._mpc.params.max_num_so_constr)
             if show_plots:
-                sg.plot_constraints(A_reduced, b_reduced, state[0:2], "black", enc)
+                sg.plot_constraints(A_reduced, b_reduced, ownship_state[0:2] - self._map_origin, "black", enc, self._map_origin)
             self._mpc_rel_polygons = [A_reduced, b_reduced]
 
     def _update_nominal_trajectory(self, ownship_state: np.ndarray) -> np.ndarray:

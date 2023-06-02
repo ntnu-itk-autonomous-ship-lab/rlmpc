@@ -96,7 +96,7 @@ class MPC:
     def train(self, data) -> None:
         """Trains the RL-MPC using data (s, a, s+, a+, r+)"""
 
-    def construct_ocp(self, nominal_trajectory: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> None:
+    def construct_ocp(self, nominal_trajectory: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, map_origin: np.ndarray | None = None) -> None:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
         Args:
@@ -106,9 +106,9 @@ class MPC:
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
         """
-        # self._casadi_mpc.construct_ocp(so_list, enc)
+        self._casadi_mpc.construct_ocp(so_list, enc, map_origin)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_trajectory, xs, do_list, so_list, enc)
+            self._acados_mpc.construct_ocp(nominal_trajectory, xs, do_list, so_list, enc, map_origin)
 
     def plan(
         self,
