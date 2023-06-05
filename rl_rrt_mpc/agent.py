@@ -248,6 +248,7 @@ class RLMPC(ci.ICOLAV):
         self._t_prev_mpc: float = 0.0
         self._min_depth: int = 0
         self._nominal_trajectory: np.ndarray = np.array([])
+        self._nominal_inputs: np.ndarray = np.array([])
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
@@ -277,12 +278,13 @@ class RLMPC(ci.ICOLAV):
             self._initialized = True
             # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
             # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-            self._nominal_trajectory = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
+            self._nominal_trajectory, self._nominal_inputs = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
             self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
             self._nominal_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
             self._mpc.construct_ocp(
                 nominal_trajectory=self._nominal_trajectory,
+                nominal_inputs=self._nominal_inputs,
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
@@ -292,14 +294,14 @@ class RLMPC(ci.ICOLAV):
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
-            nominal_trajectory = self._update_nominal_trajectory(ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]))
+            nominal_trajectory, nominal_inputs = self._update_nominal_plan(ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]))
 
             # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             # self._ktp.update_path_variable(t - self._t_prev)
             self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
                 t,
                 nominal_trajectory=nominal_trajectory,
-                nominal_inputs=None,
+                nominal_inputs=nominal_inputs,
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
@@ -405,8 +407,8 @@ class RLMPC(ci.ICOLAV):
                 sg.plot_constraints(A_reduced, b_reduced, ownship_state[0:2] - self._map_origin, "black", enc, self._map_origin)
             self._mpc_rel_polygons = [A_reduced, b_reduced]
 
-    def _update_nominal_trajectory(self, ownship_state: np.ndarray) -> np.ndarray:
-        """Updates the nominal trajectory to the MPC based on the current ownship state.
+    def _update_nominal_plan(self, ownship_state: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Updates the nominal trajectory and inputs to the MPC based on the current ownship state.
 
         Args:
             - ownship_state (np.ndarray): The ownship state.
@@ -415,19 +417,27 @@ class RLMPC(ci.ICOLAV):
             np.ndarray: The updated nominal trajectory.
         """
         # Find closest point on nominal trajectory to the current state
+        nx = ownship_state.size
+        nu = self._nominal_inputs.shape[0]
         closest_idx = int(np.argmin(np.linalg.norm(self._nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(self._nominal_trajectory[0, :]), 1)).T, axis=0)))
         shifted_nominal_trajectory = self._nominal_trajectory[:, closest_idx:]
+        shifted_nominal_inputs = self._nominal_inputs[:, closest_idx:]
         N = int(self._mpc.params.T / self._mpc.params.dt)
         n_samples = shifted_nominal_trajectory.shape[1]
         if n_samples == 0:  # Done with following nominal trajectory, stop
             shifted_nominal_trajectory = np.tile(np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)).T
+            shifted_nominal_inputs = np.zeros((self._mpc.params.m, N))
         elif n_samples < N + 1:
             shifted_nominal_trajectory = np.zeros((nx, N + 1))
             shifted_nominal_trajectory[:, :n_samples] = self._nominal_trajectory
             shifted_nominal_trajectory[:, n_samples:] = np.tile(self._nominal_trajectory[:, -1], (N + 1 - n_samples, 1)).T
+            shifted_nominal_inputs = np.zeros((nu, N))
+            shifted_nominal_inputs[:, : n_samples - 1] = self._nominal_inputs
+            shifted_nominal_inputs[:, n_samples - 1 :] = np.tile(self._nominal_inputs[:, -1], (N - n_samples + 1, 1)).T
         else:
             shifted_nominal_trajectory = shifted_nominal_trajectory[:, : N + 1]
-        return shifted_nominal_trajectory
+            shifted_nominal_inputs = shifted_nominal_inputs[:, :N]
+        return shifted_nominal_trajectory, shifted_nominal_inputs
 
     def _interpolate_solution(self, t: float) -> Tuple[np.ndarray, np.ndarray]:
         """Interpolates the solution from the MPC to the time step in the simulation.
@@ -490,7 +500,7 @@ def create_los_based_trajectory(
     speed_plan: np.ndarray,
     los: guidances.LOSGuidance,
     dt: float,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, np.ndarray]:
     """Creates a trajectory based on the provided LOS guidance, controller and model.
 
     Args:
@@ -506,16 +516,18 @@ def create_los_based_trajectory(
     controller = controllers.FLSH()
     model = sim_models.Telemetron()
     trajectory = []
+    inputs = []
     xs_k = xs
     t = 0.0
     while t < 2000.0:
         trajectory.append(xs_k)
         references = los.compute_references(waypoints, speed_plan, None, xs_k, dt)
         u = controller.compute_inputs(references, xs_k, dt, model)
+        inputs.append(u)
         xs_k = sim_integrators.erk4_integration_step(model.dynamics, model.bounds, xs_k, u, dt)
 
         dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
         t += dt
         if dist2goal < 10.0:
             break
-    return np.array(trajectory).T
+    return np.array(trajectory).T, np.array(inputs)[:, :2].T

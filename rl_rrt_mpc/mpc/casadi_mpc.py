@@ -332,12 +332,17 @@ class CasadiMPC:
             dim_Q = nx
         X_ref = csd.MX.sym("X_ref", dim_Q, N + 1)
         Q_vec = csd.MX.sym("Q_vec", dim_Q * dim_Q, 1)
+        U_ref = csd.MX.sym("U_ref", nu, N)
+        R_vec = csd.MX.sym("R_vec", nu * nu, 1)
         Qmtrx = hf.casadi_matrix_from_vector(Q_vec, dim_Q, dim_Q)
+        Rmtrx = hf.casadi_matrix_from_vector(R_vec, nu, nu)
         p_fixed.append(csd.reshape(X_ref, dim_Q * (N + 1), 1))
-        num_fixed_ocp_params += dim_Q * (N + 1)  # X_ref
+        p_fixed.append(csd.reshape(U_ref, nu * N, 1))
+        num_fixed_ocp_params += dim_Q * (N + 1) + nu * N  # X_ref and U_ref
 
         p_adjustable.append(Q_vec)
-        num_adjustable_ocp_params += dim_Q * dim_Q  # Q_vec
+        p_adjustable.append(R_vec)
+        num_adjustable_ocp_params += dim_Q * dim_Q + nu * nu  # Q_vec and R_vec
 
         gamma = csd.MX.sym("gamma", 1)
         p_fixed.append(gamma)
@@ -399,7 +404,7 @@ class CasadiMPC:
             U.append(u_k)
 
             # Sum stage costs
-            J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + W.T @ sigma_k)
+            J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + quadratic_cost(u_k, U_ref[:, k], Rmtrx) + W.T @ sigma_k)
 
             so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, d_safe_so)
             so_constr_list.extend(so_constr_k)
@@ -617,7 +622,15 @@ class CasadiMPC:
         return do_constr_list
 
     def create_parameter_values(
-        self, state: np.ndarray, action: Optional[np.ndarray], nominal_trajectory: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None, **kwargs
+        self,
+        state: np.ndarray,
+        action: Optional[np.ndarray],
+        nominal_trajectory: np.ndarray,
+        nominal_inputs: Optional[np.ndarray],
+        do_list: list,
+        so_list: list,
+        enc: Optional[senc.ENC] = None,
+        **kwargs,
     ) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
@@ -625,6 +638,7 @@ class CasadiMPC:
             - state (np.ndarray): Current state of the system.
             - action (np.ndarray): Current action of the system.
             - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track or path to follow.
+            - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - do_list (list): List of dynamic obstacles.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
@@ -649,6 +663,10 @@ class CasadiMPC:
             dim_Q = 2
 
         fixed_parameter_values.extend(nominal_trajectory[0:dim_Q, : N + 1].T.flatten().tolist())
+        if not self._params.path_following and nominal_inputs is not None:
+            fixed_parameter_values.extend(nominal_inputs[:, :N].T.flatten().tolist())
+        else:
+            fixed_parameter_values.extend([0.0] * N * nu)
         fixed_parameter_values.append(self._params.gamma)
         W = self._params.w * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
         fixed_parameter_values.extend(W.tolist())

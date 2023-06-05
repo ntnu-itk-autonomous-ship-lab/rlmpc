@@ -54,7 +54,9 @@ class RLMPCParams(IParams):
     T: float = 10.0  # prediction horizon
     dt: float = 0.5  # time step
     Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])  # state cost matrix
-    w: float = 1e4  # slack variable weight
+    R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
+    w_L2: float = 1e4  # slack variable weight L2 norm
+    w_L1: float = 1e2  # slack variable weight L1 norm
     gamma: float = 0.9  # discount factor in RL setting
     d_safe_so: float = 5.0  # safety distance to static obstacles
     d_safe_do: float = 5.0  # safety distance to dynamic obstacles
@@ -69,6 +71,7 @@ class RLMPCParams(IParams):
         params = RLMPCParams(**config_dict)
         params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
         params.Q = np.diag(params.Q)
+        params.R = np.diag(params.R)
         if params.path_following and params.Q.shape[0] != 2:
             raise ValueError("Q must be a 2x2 matrix when path_following is True.")
 
@@ -89,4 +92,4 @@ class RLMPCParams(IParams):
         Returns:
             np.ndarray: Array of adjustable parameters.
         """
-        return np.array([*self.Q.flatten().tolist(), self.d_safe_so, self.d_safe_do])
+        return np.array([*self.Q.flatten().tolist(), *self.R.flatten().tolist(), self.d_safe_so, self.d_safe_do])

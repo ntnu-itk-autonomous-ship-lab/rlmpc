@@ -14,8 +14,6 @@ from typing import Optional, Tuple, Type
 
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
-import rl_rrt_mpc.common.helper_functions as hf
-import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.casadi_mpc as casadi_mpc
 import rl_rrt_mpc.mpc.models as models
@@ -96,11 +94,21 @@ class MPC:
     def train(self, data) -> None:
         """Trains the RL-MPC using data (s, a, s+, a+, r+)"""
 
-    def construct_ocp(self, nominal_trajectory: np.ndarray, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, map_origin: np.ndarray | None = None) -> None:
+    def construct_ocp(
+        self,
+        nominal_trajectory: np.ndarray,
+        nominal_inputs: Optional[np.ndarray],
+        xs: np.ndarray,
+        do_list: list,
+        so_list: list,
+        enc: senc.ENC,
+        map_origin: np.ndarray = np.array([0.0, 0.0]),
+    ) -> None:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
         Args:
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow.
+            - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - xs (np.ndarray): Current state of the ownship.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of static obstacle Polygon objects.
@@ -108,7 +116,7 @@ class MPC:
         """
         self._casadi_mpc.construct_ocp(so_list, enc, map_origin)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_trajectory, xs, do_list, so_list, enc, map_origin)
+            self._acados_mpc.construct_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, map_origin)
 
     def plan(
         self,

@@ -26,7 +26,6 @@ import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
 from matplotlib import cm
-
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
@@ -703,7 +702,7 @@ def compute_surface_approximations_from_polygons(
                         y_poly_unstructured.insert(i + 1, p_mid[1])
                     # print(f"Distance between vertex {i} and {i+1}: {d2next}")
 
-                mask_unstructured = [10.0] * len(y_poly_unstructured)
+                mask_unstructured = [1.0] * len(y_poly_unstructured)
                 n_boundary_points = len(y_poly_unstructured)
                 # print(f"n_boundary_points before: {n_orig_boundary_points} | after: {n_boundary_points}")
 
@@ -718,33 +717,50 @@ def compute_surface_approximations_from_polygons(
                             if original_polygon_boundary_d_safe.buffer(buff_l, cap_style=cap_style, join_style=join_style).contains(geometry.Point(ycoord, xcoord)):
                                 x_poly_unstructured.append(xcoord)
                                 y_poly_unstructured.append(ycoord)
-                                mask_unstructured.append(-10.0)
+                                mask_unstructured.append(-1.0)
                     except AttributeError:
                         break
                     if enc is not None and show_plots:
                         translated_coastline = hf.translate_polygons([coastline], -map_origin[1], -map_origin[0])[0]
                         enc.draw_polygon(translated_coastline.buffer(buff_l, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
-
                 buff_l = 10.0
+                val_l = -10.0
+                if j > 5:
+                    buff_l = 1000.0
+                    val_l = -1000.0
                 relevant_boundary = polygon.buffer(d_safe + buff_l).intersection(geometry.LineString(original_poly.buffer(d_safe + buff_l).exterior.coords).buffer(1.0))
                 y_boundary, x_boundary = relevant_boundary.exterior.coords.xy
-                n_boundary_points = 12
+                n_boundary_points = 40
                 if len(y_boundary) < n_boundary_points:
                     n_boundary_points = len(y_boundary)
                 elif len(y_boundary) > 300:
-                    n_boundary_points = 24
+                    n_boundary_points = 100
                 step = int(len(y_boundary) / n_boundary_points)
                 for i in range(0, len(y_boundary), step):
                     x_poly_unstructured.append(x_boundary[i])
                     y_poly_unstructured.append(y_boundary[i])
-                    mask_unstructured.append(-100.0)
+                    mask_unstructured.append(val_l)
+
+                # buff_l = 1500.0
+                # val_l = -100.0
+                # if j > 5:
+                #     buff_l = 2000.0
+                #     val_l = -100.0
+                # relevant_boundary = polygon.buffer(d_safe + buff_l).intersection(geometry.LineString(original_poly.buffer(d_safe + buff_l).exterior.coords).buffer(1.0))
+                # y_boundary, x_boundary = relevant_boundary.exterior.coords.xy
+                # n_boundary_points = 50
+                # if len(y_boundary) < n_boundary_points:
+                #     n_boundary_points = len(y_boundary)
+                # elif len(y_boundary) > 300:
+                #     n_boundary_points = 100
+                # step = int(len(y_boundary) / n_boundary_points)
+                # for i in range(0, len(y_boundary), step):
+                #     x_poly_unstructured.append(x_boundary[i])
+                #     y_poly_unstructured.append(y_boundary[i])
+                #     mask_unstructured.append(val_l)
 
                 poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + buff_l, cap_style=cap_style, join_style=join_style).bounds
 
-                # scaled_x_data = []
-                # scaled_y_data = []
-                # for x, y in zip(x_poly_unstructured, y_poly_unstructured):
-                #     scaled_x_data.append((x - poly_min_east) / (poly_max_east - poly_min_east))
                 # rbf = scipyintp.RBFInterpolator(
                 #     np.array([x_poly_unstructured, y_poly_unstructured]).T, np.array(mask_unstructured), kernel="gaussian", epsilon=0.08, smoothing=1e-3
                 # )
@@ -754,7 +770,7 @@ def compute_surface_approximations_from_polygons(
                     np.array(mask_unstructured),
                     kernel="thin_plate_spline",
                     epsilon=1.0,
-                    smoothing=10.0,
+                    smoothing=1.0,
                 )
                 rbf_csd = rbf_casadi.RBFInterpolator(
                     np.array([x_poly_unstructured, y_poly_unstructured]).T,

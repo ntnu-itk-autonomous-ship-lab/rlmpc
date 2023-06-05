@@ -59,7 +59,17 @@ mpc:
           minlength: 2
           schema:
             type: float
-        w:
+        R:
+          required: True
+          type: list
+          maxlength: 4
+          minlength: 2
+          schema:
+            type: float
+        w_L2:
+          required: True
+          type: float
+        w_L1:
           required: True
           type: float
         gamma:

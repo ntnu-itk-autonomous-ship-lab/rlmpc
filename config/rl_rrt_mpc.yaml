@@ -15,43 +15,57 @@ rrt:
 
 mpc:
   params:
-    reference_traj_bbox_buffer: 500.0
-    T: 1.0
+    rate: 0.2
+    reference_traj_bbox_buffer: 200.0
+    T: 40.0
     dt: 0.5
-    Q: [100.0, 100.0, 1.0, 1.0, 0.05, 0.01]
-    w: 10000.0
+    Q: [5.0, 5.0, 0.1, 10.0, 0.1, 1.0]
+    R: [0.01, 0.01]
+    w: 0.0
     d_safe_so: 5.0
     d_safe_do: 10.0
-    gamma: 0.99
-    so_constr_type: "SURFACE_APPROX"
-    max_num_so_constr: 500 # per shooting node in the mpc
-    max_num_do_constr: 5 # per shooting node in the mpc
+    gamma: 1.0
+    so_constr_type: "PARAMETRICSURFACE"
+    max_num_so_constr: 0
+    max_num_do_constr: 0 # per shooting node in the mpc
     path_following: False
-  enable_acados: False
+    debug: True
+  enable_acados: True
   solver_options:
     casadi:
       solver_type: "ipopt"
       solver_tol: 0.000001
-      print_level: 3
+      print_level: 5
       print_time: 0
       mu_target: 0.000001
       mu_init: 0.000001
       acceptable_tol: 0.000001
       acceptable_obj_change_tol: 0.000001
-      max_iter: 100
+      max_iter: 400
+      warm_start_init_point: "no"
+      verbose: False
+      jit: False
+      jit_flags: ["-O3"]
+      compiler: "shell"
+      expand_mx_funcs_to_sx: False
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 300
-      nlp_solver_tol_stat: 0.000001
-      nlp_solver_tol_eq: 0.000001
-      nlp_solver_tol_ineq: 0.000001
-      nlp_solver_tol_comp: 0.000001
-      nlp_solver_ext_qp_res: 0
-      qp_solver_type: "FULL_CONDENSING_QPOASES"
+      nlp_solver_max_iter: 200
+      nlp_solver_tol_stat: 0.00001
+      nlp_solver_tol_eq: 0.00001
+      nlp_solver_tol_ineq: 0.00001
+      nlp_solver_tol_comp: 0.00001
+      nlp_solver_ext_qp_res: 1
+      qp_solver_type: "FULL_CONDENSING_QPOASES" # "PARTIAL_CONDENSING_HPIPM"
       qp_solver_iter_max: 100
       qp_solver_warm_start: 1
+      qp_solver_tol_stat: 0.001
+      qp_solver_tol_eq: 0.001
+      qp_solver_tol_ineq: 0.001
+      qp_solver_tol_comp: 0.001
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
       regularize_method: "CONVEXIFY"
       levenberg_marquardt: 0.0
-      print_level: 0
+      print_level: 1
+      ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"
