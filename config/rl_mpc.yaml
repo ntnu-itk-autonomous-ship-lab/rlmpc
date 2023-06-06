@@ -64,7 +64,7 @@ mpc:
       qp_solver_tol_comp: 0.001
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
-      regularize_method: "CONVEXIFY"
-      levenberg_marquardt: 0.1
+      regularize_method: "PROJECT"
+      levenberg_marquardt: 0.01
       print_level: 1
       ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

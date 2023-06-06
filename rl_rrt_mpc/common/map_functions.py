@@ -20,12 +20,12 @@ import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.rbf_casadi as rbf_casadi
 import rl_rrt_mpc.common.smallestenclosingcircle as smallestenclosingcircle
 import rl_rrt_mpc.gmm_em as gmm_em
-import scipy.cluster.vq as scipyvq
 import scipy.interpolate as scipyintp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
 from matplotlib import cm
+
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
@@ -730,7 +730,7 @@ def compute_surface_approximations_from_polygons(
                     val_l = -1000.0
                 relevant_boundary = polygon.buffer(d_safe + buff_l).intersection(geometry.LineString(original_poly.buffer(d_safe + buff_l).exterior.coords).buffer(1.0))
                 y_boundary, x_boundary = relevant_boundary.exterior.coords.xy
-                n_boundary_points = 40
+                n_boundary_points = 50
                 if len(y_boundary) < n_boundary_points:
                     n_boundary_points = len(y_boundary)
                 elif len(y_boundary) > 300:
@@ -770,7 +770,7 @@ def compute_surface_approximations_from_polygons(
                     np.array(mask_unstructured),
                     kernel="thin_plate_spline",
                     epsilon=1.0,
-                    smoothing=1.0,
+                    smoothing=50.0,
                 )
                 rbf_csd = rbf_casadi.RBFInterpolator(
                     np.array([x_poly_unstructured, y_poly_unstructured]).T,
@@ -836,15 +836,15 @@ def compute_surface_approximations_from_polygons(
                     ax.set_zlabel("Mask")
                     # ax.set_title("Spline surface")
 
-                    ax2.plot_surface(xX, yY, surface_grad_points[:, :, 0], rcount=200, ccount=200, cmap=cm.coolwarm)
-                    ax2.set_xlabel("North")
-                    ax2.set_ylabel("East")
+                    ax2.plot_surface(yY, xX, surface_grad_points[:, :, 0], rcount=200, ccount=200, cmap=cm.coolwarm)
+                    ax2.set_xlabel("East")
+                    ax2.set_ylabel("North")
                     ax2.set_zlabel("Mask")
                     ax2.set_title("Spline surface gradient x")
 
-                    ax3.plot_surface(xX, yY, surface_grad_points[:, :, 1], rcount=200, ccount=200, cmap=cm.coolwarm)
-                    ax3.set_xlabel("North")
-                    ax3.set_ylabel("East")
+                    ax3.plot_surface(yY, xX, surface_grad_points[:, :, 1], rcount=200, ccount=200, cmap=cm.coolwarm)
+                    ax3.set_xlabel("East")
+                    ax3.set_ylabel("North")
                     ax3.set_zlabel("Mask")
                     ax3.set_title("Spline surface gradient y")
                     plt.show(block=False)

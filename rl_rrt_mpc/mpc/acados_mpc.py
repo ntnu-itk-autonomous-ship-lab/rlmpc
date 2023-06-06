@@ -78,6 +78,7 @@ class AcadosMPC:
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
 
+        self._min_depth: int = 5
         self._t_prev: float = 0.0
 
     @property
@@ -133,22 +134,25 @@ class AcadosMPC:
         else:
             self._u_warm_start = np.zeros((2, N))
 
-    def _shift_warm_start(self, xs: np.ndarray, dt: float) -> None:
+    def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
         """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
 
         Args:
             - xs (np.ndarray): Current state of the system.
             - dt (float): Time to shift the warm start decision trajectory.
+            - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
         """
         n_shifts = int(dt / self._params.dt)
         self._u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], np.tile(self._u_warm_start[:, -1], (n_shifts, 1)).T), axis=1)
 
-        # Simulate the system from t_N to t_N+n_shifts with the last input
+        # Simulate the system from t_N to t_N+n_shifts with the last input, or zero input?
         states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], self._u_warm_start[:, -1], self._params.dt, n_shifts)
+        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(states_past_N[:2, :] + self._map_origin.reshape(2, 1), self._min_depth, enc)
+        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], np.array([[0.0, 0.0]]), self._params.dt, n_shifts)
         self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:], states_past_N), axis=1)
 
     def plan(
-        self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: Optional[senc.ENC] = None
+        self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -159,7 +163,7 @@ class AcadosMPC:
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of static obstacle Polygon objects.
-            - enc (Optional[senc.ENC]): ENC object used for obstacle avoidance.
+            - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory and inputs for the ownship.
@@ -171,15 +175,15 @@ class AcadosMPC:
 
         dt = t - self._t_prev
         if dt > 0.0:
-            self._shift_warm_start(xs, dt)
+            self._shift_warm_start(xs, dt, enc)
 
         self._update_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list)
-        status = self._acados_ocp_solver.solve_for_x0(x0_bar=xs)
+        self._acados_ocp_solver.solve_for_x0(x0_bar=xs)
         self._acados_ocp_solver.print_statistics()
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
 
-        self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
+        # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
         inputs, trajectory, lower_slacks, upper_slacks = self._get_solution(xs)
         so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
 
@@ -270,6 +274,7 @@ class AcadosMPC:
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
+        min_depth: int = 5,
     ) -> None:
         """Constructs the OCP for the NMPC problem using ACADOS.
 
@@ -293,8 +298,8 @@ class AcadosMPC:
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
 
         """
+        self._min_depth = min_depth
         self._map_origin = map_origin
-        _, f_expl, xdot, _, _ = self._model.setup_equations_of_motion()
         self._acados_ocp.model = self._model.as_acados()
         ship_vertices = self._model.params().ship_vertices
         self._acados_ocp.dims.N = int(self._params.T / self._params.dt)
