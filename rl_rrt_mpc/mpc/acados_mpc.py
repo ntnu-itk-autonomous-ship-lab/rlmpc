@@ -47,7 +47,7 @@ def parse_acados_solver_options(config_dict: dict):
     acados_solver_options.print_level = config_dict["print_level"]
     acados_solver_options.ext_fun_compile_flags = config_dict["ext_fun_compile_flags"]
     if "HPIPM" in config_dict["qp_solver_type"]:
-        acados_solver_options.hpipm_mode = "ROBUST"
+        acados_solver_options.hpipm_mode = "BALANCE"
     return acados_solver_options
 
 
@@ -135,7 +135,7 @@ class AcadosMPC:
             self._u_warm_start = np.zeros((2, N))
 
     def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
-        """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
+        """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead. Apply ad hoc maneuvering if the shifted trajectory is in collision.
 
         Args:
             - xs (np.ndarray): Current state of the system.
@@ -143,13 +143,73 @@ class AcadosMPC:
             - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
         """
         n_shifts = int(dt / self._params.dt)
-        self._u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], np.tile(self._u_warm_start[:, -1], (n_shifts, 1)).T), axis=1)
 
         # Simulate the system from t_N to t_N+n_shifts with the last input, or zero input?
+        inputs_past_N = np.tile(self._u_warm_start[:, -1], (n_shifts, 1)).T
         states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], self._u_warm_start[:, -1], self._params.dt, n_shifts)
-        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(states_past_N[:2, :] + self._map_origin.reshape(2, 1), self._min_depth, enc)
-        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], np.array([[0.0, 0.0]]), self._params.dt, n_shifts)
-        self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:], states_past_N), axis=1)
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        if min_dist > self._params.d_safe_so:
+            self._u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], inputs_past_N), axis=1)
+            self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:], states_past_N), axis=1)
+            return
+
+        offset = int(2.5 * n_shifts)
+
+        # Try right turn
+        lbu = self._acados_ocp.constraints.lbu
+        ubu = self._acados_ocp.constraints.ubu
+        Fy = mf.sat(-600.0 - 1000.0 * abs(self._x_warm_start[5, -offset]), lbu[1], ubu[1])
+        u_mod = np.array([self._u_warm_start[0, -offset], Fy])
+        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        if min_dist >= self._params.d_safe_so:
+            inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
+            self._u_warm_start = np.concatenate(
+                (self._u_warm_start[:, n_shifts:-offset], inputs_past_N),
+                axis=1,
+            )
+            self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
+            hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+            return
+        # Try left turn
+        Fy = mf.sat(600.0 + 1000.0 * abs(self._x_warm_start[5, -offset]), lbu[1], ubu[1])
+        u_mod = np.array([self._u_warm_start[0, -offset], Fy])
+        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+
+        if min_dist >= self._params.d_safe_so:
+            inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
+            self._u_warm_start = np.concatenate(
+                (self._u_warm_start[:, n_shifts:-offset], inputs_past_N),
+                axis=1,
+            )
+            self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
+            hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+            return
+
+        # Try braking
+        u_mod = np.array([0.0, 0.0])
+        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
+        self._u_warm_start = np.concatenate(
+            (self._u_warm_start[:, n_shifts:-offset], inputs_past_N),
+            axis=1,
+        )
+        self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
+        hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
 
     def plan(
         self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC
@@ -296,6 +356,7 @@ class AcadosMPC:
             - so_list (list): List of static obstacle Polygon objects
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
+            - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
 
         """
         self._min_depth = min_depth

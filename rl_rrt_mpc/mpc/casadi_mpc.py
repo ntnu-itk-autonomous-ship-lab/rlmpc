@@ -188,7 +188,7 @@ class CasadiMPC:
         do_list: list,
         so_list: list,
         enc: Optional[senc.ENC],
-        show_plots: bool = True,
+        show_plots: bool = False,
         **kwargs,
     ) -> Tuple[np.ndarray, np.ndarray, dict]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
@@ -252,12 +252,12 @@ class CasadiMPC:
         self._current_warmstart_v["x"] = self._decision_variables(X, U, Sigma)
         self._current_warmstart_v["lam_x"] = soln["lam_x"].full()
         self._current_warmstart_v["lam_g"] = soln["lam_g"].full()
-        # plot_solver_stats(stats, show_plots)
+        plot_solver_stats(stats, show_plots)
         print(f"Inf norm opt slack variables: {np.max(Sigma)} | Max g_ineq: {np.max(g_ineq_vals)} | Max g_eq: {np.max(g_eq_vals)}")
         self._t_prev = t
         return X[:, :N], U, soln
 
-    def construct_ocp(self, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0])) -> None:
+    def construct_ocp(self, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0]), min_depth: int = 5) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
         Class constructs a "CASADI" (ipopt) tailored OCP on the form (same as for the ACADOS MPC):
@@ -280,6 +280,7 @@ class CasadiMPC:
             - so_list (list): List of compatible static obstacle Polygon objects with the static obstacle constraint type.
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
+            - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
         """
         self._map_origin = map_origin
         N = int(self._params.T / self._params.dt)

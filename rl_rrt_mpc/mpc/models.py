@@ -44,6 +44,24 @@ class Telemetron(MPCModel):
         self._params = params
         self.f_impl, self.f_expl, self.xdot, self.x, self.u = self.setup_equations_of_motion()
         self.dynamics = csd.Function("dynamics", [self.x, self.u], [self.f_expl], ["x", "u"], ["f_expl"])
+        # Input and state bounds
+        min_Fx = self._params.Fx_limits[0]
+        max_Fx = self._params.Fx_limits[1]
+        min_Fy = self._params.Fy_limits[0]
+        max_Fy = self._params.Fy_limits[1]
+        max_turn_rate = self._params.r_max
+        max_speed = self._params.U_max
+        self.lbu = np.array(
+            [
+                min_Fx,
+                min_Fy,
+            ]
+        )
+        self.ubu = np.array([max_Fx, max_Fy])
+
+        approx_inf = 1e10
+        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -max_speed, -max_turn_rate])
+        self.ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, max_speed, max_turn_rate])
 
     def params(self) -> cs_models.TelemetronParams:
         return self._params
@@ -95,7 +113,7 @@ class Telemetron(MPCModel):
             soln[:, k] = xs_k
             xdot = self.dynamics(xs_k, u).full().flatten()
             dxs = xdot * dt
-            xs_k = xs_k + dxs
+            xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -104,25 +122,7 @@ class Telemetron(MPCModel):
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Returns the lower and upper bounds for the input and state vectors, respectively
         """
-        # Input and state bounds
-        min_Fx = self._params.Fx_limits[0]
-        max_Fx = self._params.Fx_limits[1]
-        min_Fy = self._params.Fy_limits[0]
-        max_Fy = self._params.Fy_limits[1]
-        max_turn_rate = self._params.r_max
-        max_speed = self._params.U_max
-        lbu = np.array(
-            [
-                min_Fx,
-                min_Fy,
-            ]
-        )
-        ubu = np.array([max_Fx, max_Fy])
-
-        approx_inf = 1e10
-        lbx = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -max_speed, -max_turn_rate])
-        ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, max_speed, max_turn_rate])
-        return lbu, ubu, lbx, ubx
+        return self.lbu, self.ubu, self.lbx, self.ubx
 
     def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX]:
         """Returns casadi relevant symbolics for the Telemetron

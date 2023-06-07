@@ -103,6 +103,7 @@ class MPC:
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
+        min_depth: int = 5,
     ) -> None:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
@@ -113,21 +114,15 @@ class MPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
+            - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
+            - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
         """
-        self._casadi_mpc.construct_ocp(so_list, enc, map_origin)
+        self._casadi_mpc.construct_ocp(so_list, enc, map_origin, min_depth)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, map_origin)
+            self._acados_mpc.construct_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, map_origin, min_depth)
 
     def plan(
-        self,
-        t: float,
-        nominal_trajectory: np.ndarray,
-        nominal_inputs: Optional[np.ndarray],
-        xs: np.ndarray,
-        do_list: list,
-        so_list: list,
-        enc: Optional[senc.ENC],
-        **kwargs
+        self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, **kwargs
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -138,14 +133,14 @@ class MPC:
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of ALL static obstacle Polygon objects.
-            - enc (Optional[senc.ENC]): Electronic Navigational Chart object.
+            - enc (senc.ENC): Electronic Navigational Chart object.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray]: Optimal trajectory [eta, nu] x N and inputs for the ownship.
         """
         if self._acados_enabled:
-            trajectory, inputs = self._acados_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, **kwargs)
+            trajectory, inputs = self._acados_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
         else:
             trajectory, inputs, _ = self._casadi_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
         return trajectory, inputs

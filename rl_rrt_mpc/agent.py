@@ -290,6 +290,7 @@ class RLMPC(ci.ICOLAV):
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
                 map_origin=self._map_origin,
+                min_depth=self._min_depth,
             )
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)

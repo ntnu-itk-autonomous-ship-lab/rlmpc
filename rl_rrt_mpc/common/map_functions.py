@@ -677,6 +677,7 @@ def compute_surface_approximations_from_polygons(
         # ax3 = plt.figure().add_subplot(111)
     j = 0
     for d_safe in safety_margins:
+        d_safe = d_safe + 1.0
         surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
         for polygons, original_poly in polygons:
@@ -720,9 +721,11 @@ def compute_surface_approximations_from_polygons(
                                 mask_unstructured.append(-1.0)
                     except AttributeError:
                         break
-                    if enc is not None and show_plots:
-                        translated_coastline = hf.translate_polygons([coastline], -map_origin[1], -map_origin[0])[0]
-                        enc.draw_polygon(translated_coastline.buffer(buff_l, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
+
+                if True:  # enc is not None and show_plots:
+                    translated_coastline = hf.translate_polygons([coastline], -map_origin[1], -map_origin[0])[0]
+                    enc.draw_polygon(translated_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
+
                 buff_l = 10.0
                 val_l = -10.0
                 if j > 5:
@@ -770,7 +773,7 @@ def compute_surface_approximations_from_polygons(
                     np.array(mask_unstructured),
                     kernel="thin_plate_spline",
                     epsilon=1.0,
-                    smoothing=50.0,
+                    smoothing=1.0,
                 )
                 rbf_csd = rbf_casadi.RBFInterpolator(
                     np.array([x_poly_unstructured, y_poly_unstructured]).T,
