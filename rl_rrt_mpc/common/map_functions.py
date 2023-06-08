@@ -677,7 +677,7 @@ def compute_surface_approximations_from_polygons(
         # ax3 = plt.figure().add_subplot(111)
     j = 0
     for d_safe in safety_margins:
-        d_safe = d_safe + 1.0
+        d_safe = d_safe + 0.5
         surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
         for polygons, original_poly in polygons:

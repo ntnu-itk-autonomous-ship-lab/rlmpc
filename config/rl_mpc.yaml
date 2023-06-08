@@ -17,11 +17,11 @@ mpc:
     reference_traj_bbox_buffer: 200.0
     T: 40.0
     dt: 0.5
-    Q: [0.7, 0.7, 0.005, 10.0, 0.005, 0.005]
+    Q: [0.4, 0.4, 1.0, 10.0, 5.0, 1.0]
     R: [0.00001, 0.00001]
     w_L2: 0.0
-    w_L1: 1070.0
-    d_safe_so: 6.0
+    w_L1: 1100.0
+    d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
@@ -49,12 +49,12 @@ mpc:
       expand_mx_funcs_to_sx: False
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 200
+      nlp_solver_max_iter: 25
       nlp_solver_tol_stat: 0.05
       nlp_solver_tol_eq: 0.0001
       nlp_solver_tol_ineq: 0.001
       nlp_solver_tol_comp: 0.001
-      nlp_solver_ext_qp_res: 1
+      nlp_solver_ext_qp_res: 0
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" #"PARTIAL_CONDENSING_HPIPM"  "FULL_CONDENSING_QPOASES"
       qp_solver_iter_max: 100
       qp_solver_warm_start: 1
@@ -66,5 +66,5 @@ mpc:
       globalization: "MERIT_BACKTRACKING"
       regularize_method: "PROJECT"
       levenberg_marquardt: 0.001
-      print_level: 1
+      print_level: 0
       ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

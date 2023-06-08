@@ -80,6 +80,7 @@ class AcadosMPC:
 
         self._min_depth: int = 5
         self._t_prev: float = 0.0
+        self._xs_prev: np.ndarray = np.array([])
 
     @property
     def params(self):
@@ -129,6 +130,8 @@ class AcadosMPC:
         """
         N = int(self._params.T / self._params.dt)
         self._x_warm_start = nominal_trajectory[:6, :]
+        psi = nominal_trajectory[2, :].tolist()
+        self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
         if nominal_inputs is not None and nominal_inputs.size > 0:
             self._u_warm_start = nominal_inputs
         else:
@@ -150,12 +153,14 @@ class AcadosMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
         if min_dist > self._params.d_safe_so:
             self._u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], inputs_past_N), axis=1)
             self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:], states_past_N), axis=1)
+            psi = self._x_warm_start[2, :].tolist()
+            self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
             return
-
+        # We are in collision, try to maneuver out of it
         offset = int(2.5 * n_shifts)
 
         # Try right turn
@@ -167,7 +172,7 @@ class AcadosMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
         if min_dist >= self._params.d_safe_so:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
             self._u_warm_start = np.concatenate(
@@ -175,7 +180,9 @@ class AcadosMPC:
                 axis=1,
             )
             self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
-            hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+            psi = self._x_warm_start[2, :].tolist()
+            self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
+            # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
             return
         # Try left turn
         Fy = mf.sat(600.0 + 1000.0 * abs(self._x_warm_start[5, -offset]), lbu[1], ubu[1])
@@ -184,7 +191,7 @@ class AcadosMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
 
         if min_dist >= self._params.d_safe_so:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
@@ -193,7 +200,9 @@ class AcadosMPC:
                 axis=1,
             )
             self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
-            hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+            psi = self._x_warm_start[2, :].tolist()
+            self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
+            # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
             return
 
         # Try braking
@@ -202,18 +211,18 @@ class AcadosMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, min_dist_vec, min_dist_idx = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
         inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
         self._u_warm_start = np.concatenate(
             (self._u_warm_start[:, n_shifts:-offset], inputs_past_N),
             axis=1,
         )
         self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
-        hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+        psi = self._x_warm_start[2, :].tolist()
+        self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
+        # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
 
-    def plan(
-        self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def plan(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
@@ -226,25 +235,32 @@ class AcadosMPC:
             - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
 
         Returns:
-            - Tuple[np.ndarray, np.ndarray]: Optimal trajectory and inputs for the ownship.
+            - dict: Dictionary containing the optimal trajectory, inputs, lower slacks, upper slacks and solver stats.
         """
         if not self._initialized:
             self._set_initial_warm_start(nominal_trajectory, nominal_inputs)
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(nominal_trajectory, xs, so_list, enc)
+            self._xs_prev = xs
             self._initialized = True
 
+        psi = xs[2]
+        xs_unwrapped = xs.copy()
+        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
+        self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
         if dt > 0.0:
-            self._shift_warm_start(xs, dt, enc)
+            self._shift_warm_start(xs_unwrapped, dt, enc)
 
-        self._update_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list)
-        self._acados_ocp_solver.solve_for_x0(x0_bar=xs)
+        self._update_ocp(nominal_trajectory, nominal_inputs, xs_unwrapped, do_list, so_list)
+        self._acados_ocp_solver.solve_for_x0(x0_bar=xs_unwrapped)
         self._acados_ocp_solver.print_statistics()
-        t_solve = self._acados_ocp_solver.get_stats("time_tot")
+        t_solve = self._acados_ocp_solver.get_stats("time_tot")[0]
         cost_val = self._acados_ocp_solver.get_cost()
+        n_iter = self._acados_ocp_solver.get_stats("sqp_iter")[0]
+        final_residuals = self._acados_ocp_solver.get_stats("residuals")
 
         # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
-        inputs, trajectory, lower_slacks, upper_slacks = self._get_solution(xs)
+        inputs, trajectory, lower_slacks, upper_slacks = self._get_solution(xs_unwrapped)
         so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
 
         print(
@@ -253,7 +269,19 @@ class AcadosMPC:
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
         self._t_prev = t
-        return trajectory[:, : self._acados_ocp.dims.N], inputs[:, : self._acados_ocp.dims.N]
+        output = {
+            "trajectory": trajectory,
+            "inputs": inputs,
+            "lower_slacks": lower_slacks,
+            "upper_slacks": upper_slacks,
+            "so_constr_vals": so_constr_vals,
+            "do_constr_vals": do_constr_vals,
+            "t_solve": t_solve,
+            "cost_val": cost_val,
+            "n_iter": n_iter,
+            "final_residuals": final_residuals,
+        }
+        return output
 
     def _get_obstacle_constraint_values(self, trajectory: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Extracts the constraint values at the current solution.
@@ -323,7 +351,7 @@ class AcadosMPC:
                 self._acados_ocp_solver.set(i, "u", self._u_warm_start[:, i])
             p_i = self.create_parameter_values(nominal_trajectory, nominal_inputs, xs, do_list, so_list, i)
             self._acados_ocp_solver.set(i, "p", p_i)
-        print("OCP updated")
+        # print("OCP updated")
 
     def construct_ocp(
         self,

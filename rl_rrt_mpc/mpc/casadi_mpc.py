@@ -115,6 +115,7 @@ class CasadiMPC:
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
         self._t_prev: float = 0.0
+        self._xs_prev: np.ndarray = np.array([])
 
     @property
     def params(self):
@@ -190,7 +191,7 @@ class CasadiMPC:
         enc: Optional[senc.ENC],
         show_plots: bool = False,
         **kwargs,
-    ) -> Tuple[np.ndarray, np.ndarray, dict]:
+    ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
@@ -203,22 +204,26 @@ class CasadiMPC:
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
-            - Tuple[np.ndarray, np.ndarray, dict]: Optimal trajectory and inputs for the ownship. Also, the NLP solution dictionary is returned.
+            - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
         if not self._initialized:
             self._set_initial_warm_start(xs, nominal_trajectory, nominal_inputs)
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, nominal_trajectory, enc, **kwargs)
+            self._xs_prev = xs
             self._initialized = True
-        N = int(self._params.T / self._params.dt)
         action = None
         if nominal_inputs is not None:
             action = nominal_inputs[:, 0]
 
+        psi = xs[2]
+        xs_unwrapped = xs.copy()
+        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
+        self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
         if dt > 0.0:
-            self._shift_warm_start(xs, dt)
+            self._shift_warm_start(xs_unwrapped, dt)
 
-        parameter_values = self.create_parameter_values(xs, action, nominal_trajectory, do_list, so_list, enc, **kwargs)
+        parameter_values = self.create_parameter_values(xs_unwrapped, action, nominal_trajectory, do_list, so_list, enc, **kwargs)
         soln = self._vsolver(
             x0=self._current_warmstart_v["x"],
             lam_x0=self._current_warmstart_v["lam_x"],
@@ -230,32 +235,61 @@ class CasadiMPC:
             ubg=self._ubg_v,
         )
         stats = self._vsolver.stats()
-
-        if stats["return_status"] == "Maximum_Iterations_Exceeded":
+        if stats["return_status"] == "Solve_Succeeded":
+            self._current_warmstart_v = soln
+        elif stats["return_status"] == "Maximum_Iterations_Exceeded":
             # Use solution unless it is infeasible, then use previous solution.
             g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
             g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
             if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
                 raise RuntimeError("Infeasible solution found.")
             soln = self._current_warmstart_v
+        else:
+            raise RuntimeError("Infeasible solution found.")
 
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
+        X, U, Sigma = self._extract_trajectories(soln)
+        self._current_warmstart_v["x"] = self._decision_variables(X, U, Sigma)
+        self._current_warmstart_v["lam_x"] = soln["lam_x"].full()
+        self._current_warmstart_v["lam_g"] = soln["lam_g"].full()
+        plot_solver_stats(stats, show_plots)
+        print(
+            f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | sl (max, argmax): ({np.max(Sigma)}, {np.argmax(Sigma)}) | so_constr (max, argmax): ({np.max(so_constr_vals)}, {np.argmax(so_constr_vals)})"
+        )
+        self._t_prev = t
+        output = {
+            "trajectory": X,
+            "inputs": U,
+            "lower_slacks": [],
+            "upper_slacks": Sigma,
+            "so_constr_vals": so_constr_vals,
+            "do_constr_vals": do_constr_vals,
+            "t_solve": t_solve,
+            "cost_val": cost_val,
+            "n_iter": n_iter,
+            "final_residuals": final_residuals,
+        }
+        return output
+
+    def _extract_trajectories(self, soln: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Extracts the optimal trajectory, inputs and slacks from the solution dictionary.
+
+        Args:
+            soln (dict): Solution dictionary.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: Optimal trajectory, inputs and slacks.
+        """
         X, U, Sigma = self._decision_trajectories(soln["x"])
         X = X.full()
         U = U.full()
         Sigma = Sigma.full()
         psi = X[2, :]
-        psi = np.unwrap(np.concatenate(([xs[2]], psi)))[1:]
+        psi = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
         X[2, :] = psi
-        self._current_warmstart_v["x"] = self._decision_variables(X, U, Sigma)
-        self._current_warmstart_v["lam_x"] = soln["lam_x"].full()
-        self._current_warmstart_v["lam_g"] = soln["lam_g"].full()
-        plot_solver_stats(stats, show_plots)
-        print(f"Inf norm opt slack variables: {np.max(Sigma)} | Max g_ineq: {np.max(g_ineq_vals)} | Max g_eq: {np.max(g_eq_vals)}")
-        self._t_prev = t
-        return X[:, :N], U, soln
+        return X, U, Sigma
 
     def construct_ocp(self, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0]), min_depth: int = 5) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.

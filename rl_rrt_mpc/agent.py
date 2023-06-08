@@ -226,7 +226,7 @@ class RLMPCParams:
 
 class RLMPC(ci.ICOLAV):
     """The RL-MPC is a mid-level planner, using the MPC to plan a solution for tracking a nominal trajectory while avoiding obstacles.
-    RL is used to update parameters online. Path-following/trajectory tracking can both be used. A Kinematic Trajectory Planner is used to generate the nominal trajectory.
+    RL is used to update parameters online. Path-following/trajectory tracking can both be used. LOS-guidance is used to generate the nominal trajectory.
     """
 
     def __init__(self, config: Optional[RLMPCParams] = None, config_file: Optional[Path] = dp.rl_mpc_config) -> None:
@@ -237,7 +237,6 @@ class RLMPC(ci.ICOLAV):
             self._config = cp.extract(RLMPCParams, config_file, dp.rl_mpc_schema)
 
         self._rl = rl.RL(self._config.rl)
-        self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
         self._los = guidances.LOSGuidance(self._config.los)
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
 
@@ -249,6 +248,7 @@ class RLMPC(ci.ICOLAV):
         self._min_depth: int = 0
         self._nominal_trajectory: np.ndarray = np.array([])
         self._nominal_inputs: np.ndarray = np.array([])
+        self._mpc_soln: dict = {}
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
@@ -272,12 +272,10 @@ class RLMPC(ci.ICOLAV):
         in order to extract relevant grounding hazards.
         """
         assert enc is not None, "ENC must be provided to the RL-MPC"
+        N = int(self._mpc.params.T / self._mpc.params.dt)
         if not self._initialized:
-            # self._map_origin = np.array([0.0, 0.0])
             self._map_origin = ownship_state[:2]
             self._initialized = True
-            # x_spline, y_spline, psi_spline, speed_spline = self._ktp.compute_splines(waypoints, speed_plan, None)
-            # self._nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
             self._nominal_trajectory, self._nominal_inputs = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
             self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
             self._nominal_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
@@ -296,10 +294,9 @@ class RLMPC(ci.ICOLAV):
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             nominal_trajectory, nominal_inputs = self._update_nominal_plan(ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]))
-
-            # self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-            # self._ktp.update_path_variable(t - self._t_prev)
-            self._mpc_trajectory, self._mpc_inputs = self._mpc.plan(
+            psi_nom = nominal_trajectory[2, :]
+            nominal_trajectory[2, :] = np.unwrap(np.concatenate(([psi_nom[0]], psi_nom)))[1:]
+            self._mpc_soln = self._mpc.plan(
                 t,
                 nominal_trajectory=nominal_trajectory,
                 nominal_inputs=nominal_inputs,
@@ -308,6 +305,8 @@ class RLMPC(ci.ICOLAV):
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
             )
+            self._mpc_trajectory = self._mpc_soln["trajectory"][:, :N]
+            self._mpc_inputs = self._mpc_soln["inputs"]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if enc is not None and self._mpc.params.debug:
@@ -323,16 +322,17 @@ class RLMPC(ci.ICOLAV):
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
-        # Use LOS-guidance to track the MPC trajectory
+        self._t_prev = t
+        # Alternative 1: Use LOS-guidance to track the MPC trajectory
         # self._references = self._los.compute_references(
         #     self._mpc_trajectory[:2, :], speed_plan=self._mpc_trajectory[3, :], times=None, xs=ownship_state, dt=t - self._t_prev
         # )
         # self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         # self._references[:nx, :] = self._mpc_trajectory
+
+        # Alternative 2: Apply MPC inputs directly to the ownship
         self._references = np.zeros((9, len(self._mpc_inputs[0, :])))
         self._references[:2, :] = self._mpc_inputs
-        # print(f"RLMPC references: {self._references[:, 0]}")
-        self._t_prev = t
         return self._references
 
     def _setup_mpc_static_obstacle_input(self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs) -> None:
@@ -430,11 +430,11 @@ class RLMPC(ci.ICOLAV):
             shifted_nominal_inputs = np.zeros((self._mpc.params.m, N))
         elif n_samples < N + 1:
             shifted_nominal_trajectory = np.zeros((nx, N + 1))
-            shifted_nominal_trajectory[:, :n_samples] = self._nominal_trajectory
-            shifted_nominal_trajectory[:, n_samples:] = np.tile(self._nominal_trajectory[:, -1], (N + 1 - n_samples, 1)).T
+            shifted_nominal_trajectory[:, :n_samples] = self._nominal_trajectory[:, closest_idx : closest_idx + n_samples]
+            shifted_nominal_trajectory[:, n_samples:] = np.tile(self._nominal_trajectory[:, closest_idx + n_samples - 1], (N + 1 - n_samples, 1)).T
             shifted_nominal_inputs = np.zeros((nu, N))
-            shifted_nominal_inputs[:, : n_samples - 1] = self._nominal_inputs
-            shifted_nominal_inputs[:, n_samples - 1 :] = np.tile(self._nominal_inputs[:, -1], (N - n_samples + 1, 1)).T
+            shifted_nominal_inputs[:, : n_samples - 1] = self._nominal_inputs[:, closest_idx : closest_idx + n_samples - 1]
+            shifted_nominal_inputs[:, n_samples - 1 :] = np.tile(self._nominal_inputs[:, closest_idx + n_samples - 2], (N - n_samples + 1, 1)).T
         else:
             shifted_nominal_trajectory = shifted_nominal_trajectory[:, : N + 1]
             shifted_nominal_inputs = shifted_nominal_inputs[:, :N]
@@ -477,7 +477,16 @@ class RLMPC(ci.ICOLAV):
         return self._references
 
     def get_colav_data(self) -> dict:
-        return {}
+        return {
+            "nominal_trajectory": self._nominal_trajectory,
+            "nominal_inputs": self._nominal_inputs,
+            "time_of_last_plan": self._t_prev_mpc,
+            "mpc_soln": self._mpc_soln,
+            "mpc_trajectory": self._mpc_trajectory,
+            "mpc_inputs": self._mpc_inputs,
+            "params": self._config,
+            "t": self._t_prev,
+        }
 
     def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
 
@@ -520,15 +529,25 @@ def create_los_based_trajectory(
     inputs = []
     xs_k = xs
     t = 0.0
+    reached_goal = False
+    t_braking = 10.0
+    t_brake_start = 0.0
     while t < 2000.0:
         trajectory.append(xs_k)
         references = los.compute_references(waypoints, speed_plan, None, xs_k, dt)
+        if reached_goal:
+            references[3:] = np.tile(0.0, (references[3:].size, 1))
         u = controller.compute_inputs(references, xs_k, dt, model)
         inputs.append(u)
         xs_k = sim_integrators.erk4_integration_step(model.dynamics, model.bounds, xs_k, u, dt)
 
         dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
         t += dt
-        if dist2goal < 10.0:
+        if dist2goal < 10.0 and not reached_goal:
+            reached_goal = True
+            t_brake_start = t
+
+        if reached_goal and t - t_brake_start > t_braking:
             break
+
     return np.array(trajectory).T, np.array(inputs)[:, :2].T

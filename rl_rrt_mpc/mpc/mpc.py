@@ -123,7 +123,7 @@ class MPC:
 
     def plan(
         self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, **kwargs
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
@@ -137,10 +137,10 @@ class MPC:
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
-            - Tuple[np.ndarray, np.ndarray]: Optimal trajectory [eta, nu] x N and inputs for the ownship.
+            - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
         if self._acados_enabled:
-            trajectory, inputs = self._acados_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
+            mpc_soln = self._acados_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
         else:
-            trajectory, inputs, _ = self._casadi_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
-        return trajectory, inputs
+            mpc_soln = self._casadi_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
+        return mpc_soln
