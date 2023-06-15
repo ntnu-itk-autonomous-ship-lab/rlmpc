@@ -292,6 +292,7 @@ class RLMPC(ci.ICOLAV):
             )
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
+
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             nominal_trajectory, nominal_inputs = self._update_nominal_plan(ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]))
             psi_nom = nominal_trajectory[2, :]
@@ -316,8 +317,11 @@ class RLMPC(ci.ICOLAV):
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
                 enc.draw_polygon(ship_poly, color="pink")
             self._mpc_trajectory, self._mpc_inputs = self._interpolate_solution(t)
+            d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
             self._t_prev_mpc = t
+            if t > 190.0:
+                print("here")
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
@@ -333,6 +337,7 @@ class RLMPC(ci.ICOLAV):
         # Alternative 2: Apply MPC inputs directly to the ownship
         self._references = np.zeros((9, len(self._mpc_inputs[0, :])))
         self._references[:2, :] = self._mpc_inputs
+
         return self._references
 
     def _setup_mpc_static_obstacle_input(self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs) -> None:
