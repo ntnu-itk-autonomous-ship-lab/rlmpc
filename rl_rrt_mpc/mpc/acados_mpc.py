@@ -147,7 +147,7 @@ class AcadosMPC:
         """
         n_shifts = int(dt / self._params.dt)
 
-        # Simulate the system from t_N to t_N+n_shifts with the last input, or zero input?
+        # Simulate the system from t_N to t_N+n_shifts with the last input
         inputs_past_N = np.tile(self._u_warm_start[:, -1], (n_shifts, 1)).T
         states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], self._u_warm_start[:, -1], self._params.dt, n_shifts)
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)

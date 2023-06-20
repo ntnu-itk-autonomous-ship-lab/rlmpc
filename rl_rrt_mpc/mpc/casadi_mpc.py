@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Optional, Tuple, TypeVar
 
@@ -116,6 +117,7 @@ class CasadiMPC:
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
         self._t_prev: float = 0.0
         self._xs_prev: np.ndarray = np.array([])
+        self._min_depth: int = 5
 
     @property
     def params(self):
@@ -158,27 +160,83 @@ class CasadiMPC:
 
         # self._current_warmstart_v = {"x": [], "lam_x": [], "lam_g": []}
 
-    def _shift_warm_start(self, xs: np.ndarray, dt: float) -> None:
+    def _try_to_create_warm_start_solution(
+        self,
+        X_prev: np.ndarray,
+        U_prev: np.ndarray,
+        Sigma_prev: np.ndarray,
+        u_mod: np.ndarray,
+        offset: int,
+        n_shifts: int,
+        enc: senc.ENC,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Creates a shifted warm start trajectory from the previous trajectory and the new control input.
+        Args:
+            - X_prev (np.ndarray): The previous trajectory.
+            - U_prev (np.ndarray): The previous control inputs.
+            - Sigma_prev (np.ndarray): The previous slack variables.
+            - u_mod (np.ndarray): The new control input to apply at the end of the previous trajectory.
+            - offset (int): The offset from the last sample in the previous trajectory, to apply the modified input vector.
+            - dt (float): Time step
+            - n_shifts (int): Number of shifts to perform on the previous trajectory.
+            - enc (senc.ENC): The ENC object containing the map.
+
+        Returns:
+            Tuple[np.ndarray, bool]: The new warm start and a boolean indicating if the warm start was successful.
+        """
+        # Simulate the system from t_N to t_N+n_shifts with the last input
+        Sigma_warm_start = np.concatenate((Sigma_prev[:, n_shifts:], np.tile(Sigma_prev[:, -1], (n_shifts, 1)).T), axis=1)
+
+        if offset == 0:
+            inputs_past_N = np.tile(u_mod, (n_shifts, 1)).T
+            states_past_N = self._model.euler_n_step(X_prev[:, -1], u_mod, self._params.dt, n_shifts)
+        else:
+            inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
+            states_past_N = self._model.euler_n_step(X_prev[:, -offset], u_mod, self._params.dt, n_shifts + offset)
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        if min_dist <= self._params.d_safe_so:
+            return np.array([]), False
+
+        if offset == 0:
+            U_warm_start = np.concatenate((U_prev[:, n_shifts:], inputs_past_N), axis=1)
+            X_warm_start = np.concatenate((X_prev[:, n_shifts:], states_past_N), axis=1)
+        else:
+            U_warm_start = np.concatenate((U_prev[:, n_shifts:-offset], inputs_past_N), axis=1)
+            X_warm_start = np.concatenate((X_prev[:, n_shifts:-offset], states_past_N), axis=1)
+
+        psi = X_warm_start[2, :].tolist()
+        X_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
+        w_warm_start = np.concatenate((U_warm_start.T.flatten(), X_warm_start.T.flatten(), Sigma_warm_start.T.flatten()))
+        return w_warm_start, True
+
+    def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
         """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
 
         Args:
             - xs (np.ndarray): Current state of the system.
             - dt (float): Time to shift the warm start decision trajectory.
+            - enc (senc.ENC): Electronic Navigational Chart object.
         """
+        lbu, ubu, _, _ = self._model.get_input_state_bounds()
+        n_attempts = 3
         n_shifts = int(dt / self._params.dt)
         w_prev = np.array(self._current_warmstart_v["x"])
         X_prev, U_prev, Sigma_prev = self._decision_trajectories(w_prev)
         X_prev = X_prev.full()
         U_prev = U_prev.full()
         Sigma_prev = Sigma_prev.full()
-        U_shifted = np.concatenate((U_prev[:, n_shifts:], np.tile(U_prev[:, -1], (n_shifts, 1)).T), axis=1)
+        offsets = [0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
+        u_attempts = [U_prev[:, -1], np.array([U_prev[0, -offsets[1]], lbu[1]]), np.array([U_prev[0, -offsets[2]], ubu[1]]), np.array([0.0, 0.0])]
+        success = False
+        for i in range(n_attempts):
+            if success:
+                break
+            w_warm_start, success = self._try_to_create_warm_start_solution(X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, enc)
 
-        # Simulate the system from t_N to t_N+n_shifts with the last input
-        X_past_N = self._model.euler_n_step(X_prev[:, -1], U_prev[:, -1], self._params.dt, n_shifts)
-        X_shifted = np.concatenate((X_prev[:, n_shifts:], X_past_N), axis=1)
-        Sigma_shifted = np.concatenate((Sigma_prev[:, n_shifts:], np.tile(Sigma_prev[:, -1], (n_shifts, 1)).T), axis=1)
-        w_shifted = np.concatenate((U_shifted.T.flatten(), X_shifted.T.flatten(), Sigma_shifted.T.flatten()))
-        self._current_warmstart_v["x"] = w_shifted.tolist()
+        self._current_warmstart_v["x"] = w_warm_start.tolist()
 
     def plan(
         self,
@@ -211,6 +269,7 @@ class CasadiMPC:
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, nominal_trajectory, enc, **kwargs)
             self._xs_prev = xs
             self._initialized = True
+
         action = None
         if nominal_inputs is not None:
             action = nominal_inputs[:, 0]
@@ -221,9 +280,10 @@ class CasadiMPC:
         self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
         if dt > 0.0:
-            self._shift_warm_start(xs_unwrapped, dt)
+            self._shift_warm_start(xs_unwrapped, dt, enc)
 
-        parameter_values = self.create_parameter_values(xs_unwrapped, action, nominal_trajectory, do_list, so_list, enc, **kwargs)
+        parameter_values = self.create_parameter_values(xs_unwrapped, action, nominal_trajectory, nominal_inputs, do_list, so_list, enc, **kwargs)
+        t_start = time.time()
         soln = self._vsolver(
             x0=self._current_warmstart_v["x"],
             lam_x0=self._current_warmstart_v["lam_x"],
@@ -234,17 +294,15 @@ class CasadiMPC:
             lbg=self._lbg_v,
             ubg=self._ubg_v,
         )
+        t_solve = time.time() - t_start
         stats = self._vsolver.stats()
-        if stats["return_status"] == "Solve_Succeeded":
-            self._current_warmstart_v = soln
-        elif stats["return_status"] == "Maximum_Iterations_Exceeded":
+        if stats["return_status"] == "Maximum_Iterations_Exceeded":
             # Use solution unless it is infeasible, then use previous solution.
             g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
             g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
             if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
-                raise RuntimeError("Infeasible solution found.")
-            soln = self._current_warmstart_v
-        else:
+                soln = self._current_warmstart_v
+        elif stats["return_status"] == "Infeasible_Problem_Detected":
             raise RuntimeError("Infeasible solution found.")
 
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
@@ -254,6 +312,8 @@ class CasadiMPC:
         self._current_warmstart_v["x"] = self._decision_variables(X, U, Sigma)
         self._current_warmstart_v["lam_x"] = soln["lam_x"].full()
         self._current_warmstart_v["lam_g"] = soln["lam_g"].full()
+        cost_val = soln["f"].full()[0][0]
+        final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
         plot_solver_stats(stats, show_plots)
         print(
             f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | sl (max, argmax): ({np.max(Sigma)}, {np.argmax(Sigma)}) | so_constr (max, argmax): ({np.max(so_constr_vals)}, {np.argmax(so_constr_vals)})"
@@ -265,10 +325,10 @@ class CasadiMPC:
             "lower_slacks": [],
             "upper_slacks": Sigma,
             "so_constr_vals": so_constr_vals,
-            "do_constr_vals": do_constr_vals,
+            "do_constr_vals": [],
             "t_solve": t_solve,
             "cost_val": cost_val,
-            "n_iter": n_iter,
+            "n_iter": stats["iter_count"],
             "final_residuals": final_residuals,
         }
         return output
@@ -316,6 +376,7 @@ class CasadiMPC:
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
         """
+        self._min_depth = min_depth
         self._map_origin = map_origin
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
@@ -703,7 +764,7 @@ class CasadiMPC:
         else:
             fixed_parameter_values.extend([0.0] * N * nu)
         fixed_parameter_values.append(self._params.gamma)
-        W = self._params.w * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
+        W = self._params.w_L1 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr)
         fixed_parameter_values.extend(W.tolist())
         n_do = len(do_list)
         for k in range(N + 1):
