@@ -80,7 +80,8 @@ class CasadiMPC:
             self._params: ParamClass = params
 
         self._solver_options: CasadiSolverOptions = solver_options
-        self._initialized = False
+        self._initialized_v: bool = False
+        self._initialized_q: bool = False
         self._map_origin: np.ndarray = np.array([])
 
         self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)
@@ -91,7 +92,7 @@ class CasadiMPC:
         self._lbg_v: np.ndarray = np.array([])
         self._ubg_v: np.ndarray = np.array([])
         self._qsolver: csd.Function = csd.Function("qsolver", [], [])
-        self._prev_qsoln: dict = {"x": [], "lam_x0": [], "lam_g": []}
+        self._current_warmstart_q: dict = {"x": [], "lam_x0": [], "lam_g": []}
         self._lbg_q: np.ndarray = np.array([])
         self._ubg_q: np.ndarray = np.array([])
 
@@ -129,18 +130,20 @@ class CasadiMPC:
         Returns:
             np.ndarray: Array of parameters. The order of the parameters are:
                 - Q (flattened)
+                - R (flattened)
                 - d_safe_so
                 - d_safe_do
         """
         return self._params.adjustable()
 
-    def _set_initial_warm_start(self, xs: np.ndarray, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
+    def _create_initial_warm_start(self, xs: np.ndarray, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], dim_g: int) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
 
         Args:
             - xs (np.ndarray): Initial state of the system.
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow. Used to set the initial warm start state trajectory.
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected. Used to set the initial warm start input trajectory, if provided.
+            - dim_g (int): Dimension/length of the constraints.
         """
         nx, nu = self._model.dims()
         N = int(self._params.T / self._params.dt)
@@ -154,11 +157,8 @@ class CasadiMPC:
         nominal_trajectory_cpy[2, :] = psi_unwrapped
         w = np.concatenate((w, nominal_trajectory_cpy[0:nx, 0 : N + 1].T.flatten()))
         w = np.concatenate((w, np.zeros((self._params.max_num_so_constr + self._params.max_num_do_constr) * (N + 1))))
-        self._current_warmstart_v["x"] = w.tolist()
-        self._current_warmstart_v["lam_x"] = np.zeros(w.shape[0]).tolist()
-        self._current_warmstart_v["lam_g"] = np.zeros(self._lbg_v.shape[0]).tolist()
-
-        # self._current_warmstart_v = {"x": [], "lam_x": [], "lam_g": []}
+        warm_start = {"x": w.tolist(), "lam_x": np.zeros(w.shape[0]).tolist(), "lam_g": np.zeros(dim_g).tolist()}
+        return warm_start
 
     def _try_to_create_warm_start_solution(
         self,
@@ -212,10 +212,11 @@ class CasadiMPC:
         w_warm_start = np.concatenate((U_warm_start.T.flatten(), X_warm_start.T.flatten(), Sigma_warm_start.T.flatten()))
         return w_warm_start, True
 
-    def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
+    def _shift_warm_start(self, prev_warm_start: dict, xs: np.ndarray, dt: float, enc: senc.ENC) -> dict:
         """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
 
         Args:
+            - prev_warm_start (dict): Warm start decision trajectory to shift.
             - xs (np.ndarray): Current state of the system.
             - dt (float): Time to shift the warm start decision trajectory.
             - enc (senc.ENC): Electronic Navigational Chart object.
@@ -223,7 +224,7 @@ class CasadiMPC:
         lbu, ubu, _, _ = self._model.get_input_state_bounds()
         n_attempts = 3
         n_shifts = int(dt / self._params.dt)
-        w_prev = np.array(self._current_warmstart_v["x"])
+        w_prev = np.array(prev_warm_start["x"])
         X_prev, U_prev, Sigma_prev = self._decision_trajectories(w_prev)
         X_prev = X_prev.full()
         U_prev = U_prev.full()
@@ -236,7 +237,9 @@ class CasadiMPC:
                 break
             w_warm_start, success = self._try_to_create_warm_start_solution(X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, enc)
         assert success, "Could not create warm start solution"
-        self._current_warmstart_v["x"] = w_warm_start.tolist()
+        new_warm_start = prev_warm_start
+        new_warm_start["x"] = w_warm_start.tolist()
+        return new_warm_start
 
     def plan(
         self,
@@ -264,11 +267,11 @@ class CasadiMPC:
         Returns:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
-        if not self._initialized:
-            self._set_initial_warm_start(xs, nominal_trajectory, nominal_inputs)
+        if not self._initialized_v:
+            self._current_warmstart_v = self._create_initial_warm_start(xs, nominal_trajectory, nominal_inputs, self._lbg_v.shape[0])
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, nominal_trajectory, enc, **kwargs)
             self._xs_prev = xs
-            self._initialized = True
+            self._initialized_v = True
 
         action = None
         if nominal_inputs is not None:
@@ -280,7 +283,7 @@ class CasadiMPC:
         self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
         if dt > 0.0:
-            self._shift_warm_start(xs_unwrapped, dt, enc)
+            self._current_warmstart_v = self._shift_warm_start(self._current_warmstart_v, xs_unwrapped, dt, enc)
 
         parameter_values = self.create_parameter_values(xs_unwrapped, action, nominal_trajectory, nominal_inputs, do_list, so_list, enc, **kwargs)
         t_start = time.time()
@@ -901,33 +904,84 @@ class CasadiMPC:
         jacob_act = self.dPi(z, self._p_fixed_values, self._p_adjustable_values).full()
         return jacob_act[:nu, :]
 
-    def action_value(self, state: np.ndarray, action: np.ndarray, parameter_values: np.ndarray):
+    def action_value(self, state: np.ndarray, action: np.ndarray, parameter_values: np.ndarray, show_plots: bool = False) -> Tuple[float, dict]:
         """Computes the action value function Q(s, a) for a given state and action.
 
         Args:
-            state (np.ndarray): State vector
-            action (np.ndarray): Action vector
-            parameter_values (np.ndarray, optional): Parameter vector for the MPC NLP problem.
+            - state (np.ndarray): State vector
+            - action (np.ndarray): Action vector
+            - parameter_values (np.ndarray, optional): Adjustable parameter vector for the MPC NLP problem.
+            - show_plots (bool, optional): Whether to show plots or not. Defaults to False.
 
         Returns:
-            _type_: _description_
+            Tuple[float, dict]: Action value function Q(s, a) and corresponding solution dictionary
         """
-        nx, nu = self._model.dims()
-        self._p_fixed_values[:nx, :] = state
-        self._p_fixed_values[nx : nx + nu, :] = action
+        if not self._initialized_q:
+            self._current_warmstart_q = self._create_initial_warm_start(xs, nominal_trajectory, nominal_inputs, self._lbg_q.shape[0])
+            self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, nominal_trajectory, enc, **kwargs)
+            self._xs_prev = xs
+            self._initialized_q = True
 
-        qsoln = self._qsolver(
-            x0=state,
-            p=np.concatenate([self._p_fixed_values, self._p_adjustable_values]),
+        psi = xs[2]
+        xs_unwrapped = xs.copy()
+        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
+        self._xs_prev = xs_unwrapped
+        dt = t - self._t_prev
+        if dt > 0.0:
+            self._current_warmstart_q = self._shift_warm_start(self._current_warmstart_q, xs_unwrapped, dt, enc)
+
+        parameter_values = self.create_parameter_values(xs_unwrapped, action, nominal_trajectory, nominal_inputs, do_list, so_list, enc, **kwargs)
+        t_start = time.time()
+
+        soln = self._qsolver(
+            x0=self._current_warmstart_q["x"],
+            lam_x0=self._current_warmstart_q["lam_x"],
+            lam_g0=self._current_warmstart_q["lam_g"],
+            p=parameter_values,
+            lbx=self._lbw,
+            ubx=self._ubw,
             lbg=self._lbg_q,
             ubg=self._ubg_q,
         )
-        fl = self._qsolver.stats()
-        if not fl["success"]:
-            RuntimeError("Problem is Infeasible")
+        t_solve = time.time() - t_start
+        stats = self._qsolver.stats()
+        if stats["return_status"] == "Maximum_Iterations_Exceeded":
+            # Use solution unless it is infeasible, then use previous solution.
+            g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
+            g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
+            if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
+                soln = self._current_warmstart_q
+        elif stats["return_status"] == "Infeasible_Problem_Detected":
+            raise RuntimeError("Infeasible solution found.")
 
-        q = qsoln["f"].full()[0, 0]
-        return q, qsoln
+        so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
+        g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
+        g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
+        X, U, Sigma = self._extract_trajectories(soln)
+        self._current_warmstart_q["x"] = self._decision_variables(X, U, Sigma)
+        self._current_warmstart_q["lam_x"] = soln["lam_x"].full()
+        self._current_warmstart_q["lam_g"] = soln["lam_g"].full()
+        cost_val = soln["f"].full()[0][0]
+        final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
+        plot_solver_stats(stats, show_plots)
+        print(
+            f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | sl (max, argmax): ({np.max(Sigma)}, {np.argmax(Sigma)}) | so_constr (max, argmax): ({np.max(so_constr_vals)}, {np.argmax(so_constr_vals)})"
+        )
+        self._t_prev = t
+        output = {
+            "trajectory": X,
+            "inputs": U,
+            "lower_slacks": [],
+            "upper_slacks": Sigma,
+            "so_constr_vals": so_constr_vals,
+            "do_constr_vals": [],
+            "t_solve": t_solve,
+            "cost_val": cost_val,
+            "n_iter": stats["iter_count"],
+            "final_residuals": final_residuals,
+        }
+        return output
+        return cost_val, soln
 
     def dQdP(self, state: np.ndarray, action: np.ndarray, soln: dict, parameter_values):
         # Gradient of action-value fn Q wrt lernable param

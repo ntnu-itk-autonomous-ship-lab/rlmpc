@@ -83,9 +83,9 @@ class MPC:
     def params(self) -> parameters.IParams:
         return self._params
 
-    def action_value(self, state: np.ndarray, action: np.ndarray) -> np.ndarray:
+    def action_value(self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray) -> np.ndarray:
         """Returns the Q(s, a) function value for the given state and action."""
-        return self._casadi_mpc.action_value(state, action)
+        return self._casadi_mpc.action_value(state, action, parameters)
 
     def value(self, state: np.ndarray) -> np.ndarray:
         """Returns the V(s) value function value for the given state."""
