@@ -169,7 +169,7 @@ class CasadiMPC:
         offset: int,
         n_shifts: int,
         enc: senc.ENC,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, bool]:
         """Creates a shifted warm start trajectory from the previous trajectory and the new control input.
         Args:
             - X_prev (np.ndarray): The previous trajectory.
@@ -235,7 +235,7 @@ class CasadiMPC:
             if success:
                 break
             w_warm_start, success = self._try_to_create_warm_start_solution(X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, enc)
-
+        assert success, "Could not create warm start solution"
         self._current_warmstart_v["x"] = w_warm_start.tolist()
 
     def plan(

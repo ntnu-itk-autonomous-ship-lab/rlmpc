@@ -33,15 +33,15 @@ mpc:
   solver_options:
     casadi:
       solver_type: "ipopt"
-      solver_tol: 0.0001
+      solver_tol: 0.001
       print_level: 5
       print_time: 0
       mu_target: 0.0001
       mu_init: 0.0001
-      acceptable_tol: 0.0001
-      acceptable_obj_change_tol: 0.0001
-      max_iter: 400
-      warm_start_init_point: "no"
+      acceptable_tol: 0.001
+      acceptable_obj_change_tol: 0.001
+      max_iter: 200
+      warm_start_init_point: "yes"
       verbose: False
       jit: False
       jit_flags: ["-O3"]
@@ -67,4 +67,4 @@ mpc:
       regularize_method: "PROJECT"
       levenberg_marquardt: 0.001
       print_level: 0
-      ext_fun_compile_flags: "-O3" # "-march=native -flto -fomit-frame-pointer -O0"
+      ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

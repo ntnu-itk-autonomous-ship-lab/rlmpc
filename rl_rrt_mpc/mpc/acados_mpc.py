@@ -137,6 +137,53 @@ class AcadosMPC:
         else:
             self._u_warm_start = np.zeros((2, N))
 
+    def _try_to_create_warm_start_solution(
+        self,
+        u_mod: np.ndarray,
+        offset: int,
+        n_shifts: int,
+        enc: senc.ENC,
+    ) -> Tuple[np.ndarray, np.ndarray, bool]:
+        """Creates a shifted warm start trajectory from the previous trajectory and the new control input.
+        Args:
+            - X_prev (np.ndarray): The previous trajectory.
+            - U_prev (np.ndarray): The previous control inputs.
+            - Sigma_prev (np.ndarray): The previous slack variables.
+            - u_mod (np.ndarray): The new control input to apply at the end of the previous trajectory.
+            - offset (int): The offset from the last sample in the previous trajectory, to apply the modified input vector.
+            - dt (float): Time step
+            - n_shifts (int): Number of shifts to perform on the previous trajectory.
+            - enc (senc.ENC): The ENC object containing the map.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, bool]: The new warm start and a boolean indicating if the warm start was successful.
+        """
+        # Simulate the system from t_N to t_N+n_shifts with the last input
+        if offset == 0:
+            inputs_past_N = np.tile(u_mod, (n_shifts, 1)).T
+            states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], u_mod, self._params.dt, n_shifts)
+        else:
+            inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
+            states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        if min_dist <= self._params.d_safe_so:
+            return np.array([]), np.array([]), False
+
+        if offset == 0:
+            u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], inputs_past_N), axis=1)
+            x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:], states_past_N), axis=1)
+        else:
+            u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:-offset], inputs_past_N), axis=1)
+            x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
+
+        psi = x_warm_start[2, :].tolist()
+        x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
+        # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+        return x_warm_start, u_warm_start, True
+
     def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
         """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead. Apply ad hoc maneuvering if the shifted trajectory is in collision.
 
@@ -145,82 +192,24 @@ class AcadosMPC:
             - dt (float): Time to shift the warm start decision trajectory.
             - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
         """
+        lbu, ubu, _, _ = self._model.get_input_state_bounds()
+        n_attempts = 3
         n_shifts = int(dt / self._params.dt)
-
-        # Simulate the system from t_N to t_N+n_shifts with the last input
-        inputs_past_N = np.tile(self._u_warm_start[:, -1], (n_shifts, 1)).T
-        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], self._u_warm_start[:, -1], self._params.dt, n_shifts)
-        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
-        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
-        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
-        if min_dist > self._params.d_safe_so:
-            self._u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], inputs_past_N), axis=1)
-            self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:], states_past_N), axis=1)
-            psi = self._x_warm_start[2, :].tolist()
-            self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
-            return
-        # We are in collision, try to maneuver out of it
-        offset = int(2.5 * n_shifts)
-
-        # Try right turn
-        lbu = self._acados_ocp.constraints.lbu
-        ubu = self._acados_ocp.constraints.ubu
-        Fy = mf.sat(-600.0 - 1000.0 * abs(self._x_warm_start[5, -offset]), lbu[1], ubu[1])
-        u_mod = np.array([self._u_warm_start[0, -offset], Fy])
-        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
-        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
-        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
-        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
-        if min_dist >= self._params.d_safe_so:
-            inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
-            self._u_warm_start = np.concatenate(
-                (self._u_warm_start[:, n_shifts:-offset], inputs_past_N),
-                axis=1,
-            )
-            self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
-            psi = self._x_warm_start[2, :].tolist()
-            self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
-            # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
-            return
-        # Try left turn
-        Fy = mf.sat(600.0 + 1000.0 * abs(self._x_warm_start[5, -offset]), lbu[1], ubu[1])
-        u_mod = np.array([self._u_warm_start[0, -offset], Fy])
-        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
-        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
-        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
-        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
-
-        if min_dist >= self._params.d_safe_so:
-            inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
-            self._u_warm_start = np.concatenate(
-                (self._u_warm_start[:, n_shifts:-offset], inputs_past_N),
-                axis=1,
-            )
-            self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
-            psi = self._x_warm_start[2, :].tolist()
-            self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
-            # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
-            return
-
-        # Try braking
-        u_mod = np.array([0.0, 0.0])
-        states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
-        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
-        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
-        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
-        inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
-        self._u_warm_start = np.concatenate(
-            (self._u_warm_start[:, n_shifts:-offset], inputs_past_N),
-            axis=1,
-        )
-        self._x_warm_start = np.concatenate((self._x_warm_start[:, n_shifts:-offset], states_past_N), axis=1)
-        psi = self._x_warm_start[2, :].tolist()
-        self._x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
-        # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+        offsets = [0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
+        u_attempts = [
+            self._u_warm_start[:, -1],
+            np.array([self._u_warm_start[0, -offsets[1]], lbu[1]]),
+            np.array([self._u_warm_start[0, -offsets[2]], ubu[1]]),
+            np.array([0.0, 0.0]),
+        ]
+        success = False
+        for i in range(n_attempts):
+            if success:
+                break
+            x_warm_start, u_warm_start, success = self._try_to_create_warm_start_solution(u_attempts[i], offsets[i], n_shifts, enc)
+        assert success, "Could not create a warm start solution."
+        self._x_warm_start = x_warm_start
+        self._u_warm_start = u_warm_start
 
     def plan(self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
