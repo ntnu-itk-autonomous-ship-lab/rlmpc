@@ -17,7 +17,7 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.casadi_mpc as casadi_mpc
 import rl_rrt_mpc.mpc.models as models
-import rl_rrt_mpc.mpc.parameters as parameters
+import rl_rrt_mpc.mpc.parameters as mpc_parameters
 import rl_rrt_mpc.mpc.set_generator as sg
 import seacharts.enc as senc
 
@@ -44,14 +44,14 @@ class SolverConfig:
 @dataclass
 class Config:
     enable_acados: bool = False
-    mpc: Type[parameters.IParams] = parameters.RLMPCParams()
+    mpc: Type[mpc_parameters.IParams] = mpc_parameters.RLMPCParams()
     solver_options: SolverConfig = SolverConfig()
 
     @classmethod
     def from_dict(self, config_dict: dict):
         config = Config(
             enable_acados=config_dict["enable_acados"],
-            mpc=parameters.RLMPCParams.from_dict(config_dict["params"]),
+            mpc=mpc_parameters.RLMPCParams.from_dict(config_dict["params"]),
             solver_options=SolverConfig.from_dict(config_dict["solver_options"]),
         )
         return config
@@ -80,11 +80,20 @@ class MPC:
         self._set_generator: Optional[sg.SetGenerator] = None
 
     @property
-    def params(self) -> parameters.IParams:
+    def params(self) -> mpc_parameters.IParams:
         return self._params
 
-    def action_value(self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray) -> np.ndarray:
-        """Returns the Q(s, a) function value for the given state and action."""
+    def action_value(self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray) -> Tuple[float, dict]:
+        """Returns the Q(s, a) action-value function value for the given state and action.
+
+        Args:
+            state (np.ndarray): Current state of the ownship.
+            action (np.ndarray): Current action of the ownship.
+            parameters (np.ndarray): Current adjustable RL-agent parameters.
+
+        Returns:
+            Tuple[float, dict]: The Q(s, a) action-value function value and the corresponding mpc solution dictionary.
+        """
         return self._casadi_mpc.action_value(state, action, parameters)
 
     def value(self, state: np.ndarray) -> np.ndarray:
