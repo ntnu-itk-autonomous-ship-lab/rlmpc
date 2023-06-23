@@ -193,12 +193,6 @@ class CasadiMPC:
         else:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
             states_past_N = self._model.euler_n_step(X_prev[:, -offset], u_mod, self._params.dt, n_shifts + offset)
-        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
-        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
-        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
-        if min_dist <= self._params.d_safe_so:
-            return np.array([]), False
 
         if offset == 0:
             U_warm_start = np.concatenate((U_prev[:, n_shifts:], inputs_past_N), axis=1)
@@ -206,10 +200,17 @@ class CasadiMPC:
         else:
             U_warm_start = np.concatenate((U_prev[:, n_shifts:-offset], inputs_past_N), axis=1)
             X_warm_start = np.concatenate((X_prev[:, n_shifts:-offset], states_past_N), axis=1)
-
         psi = X_warm_start[2, :].tolist()
         X_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
         w_warm_start = np.concatenate((U_warm_start.T.flatten(), X_warm_start.T.flatten(), Sigma_warm_start.T.flatten()))
+
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        if min_dist <= self._params.d_safe_so:
+            return w_warm_start, False
+
         return w_warm_start, True
 
     def _shift_warm_start(self, prev_warm_start: dict, xs: np.ndarray, dt: float, enc: senc.ENC) -> dict:
@@ -233,9 +234,9 @@ class CasadiMPC:
         u_attempts = [U_prev[:, -1], np.array([U_prev[0, -offsets[1]], lbu[1]]), np.array([U_prev[0, -offsets[2]], ubu[1]]), np.array([0.0, 0.0])]
         success = False
         for i in range(n_attempts):
+            w_warm_start, success = self._try_to_create_warm_start_solution(X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, enc)
             if success:
                 break
-            w_warm_start, success = self._try_to_create_warm_start_solution(X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, enc)
         assert success, "Could not create warm start solution"
         new_warm_start = prev_warm_start
         new_warm_start["x"] = w_warm_start.tolist()

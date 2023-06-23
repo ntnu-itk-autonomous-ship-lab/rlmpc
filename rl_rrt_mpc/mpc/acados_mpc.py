@@ -165,12 +165,6 @@ class AcadosMPC:
         else:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
             states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
-        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
-        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
-        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
-        if min_dist <= self._params.d_safe_so:
-            return np.array([]), np.array([]), False
 
         if offset == 0:
             u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], inputs_past_N), axis=1)
@@ -181,7 +175,15 @@ class AcadosMPC:
 
         psi = x_warm_start[2, :].tolist()
         x_warm_start[2, :] = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
-        # hf.plot_trajectory(self._x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+
+        pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
+        pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
+        pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
+        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        if min_dist <= self._params.d_safe_so:
+            return x_warm_start, u_warm_start, False
+
+        # hf.plot_trajectory(x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
         return x_warm_start, u_warm_start, True
 
     def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
@@ -193,21 +195,24 @@ class AcadosMPC:
             - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
         """
         lbu, ubu, _, _ = self._model.get_input_state_bounds()
-        n_attempts = 3
+        n_attempts = 5
         n_shifts = int(dt / self._params.dt)
-        offsets = [0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
+        offsets = [0, 0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
         u_attempts = [
             self._u_warm_start[:, -1],
-            np.array([self._u_warm_start[0, -offsets[1]], lbu[1]]),
-            np.array([self._u_warm_start[0, -offsets[2]], ubu[1]]),
+            np.array([self._u_warm_start[0, -1] * 0.5, 0.0]),
+            np.array([self._u_warm_start[0, -offsets[1]] * 0.5, 0.9 * lbu[1]]),
+            np.array([self._u_warm_start[0, -offsets[2]] * 0.5, 0.9 * ubu[1]]),
             np.array([0.0, 0.0]),
         ]
         success = False
         for i in range(n_attempts):
+            x_warm_start, u_warm_start, success = self._try_to_create_warm_start_solution(u_attempts[i], offsets[i], n_shifts, enc)
             if success:
                 break
-            x_warm_start, u_warm_start, success = self._try_to_create_warm_start_solution(u_attempts[i], offsets[i], n_shifts, enc)
-        assert success, "Could not create a warm start solution."
+
+        if not success:
+            print("Warning: Could not create a feasible warm start solution. Attempting with non-feasible solution.")
         self._x_warm_start = x_warm_start
         self._u_warm_start = u_warm_start
 

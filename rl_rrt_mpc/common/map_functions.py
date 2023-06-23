@@ -26,6 +26,7 @@ import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
 from matplotlib import cm
+
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
@@ -704,7 +705,7 @@ def compute_surface_approximations_from_polygons(
         ax5 = plt.figure().add_subplot(111, projection="3d")
     j = 0
     for d_safe in safety_margins:
-        d_safe = d_safe + 0.1  # buffer to account for function slope not being infinite
+        d_safe = d_safe + 0.2  # buffer to account for function slope not being infinite
         surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
         for polygons, original_poly in polygons:

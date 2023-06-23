@@ -320,8 +320,7 @@ class RLMPC(ci.ICOLAV):
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
             self._t_prev_mpc = t
-            if t > 190.0:
-                print("here")
+
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
@@ -535,7 +534,7 @@ def create_los_based_trajectory(
     xs_k = xs
     t = 0.0
     reached_goal = False
-    t_braking = 10.0
+    t_braking = 30.0
     t_brake_start = 0.0
     while t < 2000.0:
         trajectory.append(xs_k)
@@ -548,7 +547,7 @@ def create_los_based_trajectory(
 
         dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
         t += dt
-        if dist2goal < 10.0 and not reached_goal:
+        if dist2goal < 70.0 and not reached_goal:
             reached_goal = True
             t_brake_start = t
 

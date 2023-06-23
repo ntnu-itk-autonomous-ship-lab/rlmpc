@@ -6,5 +6,4 @@ if __name__ == "__main__":
     rlmpc = agent.RLMPC()
     simulator = Simulator()
     data = simulator.run(ownship_colav_system=rlmpc)
-
     print("done")
