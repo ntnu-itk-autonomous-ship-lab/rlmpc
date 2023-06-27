@@ -94,7 +94,6 @@ class RLRRTMPC(ci.ICOLAV):
         self._rrt_inputs: np.ndarray = np.empty(3)
         self._rrt_trajectory: np.ndarray = np.empty(6)
         self._rrt_references: np.ndarray = np.empty(2)
-        self._rel_rrt_trajectory: np.ndarray = np.empty(6)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
@@ -134,8 +133,7 @@ class RLRRTMPC(ci.ICOLAV):
             self._t_prev = t
             self._initialized = True
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
-            self._geometry_tree, poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
-
+            self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
             self._rrt.transfer_enc_data(relevant_grounding_hazards)
             self._rrt.set_init_state(ownship_state.tolist())
             self._rrt.set_goal_state(goal_state.tolist())
@@ -143,17 +141,6 @@ class RLRRTMPC(ci.ICOLAV):
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
             hf.save_rrt_solution(rrt_solution)
-            if enc is not None:
-                enc.start_display()
-                for hazard in relevant_grounding_hazards:
-                    enc.draw_polygon(hazard, color="red", fill=False)
-                # tree_list = self._rrt.get_tree_as_list_of_dicts()
-                # hf.plot_rrt_tree(tree_list, enc)
-                ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 5, 2)
-                enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
-                enc.draw_polygon(ship_poly, color="pink")
-                enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
-
             # rrt_solution = hf.load_rrt_solution()
             rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
             times = np.array(rrt_solution["times"])
@@ -166,25 +153,28 @@ class RLRRTMPC(ci.ICOLAV):
                 self._rrt_inputs[:, k] = np.array(rrt_solution["inputs"][k])
                 self._rrt_references[:, k] = np.array(rrt_solution["references"][k])
 
-            self._rel_rrt_trajectory = self._rrt_trajectory.copy()
-            self._rel_rrt_trajectory[0, :] -= enc.origin[1]
-            self._rel_rrt_trajectory[1, :] -= enc.origin[0]
-
-            if enc is not None:
-                hf.plot_trajectory(self._rrt_trajectory, enc, color="magenta")
-
-            poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-                self._ktp_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc
+            self._setup_mpc_static_obstacle_input(ownship_state, goal_state, enc, **kwargs)
+            self._rrt_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
+            translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
+            self._mpc.construct_ocp(
+                nominal_trajectory=self._rrt_trajectory,
+                nominal_inputs=self._rrt_inputs,
+                xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                do_list=translated_do_list,
+                so_list=self._mpc_rel_polygons,
+                enc=enc,
+                map_origin=self._map_origin,
+                min_depth=self._min_depth,
             )
-            self._mpc_rel_polygons = []
-            for poly_tuple in poly_tuple_list:
-                self._mpc_rel_polygons.extend(poly_tuple[0])
 
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
-            nominal_trajectory, nominal_inputs = self._update_nominal_plan(ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]))
+            N = int(self._mpc.params.T / self._mpc.params.dt)
+            nominal_trajectory, nominal_inputs = shift_nominal_plan(
+                self._rrt_trajectory, self._rrt_inputs, ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]), N
+            )
             psi_nom = nominal_trajectory[2, :]
             nominal_trajectory[2, :] = np.unwrap(np.concatenate(([psi_nom[0]], psi_nom)))[1:]
             self._mpc_soln = self._mpc.plan(
@@ -206,7 +196,9 @@ class RLRRTMPC(ci.ICOLAV):
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
                 enc.draw_polygon(ship_poly, color="pink")
-            self._mpc_trajectory, self._mpc_inputs = self._interpolate_solution(t)
+            self._mpc_trajectory, self._mpc_inputs = interpolate_solution(
+                self._mpc_trajectory, self._mpc_inputs, t, self._t_prev_mpc, self._mpc.params.T, self._mpc.params.dt
+            )
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
             self._t_prev_mpc = t
@@ -229,6 +221,78 @@ class RLRRTMPC(ci.ICOLAV):
 
         return self._references
 
+    def _setup_mpc_static_obstacle_input(
+        self, ownship_state: np.ndarray, goal_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs
+    ) -> None:
+        """Sets up the fixed static obstacle parameters for the MPC.
+
+        Args:
+            - ownship_state (np.ndarray): The ownship state.
+            - goal_state (np.ndarray): The goal state.
+            - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - show_plots (bool): Whether to show plots or not.
+            - **kwargs: Additional keyword arguments.
+        """
+        poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
+            self._rrt_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
+        )
+        for poly_tuple in poly_tuple_list:
+            self._rel_polygons.extend(poly_tuple[0])
+
+        if enc is not None and show_plots:
+            enc.start_display()
+            # hf.plot_trajectory(waypoints, enc, color="green")
+            hf.plot_trajectory(self._rrt_trajectory, enc, color="magenta")
+            for hazard in self._rel_polygons:
+                enc.draw_polygon(hazard, color="red", fill=False)
+
+            ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
+            # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
+            enc.draw_polygon(ship_poly, color="pink")
+            enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
+
+        # Translate the polygons to the origin of the map
+        translated_rel_polygons = hf.translate_polygons(self._rel_polygons.copy(), self._map_origin[1], self._map_origin[0])
+        translated_poly_tuple_list = []
+        for polygons, original_polygon in poly_tuple_list:
+            translated_poly_tuple_list.append(
+                (
+                    hf.translate_polygons(polygons, self._map_origin[1], self._map_origin[0]),
+                    hf.translate_polygons([original_polygon], self._map_origin[1], self._map_origin[0])[0],
+                )
+            )
+        translated_enveloping_polygon = hf.translate_polygons([enveloping_polygon], self._map_origin[1], self._map_origin[0])[0]
+
+        # enc.save_image(name="enc_hazards", path=dp.figures, extension="pdf")
+        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.CIRCULAR:
+            self._mpc_rel_polygons = mapf.compute_smallest_enclosing_circle_for_polygons(translated_rel_polygons, enc, self._map_origin)
+        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL:
+            self._mpc_rel_polygons = mapf.compute_multi_ellipsoidal_approximations_from_polygons(
+                translated_poly_tuple_list, translated_enveloping_polygon, enc, self._map_origin
+            )
+        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+            P1, P2 = mapf.create_point_list_from_polygons(translated_rel_polygons)
+            self._set_generator = sg.SetGenerator(P1, P2)
+        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
+            self._mpc_rel_polygons = translated_poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
+        else:
+            raise ValueError(f"Unknown static obstacle constraint type: {self._mpc.params.so_constr_type}")
+
+    def _update_mpc_so_polygon_input(self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> None:
+        """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.
+
+        Args:
+            - state (np.ndarray): The current ownship state.
+            - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - show_plots (bool): Whether to show plots or not.
+        """
+        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+            A_full, b_full = self._set_generator(ownship_state[0:2] - self._map_origin)
+            A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._mpc.params.max_num_so_constr)
+            if show_plots:
+                sg.plot_constraints(A_reduced, b_reduced, ownship_state[0:2] - self._map_origin, "black", enc, self._map_origin)
+            self._mpc_rel_polygons = [A_reduced, b_reduced]
+
     def get_current_plan(self) -> np.ndarray:
         return self._references
 
@@ -236,8 +300,8 @@ class RLRRTMPC(ci.ICOLAV):
         output = {}
         if self._t_prev_mpc == self._t_prev:
             output = {
-                "nominal_trajectory": self._nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1),
-                "nominal_inputs": self._nominal_inputs,
+                "nominal_trajectory": self._rrt_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1),
+                "nominal_inputs": self._rrt_inputs,
                 "time_of_last_plan": self._t_prev_mpc,
                 "mpc_soln": self._mpc_soln,
                 "mpc_trajectory": self._mpc_trajectory,
@@ -249,9 +313,9 @@ class RLRRTMPC(ci.ICOLAV):
 
     def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
 
-        if self._nominal_trajectory.size > 6:
-            plt_handles["colav_nominal_trajectory"].set_xdata(self._nominal_trajectory[1, 0:-1:10] + self._map_origin[1])
-            plt_handles["colav_nominal_trajectory"].set_ydata(self._nominal_trajectory[0, 0:-1:10] + self._map_origin[0])
+        if self._rrt_trajectory.size > 6:
+            plt_handles["colav_nominal_trajectory"].set_xdata(self._rrt_trajectory[1, 0:-1:10] + self._map_origin[1])
+            plt_handles["colav_nominal_trajectory"].set_ydata(self._rrt_trajectory[0, 0:-1:10] + self._map_origin[0])
 
         if self._mpc_trajectory.size > 6:
             plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:10])
@@ -331,9 +395,7 @@ class RLMPC(ci.ICOLAV):
             self._map_origin = ownship_state[:2]
             self._initialized = True
             self._nominal_trajectory, self._nominal_inputs = create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
-            self._min_depth = mapf.find_minimum_depth(kwargs["min_os_draft"], enc)
-            self._geometry_tree, self._original_poly_list = fill_geometry_tree(self._min_depth, enc)
-            self._mpc_rel_polygons = setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
+            self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
             self._nominal_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
             self._mpc.construct_ocp(
@@ -374,7 +436,9 @@ class RLMPC(ci.ICOLAV):
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
                 enc.draw_polygon(ship_poly, color="pink")
-            self._mpc_trajectory, self._mpc_inputs = self._interpolate_solution(t)
+            self._mpc_trajectory, self._mpc_inputs = interpolate_solution(
+                self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
+            )
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
             self._t_prev_mpc = t
@@ -470,39 +534,6 @@ class RLMPC(ci.ICOLAV):
                 sg.plot_constraints(A_reduced, b_reduced, ownship_state[0:2] - self._map_origin, "black", enc, self._map_origin)
             self._mpc_rel_polygons = [A_reduced, b_reduced]
 
-    def _interpolate_solution(self, t: float) -> Tuple[np.ndarray, np.ndarray]:
-        """Interpolates the solution from the MPC to the time step in the simulation.
-
-        Args:
-            t (float): The current time step.
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray]: The interpolated solution state trajectory and input trajectory.
-        """
-        if self._mpc.params.dt > t - self._t_prev:
-            dt_sim = np.max([t - self._t_prev, 0.5])
-            sim_times = np.arange(0.0, self._mpc.params.T, dt_sim)
-            mpc_times = np.arange(0.0, self._mpc.params.T, self._mpc.params.dt)
-            x_d = interp1d(mpc_times, self._mpc_trajectory[0, :], kind="linear", bounds_error=False)
-            y_d = interp1d(mpc_times, self._mpc_trajectory[1, :], kind="linear", bounds_error=False)
-            psi_d = interp1d(mpc_times, self._mpc_trajectory[2, :], kind="linear", bounds_error=False)
-            u_d = interp1d(mpc_times, self._mpc_trajectory[3, :], kind="linear", bounds_error=False)
-            v_d = interp1d(mpc_times, self._mpc_trajectory[4, :], kind="linear", bounds_error=False)
-            r_d = interp1d(mpc_times, self._mpc_trajectory[5, :], kind="linear", bounds_error=False)
-            self._mpc_trajectory = np.zeros((6, len(sim_times)))
-            self._mpc_trajectory[0, :] = x_d(sim_times)
-            self._mpc_trajectory[1, :] = y_d(sim_times)
-            self._mpc_trajectory[2, :] = psi_d(sim_times)
-            self._mpc_trajectory[3, :] = u_d(sim_times)
-            self._mpc_trajectory[4, :] = v_d(sim_times)
-            self._mpc_trajectory[5, :] = r_d(sim_times)
-            X_d = interp1d(mpc_times, self._mpc_inputs[0, :], kind="linear", bounds_error=False)
-            Y_d = interp1d(mpc_times, self._mpc_inputs[1, :], kind="linear", bounds_error=False)
-            self._mpc_inputs = np.zeros((2, len(sim_times)))
-            self._mpc_inputs[0, :] = X_d(sim_times)
-            self._mpc_inputs[1, :] = Y_d(sim_times)
-        return self._mpc_trajectory, self._mpc_inputs
-
     def get_current_plan(self) -> np.ndarray:
         return self._references
 
@@ -583,125 +614,45 @@ def create_los_based_trajectory(
     return np.array(trajectory).T, np.array(inputs)[:, :2].T
 
 
-def fill_geometry_tree(min_os_depth: int, enc: senc.ENC) -> Tuple[rtree.RTree, list]:
-    """Fills the geometry tree with the relevant ENC objects, based on the minimum OS depth.
-
-    Args:
-        min_os_depth (int): The minimum OS depth.
-        enc (senc.ENC): ENC object containing the map info.
-
-    Returns:
-        Tuple[rtree.RTree, list]: The geometry tree and the list of relevant polygon hazards.
-    """
-    relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
-    return mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
-
-
-def setup_mpc_static_obstacle_input(ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs) -> None:
-    """Sets up the fixed static obstacle parameters for the MPC.
-
-    Args:
-        - ownship_state (np.ndarray): The ownship state.
-        - enc (Optional[senc.ENC]): ENC object containing the map info.
-        - show_plots (bool): Whether to show plots or not.
-        - **kwargs: Additional keyword arguments.
-    """
-    self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
-
-    poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-        self._rrt_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
-    )
-    for poly_tuple in poly_tuple_list:
-        self._rel_polygons.extend(poly_tuple[0])
-
-    if enc is not None and show_plots:
-        enc.start_display()
-        # hf.plot_trajectory(waypoints, enc, color="green")
-        hf.plot_trajectory(self._nominal_trajectory, enc, color="magenta")
-        for hazard in self._rel_polygons:
-            enc.draw_polygon(hazard, color="red", fill=False)
-
-        ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
-        # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
-        enc.draw_polygon(ship_poly, color="pink")
-        # enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
-
-    # Translate the polygons to the origin of the map
-    translated_rel_polygons = hf.translate_polygons(self._rel_polygons.copy(), self._map_origin[1], self._map_origin[0])
-    translated_poly_tuple_list = []
-    for polygons, original_polygon in poly_tuple_list:
-        translated_poly_tuple_list.append(
-            (
-                hf.translate_polygons(polygons, self._map_origin[1], self._map_origin[0]),
-                hf.translate_polygons([original_polygon], self._map_origin[1], self._map_origin[0])[0],
-            )
-        )
-    translated_enveloping_polygon = hf.translate_polygons([enveloping_polygon], self._map_origin[1], self._map_origin[0])[0]
-
-    # enc.save_image(name="enc_hazards", path=dp.figures, extension="pdf")
-    if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.CIRCULAR:
-        self._mpc_rel_polygons = mapf.compute_smallest_enclosing_circle_for_polygons(translated_rel_polygons, enc, self._map_origin)
-    elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL:
-        self._mpc_rel_polygons = mapf.compute_multi_ellipsoidal_approximations_from_polygons(
-            translated_poly_tuple_list, translated_enveloping_polygon, enc, self._map_origin
-        )
-    elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-        P1, P2 = mapf.create_point_list_from_polygons(translated_rel_polygons)
-        self._set_generator = sg.SetGenerator(P1, P2)
-    elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
-        self._mpc_rel_polygons = translated_poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
-    else:
-        raise ValueError(f"Unknown static obstacle constraint type: {self._mpc.params.so_constr_type}")
-
-
-def _update_mpc_so_polygon_input(self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> None:
-    """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.
-
-    Args:
-        - state (np.ndarray): The current ownship state.
-        - enc (Optional[senc.ENC]): ENC object containing the map info.
-        - show_plots (bool): Whether to show plots or not.
-    """
-    if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-        A_full, b_full = self._set_generator(ownship_state[0:2] - self._map_origin)
-        A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._mpc.params.max_num_so_constr)
-        if show_plots:
-            sg.plot_constraints(A_reduced, b_reduced, ownship_state[0:2] - self._map_origin, "black", enc, self._map_origin)
-        self._mpc_rel_polygons = [A_reduced, b_reduced]
-
-
-def _interpolate_solution(self, t: float) -> Tuple[np.ndarray, np.ndarray]:
+def interpolate_solution(trajectory: np.ndarray, inputs: np.ndarray, t: float, t_prev: float, T_mpc: float, dt_mpc: float) -> Tuple[np.ndarray, np.ndarray]:
     """Interpolates the solution from the MPC to the time step in the simulation.
 
     Args:
-        t (float): The current time step.
+        - trajectory (np.ndarray): The solution state trajectory.
+        - inputs (np.ndarray): The solution input trajectory.
+        - t (float): The current time step.
+        - t_prev (float): The previous time step.
+        - T_mpc (float): The MPC horizon.
+        - dt_mpc (float): The MPC time step.
 
     Returns:
         Tuple[np.ndarray, np.ndarray]: The interpolated solution state trajectory and input trajectory.
     """
-    if self._mpc.params.dt > t - self._t_prev:
-        dt_sim = np.max([t - self._t_prev, 0.5])
-        sim_times = np.arange(0.0, self._mpc.params.T, dt_sim)
-        mpc_times = np.arange(0.0, self._mpc.params.T, self._mpc.params.dt)
-        x_d = interp1d(mpc_times, self._mpc_trajectory[0, :], kind="linear", bounds_error=False)
-        y_d = interp1d(mpc_times, self._mpc_trajectory[1, :], kind="linear", bounds_error=False)
-        psi_d = interp1d(mpc_times, self._mpc_trajectory[2, :], kind="linear", bounds_error=False)
-        u_d = interp1d(mpc_times, self._mpc_trajectory[3, :], kind="linear", bounds_error=False)
-        v_d = interp1d(mpc_times, self._mpc_trajectory[4, :], kind="linear", bounds_error=False)
-        r_d = interp1d(mpc_times, self._mpc_trajectory[5, :], kind="linear", bounds_error=False)
-        self._mpc_trajectory = np.zeros((6, len(sim_times)))
-        self._mpc_trajectory[0, :] = x_d(sim_times)
-        self._mpc_trajectory[1, :] = y_d(sim_times)
-        self._mpc_trajectory[2, :] = psi_d(sim_times)
-        self._mpc_trajectory[3, :] = u_d(sim_times)
-        self._mpc_trajectory[4, :] = v_d(sim_times)
-        self._mpc_trajectory[5, :] = r_d(sim_times)
-        X_d = interp1d(mpc_times, self._mpc_inputs[0, :], kind="linear", bounds_error=False)
-        Y_d = interp1d(mpc_times, self._mpc_inputs[1, :], kind="linear", bounds_error=False)
-        self._mpc_inputs = np.zeros((2, len(sim_times)))
-        self._mpc_inputs[0, :] = X_d(sim_times)
-        self._mpc_inputs[1, :] = Y_d(sim_times)
-    return self._mpc_trajectory, self._mpc_inputs
+    intp_trajectory = trajectory
+    intp_inputs = inputs
+    if dt_mpc > t - t_prev or dt_mpc < t - t_prev:
+        dt_sim = np.max([t - t_prev, 0.5])
+        sim_times = np.arange(0.0, T_mpc, dt_sim)
+        mpc_times = np.arange(0.0, T_mpc, dt_mpc)
+        x_d = interp1d(mpc_times, trajectory[0, :], kind="linear", bounds_error=False)
+        y_d = interp1d(mpc_times, trajectory[1, :], kind="linear", bounds_error=False)
+        psi_d = interp1d(mpc_times, trajectory[2, :], kind="linear", bounds_error=False)
+        u_d = interp1d(mpc_times, trajectory[3, :], kind="linear", bounds_error=False)
+        v_d = interp1d(mpc_times, trajectory[4, :], kind="linear", bounds_error=False)
+        r_d = interp1d(mpc_times, trajectory[5, :], kind="linear", bounds_error=False)
+        intp_trajectory = np.zeros((6, len(sim_times)))
+        intp_trajectory[0, :] = x_d(sim_times)
+        intp_trajectory[1, :] = y_d(sim_times)
+        intp_trajectory[2, :] = psi_d(sim_times)
+        intp_trajectory[3, :] = u_d(sim_times)
+        intp_trajectory[4, :] = v_d(sim_times)
+        intp_trajectory[5, :] = r_d(sim_times)
+        X_d = interp1d(mpc_times, inputs[0, :], kind="linear", bounds_error=False)
+        Y_d = interp1d(mpc_times, inputs[1, :], kind="linear", bounds_error=False)
+        intp_inputs = np.zeros((2, len(sim_times)))
+        intp_inputs[0, :] = X_d(sim_times)
+        intp_inputs[1, :] = Y_d(sim_times)
+    return intp_trajectory, intp_inputs
 
 
 def shift_nominal_plan(nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, ownship_state: np.ndarray, N: int) -> Tuple[np.ndarray, np.ndarray]:

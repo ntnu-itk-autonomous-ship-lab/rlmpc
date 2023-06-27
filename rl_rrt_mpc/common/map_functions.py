@@ -13,7 +13,6 @@ from typing import Optional, Tuple
 import casadi as csd
 import geopandas as gpd
 import geopy.distance
-import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
