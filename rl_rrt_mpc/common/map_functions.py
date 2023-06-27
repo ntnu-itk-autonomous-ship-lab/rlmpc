@@ -13,6 +13,7 @@ from typing import Optional, Tuple
 import casadi as csd
 import geopandas as gpd
 import geopy.distance
+import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
@@ -678,19 +679,19 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
 
 
 def compute_surface_approximations_from_polygons(
-    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: list = [0.0], map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = False
+    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: list = [0.0], map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = True
 ) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
-        polygons (list): List of shapely polygons
-        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
-        safety_margins (Optional[list], optional): List of safety margins to buffer the polygon. Defaults to None.
-        map_origin (np.ndarray, optional): Map origin. Defaults to np.array([0.0, 0.0]).
-        show_plots (bool, optional): Whether to show plots. Defaults to False.
+        - polygons (list): List of shapely polygons
+        - enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        - safety_margins (Optional[list], optional): List of safety margins to buffer the polygon. Defaults to None.
+        - map_origin (np.ndarray, optional): Map origin. Defaults to np.array([0.0, 0.0]).
+        - show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
-        list: List of surface approximations for each polygon.
+        - list: List of surface approximations for each polygon.
     """
     surfaces_list = []
     cap_style = 2
@@ -728,6 +729,7 @@ def compute_surface_approximations_from_polygons(
                         p_mid = (pi + pj) / 2.0
                         x_poly_unstructured.insert(i + 1, p_mid[0])
                         y_poly_unstructured.insert(i + 1, p_mid[1])
+
                     # print(f"Distance between vertex {i} and {i+1}: {d2next}")
 
                 polygon_d_safe = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style)
@@ -802,10 +804,11 @@ def compute_surface_approximations_from_polygons(
                 rbf_surface_func = csd.Function("so_surface_func_" + str(j) + "_" + safety_margin_str, [x.reshape((1, 2))], [intp])
                 surfaces.append(rbf_surface_func)
                 code_gen.add(rbf_surface_func)
-                j += 1
 
-                if enc is not None and show_plots:
-                    poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + buff_l, cap_style=cap_style, join_style=join_style).bounds
+                if enc is not None and show_plots and j > 5:
+                    poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 10.0, cap_style=cap_style, join_style=join_style).bounds
+
+                    coastline_min_east, coastline_min_north, coastline_max_east, coastline_max_north = coastline.bounds
                     # if j == 2:
                     #     translated_polygon = hf.translate_polygons([polygon], -map_origin[1], -map_origin[0])[0]
                     #     enc.draw_polygon(translated_polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style), color="black", fill=False)
@@ -813,68 +816,87 @@ def compute_surface_approximations_from_polygons(
                     #     enc.save_image(name="enc_island_polygon", path=save_path, extension="pdf")
                     #     enc.save_image(name="enc_island_polygon", path=save_path, scale=2.0)
 
-                    if j > 0:
-                        y_poly, x_poly = polygon_d_safe.exterior.coords.xy
+                    if j == 8:
+                        polygon_diff = ops.split(coastline.buffer(10.0, cap_style=cap_style, join_style=join_style), geometry.LineString(original_poly.exterior.coords))
+                        geom = polygon_diff.geoms[1]
+                        translated_geom = hf.translate_polygons([geom], -map_origin[1], -map_origin[0])[0]
+                        enc.draw_polygon(translated_geom, color="black", fill=False)
 
-                        # Compute error approximation
-                        # n_points = 250
-                        # grid_resolution_y = 0.5
-                        # grid_resolution_x = 0.5
-                        # buffer = 20.0
-                        # npy = int((poly_max_east + 2 * buffer - poly_min_east) / grid_resolution_y)
-                        # npx = int((poly_max_north + 2 * buffer - poly_min_north) / grid_resolution_x)
-                        # north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=npx)
-                        # east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=npy)
+                    y_poly, x_poly = polygon_d_safe.exterior.coords.xy
 
-                        # Y, X = np.meshgrid(east_coords, north_coords, indexing="ij")
-                        # map_coords = np.hstack((Y.reshape(-1, 1), X.reshape(-1, 1)))
-                        # poly_path = mpath.Path(np.array([y_poly, x_poly]).T)
-                        # mask = poly_path.contains_points(points=map_coords, radius=0.00001)
-                        # mask = mask.astype(float).reshape((npy, npx))
-                        # mask[mask > 0.0] = 1.0
+                    # Compute error approximation
+                    n_points = 200
+                    grid_resolution_y = 0.5
+                    grid_resolution_x = 0.5
+                    buffer = 20.0
+                    npy = int((poly_max_east + 2 * buffer - poly_min_east) / grid_resolution_y)
+                    npx = int((poly_max_north + 2 * buffer - poly_min_north) / grid_resolution_x)
+                    north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=npx)
+                    east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=npy)
 
-                        # epsilon = 1e-3
-                        # dist_surface_points = np.zeros((npy, npx))
-                        # diff_surface_points = np.zeros((npy, npx))
+                    Y, X = np.meshgrid(east_coords, north_coords, indexing="ij")
+                    map_coords = np.hstack((Y.reshape(-1, 1), X.reshape(-1, 1)))
+                    poly_path = mpath.Path(np.array([y_poly, x_poly]).T)
+                    mask = poly_path.contains_points(points=map_coords, radius=0.00001)
+                    mask = mask.astype(float).reshape((npy, npx))
+                    mask[mask > 0.0] = 1.0
 
-                        # for i, east_coord in enumerate(east_coords):
-                        #     for ii, north_coord in enumerate(north_coords):
-                        #         if (mask[i, ii] > 0.0 and rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))) <= 0.0 + epsilon) or (
-                        #             mask[i, ii] <= 0.0 and rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0 + epsilon
-                        #         ):
-                        #             # if mask[i, ii] - rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0:
-                        #             #    print("Error: ", mask[i, ii] - rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))))
-                        #             d2poly = polygon_d_safe.distance(geometry.Point(east_coord, north_coord))
-                        #             dist_surface_points[i, ii] = d2poly
-                        #             diff_surface_points[i, ii] = rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2)))
-                        # print("Max distance of error: ", np.max(dist_surface_points))
+                    epsilon = 1e-3
+                    dist_surface_points = np.zeros((npy, npx))
+                    diff_surface_points = np.zeros((npy, npx))
 
-                        n_points = len(x_poly_unstructured)
-                        actual_dataset_error = np.zeros(n_points)
-                        for i, (north_coord, east_coord) in enumerate(zip(x_poly_unstructured, y_poly_unstructured)):
-                            point = np.array([north_coord + 0.000001, east_coord + 0.000001]).reshape(1, 2)
-                            actual_dataset_error[i] = mask_unstructured[i] - rbf_surface_func(point).full()
-                        mean_error = np.mean(actual_dataset_error)
-                        max_error = np.max(actual_dataset_error)
-                        idx_max_error = np.argmax(actual_dataset_error)
-                        std_error = np.std(actual_dataset_error)
-                        print(f"j = {j} | Num interpolation data points: {len(x_poly_unstructured)} | Num original poly points: {len(x_poly)}")
-                        print(f"Dataset: Mean error: {mean_error}, Max, idx max error: ({max_error}, {idx_max_error}), Std error: {std_error}")
+                    for i, east_coord in enumerate(east_coords):
+                        if j == 0 and east_coord < coastline_min_east:
+                            continue
+                        for ii, north_coord in enumerate(north_coords):
+                            if j == 0 and north_coord < coastline_min_north:
+                                continue
 
-                        # Y, X = np.meshgrid(east_coords + map_origin[1], north_coords + map_origin[0], indexing="ij")
-                        # ax5.plot_surface(Y, X, dist_surface_points, rcount=100, ccount=100, cmap=cm.coolwarm)
-                        # # ax5.contourf(Y, X, mask.T, zdir="z", offset=50.0, cmap=cm.coolwarm)
-                        # ax5.set_xlabel("East [m]")
-                        # ax5.set_ylabel("North [m]")
-                        # ax5.set_zlabel("Distance [m]")
+                            if j == 0 and north_coord < coastline_min_north + 200.0 and east_coord < coastline_min_east + 200.0:
+                                continue
 
-                        # fig6, ax6 = plt.subplots()
-                        # pc6 = ax6.pcolormesh(Y, X, dist_surface_points, shading="gouraud")
-                        # ax6.add_patch(y_poly_orig + map_origin[1], x_poly_orig + map_origin[0], "k")
-                        # cbar6 = fig6.colorbar(pc6)
-                        # cbar6.set_label("Distance [m]")
-                        # ax6.set_xlabel("East [m]")
-                        # ax6.set_ylabel("North [m]")
+                            if j == 0 and north_coord < coastline_min_north + 20.0 and east_coord > coastline_max_east - 60.0:
+                                continue
+
+                            if j == 8 and not geometry.Point(east_coord, north_coord).within(geom):
+                                continue
+
+                            if (mask[i, ii] > 0.0 and rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))) <= 0.0 + epsilon) or (
+                                mask[i, ii] <= 0.0 and rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0 + epsilon
+                            ):
+                                # if mask[i, ii] - rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0:
+                                #    print("Error: ", mask[i, ii] - rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2))))
+                                d2poly = polygon_d_safe.distance(geometry.Point(east_coord, north_coord))
+                                dist_surface_points[i, ii] = d2poly
+                                diff_surface_points[i, ii] = rbf_surface_func(np.array([north_coord, east_coord]).reshape((1, 2)))
+                    print("j = {j} |Max distance of error: ", np.max(dist_surface_points))
+
+                    n_points = len(x_poly_unstructured)
+                    actual_dataset_error = np.zeros(n_points)
+                    for i, (north_coord, east_coord) in enumerate(zip(x_poly_unstructured, y_poly_unstructured)):
+                        point = np.array([north_coord + 0.000001, east_coord + 0.000001]).reshape(1, 2)
+                        actual_dataset_error[i] = mask_unstructured[i] - rbf_surface_func(point).full()
+                    mean_error = np.mean(dist_surface_points)
+                    max_error = np.max(dist_surface_points)
+                    idx_max_error = np.argmax(actual_dataset_error)
+                    std_error = np.std(dist_surface_points)
+                    print(f"j = {j} | Num interpolation data points: {len(x_poly_unstructured)} | Num original poly points: {len(x_poly)}")
+                    print(f"Dataset: Mean 0point crossing error: {mean_error}, Max, idx max error: ({max_error}, {idx_max_error}), Std error: {std_error}")
+
+                    Y, X = np.meshgrid(east_coords + map_origin[1], north_coords + map_origin[0], indexing="ij")
+                    # ax5.plot_surface(Y, X, dist_surface_points, rcount=100, ccount=100, cmap=cm.coolwarm)
+                    # # ax5.contourf(Y, X, mask.T, zdir="z", offset=50.0, cmap=cm.coolwarm)
+                    # ax5.set_xlabel("East [m]")
+                    # ax5.set_ylabel("North [m]")
+                    # ax5.set_zlabel("Distance [m]")
+
+                    fig6, ax6 = plt.subplots()
+                    pc6 = ax6.pcolormesh(Y, X, dist_surface_points, shading="gouraud")
+                    ax6.plot(y_poly_orig + map_origin[1], x_poly_orig + map_origin[0], "k")
+                    cbar6 = fig6.colorbar(pc6)
+                    cbar6.set_label("Distance [m]")
+                    ax6.set_xlabel("East [m]")
+                    ax6.set_ylabel("North [m]")
 
                     grad_rbf = csd.gradient(rbf_surface_func(x.reshape((1, 2))), x.reshape((1, 2)))
                     grad_rbf_func = csd.Function("grad_f", [x.reshape((1, 2))], [grad_rbf])
@@ -931,6 +953,8 @@ def compute_surface_approximations_from_polygons(
                     # ax2.clear()
                     # ax3.clear()
                     ax5.clear()
+
+                j += 1
         surfaces_list.append(surfaces)
         code_gen.generate()
     return surfaces_list

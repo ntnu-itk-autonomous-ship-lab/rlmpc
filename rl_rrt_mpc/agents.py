@@ -360,7 +360,7 @@ class RLMPC(ci.ICOLAV):
 
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
-        self._initialized = False
+        self._initialized: bool = False
         self._t_prev: float = 0.0
         self._t_prev_mpc: float = 0.0
         self._min_depth: int = 0
