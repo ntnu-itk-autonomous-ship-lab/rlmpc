@@ -17,10 +17,10 @@ mpc:
     reference_traj_bbox_buffer: 200.0
     T: 40.0
     dt: 0.5
-    Q: [0.01, 0.01, 0.01, 2.5, 0.5, 0.03]
-    R: [0.0001, 0.001]
+    Q: [0.1, 0.1, 0.01, 2.5, 0.5, 0.03]
+    R: [0.0001, 0.0001]
     w_L2: 0.0
-    w_L1: 1350.0
+    w_L1: 1400.0
     d_safe_so: 5.0
     d_safe_do: 10.0
     gamma: 1.0
@@ -49,14 +49,14 @@ mpc:
       expand_mx_funcs_to_sx: False
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 50
+      nlp_solver_max_iter: 65
       nlp_solver_tol_stat: 0.01
       nlp_solver_tol_eq: 0.0001
       nlp_solver_tol_ineq: 0.001
       nlp_solver_tol_comp: 0.001
       nlp_solver_ext_qp_res: 0
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" #"PARTIAL_CONDENSING_HPIPM"  "FULL_CONDENSING_QPOASES"
-      qp_solver_iter_max: 100
+      qp_solver_iter_max: 50
       qp_solver_warm_start: 1
       qp_solver_tol_stat: 0.01
       qp_solver_tol_eq: 0.001

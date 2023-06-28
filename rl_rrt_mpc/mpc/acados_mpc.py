@@ -195,14 +195,25 @@ class AcadosMPC:
             - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
         """
         lbu, ubu, _, _ = self._model.get_input_state_bounds()
-        n_attempts = 5
+        n_attempts = 8
         n_shifts = int(dt / self._params.dt)
-        offsets = [0, 0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
+        # offsets = [0, 0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
+        # u_attempts = [
+        #     self._u_warm_start[:, -1],
+        #     np.array([self._u_warm_start[0, -1] * 0.5, 0.0]),
+        #     np.array([self._u_warm_start[0, -offsets[1]] * 0.5, 0.8 * lbu[1]]),
+        #     np.array([self._u_warm_start[0, -offsets[2]] * 0.5, 0.8 * ubu[1]]),
+        #     np.array([0.0, 0.0]),
+        # ]
+        offsets = [0, 0, int(2.0 * n_shifts), int(2.0 * n_shifts), 0, int(4.0 * n_shifts), int(4.0 * n_shifts), int(4.0 * n_shifts)]
         u_attempts = [
             self._u_warm_start[:, -1],
             np.array([self._u_warm_start[0, -1] * 0.5, 0.0]),
-            np.array([self._u_warm_start[0, -offsets[1]] * 0.5, 0.9 * lbu[1]]),
-            np.array([self._u_warm_start[0, -offsets[2]] * 0.5, 0.9 * ubu[1]]),
+            np.array([self._u_warm_start[0, -offsets[2]] * 0.5, 0.3 * lbu[1]]),
+            np.array([self._u_warm_start[0, -offsets[3]] * 0.5, 0.3 * ubu[1]]),
+            np.array([self._u_warm_start[0, -offsets[4]] * 0.25, 0.0]),
+            np.array([self._u_warm_start[0, -offsets[5]] * 0.5, 0.8 * lbu[1]]),
+            np.array([self._u_warm_start[0, -offsets[6]] * 0.5, 0.8 * ubu[1]]),
             np.array([0.0, 0.0]),
         ]
         success = False

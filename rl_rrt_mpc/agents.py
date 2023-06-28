@@ -442,6 +442,8 @@ class RLMPC(ci.ICOLAV):
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
             self._t_prev_mpc = t
+            if t == 190.0 or t == 400.0 or t == 550.0:
+                print("here")
 
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
