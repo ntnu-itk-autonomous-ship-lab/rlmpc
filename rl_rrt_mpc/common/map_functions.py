@@ -705,7 +705,7 @@ def compute_surface_approximations_from_polygons(
         ax5 = plt.figure().add_subplot(111, projection="3d")
     j = 0
     for d_safe in safety_margins:
-        d_safe = d_safe + 0.2  # buffer to account for function slope not being infinite
+        d_safe = d_safe + 0.1  # buffer to account for function slope not being infinite
         surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
         for polygons, original_poly in polygons:
@@ -735,8 +735,8 @@ def compute_surface_approximations_from_polygons(
                     pj = np.array([x_poly_unstructured_orig[i + 1], y_poly_unstructured_orig[i + 1]])
                     d2next = np.linalg.norm(pi - pj)
                     if (
-                        d2next > 35.0
-                        or (j == 8 and d2next > 20.0 and i > int(0.7 * n_coastline_points_orig))
+                        d2next > 30.0
+                        or (j == 8 and d2next > 15.0)  # and i > int(0.7 * n_coastline_points_orig))
                         or (j >= 3 and j < 8 and d2next > 10.0)
                         or (j > 8 and d2next > 10.0)
                     ):
@@ -777,6 +777,7 @@ def compute_surface_approximations_from_polygons(
                     except AttributeError:
                         break
 
+                ## Add more buffer points further away from the polygon coastline, where the mask is zero or negative (no collision)
                 buff_l = 10.0
                 val_l = -10.0
                 if j > 5:
@@ -801,12 +802,18 @@ def compute_surface_approximations_from_polygons(
                     y_poly_unstructured.append(y_boundary[i])
                     mask_unstructured.append(val_l)
 
+                smoothing = 1.0
+                if j == 1:
+                    smoothing = 1.0
+                if j == 8:
+                    smoothing = 15.0
+
                 rbf = scipyintp.RBFInterpolator(
                     np.array([x_poly_unstructured, y_poly_unstructured]).T,
                     np.array(mask_unstructured),
                     kernel="thin_plate_spline",
                     epsilon=1.0,
-                    smoothing=1.5,
+                    smoothing=smoothing,
                 )
                 rbf_csd = rbf_casadi.RBFInterpolator(
                     np.array([x_poly_unstructured, y_poly_unstructured]).T,
@@ -958,11 +965,11 @@ def compute_surface_approximations_from_polygons(
                     ax4.set_xlabel("East [m]")
                     ax4.set_ylabel("North [m]")
 
-                    # ax.plot_surface(yY, xX, surface_points, rcount=100, ccount=100, cmap=cm.coolwarm)
-                    # ax.set_ylabel("North [m]")
-                    # ax.set_xlabel("East [m]")
-                    # ax.set_zlabel(r"$h_j(\bm{\zeta})$")
-                    # ax.set_title("Spline surface")
+                    ax.plot_surface(yY, xX, surface_points, rcount=100, ccount=100, cmap=cm.coolwarm)
+                    ax.set_ylabel("North [m]")
+                    ax.set_xlabel("East [m]")
+                    ax.set_zlabel(r"$h_j(\bm{\zeta})$")
+                    ax.set_title("Spline surface")
 
                     # ax2.plot_surface(yY, xX, surface_grad_points[:, :, 0], rcount=200, ccount=200, cmap=cm.coolwarm)
                     # ax2.set_xlabel("East")
