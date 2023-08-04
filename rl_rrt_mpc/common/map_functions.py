@@ -679,7 +679,7 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
 
 
 def compute_surface_approximations_from_polygons(
-    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: list = [0.0], map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = True
+    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: list = [0.0], map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = False
 ) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
@@ -714,6 +714,8 @@ def compute_surface_approximations_from_polygons(
                 0.5, cap_style=cap_style, join_style=join_style
             )
             for polygon in polygons:
+
+                # Extract the polygon coastline  and buffered polygon coastline
                 coastline_original = polygon.intersection(original_polygon_boundary)
                 n_orig_boundary_points = len(coastline_original.exterior.coords.xy[0])
                 coastline = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style).intersection(original_polygon_boundary_d_safe)
@@ -721,7 +723,7 @@ def compute_surface_approximations_from_polygons(
                 y_poly_unstructured = list(y_poly_unstructured_orig).copy()
                 x_poly_unstructured = list(x_poly_unstructured_orig).copy()
 
-                if True:  # enc is not None and show_plots:
+                if enc is not None and show_plots:
                     translated_coastline = hf.translate_polygons([coastline], -map_origin[1], -map_origin[0])[0]
                     enc.draw_polygon(translated_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
 
