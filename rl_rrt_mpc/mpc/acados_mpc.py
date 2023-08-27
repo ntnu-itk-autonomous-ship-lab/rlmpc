@@ -75,6 +75,7 @@ class AcadosMPC:
         self._num_adjustable_params: int = 0
 
         self._static_obstacle_constraints: csd.Function = csd.Function("static_obstacle_constraints", [], [])
+        self._dynamic_obstacle_constraints: csd.Function = csd.Function("dynamic_obstacle_constraints", [], [])
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
 
@@ -146,12 +147,8 @@ class AcadosMPC:
     ) -> Tuple[np.ndarray, np.ndarray, bool]:
         """Creates a shifted warm start trajectory from the previous trajectory and the new control input.
         Args:
-            - X_prev (np.ndarray): The previous trajectory.
-            - U_prev (np.ndarray): The previous control inputs.
-            - Sigma_prev (np.ndarray): The previous slack variables.
             - u_mod (np.ndarray): The new control input to apply at the end of the previous trajectory.
             - offset (int): The offset from the last sample in the previous trajectory, to apply the modified input vector.
-            - dt (float): Time step
             - n_shifts (int): Number of shifts to perform on the previous trajectory.
             - enc (senc.ENC): The ENC object containing the map.
 
@@ -187,7 +184,7 @@ class AcadosMPC:
         return x_warm_start, u_warm_start, True
 
     def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
-        """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead. Apply ad hoc maneuvering if the shifted trajectory is in collision.
+        """Shifts the warm start decision trajectory (X and U) dt units ahead. Apply ad hoc maneuvering if the shifted trajectory is in collision.
 
         Args:
             - xs (np.ndarray): Current state of the system.
@@ -342,9 +339,9 @@ class AcadosMPC:
         """Updates the OCP (cost and constraints) with the current info available
 
         Args:
-            - xs (np.ndarray): Current state.
             - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
             - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
+            - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
             - so_list (list): List of static obstacle Polygon objects
         """

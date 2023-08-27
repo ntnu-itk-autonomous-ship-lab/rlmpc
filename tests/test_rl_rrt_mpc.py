@@ -39,6 +39,7 @@ if __name__ == "__main__":
             print("Evaluating scenario episode" + str(e) + " with " + str(len(vessels)) + " vessels...")
 
             evaluator.set_vessel_data(vessels)
+            # get out rewards from evaluator + other reward terms
             results = evaluator.evaluate()
             # rlrrtmpc.train(scenario_episode=scenario_episode, enc=enc)
 

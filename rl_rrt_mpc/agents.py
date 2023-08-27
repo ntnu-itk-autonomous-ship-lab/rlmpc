@@ -431,7 +431,7 @@ class RLMPC(ci.ICOLAV):
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if enc is not None and self._mpc.params.debug:
-                hf.plot_trajectory(nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "magenta")
+                hf.plot_trajectory(nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "yellow")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
@@ -485,7 +485,7 @@ class RLMPC(ci.ICOLAV):
         if enc is not None and show_plots:
             enc.start_display()
             # hf.plot_trajectory(waypoints, enc, color="green")
-            hf.plot_trajectory(self._nominal_trajectory, enc, color="magenta")
+            hf.plot_trajectory(self._nominal_trajectory, enc, color="yellow")
             for hazard in self._rel_polygons:
                 enc.draw_polygon(hazard, color="red", fill=False)
 
