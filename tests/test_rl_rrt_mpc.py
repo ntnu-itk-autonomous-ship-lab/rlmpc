@@ -11,7 +11,7 @@ if __name__ == "__main__":
     config_file = dp.scenarios / "simple_planning_example.yaml"
 
     env = COLAVEnvironment()
-    env = gym.make("COLAVSimulator-v1")
+    env = gym.make(id="COLAVEnvironment-v0", scenario_config_file=config_file)
 
     # Vil kunne
     # 1: lese inn mappe med AIS data som kan parses til ScenarioConfig-objekter med n_episodes og moglegheit for å adde randomgenererte båtar
