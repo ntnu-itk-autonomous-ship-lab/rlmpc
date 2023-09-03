@@ -15,6 +15,7 @@ import colav_simulator.core.controllers as controllers
 import colav_simulator.core.guidances as guidances
 import colav_simulator.core.integrators as sim_integrators
 import colav_simulator.core.models as sim_models
+import colav_simulator.core.stochasticity as stochasticity
 import informed_rrt_star_rust as rrt
 import matplotlib.pyplot as plt
 import numpy as np
@@ -121,6 +122,7 @@ class RLRRTMPC(ci.ICOLAV):
         do_list: list,
         enc: Optional[senc.ENC] = None,
         goal_state: Optional[np.ndarray] = None,
+        w: Optional[stochasticity.DisturbanceData] = None,
         **kwargs,
     ) -> np.ndarray:
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
@@ -384,6 +386,7 @@ class RLMPC(ci.ICOLAV):
         do_list: list,
         enc: Optional[senc.ENC] = None,
         goal_state: Optional[np.ndarray] = None,
+        w: Optional[stochasticity.DisturbanceData] = None,
         **kwargs,
     ) -> np.ndarray:
         """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
