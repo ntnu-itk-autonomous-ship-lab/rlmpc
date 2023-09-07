@@ -589,8 +589,8 @@ def create_los_based_trajectory(
     Returns:
         np.ndarray: Trajectory
     """
-    controller = controllers.FLSH()
     model = sim_models.Telemetron()
+    controller = controllers.FLSH(model.params)
     trajectory = []
     inputs = []
     xs_k = xs
@@ -603,9 +603,10 @@ def create_los_based_trajectory(
         references = los.compute_references(waypoints, speed_plan, None, xs_k, dt)
         if reached_goal:
             references[3:] = np.tile(0.0, (references[3:].size, 1))
-        u = controller.compute_inputs(references, xs_k, dt, model)
+        u = controller.compute_inputs(references, xs_k, dt)
         inputs.append(u)
-        xs_k = sim_integrators.erk4_integration_step(model.dynamics, model.bounds, xs_k, u, dt)
+        w = None
+        xs_k = sim_integrators.erk4_integration_step(model.dynamics, model.bounds, xs_k, u, w, dt)
 
         dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
         t += dt
