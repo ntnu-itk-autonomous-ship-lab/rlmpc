@@ -2,15 +2,11 @@ import colav_simulator.common.paths as dp
 import gymnasium as gym
 import numpy as np
 import rl_rrt_mpc.agents as agents
-from colav_simulator.gym.environment import COLAVEnvironment
 
 if __name__ == "__main__":
 
-    rlrrtmpc = agents.RLRRTMPC()
+    config_file = dp.scenarios / "rl_scenario.yaml"
 
-    config_file = dp.scenarios / "simple_planning_example.yaml"
-
-    env = COLAVEnvironment()
     env = gym.make(id="COLAVEnvironment-v0", scenario_config_file=config_file)
 
     # Vil kunne
@@ -23,12 +19,11 @@ if __name__ == "__main__":
     # 7: Test trent policy på testdata frå tilsvarande scenario (samme geografi som brukt i trening) og lagre resultatet i ein mappe med navn som er unikt for scenarioet.
 
     converged = False
-    while not converged:
-        ep_execution_times = []
+    for i in range(1000):
+        obs, reward, terminated, truncated, info = env.step(np.array([0.0, 0.0]))
 
-        if converged:
+        if terminated:
+            print("terminated")
             break
-
-    # apply on test data
 
     print("done")
