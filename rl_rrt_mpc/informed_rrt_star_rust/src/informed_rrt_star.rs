@@ -283,8 +283,8 @@ impl InformedRRTStar {
         Ok(())
     }
 
-    pub fn transfer_enc_hazards(&mut self, enc_data: Vec<&PyAny>) -> PyResult<()> {
-        self.enc.transfer_enc_hazards(enc_data)
+    pub fn transfer_enc_hazards(&mut self, hazards: &PyAny) -> PyResult<()> {
+        self.enc.transfer_enc_hazards(hazards)
     }
 
     pub fn transfer_safe_sea_triangulation(
@@ -850,13 +850,13 @@ impl InformedRRTStar {
                     &self.enc.safe_sea_triangulation,
                     &mut self.rng,
                 );
-                println!("Sampled from triangulation: {:?}", p_rand);
+                //println!("Sampled from triangulation: {:?}", p_rand);
             } else {
                 p_rand = utils::sample_from_bbox(&map_bbox, &mut self.rng);
             }
             //println!("Sampled: {:?}", p_rand);
             if !self.enc.inside_hazards(&p_rand) && self.enc.inside_bbox(&p_rand) {
-                println!("Sampled outside hazard");
+                // println!("Sampled outside hazard");
                 return Ok(RRTNode {
                     id: None,
                     state: Vector6::new(p_rand[0], p_rand[1], 0.0, 0.0, 0.0, 0.0),
@@ -1132,6 +1132,7 @@ mod tests {
         // ];
         // let xs_goal = [6583580.0, -31824.0, 0.0, 0.0, 0.0, 0.0];
         rrt.enc.load_hazards_from_json()?;
+        rrt.enc.load_safe_sea_triangulation_from_json()?;
         Python::with_gil(|py| -> PyResult<()> {
             let xs_start_pyany = xs_start.into_py(py);
             let xs_start_py = xs_start_pyany.as_ref(py).downcast::<PyList>().unwrap();

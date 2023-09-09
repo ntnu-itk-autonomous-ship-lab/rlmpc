@@ -226,7 +226,7 @@ def find_minimum_depth(vessel_draft, enc: senc.ENC):
 
 
 def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> geometry.MultiPolygon:
-    """Extracts the relevant grounding hazards from the ENC as a list of polygons.
+    """Extracts the relevant grounding hazards from the ENC as a multipolygon.
 
     This includes land, shore and seabed polygons that are below the vessel`s minimum depth.
 
@@ -235,7 +235,7 @@ def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> 
         enc (senc.ENC): The ENC to check for grounding.
 
     Returns:
-        list: The relevant grounding hazards.
+        geometry.MultiPolygon: The relevant grounding hazards.
     """
     dangerous_seabed = enc.seabed[0].geometry.difference(enc.seabed[vessel_min_depth].geometry)
     # return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
@@ -536,7 +536,7 @@ def create_safe_sea_voronoi_diagram(enc: senc.ENC, vessel_min_depth: int = 5) ->
     return vor, region_polygons
 
 
-def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show_plots: bool = True) -> list:
+def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show_plots: bool = False) -> list:
     """Creates a constrained delaunay triangulation of the safe sea region.
 
     Args:
@@ -556,11 +556,11 @@ def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show
             largest_poly_area = poly.area
             cdt_largest = cdt
         if show_plots:
-            enc.start_display()
             for triangle in cdt:
                 enc.draw_polygon(triangle, color="black", fill=False)
         cdt_list.append(cdt)
-
+    # for triangle in cdt_largest:
+    #    print("n_tri_vertices: ", len(triangle.exterior.coords))
     return cdt_largest
 
 

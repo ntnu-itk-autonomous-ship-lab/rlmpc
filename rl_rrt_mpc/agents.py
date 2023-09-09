@@ -136,15 +136,16 @@ class RLRRTMPC(ci.ICOLAV):
             self._initialized = True
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
-            safe_sea_triangulation = mapf.create_safe_sea_triangulation(enc, self._min_depth)
-            self._rrt.transfer_enc_hazards(relevant_grounding_hazards)
+            safe_sea_triangulation = mapf.create_safe_sea_triangulation(enc, self._min_depth, show_plots=False)
+            self._rrt.transfer_enc_hazards(relevant_grounding_hazards[0])
             self._rrt.transfer_safe_sea_triangulation(safe_sea_triangulation)
             self._rrt.set_init_state(ownship_state.tolist())
             self._rrt.set_goal_state(goal_state.tolist())
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
-            hf.save_rrt_solution(rrt_solution)
+            # hf.save_rrt_solution(rrt_solution)
+            hf.plot_rrt_tree(self._rrt.get_tree_as_list_of_dicts(), enc, show_plots=False)
             # rrt_solution = hf.load_rrt_solution()
             rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
             times = np.array(rrt_solution["times"])

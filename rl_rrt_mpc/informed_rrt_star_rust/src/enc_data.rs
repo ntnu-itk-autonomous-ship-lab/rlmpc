@@ -16,9 +16,7 @@ use std::fs::File;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct ENCData {
-    pub land: MultiPolygon<f64>,
-    pub shore: MultiPolygon<f64>,
-    pub seabed: MultiPolygon<f64>,
+    pub hazards: MultiPolygon<f64>,
     pub safe_sea_triangulation: Vec<Polygon<f64>>,
     pub bbox: Rect<f64>,
 }
@@ -27,15 +25,11 @@ pub struct ENCData {
 impl ENCData {
     #[new]
     pub fn py_new() -> Self {
-        let land = MultiPolygon(vec![]);
-        let shore = MultiPolygon(vec![]);
-        let seabed = MultiPolygon(vec![]);
+        let hazards = MultiPolygon(vec![]);
         let safe_sea_triangulation = vec![];
         let bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
         Self {
-            land,
-            shore,
-            seabed,
+            hazards,
             safe_sea_triangulation,
             bbox,
         }
@@ -48,24 +42,15 @@ impl ENCData {
 
     /// Transfer hazardous ENC data from python to rust. The ENC data is a list on the form:
     /// [land, shore, (dangerous)seabed]
-    pub fn transfer_enc_hazards(&mut self, enc_data: Vec<&PyAny>) -> PyResult<()> {
-        assert!(enc_data.len() == 3);
-        for (i, hazard) in enc_data.iter().enumerate() {
-            let hazard_type = hazard
-                .getattr("geom_type")
-                .unwrap()
-                .extract::<&str>()
-                .unwrap();
+    pub fn transfer_enc_hazards(&mut self, hazards: &PyAny) -> PyResult<()> {
+        let hazard_type = hazards
+            .getattr("geom_type")
+            .unwrap()
+            .extract::<&str>()
+            .unwrap();
 
-            assert_eq!(hazard_type, "MultiPolygon");
-            let poly_out = self.transfer_multipolygon(hazard)?;
-            match i {
-                0 => self.land = poly_out,
-                1 => self.shore = poly_out,
-                2 => self.seabed = poly_out,
-                _ => panic!("Unknown hazard type"),
-            }
-        }
+        assert_eq!(hazard_type, "MultiPolygon");
+        self.hazards = self.transfer_multipolygon(hazards)?;
         self.compute_bbox()?;
         self.save_hazards_to_json()?;
         Ok(())
@@ -81,21 +66,25 @@ impl ENCData {
             poly_vec.push(polygon);
         }
         self.safe_sea_triangulation = poly_vec;
+        self.save_triangulation_to_json()?;
         Ok(())
     }
 
     pub fn save_hazards_to_json(&self) -> PyResult<()> {
         let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        serde_json::to_writer_pretty(&File::create(rust_root.join("data/land.json"))?, &self.land)
-            .unwrap();
         serde_json::to_writer_pretty(
-            &File::create(rust_root.join("data/shore.json"))?,
-            &self.shore,
+            &File::create(rust_root.join("data/hazards.json"))?,
+            &self.hazards,
         )
         .unwrap();
+        Ok(())
+    }
+
+    pub fn save_triangulation_to_json(&self) -> PyResult<()> {
+        let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         serde_json::to_writer_pretty(
-            &File::create(rust_root.join("data/seabed.json"))?,
-            &self.seabed,
+            &File::create(rust_root.join("data/safe_sea_triangulation.json"))?,
+            &self.safe_sea_triangulation,
         )
         .unwrap();
         Ok(())
@@ -103,60 +92,31 @@ impl ENCData {
 
     pub fn load_hazards_from_json(&mut self) -> PyResult<()> {
         let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let land_file = File::open(rust_root.join("data/land.json")).unwrap();
-        let shore_file = File::open(rust_root.join("data/shore.json")).unwrap();
-        let seabed_file = File::open(rust_root.join("data/seabed.json")).unwrap();
-        self.land = serde_json::from_reader(land_file).unwrap();
-        self.shore = serde_json::from_reader(shore_file).unwrap();
-        self.seabed = serde_json::from_reader(seabed_file).unwrap();
+        let hazards_file = File::open(rust_root.join("data/hazards.json")).unwrap();
+        self.hazards = serde_json::from_reader(hazards_file).unwrap();
         self.compute_bbox()?;
+        Ok(())
+    }
+
+    pub fn load_safe_sea_triangulation_from_json(&mut self) -> PyResult<()> {
+        let rust_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let safe_sea_triangulation_file =
+            File::open(rust_root.join("data/safe_sea_triangulation.json")).unwrap();
+        self.safe_sea_triangulation = serde_json::from_reader(safe_sea_triangulation_file).unwrap();
         Ok(())
     }
 }
 
 impl ENCData {
     pub fn compute_bbox(&mut self) -> PyResult<Rect<f64>> {
-        let mut land_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
-        if !self.land.is_empty() {
-            land_bbox = self.land.bounding_rect().unwrap();
+        let mut hazards_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
+        if !self.hazards.is_empty() {
+            hazards_bbox = self.hazards.bounding_rect().unwrap();
         }
-
-        let mut shore_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
-        if !self.shore.is_empty() {
-            shore_bbox = self.shore.bounding_rect().unwrap();
-        }
-
-        let mut seabed_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
-        if !self.seabed.is_empty() {
-            seabed_bbox = self.seabed.bounding_rect().unwrap();
-        }
-
-        if land_bbox.is_empty() && shore_bbox.is_empty() && seabed_bbox.is_empty() {
-            return Err(PyValueError::new_err("ENC Hazard is empty"));
-        }
-        // println!("Land bbox: {:?}", land_bbox);
-        // println!("Shore bbox: {:?}", shore_bbox);
-        // println!("Seabed bbox: {:?}", seabed_bbox);
-        let max_x = land_bbox
-            .max()
-            .x
-            .max(shore_bbox.max().x)
-            .max(seabed_bbox.max().x);
-        let max_y = land_bbox
-            .max()
-            .y
-            .max(shore_bbox.max().y)
-            .max(seabed_bbox.max().y);
-        let min_x = land_bbox
-            .min()
-            .x
-            .min(shore_bbox.min().x)
-            .min(seabed_bbox.min().x);
-        let min_y = land_bbox
-            .min()
-            .y
-            .min(shore_bbox.min().y)
-            .min(seabed_bbox.min().y);
+        let min_x = hazards_bbox.min().x;
+        let min_y = hazards_bbox.min().y;
+        let max_x = hazards_bbox.max().x;
+        let max_y = hazards_bbox.max().y;
         self.bbox = Rect::new(coord! {x: min_x, y: min_y}, coord! {x: max_x, y: max_y});
         Ok(self.bbox)
     }
@@ -167,7 +127,7 @@ impl ENCData {
             return false;
         }
         let point = point![x: p[0], y: p[1]];
-        self.land.contains(&point) || self.shore.contains(&point) || self.seabed.contains(&point)
+        self.hazards.contains(&point)
     }
 
     pub fn inside_bbox(&self, p: &Vector2<f64>) -> bool {
@@ -179,14 +139,7 @@ impl ENCData {
     }
 
     pub fn intersects_with_linestring(&self, linestring: &LineString<f64>) -> bool {
-        let intersect_w_land = linestring.intersects(&self.land);
-        let intersect_w_shore = linestring.intersects(&self.shore);
-        let intersect_w_seabed = linestring.intersects(&self.seabed);
-        // println!(
-        //     "Linestring intersect with land: {}, shore: {}, seabed: {}",
-        //     intersect_w_land, intersect_w_shore, intersect_w_seabed
-        // );
-        intersect_w_land || intersect_w_shore || intersect_w_seabed
+        linestring.intersects(&self.hazards)
     }
 
     pub fn intersects_with_segment(&self, p1: &Vector2<f64>, p2: &Vector2<f64>) -> bool {
@@ -217,14 +170,9 @@ impl ENCData {
             return -1.0;
         }
         let point = point![x: p[0], y: p[1]];
-        let dist2land = point.euclidean_distance(&self.land);
-        let dist2shore = point.euclidean_distance(&self.shore);
-        let dist2seabed = point.euclidean_distance(&self.seabed);
-        println!(
-            "dist2land: {:?}, dist2shore: {:?}, dist2seabed: {:?}",
-            dist2land, dist2shore, dist2seabed
-        );
-        dist2land.min(dist2shore).min(dist2seabed)
+        let dist2hazards = point.euclidean_distance(&self.hazards);
+        println!("dist2hazards: {:?}", dist2hazards);
+        dist2hazards
     }
 
     /// Care only about the polygon exterior ring, as this is the only relevant part
@@ -261,8 +209,8 @@ impl ENCData {
         Ok(MultiPolygon(poly_vec))
     }
 
-    pub fn set_land(&mut self, py_multipoly: &PyAny) -> PyResult<()> {
-        self.land = self.transfer_multipolygon(&py_multipoly)?;
+    pub fn set_hazards(&mut self, py_multipoly: &PyAny) -> PyResult<()> {
+        self.hazards = self.transfer_multipolygon(&py_multipoly)?;
         Ok(())
     }
 }
@@ -376,11 +324,11 @@ mod tests {
             let py_poly_list = PyList::new(py, vec![polygon.clone()]);
             let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
 
-            enc.set_land(py_multipoly).unwrap();
+            enc.set_hazards(py_multipoly).unwrap();
 
             let point = Vector2::new(0.5, 0.5);
             println!("Point: {:?}", point);
-            println!("Polygon: {:?}", enc.land.0[0]);
+            println!("Polygon: {:?}", enc.hazards.0[0]);
             assert_eq!(enc.dist2point(&point), 0.0);
         })
     }
@@ -401,12 +349,12 @@ mod tests {
             let py_poly_list = PyList::new(py, vec![polygon.clone()]);
             let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
 
-            enc.set_land(py_multipoly).unwrap();
+            enc.set_hazards(py_multipoly).unwrap();
 
             let point = Vector2::new(0.5, 0.5);
 
             println!("Point: {:?}", point);
-            println!("Polygon: {:?}", enc.land.0[0]);
+            println!("Polygon: {:?}", enc.hazards.0[0]);
             assert_eq!(enc.inside_hazards(&point), true);
         })
     }
@@ -427,14 +375,14 @@ mod tests {
             let py_poly_list = PyList::new(py, vec![polygon.clone()]);
             let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
 
-            enc.set_land(py_multipoly).unwrap();
+            enc.set_hazards(py_multipoly).unwrap();
 
             let point1 = Vector2::new(-2.0, 2.0);
             let point2 = Vector2::new(2.0, -2.0);
 
             println!("Point1: {:?}", point1);
             println!("Point2: {:?}", point2);
-            println!("Polygon: {:?}", enc.land.0[0]);
+            println!("Polygon: {:?}", enc.hazards.0[0]);
             assert_eq!(enc.intersects_with_segment(&point1, &point2), true);
 
             let linestring = LineString(vec![coord! {x: 0.0, y: 2.0}, coord! {x: 0.0, y: -2.0}]);
@@ -459,7 +407,7 @@ mod tests {
             let py_poly_list = PyList::new(py, vec![polygon.clone()]);
             let py_multipoly = multipoly_class.call1((py_poly_list,)).unwrap();
 
-            enc.set_land(py_multipoly).unwrap();
+            enc.set_hazards(py_multipoly).unwrap();
 
             let bbox = enc.compute_bbox().unwrap();
             assert_eq!(bbox.min(), coord! {x: 0.0, y: 0.0});
@@ -471,9 +419,7 @@ mod tests {
     fn test_load_and_save_hazards_from_json() {
         let mut enc = ENCData::py_new();
         enc.load_hazards_from_json().unwrap();
-        println!("Land: {:?}", enc.land);
-        println!("Shore: {:?}", enc.shore);
-        println!("Seabed: {:?}", enc.seabed);
+        println!("Hazards: {:?}", enc.hazards);
         enc.save_hazards_to_json().unwrap();
     }
 }

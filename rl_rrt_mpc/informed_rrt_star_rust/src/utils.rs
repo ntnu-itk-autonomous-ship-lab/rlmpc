@@ -83,23 +83,23 @@ pub fn sample_from_triangulation(
     rng: &mut ChaChaRng,
 ) -> Vector2<f64> {
     let triangle_idx = rng.gen_range(0..triangulation.len());
-    assert!(triangulation[triangle_idx].exterior().0.len() == 3);
+    let triangle = triangulation[triangle_idx].clone();
+    assert!(triangulation[triangle_idx].exterior().0.len() >= 4); // 3 points + 1 for the closing point
     let a = Vector2::new(
-        triangulation[triangle_idx].exterior().0[0].x as f64,
-        triangulation[triangle_idx].exterior().0[0].y as f64,
+        triangle.exterior().0[0].x as f64,
+        triangle.exterior().0[0].y as f64,
     );
     let b = Vector2::new(
-        triangulation[triangle_idx].exterior().0[1].x as f64,
-        triangulation[triangle_idx].exterior().0[1].y as f64,
+        triangle.exterior().0[1].x as f64,
+        triangle.exterior().0[1].y as f64,
     );
     let c = Vector2::new(
-        triangulation[triangle_idx].exterior().0[2].x as f64,
-        triangulation[triangle_idx].exterior().0[2].y as f64,
+        triangle.exterior().0[2].x as f64,
+        triangle.exterior().0[2].y as f64,
     );
     let r_1: f64 = rng.gen_range(0.0..1.0);
     let r_2: f64 = rng.gen_range(0.0..1.0);
-    let p_rand =
-        (1.0 - r_1.sqrt()) * a + r_1.sqrt() * (1.0 - r_2.sqrt()) * b + r_1.sqrt() * r_2 * c;
+    let p_rand = (1.0 - r_1.sqrt()) * a + r_1.sqrt() * (1.0 - r_2) * b + r_1.sqrt() * r_2 * c;
     p_rand
 }
 
@@ -202,11 +202,11 @@ pub fn draw_current_situation(
     filename: &str,
     xs_array: &Vec<Vector6<f64>>,
     tree: &Tree<RRTNode>,
-    enc_hazards: &ENCData,
+    enc_data: &ENCData,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let drawing_area = BitMapBackend::new(filename, (2048, 1440)).into_drawing_area();
     drawing_area.fill(&WHITE)?;
-    let bbox = enc_hazards.bbox;
+    let bbox = enc_data.bbox;
     let buffer = 500.0;
     let min_x_ = xs_array
         .iter()
@@ -243,9 +243,7 @@ pub fn draw_current_situation(
         .y_label_formatter(&|x| format!("{:.1}", x))
         .draw()?;
 
-    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.land, &RED)?;
-    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.shore, &YELLOW)?;
-    draw_multipolygon(&drawing_area, &mut chart, &enc_hazards.seabed, &BLUE)?;
+    draw_multipolygon(&drawing_area, &mut chart, &enc_data.hazards, &RED)?;
 
     let root_node_id = tree.root_node_id().unwrap();
     draw_tree_lines(&drawing_area, &mut chart, tree, &root_node_id)?;
@@ -334,15 +332,13 @@ pub fn draw_ownship(
     Ok(())
 }
 
-pub fn draw_enc_hazards_vs_trajectory(
+pub fn draw_enc_data_vs_trajectory(
     drawing_area: &DrawingArea<BitMapBackend, Shift>,
     chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
-    enc_hazards: &ENCData,
+    enc_data: &ENCData,
     xs_array: &Vec<Vector6<f64>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    draw_multipolygon(drawing_area, chart, &enc_hazards.land, &RED)?;
-    draw_multipolygon(drawing_area, chart, &enc_hazards.shore, &YELLOW)?;
-    draw_multipolygon(drawing_area, chart, &enc_hazards.seabed, &BLUE)?;
+    draw_multipolygon(drawing_area, chart, &enc_data.hazards, &RED)?;
     draw_trajectory(drawing_area, chart, xs_array, &MAGENTA)?;
     draw_ownship(drawing_area, chart, &xs_array.first().unwrap(), &GREEN)?;
     draw_ownship(drawing_area, chart, &xs_array.last().unwrap(), &GREEN)?;
@@ -398,12 +394,12 @@ pub fn draw_tree(
     p_start: &Vector2<f64>,
     p_goal: &Vector2<f64>,
     xs_soln_array: Option<&Vec<[f64; 6]>>,
-    enc_hazards: &ENCData,
+    enc_data: &ENCData,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let drawing_area = BitMapBackend::new(filename, (640, 480)).into_drawing_area();
     drawing_area.fill(&WHITE)?;
-    let mut bbox = enc_hazards.bbox;
-    if enc_hazards.is_empty() {
+    let mut bbox = enc_data.bbox;
+    if enc_data.is_empty() {
         bbox = bbox_from_corner_points(p_start, p_goal, 100.0, 100.0);
     }
     // println!("Map bbox: {:?}", bbox);
