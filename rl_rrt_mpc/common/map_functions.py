@@ -22,6 +22,7 @@ import rl_rrt_mpc.common.rbf_casadi as rbf_casadi
 import rl_rrt_mpc.common.smallestenclosingcircle as smallestenclosingcircle
 import rl_rrt_mpc.gmm_em as gmm_em
 import scipy.interpolate as scipyintp
+import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
@@ -345,29 +346,255 @@ def extract_polygons_near_trajectory(
     return poly_list, enveloping_polygon
 
 
-def extract_safe_sea_area(min_depth: int, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None) -> geometry.MultiPolygon:
+def extract_vertices_from_polygon_list(polygons: list) -> Tuple[np.ndarray, np.ndarray]:
+    """Creates a list of x and y coordinates from a list of polygons.
+
+    Args:
+        polygons (list): List of shapely polygons.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: A tuple of two numpy arrays containing the x (north) and y (east) coordinates of the polygons.
+    """
+    px, py = [], []
+    for i, poly in enumerate(polygons):
+        if isinstance(poly, geometry.MultiPolygon):
+            for sub_poly in poly:
+                y, x = sub_poly.exterior.coords.xy
+                px.extend(x[:-1].tolist())
+                py.extend(y[:-1].tolist())
+        elif isinstance(poly, geometry.Polygon):
+            y, x = poly.exterior.coords.xy
+            px.extend(x[:-1].tolist())
+            py.extend(y[:-1].tolist())
+        else:
+            continue
+    return np.array(px), np.array(py)
+
+
+def extract_safe_sea_area(
+    min_depth: int, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, as_polygon_list: bool = False, show_plots: bool = False
+) -> geometry.MultiPolygon | list:
     """Extracts the safe sea area from the ENC as a list of polygons.
 
     This includes sea polygons that are above the vessel`s minimum depth.
 
     Args:
-        - polygon_list (list): The list of polygons to check for safe sea area.
+        - min_depth (int): The minimum depth required for the vessel to avoid grounding.
         - enveloping_polygon (geometry.Polygon): The query polygon.
         - enc (Optional[senc.ENC]): Electronic Navigational Chart object used for plotting. Defaults to None.
+        - as_polygon_list (bool, optional): Option for returning the safe sea area as a list of polygons. Defaults to False.
+        - show_plots (bool, optional): Option for visualization. Defaults to False.
 
     Returns:
-        list: The safe sea area.
+        MultiPolygon | list: The safe sea area.
     """
     safe_sea = enc.seabed[min_depth].geometry.intersection(enveloping_polygon)
-    # if enc is not None:
-    #     enc.draw_polygon(safe_sea, color="orange", alpha=0.5)
+    if enc is not None and show_plots:
+        enc.start_display()
+        enc.draw_polygon(safe_sea, color="green", alpha=0.25, fill=False)
+
+    if as_polygon_list:
+        if isinstance(safe_sea, geometry.MultiPolygon):
+            return [poly for poly in safe_sea.geoms]
+        elif isinstance(safe_sea, geometry.Polygon):
+            return [safe_sea]
+        else:
+            return []
     return safe_sea
+
+
+def create_free_boundary_points_from_enc(enc: senc.ENC, hazards: list) -> Tuple[np.ndarray, np.ndarray]:
+    """Creates an array of points on the ENC boundary which is free from grounding hazards.
+
+    Args:
+        enc (ENC): Electronic Navigational Chart object.
+        hazards (list): List of relevant grounding hazards.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Tuple of x and y coordinates of the free boundary points.
+    """
+    (xmin, ymin, xmax, ymax) = enc.bbox
+    n_pts_per_side = 50
+    x = np.linspace(xmin, xmax, n_pts_per_side)
+    y = np.linspace(ymin, ymax, n_pts_per_side)
+    points = []
+    for i in range(n_pts_per_side):
+        p = geometry.Point(x[i], ymin)
+        if any(p.touches(hazard) for hazard in hazards):
+            continue
+        points.append(p)
+
+    for i in range(n_pts_per_side):
+        p = geometry.Point(x[i], ymax)
+        if any(p.touches(hazard) for hazard in hazards):
+            continue
+        points.append(p)
+
+    for i in range(n_pts_per_side):
+        p = geometry.Point(xmin, y[i])
+        if any(p.touches(hazard) for hazard in hazards):
+            continue
+        points.append(p)
+
+    for i in range(n_pts_per_side):
+        p = geometry.Point(xmax, y[i])
+        if any(p.touches(hazard) for hazard in hazards):
+            continue
+        points.append(p)
+    # [enc.draw_circle((p.x, p.y), radius=0.5, color="yellow") for p in points]
+    Y = np.array([p.x for p in points])
+    X = np.array([p.y for p in points])
+    return X, Y
+
+
+def bbox_to_polygon(bbox: Tuple[float, float, float, float]) -> geometry.Polygon:
+    """Converts a bounding box to a polygon.
+
+    Args:
+        bbox (Tuple[float, float, float, float]): The bounding box.
+
+    Returns:
+        geometry.Polygon: The polygon.
+    """
+    (xmin, ymin, xmax, ymax) = bbox
+    return geometry.Polygon([(xmin, ymin), (xmin, ymax), (xmax, ymax), (xmax, ymin)])
+
+
+def point_in_polygon_list(point: geometry.Point, polygons: list) -> bool:
+    """Checks if a point is in a list of polygons.
+
+    Args:
+        point (Point): The point to check.
+        polygons (list): List of polygons.
+
+    Returns:
+        bool: True if the point is in a hazard, False otherwise.
+    """
+    for poly in polygons:
+        if point.within(poly) or point.touches(poly):
+            return True
+    return False
+
+
+def point_in_point_list(point: geometry.Point, points: list) -> bool:
+    """Checks if a point is in a list of points.
+
+    Args:
+        point (Point): The point to check.
+        points (list): List of points.
+
+    Returns:
+        bool: True if the point is in a hazard, False otherwise.
+    """
+    for p in points:
+        if point.within(p) or point.touches(p):
+            return True
+    return False
+
+
+def create_safe_sea_voronoi_diagram(enc: senc.ENC, vessel_min_depth: int = 5) -> Tuple[scipy_spatial.Voronoi, list]:
+    """Creates a Voronoi diagram of the safe sea region (i.e. its vertices).
+
+    Args:
+        enc (ENC): The Electronic Navigational Chart object.
+        vessel_min_depth (float): The safe minimum depth for the vessel to voyage in.
+
+    Returns:
+        scipy_spatial.Voronoi: The Voronoi diagram of the safe sea region.
+    """
+    bbox = enc.bbox
+    enc_bbox_poly = bbox_to_polygon(bbox)
+    safe_sea = extract_safe_sea_area(vessel_min_depth, enc_bbox_poly, enc, as_polygon_list=True, show_plots=True)
+    polygons = []
+    for sea_poly in safe_sea:
+        if isinstance(sea_poly, geometry.MultiPolygon):
+            for poly in sea_poly:
+                polygons.append(poly)
+        elif isinstance(sea_poly, geometry.Polygon):
+            polygons.append(sea_poly)
+        else:
+            continue
+    px, py = extract_vertices_from_polygon_list(polygons)
+    points = np.vstack((py, px)).T
+    vor = scipy_spatial.Voronoi(points)
+    region_polygons = create_region_polygons_from_voronoi(vor, enc=enc)
+    for point in points:
+        enc.draw_circle((point[0], point[1]), radius=0.4, color="red")
+
+    # # Keep all voronoi region boundary points that are in the safe sea area
+    # safe_points = []
+    # for region in vor.regions:
+    #     region_vertices = vor.vertices[region]
+    #     for vertex in region_vertices:
+    #         point = Point(vertex)
+    #         if point_in_polygon_list(point, polygons):
+    #             safe_points.append((point.x, point.y))
+    # settt = set(safe_points)
+    # safe_points = list(settt)
+    # for point in safe_points:
+    #     enc.draw_circle((point[0], point[1]), radius=0.4, color="magenta")
+    return vor, region_polygons
+
+
+def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show_plots: bool = True) -> list:
+    """Creates a constrained delaunay triangulation of the safe sea region.
+
+    Args:
+        enc (ENC): Electronic Navigational Chart object.
+        vessel_min_depth (int, optional): The safe minimum depth for the vessel to voyage in. Defaults to 5.
+
+    Returns:
+        list: List of triangles.
+    """
+    safe_sea_poly_list = extract_safe_sea_area(vessel_min_depth, bbox_to_polygon(enc.bbox), enc, as_polygon_list=True, show_plots=True)
+    cdt_list = []
+    largest_poly_area = 0.0
+    for poly in safe_sea_poly_list:
+        enc.draw_polygon(poly, color="orange", alpha=0.5)
+        cdt = constrained_delaunay_triangulation_custom(poly)
+        if poly.area > largest_poly_area:
+            largest_poly_area = poly.area
+            cdt_largest = cdt
+        if show_plots:
+            enc.start_display()
+            for triangle in cdt:
+                enc.draw_polygon(triangle, color="black", fill=False)
+        cdt_list.append(cdt)
+
+    return cdt_largest
+
+
+def create_region_polygons_from_voronoi(vor: scipy_spatial.Voronoi, enc: Optional[senc.ENC] = None) -> list:
+    """Creates a list of polygons from the Voronoi diagram.
+
+    Args:
+        vor (scipy_spatial.Voronoi): The Voronoi diagram.
+        enc (Optional[ENC], optional): The Electronic Navigational Chart object. Defaults to None.
+
+    Returns:
+        list: List of polygons.
+    """
+    polygons = []
+    for region in vor.regions:
+        if not region:
+            continue
+        region_vertices = vor.vertices[region]
+        if region_vertices.shape[0] < 3:
+            continue
+        region_poly = geometry.Polygon(region_vertices)
+        if region_poly.area < 1.0:
+            continue
+        polygons.append(region_poly)
+        if enc:
+            enc.start_display()
+            enc.draw_polygon(region_poly, color="yellow", alpha=0.5)
+    return polygons
 
 
 def extract_boundary_polygons_inside_envelope(
     poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True
 ) -> list:
-    """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside a corridor of the given buffer size.
+    """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside the given envelope polygon.
 
     Args:
         - poly_tuple_list (list): List of tuples with relevant polygons inside query/envelope polygon and the corresponding original polygon they belong to.

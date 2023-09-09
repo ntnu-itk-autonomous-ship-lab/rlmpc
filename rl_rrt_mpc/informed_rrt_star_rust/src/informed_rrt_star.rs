@@ -1,7 +1,7 @@
 //! # RRT*
 //! Contains main RRT* functionality
 //!
-use crate::enc_hazards::ENCHazards;
+use crate::enc_data::ENCData;
 use crate::steering::{SimpleSteering, Steering};
 use crate::utils;
 use config::Config;
@@ -216,7 +216,7 @@ pub struct InformedRRTStar {
     pub rtree: RTree<RRTNode>,
     bookkeeping_tree: Tree<RRTNode>,
     rng: ChaChaRng,
-    pub enc: ENCHazards,
+    pub enc: ENCData,
 }
 
 #[pymethods]
@@ -237,7 +237,7 @@ impl InformedRRTStar {
             rtree: RTree::new(),
             bookkeeping_tree: Tree::new(),
             rng: ChaChaRng::from_entropy(),
-            enc: ENCHazards::py_new(),
+            enc: ENCData::py_new(),
         }
     }
 
@@ -283,8 +283,16 @@ impl InformedRRTStar {
         Ok(())
     }
 
-    pub fn transfer_enc_data(&mut self, enc_data: Vec<&PyAny>) -> PyResult<()> {
-        self.enc.transfer_enc_data(enc_data)
+    pub fn transfer_enc_hazards(&mut self, enc_data: Vec<&PyAny>) -> PyResult<()> {
+        self.enc.transfer_enc_hazards(enc_data)
+    }
+
+    pub fn transfer_safe_sea_triangulation(
+        &mut self,
+        safe_sea_triangulation: &PyList,
+    ) -> PyResult<()> {
+        self.enc
+            .transfer_safe_sea_triangulation(safe_sea_triangulation)
     }
 
     pub fn get_tree_as_list_of_dicts(&self, py: Python<'_>) -> PyResult<PyObject> {
@@ -837,12 +845,18 @@ impl InformedRRTStar {
             if self.c_best < f64::INFINITY {
                 p_rand = utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng);
                 //println!("Informed sample: {:?}", p_rand);
+            } else if !self.enc.safe_sea_triangulation.is_empty() {
+                p_rand = utils::sample_from_triangulation(
+                    &self.enc.safe_sea_triangulation,
+                    &mut self.rng,
+                );
+                println!("Sampled from triangulation: {:?}", p_rand);
             } else {
                 p_rand = utils::sample_from_bbox(&map_bbox, &mut self.rng);
             }
             //println!("Sampled: {:?}", p_rand);
             if !self.enc.inside_hazards(&p_rand) && self.enc.inside_bbox(&p_rand) {
-                // println!("Sampled outside hazard");
+                println!("Sampled outside hazard");
                 return Ok(RRTNode {
                     id: None,
                     state: Vector6::new(p_rand[0], p_rand[1], 0.0, 0.0, 0.0, 0.0),
@@ -851,7 +865,7 @@ impl InformedRRTStar {
                     time: 0.0,
                 });
             } else {
-                // println!("Sampled inside hazard");
+                println!("Sampled inside hazard");
             }
         }
     }

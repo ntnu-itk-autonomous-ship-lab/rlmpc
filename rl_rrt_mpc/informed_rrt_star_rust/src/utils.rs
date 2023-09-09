@@ -1,12 +1,12 @@
 //! # utils
 //! Contains utility functions for the RRT* algorithm
 //!
-use crate::enc_hazards::ENCHazards;
+use crate::enc_data::ENCData;
 use crate::informed_rrt_star::RRTNode;
 use geo::{coord, LineString, MultiPolygon, Point, Polygon, Rect, Rotate};
 use id_tree::*;
 use nalgebra::{
-    ClosedAdd, ClosedMul, Matrix2, Matrix3, SMatrix, Scalar, Vector2, Vector3, Vector6,
+    ClosedAdd, ClosedMul, Matrix2, Matrix3, SMatrix, Scalar, Vector, Vector2, Vector3, Vector6,
 };
 use num::traits::{One, Zero};
 use plotters::coord::types::RangedCoordf32;
@@ -76,6 +76,31 @@ where
     T: Scalar + Zero + One + ClosedAdd + ClosedMul,
 {
     mtrx * x_rand + offset
+}
+
+pub fn sample_from_triangulation(
+    triangulation: &Vec<Polygon>,
+    rng: &mut ChaChaRng,
+) -> Vector2<f64> {
+    let triangle_idx = rng.gen_range(0..triangulation.len());
+    assert!(triangulation[triangle_idx].exterior().0.len() == 3);
+    let a = Vector2::new(
+        triangulation[triangle_idx].exterior().0[0].x as f64,
+        triangulation[triangle_idx].exterior().0[0].y as f64,
+    );
+    let b = Vector2::new(
+        triangulation[triangle_idx].exterior().0[1].x as f64,
+        triangulation[triangle_idx].exterior().0[1].y as f64,
+    );
+    let c = Vector2::new(
+        triangulation[triangle_idx].exterior().0[2].x as f64,
+        triangulation[triangle_idx].exterior().0[2].y as f64,
+    );
+    let r_1: f64 = rng.gen_range(0.0..1.0);
+    let r_2: f64 = rng.gen_range(0.0..1.0);
+    let p_rand =
+        (1.0 - r_1.sqrt()) * a + r_1.sqrt() * (1.0 - r_2.sqrt()) * b + r_1.sqrt() * r_2 * c;
+    p_rand
 }
 
 #[allow(non_snake_case)]
@@ -177,7 +202,7 @@ pub fn draw_current_situation(
     filename: &str,
     xs_array: &Vec<Vector6<f64>>,
     tree: &Tree<RRTNode>,
-    enc_hazards: &ENCHazards,
+    enc_hazards: &ENCData,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let drawing_area = BitMapBackend::new(filename, (2048, 1440)).into_drawing_area();
     drawing_area.fill(&WHITE)?;
@@ -312,7 +337,7 @@ pub fn draw_ownship(
 pub fn draw_enc_hazards_vs_trajectory(
     drawing_area: &DrawingArea<BitMapBackend, Shift>,
     chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
-    enc_hazards: &ENCHazards,
+    enc_hazards: &ENCData,
     xs_array: &Vec<Vector6<f64>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     draw_multipolygon(drawing_area, chart, &enc_hazards.land, &RED)?;
@@ -373,7 +398,7 @@ pub fn draw_tree(
     p_start: &Vector2<f64>,
     p_goal: &Vector2<f64>,
     xs_soln_array: Option<&Vec<[f64; 6]>>,
-    enc_hazards: &ENCHazards,
+    enc_hazards: &ENCData,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let drawing_area = BitMapBackend::new(filename, (640, 480)).into_drawing_area();
     drawing_area.fill(&WHITE)?;

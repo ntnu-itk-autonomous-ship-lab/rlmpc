@@ -1,4 +1,4 @@
-//! # ENCHazards
+//! # ENCData
 //! Implementation of an Electronic Navigational Chart (ENC) data structure in rust.
 //! NOTE: Contains only the dangerous seabed, shore and land polygons for the vessel considered.
 //! Seabed of sufficient depth is not included.
@@ -10,29 +10,33 @@ use geo::{
     MultiPolygon, Polygon, Rect,
 };
 use nalgebra::{Vector2, Vector6};
+use pyo3::types::PyList;
 use pyo3::{exceptions::PyValueError, prelude::*};
 use std::fs::File;
 #[pyclass]
 #[derive(Clone, Debug)]
-pub struct ENCHazards {
+pub struct ENCData {
     pub land: MultiPolygon<f64>,
     pub shore: MultiPolygon<f64>,
     pub seabed: MultiPolygon<f64>,
+    pub safe_sea_triangulation: Vec<Polygon<f64>>,
     pub bbox: Rect<f64>,
 }
 
 #[pymethods]
-impl ENCHazards {
+impl ENCData {
     #[new]
     pub fn py_new() -> Self {
         let land = MultiPolygon(vec![]);
         let shore = MultiPolygon(vec![]);
         let seabed = MultiPolygon(vec![]);
+        let safe_sea_triangulation = vec![];
         let bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
         Self {
             land,
             shore,
             seabed,
+            safe_sea_triangulation,
             bbox,
         }
     }
@@ -44,7 +48,7 @@ impl ENCHazards {
 
     /// Transfer hazardous ENC data from python to rust. The ENC data is a list on the form:
     /// [land, shore, (dangerous)seabed]
-    pub fn transfer_enc_data(&mut self, enc_data: Vec<&PyAny>) -> PyResult<()> {
+    pub fn transfer_enc_hazards(&mut self, enc_data: Vec<&PyAny>) -> PyResult<()> {
         assert!(enc_data.len() == 3);
         for (i, hazard) in enc_data.iter().enumerate() {
             let hazard_type = hazard
@@ -64,6 +68,19 @@ impl ENCHazards {
         }
         self.compute_bbox()?;
         self.save_hazards_to_json()?;
+        Ok(())
+    }
+
+    pub fn transfer_safe_sea_triangulation(
+        &mut self,
+        py_safe_sea_triangulation: &PyList,
+    ) -> PyResult<()> {
+        let mut poly_vec = vec![];
+        for py_poly in py_safe_sea_triangulation {
+            let polygon = self.transfer_polygon(py_poly)?;
+            poly_vec.push(polygon);
+        }
+        self.safe_sea_triangulation = poly_vec;
         Ok(())
     }
 
@@ -97,7 +114,7 @@ impl ENCHazards {
     }
 }
 
-impl ENCHazards {
+impl ENCData {
     pub fn compute_bbox(&mut self) -> PyResult<Rect<f64>> {
         let mut land_bbox = Rect::new(coord! {x: 0.0, y: 0.0}, coord! {x: 0.0, y: 0.0});
         if !self.land.is_empty() {
@@ -196,7 +213,7 @@ impl ENCHazards {
     /// Calculate the distance from a point to the closest point on the ENC
     pub fn dist2point(&self, p: &Vector2<f64>) -> f64 {
         if self.is_empty() {
-            println!("ENCHazards is empty");
+            println!("ENCData is empty");
             return -1.0;
         }
         let point = point![x: p[0], y: p[1]];
@@ -258,7 +275,7 @@ mod tests {
     #[test]
     fn test_transfer_polygon() {
         Python::with_gil(|py| {
-            let enc = ENCHazards::py_new();
+            let enc = ENCData::py_new();
 
             let geometry = PyModule::import(py, "shapely.geometry").unwrap();
             let poly_class = geometry.getattr("Polygon").unwrap();
@@ -288,7 +305,7 @@ mod tests {
     #[test]
     fn test_transfer_multipolygon() {
         Python::with_gil(|py| {
-            let enc = ENCHazards::py_new();
+            let enc = ENCData::py_new();
 
             let geometry = PyModule::import(py, "shapely.geometry").unwrap();
             let poly_class = geometry.getattr("Polygon").unwrap();
@@ -346,7 +363,7 @@ mod tests {
     #[test]
     fn test_dist2point() {
         Python::with_gil(|py| {
-            let mut enc = ENCHazards::py_new();
+            let mut enc = ENCData::py_new();
 
             let geometry = PyModule::import(py, "shapely.geometry").unwrap();
             let poly_class = geometry.getattr("Polygon").unwrap();
@@ -371,7 +388,7 @@ mod tests {
     #[test]
     fn test_inside_hazards() {
         Python::with_gil(|py| {
-            let mut enc = ENCHazards::py_new();
+            let mut enc = ENCData::py_new();
 
             let geometry = PyModule::import(py, "shapely.geometry").unwrap();
             let poly_class = geometry.getattr("Polygon").unwrap();
@@ -397,7 +414,7 @@ mod tests {
     #[test]
     fn test_intersections() {
         Python::with_gil(|py| {
-            let mut enc = ENCHazards::py_new();
+            let mut enc = ENCData::py_new();
 
             let geometry = PyModule::import(py, "shapely.geometry").unwrap();
             let poly_class = geometry.getattr("Polygon").unwrap();
@@ -429,7 +446,7 @@ mod tests {
     #[test]
     fn test_compute_bbox() {
         Python::with_gil(|py| {
-            let mut enc = ENCHazards::py_new();
+            let mut enc = ENCData::py_new();
 
             let geometry = PyModule::import(py, "shapely.geometry").unwrap();
             let poly_class = geometry.getattr("Polygon").unwrap();
@@ -452,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_load_and_save_hazards_from_json() {
-        let mut enc = ENCHazards::py_new();
+        let mut enc = ENCData::py_new();
         enc.load_hazards_from_json().unwrap();
         println!("Land: {:?}", enc.land);
         println!("Shore: {:?}", enc.shore);

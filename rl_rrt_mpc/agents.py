@@ -136,7 +136,9 @@ class RLRRTMPC(ci.ICOLAV):
             self._initialized = True
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
-            self._rrt.transfer_enc_data(relevant_grounding_hazards)
+            safe_sea_triangulation = mapf.create_safe_sea_triangulation(enc, self._min_depth)
+            self._rrt.transfer_enc_hazards(relevant_grounding_hazards)
+            self._rrt.transfer_safe_sea_triangulation(safe_sea_triangulation)
             self._rrt.set_init_state(ownship_state.tolist())
             self._rrt.set_goal_state(goal_state.tolist())
 

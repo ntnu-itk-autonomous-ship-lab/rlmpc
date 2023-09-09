@@ -4,7 +4,7 @@
 //! ## Usage
 //! Intended for use through Python (pyo3) bindings. Relies on getting ENC data from python shapely objects.
 use pyo3::prelude::*;
-pub mod enc_hazards;
+pub mod enc_data;
 pub mod informed_rrt_star;
 mod model;
 mod rrt_error;
