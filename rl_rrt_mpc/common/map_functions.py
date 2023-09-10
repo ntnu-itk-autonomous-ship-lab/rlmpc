@@ -546,7 +546,7 @@ def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show
     Returns:
         list: List of triangles.
     """
-    safe_sea_poly_list = extract_safe_sea_area(vessel_min_depth, bbox_to_polygon(enc.bbox), enc, as_polygon_list=True, show_plots=True)
+    safe_sea_poly_list = extract_safe_sea_area(vessel_min_depth, bbox_to_polygon(enc.bbox), enc, as_polygon_list=True, show_plots=show_plots)
     cdt_list = []
     largest_poly_area = 0.0
     for poly in safe_sea_poly_list:

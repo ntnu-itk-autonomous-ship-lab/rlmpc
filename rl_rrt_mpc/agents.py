@@ -145,7 +145,7 @@ class RLRRTMPC(ci.ICOLAV):
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
             # hf.save_rrt_solution(rrt_solution)
-            hf.plot_rrt_tree(self._rrt.get_tree_as_list_of_dicts(), enc, show_plots=False)
+            hf.plot_rrt_tree(self._rrt.get_tree_as_list_of_dicts(), enc)
             # rrt_solution = hf.load_rrt_solution()
             rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
             times = np.array(rrt_solution["times"])

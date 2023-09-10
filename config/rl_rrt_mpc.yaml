@@ -8,9 +8,9 @@ rrt:
   min_node_dist: 30.0
   goal_radius: 300.0
   step_size: 0.5
-  max_steering_time: 20.0
+  max_steering_time: 15.0
   steering_acceptance_radius: 5.0
-  max_nn_node_dist: 100.0
+  max_nn_node_dist: 150.0
   gamma: 1200.0
 
 mpc:
