@@ -10,8 +10,8 @@ use geo::{
     MultiPolygon, Polygon, Rect,
 };
 use nalgebra::{Vector2, Vector6};
+use pyo3::prelude::*;
 use pyo3::types::PyList;
-use pyo3::{exceptions::PyValueError, prelude::*};
 use std::fs::File;
 #[pyclass]
 #[derive(Clone, Debug)]

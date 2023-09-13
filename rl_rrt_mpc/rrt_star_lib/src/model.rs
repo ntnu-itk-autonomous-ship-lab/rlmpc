@@ -1,5 +1,6 @@
 //! # Model
-//! Implements a 3DOF surface ship model as in Tengesdal et. al. 2021:
+//! Implements models for use with the RRT* variants, including among others
+//! a 3DOF Telemetron surface ship model as in Tengesdal et. al. 2021:
 //!
 //! eta_dot = Rpsi(eta) * nu
 //! M * nu_dot + C(nu) * nu + (D_l(nu) + D_nl) * nu = tau
@@ -22,7 +23,7 @@ use std::f64::consts::PI;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct ShipModelParams {
+pub struct TelemetronParams {
     pub draft: f64,
     pub length: f64,
     pub width: f64,
@@ -40,7 +41,7 @@ pub struct ShipModelParams {
 }
 
 #[allow(non_snake_case)]
-impl ShipModelParams {
+impl TelemetronParams {
     pub fn new() -> Self {
         let r_max = 15.0 * PI / 180.0;
         let M_inv = Matrix3::from_partial_diagonal(&[1.0 / 3980.0, 1.0 / 3980.0, 1.0 / 19703.0]);
@@ -63,23 +64,31 @@ impl ShipModelParams {
     }
 }
 
-pub struct ShipModel {
-    pub params: ShipModelParams,
+pub trait ShipModel {
+    fn dynamics(&self, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64>;
+    fn erk4_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64>;
+    fn euler_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64>;
+}
+
+pub struct Telemetron {
+    pub params: TelemetronParams,
     pub n_x: usize,
     pub n_u: usize,
 }
 
-#[allow(non_snake_case)]
-impl ShipModel {
+impl Telemetron {
     pub fn new() -> Self {
         Self {
-            params: ShipModelParams::new(),
+            params: TelemetronParams::new(),
             n_x: 6,
             n_u: 3,
         }
     }
+}
 
-    pub fn dynamics(&self, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
+#[allow(non_snake_case)]
+impl ShipModel for Telemetron {
+    fn dynamics(&self, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         let eta: Vector3<f64> = xs.fixed_rows::<3>(0).into();
         let nu: Vector3<f64> = xs.fixed_rows::<3>(3).into();
 
@@ -94,7 +103,7 @@ impl ShipModel {
         xs_dot
     }
 
-    pub fn erk4_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
+    fn erk4_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         let k1: Vector6<f64> = self.dynamics(xs, tau);
         let k2: Vector6<f64> = self.dynamics(&(xs + dt * k1 / 2.0), tau);
         let k3: Vector6<f64> = self.dynamics(&(xs + dt * k2 / 2.0), tau);
@@ -111,7 +120,7 @@ impl ShipModel {
         xs_new
     }
 
-    pub fn euler_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
+    fn euler_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         let mut xs_new: Vector6<f64> = xs + dt * self.dynamics(xs, tau);
         // println!("xs_new: {:?}", xs_new);
 

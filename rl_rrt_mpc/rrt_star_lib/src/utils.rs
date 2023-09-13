@@ -1,17 +1,17 @@
 //! # utils
 //! Contains utility functions for the RRT* algorithm
 //!
+use crate::common::RRTNode;
 use crate::enc_data::ENCData;
-use crate::informed_rrt_star::RRTNode;
 use geo::{coord, LineString, MultiPolygon, Point, Polygon, Rect, Rotate};
 use id_tree::*;
 use nalgebra::{
-    ClosedAdd, ClosedMul, Matrix2, Matrix3, SMatrix, Scalar, Vector, Vector2, Vector3, Vector6,
+    ClosedAdd, ClosedMul, Matrix2, Matrix3, SMatrix, Scalar, Vector2, Vector3, Vector6,
 };
 use num::traits::{One, Zero};
 use plotters::coord::types::RangedCoordf32;
 use plotters::coord::Shift;
-use plotters::{drawing, prelude::*};
+use plotters::prelude::*;
 use pyo3::prelude::*;
 use rand::Rng;
 use rand_chacha::ChaChaRng;
@@ -350,7 +350,7 @@ pub fn draw_steering_results(
     xs_goal: &Vector6<f64>,
     refs_array: &Vec<(f64, f64)>,
     xs_array: &Vec<Vector6<f64>>,
-    acceptance_radius: f64,
+    _acceptance_radius: f64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     draw_north_east_chart(
         "steer.png",

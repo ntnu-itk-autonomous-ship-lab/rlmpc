@@ -173,24 +173,24 @@ impl FLSHController {
     }
 }
 
-pub struct SimpleSteering {
+pub struct SimpleSteering<M: ShipModel> {
     los_guidance: LOSGuidance,
     flsh_controller: FLSHController,
-    ship_model: ShipModel,
+    ship_model: M,
 }
 
-impl SimpleSteering {
-    pub fn new() -> Self {
+impl<M: ShipModel> SimpleSteering<M> {
+    pub fn new() -> SimpleSteering<M> {
         Self {
             los_guidance: LOSGuidance::new(),
             flsh_controller: FLSHController::new(),
-            ship_model: ShipModel::new(),
+            ship_model: M::new(),
         }
     }
 }
 
 #[allow(non_snake_case)]
-impl Steering for SimpleSteering {
+impl<M: ShipModel> Steering for SimpleSteering<M> {
     fn steer(
         &mut self,
         xs_start: &Vector6<f64>,
