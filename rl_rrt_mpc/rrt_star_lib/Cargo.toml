@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "informed_rrt_star_rust"
+name = "rrt_star_lib"
 crate-type = ["cdylib"]
 
 [build-dependencies]

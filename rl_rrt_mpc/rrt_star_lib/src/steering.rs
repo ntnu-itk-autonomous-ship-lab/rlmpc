@@ -1,7 +1,7 @@
 //! # Steering
 //! Implements a simple way of steering a Ship from a startpoint to an endpoint, using a simple surge and heading controller for a 3DOF surface ship model as in Tengesdal et. al. 2021, with LOS guidance.
 //!
-use crate::model::{ShipModel, ShipModelParams};
+use crate::model::{ShipModel, Telemetron, TelemetronParams};
 use crate::utils;
 use nalgebra::Vector3;
 use nalgebra::Vector6;
@@ -116,7 +116,7 @@ impl FLSHController {
         refs: &(f64, f64),
         xs: &Vector6<f64>,
         dt: f64,
-        model_params: &ShipModelParams,
+        model_params: &TelemetronParams,
     ) -> Vector3<f64> {
         let psi: f64 = xs[2];
         let psi_unwrapped = utils::unwrap_angle(self.psi_prev, psi);
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     pub fn test_steer() -> Result<(), Box<dyn std::error::Error>> {
-        let mut steering = SimpleSteering::new();
+        let mut steering = SimpleSteering::<Telemetron>::new();
         let xs_start = Vector6::new(0.0, 0.0, consts::PI / 2.0, 5.0, 0.0, 0.0);
         let acceptance_radius = 10.0;
         let xs_goal = Vector6::new(100.0, 0.0, 0.0, 0.0, 0.0, 0.0);

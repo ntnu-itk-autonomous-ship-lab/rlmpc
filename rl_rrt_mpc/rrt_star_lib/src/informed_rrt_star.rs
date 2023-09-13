@@ -3,6 +3,7 @@
 //!
 use crate::common::{RRTNode, RRTResult};
 use crate::enc_data::ENCData;
+use crate::model::Telemetron;
 use crate::steering::{SimpleSteering, Steering};
 use crate::utils;
 use config::Config;
@@ -78,7 +79,7 @@ pub struct InformedRRTStar {
     pub z_best_parent: RRTNode,
     pub solutions: Vec<RRTResult>, // (states, times, cost) for each solution
     pub params: InformedRRTParams,
-    pub steering: SimpleSteering,
+    pub steering: SimpleSteering<Telemetron>,
     pub xs_start: Vector6<f64>,
     pub xs_goal: Vector6<f64>,
     pub U_d: f64,
