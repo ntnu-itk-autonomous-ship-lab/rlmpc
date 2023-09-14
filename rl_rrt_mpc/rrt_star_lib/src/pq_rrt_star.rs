@@ -32,6 +32,9 @@ pub struct PQRRTParams {
     pub steering_acceptance_radius: f64,
     pub max_nn_node_dist: f64, // nearest neighbor max radius parameter
     pub gamma: f64,            // nearest neighbor radius parameter
+    pub max_sample_adjustments: u64,
+    pub lambda_sample_adjustment: f64,
+    pub safe_distance: f64,
 }
 
 impl PQRRTParams {
@@ -47,6 +50,9 @@ impl PQRRTParams {
             steering_acceptance_radius: 5.0,
             max_nn_node_dist: 400.0,
             gamma: 200.0,
+            max_sample_adjustments: 50,
+            lambda_sample_adjustment: 0.5,
+            safe_distance: 25.0,
         }
     }
 
@@ -225,7 +231,9 @@ impl PQRRTStar {
 
             z_new = RRTNode::default();
             let z_rand = self.sample()?;
-            let z_nearest = self.nearest(&z_rand)?;
+            let z_prand = self.adjust_sample(&z_rand)?;
+
+            let z_nearest = self.nearest(&z_prand)?;
             let (xs_array, _, _, t_new, _) = self.steer(
                 &z_nearest,
                 &z_rand,
@@ -234,9 +242,10 @@ impl PQRRTStar {
             )?;
             let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
 
-            if self.is_too_close(&xs_new) {
-                continue;
-            }
+            // if self.is_too_close_to_neighbours(&xs_new) {
+            //     continue;
+            // }
+
             if self.is_collision_free(&xs_array) {
                 let path_length = utils::compute_path_length(&xs_array);
                 z_new = RRTNode::new(
@@ -254,7 +263,9 @@ impl PQRRTStar {
                 // )
                 // .unwrap();
 
-                let Z_near = self.nearest_neighbors(&z_new)?;
+                let mut Z_near = self.nearest_neighbors(&z_new)?;
+                let Z_parents = self.ancestry(&Z_near)?;
+                Z_near.extend(Z_parents);
                 let (z_new_, z_parent) = self.choose_parent(&z_new, &z_nearest, &Z_near)?;
                 z_new = z_new_;
                 z_new = self.insert(&z_new, &z_parent)?;
@@ -384,6 +395,13 @@ impl PQRRTStar {
         Ok(())
     }
 
+    pub fn distance_to_obstacle(&self, xs: &Vector6<f64>) -> f64 {
+        if self.enc.is_empty() {
+            return std::f64::INFINITY;
+        }
+        self.enc.dist2point(&Vector2::new(xs[0], xs[1]))
+    }
+
     pub fn is_collision_free(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
         if self.enc.is_empty() {
             return true;
@@ -392,7 +410,7 @@ impl PQRRTStar {
         is_collision_free
     }
 
-    pub fn is_too_close(&self, xs_new: &Vector6<f64>) -> bool {
+    pub fn is_too_close_to_neighbours(&self, xs_new: &Vector6<f64>) -> bool {
         let nearest = self
             .rtree
             .nearest_neighbor_iter_with_distance_2(&[xs_new[0], xs_new[1]])
@@ -462,6 +480,32 @@ impl PQRRTStar {
         z_goal_ = RRTNode::new(x_new, cost, 0.0, z.time + t_new);
         self.add_solution(&z, &z_goal_)?;
         Ok(true)
+    }
+
+    /// Return tuple of
+    pub fn get_tuple(
+        &mut self,
+        z_prand: &RRTNode,
+        Z_near: &Vec<RRTNode>,
+    ) -> PyResult<Vec<(RRTNode, Vec<Vector6<f64>>)>> {
+        let mut L_near = Vec::new();
+        for z_near in Z_near {
+            let (xs_array, _, _, t_new, reached) = self.steer(
+                &z_near,
+                &z_prand,
+                self.params.max_steering_time,
+                self.params.steering_acceptance_radius,
+            )?;
+            let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
+            if self.is_collision_free(&xs_array) && !self.is_too_close_to_neighbours(&xs_new) {
+                let path_length = utils::compute_path_length(&xs_array);
+                let z_new =
+                    RRTNode::new(xs_new, z_near.cost + path_length, 0.0, z_near.time + t_new);
+                L_near.push((z_new, xs_array));
+            }
+        }
+        L_near.sort_by(|a, b| a.0.cost.partial_cmp(&b.0.cost).unwrap());
+        Ok(L_near)
     }
 
     /// Inserts a new node into the tree, with the parent node being z_parent
@@ -587,7 +631,10 @@ impl PQRRTStar {
                 self.params.steering_acceptance_radius,
             )?;
             let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
-            if self.is_collision_free(&xs_array) && !self.is_too_close(&xs_new) && reached {
+            if self.is_collision_free(&xs_array)
+                && !self.is_too_close_to_neighbours(&xs_new)
+                && reached
+            {
                 let path_length = utils::compute_path_length(&xs_array);
                 let cost = z_near.cost + path_length;
                 if cost < z_new_.cost {
@@ -705,26 +752,37 @@ impl PQRRTStar {
         })
     }
 
+    // Uses a potential-field based method to adjust the sample towards the attractive force from the goal region
+    pub fn adjust_sample(&mut self, z_rand: &RRTNode) -> PyResult<RRTNode> {
+        let mut z_prand = z_rand.clone();
+        for _n in 0..self.params.max_sample_adjustments {
+            let F_att = self.xs_goal - z_prand.state.clone();
+            let d_min = self.distance_to_obstacle(&z_prand.state);
+            if d_min <= self.params.safe_distance {
+                break;
+            }
+            z_prand.state =
+                z_prand.state + self.params.lambda_sample_adjustment * F_att.normalize();
+        }
+        Ok(z_prand)
+    }
+
     pub fn sample(&mut self) -> PyResult<RRTNode> {
-        let mut p_rand = Vector2::zeros();
         let p_start: Vector2<f64> = self.xs_start.fixed_rows::<2>(0).into();
         let p_goal: Vector2<f64> = self.xs_goal.fixed_rows::<2>(0).into();
         let mut map_bbox = self.enc.bbox.clone();
         map_bbox = utils::bbox_from_corner_points(&p_start, &p_goal, 500.0, 5000.0);
         // println!("Map bbox: {:?}", map_bbox);
         loop {
-            if self.c_best < f64::INFINITY {
-                p_rand = utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng);
+            let p_rand = if self.c_best < f64::INFINITY {
+                utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng)
                 //println!("Informed sample: {:?}", p_rand);
             } else if !self.enc.safe_sea_triangulation.is_empty() {
-                p_rand = utils::sample_from_triangulation(
-                    &self.enc.safe_sea_triangulation,
-                    &mut self.rng,
-                );
+                utils::sample_from_triangulation(&self.enc.safe_sea_triangulation, &mut self.rng)
                 //println!("Sampled from triangulation: {:?}", p_rand);
             } else {
-                p_rand = utils::sample_from_bbox(&map_bbox, &mut self.rng);
-            }
+                utils::sample_from_bbox(&map_bbox, &mut self.rng)
+            };
             //println!("Sampled: {:?}", p_rand);
             if !self.enc.inside_hazards(&p_rand) && self.enc.inside_bbox(&p_rand) {
                 // println!("Sampled outside hazard");
@@ -958,7 +1016,7 @@ mod tests {
         println!("optimized soln length: {}", soln.states.len());
         soln = rrt.steer_through_solution(&soln)?;
         Python::with_gil(|py| -> PyResult<()> {
-            let soln_py = soln.to_object(py);
+            let _soln_py = soln.to_object(py);
             Ok(())
         })?;
         Ok(())

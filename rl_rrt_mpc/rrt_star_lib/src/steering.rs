@@ -131,9 +131,7 @@ impl FLSHController {
         if psi_error.abs() <= self.psi_error_int_threshold {
             self.psi_error_int += psi_error * dt;
         }
-        if psi_error.abs() <= 0.02 * f64::consts::PI / 180.0 {
-            self.psi_error_int = 0.0;
-        }
+
         self.psi_error_int = utils::wrap_angle_to_pmpi(self.psi_error_int);
 
         let U: f64 = f64::sqrt(xs[3].powi(2) + xs[4].powi(2));
@@ -145,9 +143,7 @@ impl FLSHController {
         if U_error.abs() <= self.U_error_int_threshold {
             self.U_error_int += U_error * dt;
         }
-        if U_error.abs() <= 0.01 {
-            self.U_error_int = 0.0;
-        }
+
         let r: f64 = xs[5];
 
         let nu: Vector3<f64> = xs.fixed_rows::<3>(3).into();
@@ -190,7 +186,7 @@ impl<M: ShipModel> SimpleSteering<M> {
 }
 
 #[allow(non_snake_case)]
-impl<M: ShipModel> Steering for SimpleSteering<M> {
+impl Steering for SimpleSteering<Telemetron> {
     fn steer(
         &mut self,
         xs_start: &Vector6<f64>,

@@ -65,6 +65,7 @@ impl TelemetronParams {
 }
 
 pub trait ShipModel {
+    fn new() -> Self;
     fn dynamics(&self, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64>;
     fn erk4_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64>;
     fn euler_step(&self, dt: f64, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64>;
@@ -76,18 +77,16 @@ pub struct Telemetron {
     pub n_u: usize,
 }
 
-impl Telemetron {
-    pub fn new() -> Self {
+#[allow(non_snake_case)]
+impl ShipModel for Telemetron {
+    fn new() -> Self {
         Self {
             params: TelemetronParams::new(),
             n_x: 6,
             n_u: 3,
         }
     }
-}
 
-#[allow(non_snake_case)]
-impl ShipModel for Telemetron {
     fn dynamics(&self, xs: &Vector6<f64>, tau: &Vector3<f64>) -> Vector6<f64> {
         let eta: Vector3<f64> = xs.fixed_rows::<3>(0).into();
         let nu: Vector3<f64> = xs.fixed_rows::<3>(3).into();

@@ -698,25 +698,21 @@ impl InformedRRTStar {
     }
 
     pub fn sample(&mut self) -> PyResult<RRTNode> {
-        let mut p_rand = Vector2::zeros();
         let p_start: Vector2<f64> = self.xs_start.fixed_rows::<2>(0).into();
         let p_goal: Vector2<f64> = self.xs_goal.fixed_rows::<2>(0).into();
         // let mut map_bbox = self.enc.bbox.clone();
         let map_bbox = utils::bbox_from_corner_points(&p_start, &p_goal, 500.0, 5000.0);
         // println!("Map bbox: {:?}", map_bbox);
         loop {
-            if self.c_best < f64::INFINITY {
-                p_rand = utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng);
+            let p_rand = if self.c_best < f64::INFINITY {
+                utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng)
                 //println!("Informed sample: {:?}", p_rand);
             } else if !self.enc.safe_sea_triangulation.is_empty() {
-                p_rand = utils::sample_from_triangulation(
-                    &self.enc.safe_sea_triangulation,
-                    &mut self.rng,
-                );
+                utils::sample_from_triangulation(&self.enc.safe_sea_triangulation, &mut self.rng)
                 //println!("Sampled from triangulation: {:?}", p_rand);
             } else {
-                p_rand = utils::sample_from_bbox(&map_bbox, &mut self.rng);
-            }
+                utils::sample_from_bbox(&map_bbox, &mut self.rng)
+            };
             //println!("Sampled: {:?}", p_rand);
             if !self.enc.inside_hazards(&p_rand) && self.enc.inside_bbox(&p_rand) {
                 // println!("Sampled outside hazard");
