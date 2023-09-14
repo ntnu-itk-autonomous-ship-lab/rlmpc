@@ -244,7 +244,14 @@ pub fn draw_current_situation(
         .draw()?;
 
     draw_multipolygon(&drawing_area, &mut chart, &enc_data.hazards, &RED)?;
-
+    if enc_data.safe_sea_triangulation.len() > 0 {
+        draw_triangulation(
+            &drawing_area,
+            &mut chart,
+            &enc_data.safe_sea_triangulation,
+            &YELLOW,
+        )?;
+    }
     let root_node_id = tree.root_node_id().unwrap();
     draw_tree_lines(&drawing_area, &mut chart, tree, &root_node_id)?;
 
@@ -267,6 +274,26 @@ pub fn draw_multipolygon(
 ) -> Result<(), Box<dyn std::error::Error>> {
     for polygon in multipolygon.0.iter() {
         let poly_points: Vec<(f32, f32)> = polygon
+            .exterior()
+            .0
+            .iter()
+            .map(|p| (p.y as f32, p.x as f32))
+            .collect();
+        // println!("poly_points: {:?}", poly_points);
+        chart.draw_series(LineSeries::new(poly_points, color))?;
+    }
+    drawing_area.present()?;
+    Ok(())
+}
+
+pub fn draw_triangulation(
+    drawing_area: &DrawingArea<BitMapBackend, Shift>,
+    chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf32, RangedCoordf32>>,
+    triangulation: &Vec<Polygon<f64>>,
+    color: &RGBColor,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for triangle in triangulation.iter() {
+        let poly_points: Vec<(f32, f32)> = triangle
             .exterior()
             .0
             .iter()

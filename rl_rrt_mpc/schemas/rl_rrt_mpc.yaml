@@ -6,8 +6,55 @@ rl:
       required: True
       type: float
 
-rrt:
-  required: True
+pq_rrt:
+  required: False
+  type: dict
+  schema:
+    max_iter:
+      required: True
+      type: integer
+    max_nodes:
+      required: True
+      type: integer
+    iter_between_direct_goal_growth:
+      required: True
+      type: integer
+    min_node_dist:
+      required: True
+      type: float
+    goal_radius:
+      required: True
+      type: float
+    step_size:
+      required: True
+      type: float
+    max_steering_time:
+      required: True
+      type: float
+    steering_acceptance_radius:
+      required: True
+      type: float
+    max_nn_node_dist:
+      required: True
+      type: float
+    gamma:
+      required: True
+      type: float
+    max_sample_adjustments:
+      required: True
+      type: integer
+    lambda_sample_adjustment:
+      required: True
+      type: float
+    safe_distance:
+      required: True
+      type: float
+    max_ancestry_level:
+      required: True
+      type: integer
+
+i_rrt:
+  required: False
   type: dict
   schema:
     max_iter:

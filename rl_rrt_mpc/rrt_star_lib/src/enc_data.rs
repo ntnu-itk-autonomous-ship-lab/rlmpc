@@ -171,7 +171,7 @@ impl ENCData {
         }
         let point = point![x: p[0], y: p[1]];
         let dist2hazards = point.euclidean_distance(&self.hazards);
-        println!("dist2hazards: {:?}", dist2hazards);
+        // println!("dist2hazards: {:?}", dist2hazards);
         dist2hazards
     }
 

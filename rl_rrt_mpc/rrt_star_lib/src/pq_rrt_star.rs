@@ -33,8 +33,9 @@ pub struct PQRRTParams {
     pub max_nn_node_dist: f64, // nearest neighbor max radius parameter
     pub gamma: f64,            // nearest neighbor radius parameter
     pub max_sample_adjustments: u64,
-    pub lambda_sample_adjustment: f64,
-    pub safe_distance: f64,
+    pub lambda_sample_adjustment: f64, // sample adjustment parameter
+    pub safe_distance: f64,            // safe distance to obstacles
+    pub max_ancestry_level: u64, // max number of levels to go up in the ancestry tree when choosing parent in pq-rrt*
 }
 
 impl PQRRTParams {
@@ -53,6 +54,7 @@ impl PQRRTParams {
             max_sample_adjustments: 50,
             lambda_sample_adjustment: 0.5,
             safe_distance: 25.0,
+            max_ancestry_level: 4,
         }
     }
 
@@ -236,18 +238,14 @@ impl PQRRTStar {
             let z_nearest = self.nearest(&z_prand)?;
             let (xs_array, _, _, t_new, _) = self.steer(
                 &z_nearest,
-                &z_rand,
+                &z_prand,
                 self.params.max_steering_time,
                 self.params.steering_acceptance_radius,
             )?;
-            let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
-
-            // if self.is_too_close_to_neighbours(&xs_new) {
-            //     continue;
-            // }
 
             if self.is_collision_free(&xs_array) {
                 let path_length = utils::compute_path_length(&xs_array);
+                let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
                 z_new = RRTNode::new(
                     xs_new,
                     z_nearest.cost + path_length,
@@ -272,6 +270,12 @@ impl PQRRTStar {
                 self.rewire(&z_new, &Z_near)?;
             }
             num_iter += 1;
+            if num_iter % 1000 == 0 {
+                println!(
+                    "Num iter: {} | Num nodes: {} | c_best: {}",
+                    num_iter, self.num_nodes, self.c_best
+                );
+            }
         }
         let opt_soln = match self.extract_best_solution() {
             Ok(soln) => soln,
@@ -482,32 +486,6 @@ impl PQRRTStar {
         Ok(true)
     }
 
-    /// Return tuple of
-    pub fn get_tuple(
-        &mut self,
-        z_prand: &RRTNode,
-        Z_near: &Vec<RRTNode>,
-    ) -> PyResult<Vec<(RRTNode, Vec<Vector6<f64>>)>> {
-        let mut L_near = Vec::new();
-        for z_near in Z_near {
-            let (xs_array, _, _, t_new, reached) = self.steer(
-                &z_near,
-                &z_prand,
-                self.params.max_steering_time,
-                self.params.steering_acceptance_radius,
-            )?;
-            let xs_new: Vector6<f64> = xs_array.last().copied().unwrap();
-            if self.is_collision_free(&xs_array) && !self.is_too_close_to_neighbours(&xs_new) {
-                let path_length = utils::compute_path_length(&xs_array);
-                let z_new =
-                    RRTNode::new(xs_new, z_near.cost + path_length, 0.0, z_near.time + t_new);
-                L_near.push((z_new, xs_array));
-            }
-        }
-        L_near.sort_by(|a, b| a.0.cost.partial_cmp(&b.0.cost).unwrap());
-        Ok(L_near)
-    }
-
     /// Inserts a new node into the tree, with the parent node being z_parent
     /// Since we have two trees (RTree for nearest neighbor search and Tree for keeping track of parents/children),
     /// we need to keep track of the node id in both trees. This is done by setting the id of the node in the Tree
@@ -529,12 +507,19 @@ impl PQRRTStar {
     }
 
     fn get_parent_id(&self, z: &RRTNode) -> PyResult<NodeId> {
-        let parent_id = self
+        let parent_id = match self
             .bookkeeping_tree
             .get(&z.clone().id.unwrap())
             .unwrap()
             .parent()
-            .unwrap();
+        {
+            Some(id) => id,
+            None => {
+                return Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                    "z does not have any parents",
+                ))
+            }
+        };
         Ok(parent_id.clone())
     }
 
@@ -588,7 +573,7 @@ impl PQRRTStar {
         Ok(nearest)
     }
 
-    pub fn nearest_neighbors(&self, z_new: &RRTNode) -> PyResult<Vec<RRTNode>> {
+    fn nearest_neighbors(&self, z_new: &RRTNode) -> PyResult<Vec<RRTNode>> {
         let ball_radius = self.compute_nn_radius();
         if self.rtree.size() == 1 {
             let root_id = self.bookkeeping_tree.root_node_id().unwrap();
@@ -605,6 +590,41 @@ impl PQRRTStar {
             .collect::<Vec<_>>();
         Z_near.sort_by(|a, b| a.cost.partial_cmp(&b.cost).unwrap());
         Ok(Z_near)
+    }
+
+    /// Find the ancestor of z at level d, if any. If no ancestor is found, return error.
+    pub fn ancestor(&self, z: &RRTNode, d: u64) -> PyResult<RRTNode> {
+        let root_id = self.bookkeeping_tree.root_node_id().unwrap();
+        let mut z_parent_id = self.get_parent_id(&z)?;
+        let mut z_parent = self.bookkeeping_tree.get(&z_parent_id).unwrap().data();
+        for i in 0..d - 1 {
+            if z_parent_id == *root_id && i < d - 1 {
+                return Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                    "z does not have a d-level ancestor",
+                ));
+            }
+            z_parent_id = self.get_parent_id(&z_parent)?;
+            z_parent = self.bookkeeping_tree.get(&z_parent_id).unwrap().data();
+        }
+        Ok(z_parent.clone())
+    }
+
+    pub fn ancestry(&self, Z: &Vec<RRTNode>) -> PyResult<Vec<RRTNode>> {
+        let mut Z_parents = Vec::new();
+        for z in Z {
+            let z_d_level_ancestor = match self.ancestor(&z, self.params.max_ancestry_level) {
+                Ok(z) => z,
+                Err(_) => continue,
+            };
+            let id_already_in_vec = Z_parents
+                .iter()
+                .any(|z: &RRTNode| z.clone().id.unwrap() == z_d_level_ancestor.clone().id.unwrap());
+            if id_already_in_vec {
+                continue;
+            }
+            Z_parents.push(z_d_level_ancestor);
+        }
+        Ok(Z_parents)
     }
 
     /// Select parent here as the one giving minimum cost
@@ -774,16 +794,13 @@ impl PQRRTStar {
         map_bbox = utils::bbox_from_corner_points(&p_start, &p_goal, 500.0, 5000.0);
         // println!("Map bbox: {:?}", map_bbox);
         loop {
-            let p_rand = if self.c_best < f64::INFINITY {
-                utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng)
-                //println!("Informed sample: {:?}", p_rand);
-            } else if !self.enc.safe_sea_triangulation.is_empty() {
+            let p_rand = if !self.enc.safe_sea_triangulation.is_empty() {
+                // println!("Sampled from triangulation!");
                 utils::sample_from_triangulation(&self.enc.safe_sea_triangulation, &mut self.rng)
-                //println!("Sampled from triangulation: {:?}", p_rand);
             } else {
                 utils::sample_from_bbox(&map_bbox, &mut self.rng)
             };
-            //println!("Sampled: {:?}", p_rand);
+            // println!("Sampled: {:?}", p_rand);
             if !self.enc.inside_hazards(&p_rand) && self.enc.inside_bbox(&p_rand) {
                 // println!("Sampled outside hazard");
                 return Ok(RRTNode {
@@ -887,42 +904,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rrtnode() {
-        let node = RRTNode {
-            id: None,
-            cost: 0.0,
-            d2land: 0.0,
-            state: Vector6::zeros(),
-            time: 0.0,
-        };
-        assert_eq!(node.state, Vector6::zeros());
-        assert_eq!(node.distance_2(&[1.0, 0.0]), 1.0);
-    }
-
-    #[test]
-    fn test_rtree() {
-        let mut tree = RTree::new();
-        tree.insert(RRTNode {
-            id: None,
-            cost: 0.0,
-            d2land: 0.0,
-            state: Vector6::zeros(),
-            time: 0.0,
-        });
-
-        tree.insert(RRTNode {
-            id: None,
-            cost: 2.0,
-            d2land: 40.0,
-            state: Vector6::new(50.0, 50.0, 0.0, 0.0, 0.0, 0.0),
-            time: 20.0,
-        });
-
-        let nearest = tree.nearest_neighbor(&[1.0, 0.0]).unwrap();
-        assert_eq!(nearest.state, Vector6::zeros());
-    }
-
-    #[test]
     fn test_sample() -> PyResult<()> {
         let mut rrt = PQRRTStar::py_new(PQRRTParams {
             max_nodes: 1000,
@@ -935,6 +916,10 @@ mod tests {
             steering_acceptance_radius: 5.0,
             gamma: 200.0,
             max_nn_node_dist: 100.0,
+            max_sample_adjustments: 10,
+            lambda_sample_adjustment: 0.1,
+            safe_distance: 25.0,
+            max_ancestry_level: 4,
         });
         let z_rand = rrt.sample()?;
         assert_eq!(z_rand.state, Vector6::zeros());
@@ -943,7 +928,7 @@ mod tests {
 
     #[test]
     #[allow(non_snake_case)]
-    fn test_choose_parent_and_insert() -> PyResult<()> {
+    fn test_ancestry() -> PyResult<()> {
         let mut rrt = PQRRTStar::py_new(PQRRTParams {
             max_nodes: 1000,
             max_iter: 100000,
@@ -955,10 +940,14 @@ mod tests {
             steering_acceptance_radius: 5.0,
             gamma: 200.0,
             max_nn_node_dist: 150.0,
+            max_sample_adjustments: 10,
+            lambda_sample_adjustment: 0.1,
+            safe_distance: 25.0,
+            max_ancestry_level: 1,
         });
 
         let xs_start = [0.0, 0.0, 0.0, 5.0, 0.0, 0.0];
-        let xs_goal = [100.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let xs_goal = [1000.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         Python::with_gil(|py| -> PyResult<()> {
             let xs_start_pyany = xs_start.into_py(py);
             let xs_start_py = xs_start_pyany.as_ref(py).downcast::<PyList>().unwrap();
@@ -971,61 +960,103 @@ mod tests {
 
         let z_new = RRTNode {
             id: None,
-            cost: 100.0,
+            cost: 50.0,
             d2land: 20.0,
-            state: Vector6::new(100.0, 0.0, 0.0, 5.0, 0.0, 0.0),
+            state: Vector6::new(50.0, 0.0, 0.0, 5.0, 0.0, 0.0),
             time: 20.0,
         };
-        let Z_near = rrt.nearest_neighbors(&z_new)?;
-        println!("Z_near: {:?}", Z_near);
-
-        let (z_new, z_parent) = rrt.choose_parent(&z_new, &Z_near[0].clone(), &Z_near)?;
+        let mut Z_near = rrt.nearest_neighbors(&z_new)?;
+        let Z_an = rrt.ancestry(&Z_near.clone())?;
         println!("z_new: {:?}", z_new);
-        println!("z_parent: {:?}", z_parent);
+        println!("Z_near: {:?}", Z_near);
+        println!("Z_an: {:?}", Z_an);
+        Z_near.append(&mut Z_an.clone());
+        let (z_new, z_parent) = rrt.choose_parent(&z_new, &Z_near[0].clone(), &Z_near)?;
+        let _z_new_id = rrt.insert(&z_new, &z_parent)?;
 
-        let z_new_id = rrt.insert(&z_new, &z_parent)?;
-        println!("z_new_id: {:?}", z_new_id);
-        Ok(())
-    }
-
-    #[test]
-    fn test_optimize_solution() -> PyResult<()> {
-        let mut rrt = PQRRTStar::py_new(PQRRTParams {
-            max_nodes: 1700,
-            max_iter: 10000,
-            iter_between_direct_goal_growth: 100,
-            min_node_dist: 30.0,
-            goal_radius: 600.0,
-            step_size: 0.5,
-            max_steering_time: 25.0,
-            steering_acceptance_radius: 5.0,
-            gamma: 1200.0,
-            max_nn_node_dist: 200.0,
-        });
-        let mut soln = RRTResult {
-            states: vec![],
-            references: vec![],
-            inputs: vec![],
-            times: vec![],
-            cost: 0.0,
+        let z_new = RRTNode {
+            id: None,
+            cost: 150.0,
+            d2land: 20.0,
+            state: Vector6::new(100.0, 50.0, 0.0, 5.0, 0.0, 0.0),
+            time: 20.0,
         };
-        rrt.enc.load_hazards_from_json()?;
-        soln.load_from_json()?;
-        println!("soln length: {}", soln.states.len());
-        rrt.optimize_solution(&mut soln)?;
-        println!("optimized soln length: {}", soln.states.len());
-        soln = rrt.steer_through_solution(&soln)?;
-        Python::with_gil(|py| -> PyResult<()> {
-            let _soln_py = soln.to_object(py);
-            Ok(())
-        })?;
+        let mut Z_near = rrt.nearest_neighbors(&z_new)?;
+        let Z_an = rrt.ancestry(&Z_near.clone())?;
+        println!("z_new: {:?}", z_new);
+        println!("Z_near: {:?}", Z_near);
+        println!("Z_an: {:?}", Z_an);
+        Z_near.append(&mut Z_an.clone());
+        let (z_new, z_parent) = rrt.choose_parent(&z_new, &Z_near[0].clone(), &Z_near)?;
+        let _z_new_id = rrt.insert(&z_new, &z_parent)?;
+
+        let z_new = RRTNode {
+            id: None,
+            cost: 200.0,
+            d2land: 20.0,
+            state: Vector6::new(200.0, 0.0, 0.0, 5.0, 0.0, 0.0),
+            time: 20.0,
+        };
+        let mut Z_near = rrt.nearest_neighbors(&z_new)?;
+        let Z_an = rrt.ancestry(&Z_near.clone())?;
+        println!("z_new: {:?}", z_new);
+        println!("Z_near: {:?}", Z_near);
+        println!("Z_an: {:?}", Z_an);
+        Z_near.append(&mut Z_an.clone());
+        let (z_new, z_parent) = rrt.choose_parent(&z_new, &Z_near[0].clone(), &Z_near)?;
+        let _z_new_id = rrt.insert(&z_new, &z_parent)?;
+
+        let z_new = RRTNode {
+            id: None,
+            cost: 270.0,
+            d2land: 20.0,
+            state: Vector6::new(250.0, 20.0, 0.0, 5.0, 0.0, 0.0),
+            time: 20.0,
+        };
+        let mut Z_near = rrt.nearest_neighbors(&z_new)?;
+        let Z_an = rrt.ancestry(&Z_near.clone())?;
+        println!("z_new: {:?}", z_new);
+        println!("Z_near: {:?}", Z_near);
+        println!("Z_an: {:?}", Z_an);
+        Z_near.append(&mut Z_an.clone());
+        let (z_new, z_parent) = rrt.choose_parent(&z_new, &Z_near[0].clone(), &Z_near)?;
+        let _z_new_id = rrt.insert(&z_new, &z_parent)?;
+
+        let z_new = RRTNode {
+            id: None,
+            cost: 300.0,
+            d2land: 20.0,
+            state: Vector6::new(300.0, 0.0, 0.0, 5.0, 0.0, 0.0),
+            time: 20.0,
+        };
+        let mut Z_near = rrt.nearest_neighbors(&z_new)?;
+        let Z_an = rrt.ancestry(&Z_near.clone())?;
+        println!("z_new: {:?}", z_new);
+        println!("Z_near: {:?}", Z_near);
+        println!("Z_an: {:?}", Z_an);
+        Z_near.append(&mut Z_an.clone());
+        let (z_new, z_parent) = rrt.choose_parent(&z_new, &Z_near[0].clone(), &Z_near)?;
+        let _z_new_id = rrt.insert(&z_new, &z_parent)?;
+
+        utils::draw_tree(
+            "tree.png",
+            &rrt.bookkeeping_tree,
+            &Vector2::new(xs_start[0], xs_start[1]),
+            &Vector2::new(xs_goal[0], xs_goal[1]),
+            None,
+            &rrt.enc,
+        )
+        .unwrap();
+        println!("done");
+
         Ok(())
     }
+
     #[test]
     fn test_grow_towards_goal() -> PyResult<()> {
         let mut rrt = PQRRTStar::py_new(PQRRTParams {
             max_nodes: 2000,
-            max_iter: 10000,
+            max_iter: 2000,
             iter_between_direct_goal_growth: 100,
             min_node_dist: 10.0,
             goal_radius: 10.0,
@@ -1034,6 +1065,10 @@ mod tests {
             steering_acceptance_radius: 5.0,
             gamma: 1200.0,
             max_nn_node_dist: 125.0,
+            max_sample_adjustments: 10,
+            lambda_sample_adjustment: 0.1,
+            safe_distance: 25.0,
+            max_ancestry_level: 4,
         });
         let xs_start = [
             6581590.0,

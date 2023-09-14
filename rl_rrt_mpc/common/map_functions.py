@@ -550,12 +550,12 @@ def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show
     cdt_list = []
     largest_poly_area = 0.0
     for poly in safe_sea_poly_list:
-        enc.draw_polygon(poly, color="orange", alpha=0.5)
         cdt = constrained_delaunay_triangulation_custom(poly)
         if poly.area > largest_poly_area:
             largest_poly_area = poly.area
             cdt_largest = cdt
         if show_plots:
+            enc.draw_polygon(poly, color="orange", alpha=0.5)
             for triangle in cdt:
                 enc.draw_polygon(triangle, color="black", fill=False)
         cdt_list.append(cdt)

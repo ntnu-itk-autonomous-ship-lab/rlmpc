@@ -16,7 +16,6 @@ import colav_simulator.core.guidances as guidances
 import colav_simulator.core.integrators as sim_integrators
 import colav_simulator.core.models as sim_models
 import colav_simulator.core.stochasticity as stochasticity
-import informed_rrt_star_rust as rrt
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
@@ -28,13 +27,40 @@ import rl_rrt_mpc.mpc.mpc as mpc
 import rl_rrt_mpc.mpc.parameters as mpc_params
 import rl_rrt_mpc.mpc.set_generator as sg
 import rl_rrt_mpc.rl as rl
+import rrt_star_lib
 import seacharts.enc as senc
 from scipy.interpolate import interp1d
 from shapely import strtree
 
 
 @dataclass
-class RRTParams:
+class PQRRTParams:
+    max_nodes: int = 2000
+    max_iter: int = 10000
+    iter_between_direct_goal_growth: int = 100
+    min_node_dist: float = 5.0
+    goal_radius: float = 100.0
+    step_size: float = 0.1
+    max_steering_time: float = 20.0
+    steering_acceptance_radius: float = 5.0
+    max_nn_node_dist: float = 300.0
+    gamma: float = 1000.0
+    max_sample_adjustments: int = 50
+    lambda_sample_adjustment: float = 0.1
+    safe_distance: float = 25.0
+    max_ancestry_level: int = 4
+
+    @classmethod
+    def from_dict(cls, config_dict: dict):
+        config = cls(**config_dict)
+        return config
+
+    def to_dict(self):
+        return asdict(self)
+
+
+@dataclass
+class IRRTParams:
     max_nodes: int = 2000
     max_iter: int = 10000
     iter_between_direct_goal_growth: int = 100
@@ -58,14 +84,14 @@ class RRTParams:
 @dataclass
 class RLRRTMPCParams:
     rl_method: rl.RLParams
-    rrt: RRTParams
+    rrt: PQRRTParams
     mpc: mpc.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLRRTMPCParams(
             rl_method=rl.RLParams.from_dict(config_dict["rl"]),
-            rrt=RRTParams.from_dict(config_dict["rrt"]),
+            rrt=PQRRTParams.from_dict(config_dict["pq_rrt"]),
             mpc=mpc.Config.from_dict(config_dict["mpc"]),
         )
         return config
@@ -73,9 +99,9 @@ class RLRRTMPCParams:
 
 class RLRRTMPCBuilder:
     @classmethod
-    def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt.InformedRRTStar, mpc.MPC]:
+    def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt_star_lib.PQRRTStar, mpc.MPC]:
         rl_obj = rl.RL(config.rl_method)
-        rrt_obj = rrt.InformedRRTStar(config.rrt)
+        rrt_obj = rrt_star_lib.PQRRTStar(config.rrt)
         rlmpc_obj = mpc.MPC(mpc_models.Telemetron(), config.mpc)
         return rl_obj, rrt_obj, rlmpc_obj
 
@@ -133,6 +159,7 @@ class RLRRTMPC(ci.ICOLAV):
         if not self._initialized:
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             self._t_prev = t
+            self._map_origin = ownship_state[:2]
             self._initialized = True
             relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
             self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
@@ -158,7 +185,7 @@ class RLRRTMPC(ci.ICOLAV):
                 self._rrt_inputs[:, k] = np.array(rrt_solution["inputs"][k])
                 self._rrt_references[:, k] = np.array(rrt_solution["references"][k])
 
-            self._setup_mpc_static_obstacle_input(ownship_state, goal_state, enc, **kwargs)
+            self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
             self._rrt_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
             self._mpc.construct_ocp(
@@ -171,14 +198,12 @@ class RLRRTMPC(ci.ICOLAV):
                 map_origin=self._map_origin,
                 min_depth=self._min_depth,
             )
-
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
         self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
-            N = int(self._mpc.params.T / self._mpc.params.dt)
             nominal_trajectory, nominal_inputs = shift_nominal_plan(
-                self._rrt_trajectory, self._rrt_inputs, ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]), N
+                self._nominal_trajectory, self._nominal_inputs, ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]), N
             )
             psi_nom = nominal_trajectory[2, :]
             nominal_trajectory[2, :] = np.unwrap(np.concatenate(([psi_nom[0]], psi_nom)))[1:]
@@ -196,17 +221,19 @@ class RLRRTMPC(ci.ICOLAV):
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if enc is not None and self._mpc.params.debug:
-                hf.plot_trajectory(nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "magenta")
+                hf.plot_trajectory(nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "yellow")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
                 ship_poly = hf.create_ship_polygon(ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0)
                 enc.draw_polygon(ship_poly, color="pink")
             self._mpc_trajectory, self._mpc_inputs = interpolate_solution(
-                self._mpc_trajectory, self._mpc_inputs, t, self._t_prev_mpc, self._mpc.params.T, self._mpc.params.dt
+                self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
             )
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
             self._t_prev_mpc = t
+            if t == 190.0 or t == 400.0 or t == 550.0:
+                print("here")
 
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
