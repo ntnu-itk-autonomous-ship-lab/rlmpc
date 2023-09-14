@@ -156,6 +156,7 @@ class RLRRTMPC(ci.ICOLAV):
         """
         assert goal_state is not None, "Goal state must be provided to the RL-RRT-MPC"
         assert enc is not None, "ENC must be provided to the RL-RRT-MPC"
+        N = int(self._mpc.params.T / self._mpc.params.dt)
         if not self._initialized:
             self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
             self._t_prev = t
@@ -171,6 +172,10 @@ class RLRRTMPC(ci.ICOLAV):
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
+            print("RRT-run completed")
+            if not rrt_solution:
+                print("WARNING: RRT failed to find a solution")
+
             # hf.save_rrt_solution(rrt_solution)
             hf.plot_rrt_tree(self._rrt.get_tree_as_list_of_dicts(), enc)
             # rrt_solution = hf.load_rrt_solution()
@@ -185,7 +190,7 @@ class RLRRTMPC(ci.ICOLAV):
                 self._rrt_inputs[:, k] = np.array(rrt_solution["inputs"][k])
                 self._rrt_references[:, k] = np.array(rrt_solution["references"][k])
 
-            self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
+            self._setup_mpc_static_obstacle_input(ownship_state, goal_state, enc, show_plots=self._mpc.params.debug, **kwargs)
             self._rrt_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
             self._mpc.construct_ocp(
@@ -203,7 +208,7 @@ class RLRRTMPC(ci.ICOLAV):
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             nominal_trajectory, nominal_inputs = shift_nominal_plan(
-                self._nominal_trajectory, self._nominal_inputs, ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]), N
+                self._rrt_trajectory, self._rrt_trajectory, ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]), N
             )
             psi_nom = nominal_trajectory[2, :]
             nominal_trajectory[2, :] = np.unwrap(np.concatenate(([psi_nom[0]], psi_nom)))[1:]

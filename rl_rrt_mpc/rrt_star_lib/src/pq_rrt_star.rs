@@ -202,10 +202,10 @@ impl PQRRTStar {
         let start = Instant::now();
         self.set_speed_reference(U_d)?;
         self.set_init_state(ownship_state)?;
-        println!("Ownship state: {:?}", ownship_state);
-        println!("Goal state: {:?}", self.xs_goal);
-        println!("U_d: {:?}", U_d);
-        println!("Do list: {:?}", do_list);
+        // println!("Ownship state: {:?}", ownship_state);
+        // println!("Goal state: {:?}", self.xs_goal);
+        // println!("U_d: {:?}", U_d);
+        // println!("Do list: {:?}", do_list);
 
         self.c_best = std::f64::INFINITY;
         self.solutions = Vec::new();
@@ -378,6 +378,7 @@ impl PQRRTStar {
         }
         let mut states: Vec<[f64; 6]> = vec![soln.states.last().unwrap().clone()];
         let mut idx: usize = soln.states.len() - 1;
+        println!("Optimizing solution with {} states", soln.states.len());
         while idx > 0 {
             for j in 0..idx {
                 let xs_array = vec![
@@ -580,7 +581,7 @@ impl PQRRTStar {
             let z = self.bookkeeping_tree.get(root_id).unwrap().data().clone();
             return Ok(vec![z]);
         }
-        println!("NN radius: {}", ball_radius);
+        // println!("NN radius: {}", ball_radius);
 
         let mut Z_near = self
             .rtree
@@ -888,7 +889,17 @@ impl PQRRTStar {
                 }
             },
         );
+        println!(
+            "Extracted best solution: {} | {}",
+            opt_soln.cost,
+            opt_soln.states.len()
+        );
         self.optimize_solution(&mut opt_soln)?;
+        println!(
+            "Optimized best solution: {} | {}",
+            opt_soln.cost,
+            opt_soln.states.len()
+        );
         self.steer_through_solution(&opt_soln)
     }
 
