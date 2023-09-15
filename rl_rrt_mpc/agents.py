@@ -176,26 +176,26 @@ class RLRRTMPC(ci.ICOLAV):
             if not rrt_solution:
                 print("WARNING: RRT failed to find a solution")
 
-            # hf.save_rrt_solution(rrt_solution)
             hf.plot_rrt_tree(self._rrt.get_tree_as_list_of_dicts(), enc)
             # rrt_solution = hf.load_rrt_solution()
             rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
             times = np.array(rrt_solution["times"])
             n_samples = len(times)
             self._rrt_trajectory = np.zeros((6, n_samples))
-            self._rrt_inputs = np.zeros((3, n_samples))
-            self._rrt_references = np.zeros((2, n_samples))
+            self._rrt_inputs = np.zeros((3, n_samples - 1))
+            self._rrt_references = np.zeros((2, n_samples - 1))
             for k in range(n_samples):
                 self._rrt_trajectory[:, k] = np.array(rrt_solution["states"][k])
-                self._rrt_inputs[:, k] = np.array(rrt_solution["inputs"][k])
-                self._rrt_references[:, k] = np.array(rrt_solution["references"][k])
+                if k < n_samples - 1:
+                    self._rrt_inputs[:, k] = np.array(rrt_solution["inputs"][k])
+                    self._rrt_references[:, k] = np.array(rrt_solution["references"][k])
 
             self._setup_mpc_static_obstacle_input(ownship_state, goal_state, enc, show_plots=self._mpc.params.debug, **kwargs)
             self._rrt_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
             self._mpc.construct_ocp(
                 nominal_trajectory=self._rrt_trajectory,
-                nominal_inputs=self._rrt_inputs,
+                nominal_inputs=self._rrt_inputs[:2, :],
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
@@ -208,7 +208,7 @@ class RLRRTMPC(ci.ICOLAV):
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             nominal_trajectory, nominal_inputs = shift_nominal_plan(
-                self._rrt_trajectory, self._rrt_trajectory, ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]), N
+                self._rrt_trajectory, self._rrt_inputs[:2, :], ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]), N
             )
             psi_nom = nominal_trajectory[2, :]
             nominal_trajectory[2, :] = np.unwrap(np.concatenate(([psi_nom[0]], psi_nom)))[1:]

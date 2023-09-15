@@ -120,9 +120,11 @@ impl ToPyObject for RRTResult {
                 continue;
             }
             states.append(self.states[i].to_object(py)).unwrap();
-            references.append(self.references[i].to_object(py)).unwrap();
-            inputs.append(self.inputs[i].to_object(py)).unwrap();
             times.append(self.times[i].to_object(py)).unwrap();
+            if i < n_wps - 1 {
+                references.append(self.references[i].to_object(py)).unwrap();
+                inputs.append(self.inputs[i].to_object(py)).unwrap();
+            }
         }
         let cost = self.cost.to_object(py);
         let result_dict = PyDict::new(py);

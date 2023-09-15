@@ -155,12 +155,12 @@ pub fn wrap_angle_to_pmpi(x: f64) -> f64 {
     wrap_min_max(x, -consts::PI, consts::PI)
 }
 
-// pub fn wrap_angle_to_02pi(x: f64) -> f64 {
-//     wrap_min_max(x, 0.0, 2.0 * consts::PI)
-// }
+pub fn wrap_angle_to_02pi(x: f64) -> f64 {
+    wrap_min_max(x, 0.0, 2.0 * consts::PI)
+}
 
 pub fn wrap_angle_diff_to_pmpi(x: f64, y: f64) -> f64 {
-    let diff = x - y;
+    let diff = wrap_angle_to_02pi(x) - wrap_angle_to_02pi(y);
     wrap_angle_to_pmpi(diff)
 }
 
@@ -206,7 +206,7 @@ pub fn draw_current_situation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let drawing_area = BitMapBackend::new(filename, (2048, 1440)).into_drawing_area();
     drawing_area.fill(&WHITE)?;
-    let bbox = enc_data.bbox;
+    let _bbox = enc_data.bbox;
     let buffer = 500.0;
     let min_x_ = xs_array
         .iter()

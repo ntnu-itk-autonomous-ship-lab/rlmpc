@@ -285,7 +285,10 @@ impl PQRRTStar {
             }
         };
         let duration = start.elapsed();
-        println!("PQRRT* run time: {:?}", duration.as_secs());
+        println!(
+            "PQRRT* run time: {:?}",
+            duration.as_millis() as f64 / 1000.0
+        );
         //self.draw_tree(Some(&opt_soln))?;
         Ok(opt_soln.to_object(py))
     }
@@ -370,33 +373,59 @@ impl PQRRTStar {
     }
 
     // Prune state nodes from the solution to make the trajectory smoother and more optimal wrt distance
-    fn optimize_solution(&self, soln: &mut RRTResult) -> PyResult<()> {
-        soln.save_to_json()?;
+    pub fn optimize_solution(&mut self, soln: &mut RRTResult) -> PyResult<()> {
+        // soln.save_to_json()?;
         if soln.states.len() < 2 {
             soln.states = vec![];
             return Ok(());
         }
-        let mut states: Vec<[f64; 6]> = vec![soln.states.last().unwrap().clone()];
+        let mut waypoints: Vec<[f64; 6]> = vec![soln.states.last().unwrap().clone()];
         let mut idx: usize = soln.states.len() - 1;
         println!("Optimizing solution with {} states", soln.states.len());
         while idx > 0 {
             for j in 0..idx {
-                let xs_array = vec![
-                    soln.states[j].clone().into(),
-                    soln.states[idx].clone().into(),
-                ];
+                // let xs_array = vec![
+                //     soln.states[j].clone().into(),
+                //     soln.states[idx].clone().into(),
+                // ];
+                let state_j = Vector6::from_vec(soln.states[j].clone().to_vec());
+                let state_idx = Vector6::from_vec(soln.states[idx].clone().to_vec());
+                let (xs_array, u_array, ref_array, _, reached) = self.steering.steer(
+                    &state_j,
+                    &state_idx,
+                    self.U_d,
+                    5.0 * self.params.steering_acceptance_radius,
+                    self.params.step_size,
+                    50.0 * self.params.max_steering_time,
+                );
+
                 let is_collision_free = self.is_collision_free(&xs_array);
-                if is_collision_free {
-                    states.push(soln.states[j].clone());
+                if is_collision_free && reached || j == idx - 1 {
+                    waypoints.push(soln.states[j].clone());
                     idx = j;
                     break;
                 }
             }
         }
-        if states.len() > 1 {
-            states.reverse();
-            soln.states = states;
-        }
+        waypoints.reverse();
+        *soln = self.steer_through_waypoints(&waypoints)?;
+        // let new_cost = utils::compute_path_length(
+        //     &states
+        //         .iter()
+        //         .map(|x| Vector6::from(*x))
+        //         .collect::<Vec<Vector6<f64>>>(),
+        // );
+        // if states.len() > 1 {
+        //     states.reverse();
+        //     inputs.reverse();
+        //     references.reverse();
+        //     let times = Vec::from_iter((0..states.len()).map(|i| i as f64 * self.params.step_size));
+        //     soln.states = states;
+        //     soln.inputs = inputs;
+        //     soln.references = references;
+        //     soln.times = times;
+        //     soln.cost = new_cost;
+        // }
         Ok(())
     }
 
@@ -533,7 +562,7 @@ impl PQRRTStar {
             let (xs_array, _, _, t_new, reached) = self.steer(
                 &z_new,
                 &z_near,
-                10.0 * self.params.max_steering_time,
+                50.0 * self.params.max_steering_time,
                 self.params.steering_acceptance_radius,
             )?;
             let xs_new_near: Vector6<f64> = xs_array.last().copied().unwrap();
@@ -593,16 +622,14 @@ impl PQRRTStar {
         Ok(Z_near)
     }
 
-    /// Find the ancestor of z at level d, if any. If no ancestor is found, return error.
+    /// Find the ancestor of z at level d. If no d-level ancestor, return the highest lvl ancestor. If the node has no ancestor (is root) return error on second line
     pub fn ancestor(&self, z: &RRTNode, d: u64) -> PyResult<RRTNode> {
         let root_id = self.bookkeeping_tree.root_node_id().unwrap();
         let mut z_parent_id = self.get_parent_id(&z)?;
         let mut z_parent = self.bookkeeping_tree.get(&z_parent_id).unwrap().data();
         for i in 0..d - 1 {
             if z_parent_id == *root_id && i < d - 1 {
-                return Err(PyErr::new::<pyo3::exceptions::PyException, _>(
-                    "z does not have a d-level ancestor",
-                ));
+                return Ok(self.bookkeeping_tree.get(&root_id).unwrap().data().clone());
             }
             z_parent_id = self.get_parent_id(&z_parent)?;
             z_parent = self.bookkeeping_tree.get(&z_parent_id).unwrap().data();
@@ -704,34 +731,32 @@ impl PQRRTStar {
         ))
     }
 
-    pub fn steer_through_solution(&mut self, soln: &RRTResult) -> PyResult<RRTResult> {
+    pub fn steer_through_waypoints(&mut self, waypoints: &Vec<[f64; 6]>) -> PyResult<RRTResult> {
         let mut xs_array: Vec<[f64; 6]> = Vec::new();
         let mut u_array: Vec<[f64; 3]> = Vec::new();
         let mut refs_array: Vec<(f64, f64)> = Vec::new();
         let mut t_array: Vec<f64> = Vec::new();
-        if soln.states.len() < 2 {
+        let n_wps = waypoints.len();
+        if n_wps < 2 {
             return Err(PyErr::new::<pyo3::exceptions::PyException, _>(
-                "Solution must have at least 2 states",
+                "Must be atleast two waypoints",
             ));
         }
-        let mut xs_start = soln.states[0].clone();
-        for xs_next in soln.states.iter().skip(1) {
-            if xs_start == *xs_next {
-                continue;
-            }
-            if xs_array.len() > 0 {
-                xs_start = xs_array.last().unwrap().clone();
-            }
-
-            let (xs_array_, u_array_, refs_array_, t_array_, reached) = self.steering.steer(
-                &xs_start.into(),
-                &xs_next.clone().into(),
+        let mut xs_current = waypoints[0].clone();
+        let mut wp_idx = 0;
+        while wp_idx < n_wps - 1 {
+            let (mut xs_array_, u_array_, refs_array_, t_array_, reached) = self.steering.steer(
+                &xs_current.into(),
+                &waypoints[wp_idx + 1].into(),
                 self.U_d,
-                self.params.steering_acceptance_radius * 3.0,
+                5.0 * self.params.steering_acceptance_radius,
                 self.params.step_size,
                 10.0 * 60.0 * self.params.max_steering_time,
             );
             assert_eq!(reached, true);
+            xs_current = xs_array_.last().unwrap().clone().into();
+            wp_idx += 1;
+            xs_array_.pop();
             xs_array.extend(
                 xs_array_
                     .iter()
@@ -758,6 +783,7 @@ impl PQRRTStar {
                     .collect::<Vec<f64>>(),
             );
         }
+
         let new_cost = utils::compute_path_length(
             &xs_array
                 .iter()
@@ -895,12 +921,7 @@ impl PQRRTStar {
             opt_soln.states.len()
         );
         self.optimize_solution(&mut opt_soln)?;
-        println!(
-            "Optimized best solution: {} | {}",
-            opt_soln.cost,
-            opt_soln.states.len()
-        );
-        self.steer_through_solution(&opt_soln)
+        Ok(opt_soln)
     }
 
     fn get_root_node(&self) -> RRTNode {
@@ -1064,22 +1085,61 @@ mod tests {
     }
 
     #[test]
-    fn test_grow_towards_goal() -> PyResult<()> {
+    #[allow(non_snake_case)]
+    fn test_optimize_solution() -> PyResult<()> {
         let mut rrt = PQRRTStar::py_new(PQRRTParams {
-            max_nodes: 2000,
-            max_iter: 2000,
-            iter_between_direct_goal_growth: 100,
-            min_node_dist: 10.0,
-            goal_radius: 10.0,
+            max_nodes: 2500,
+            max_iter: 4000,
+            iter_between_direct_goal_growth: 500,
+            min_node_dist: 30.0,
+            goal_radius: 300.0,
             step_size: 0.5,
-            max_steering_time: 15.0,
+            max_steering_time: 25.0,
             steering_acceptance_radius: 5.0,
             gamma: 1200.0,
             max_nn_node_dist: 125.0,
-            max_sample_adjustments: 10,
-            lambda_sample_adjustment: 0.1,
-            safe_distance: 25.0,
-            max_ancestry_level: 4,
+            max_sample_adjustments: 50,
+            lambda_sample_adjustment: 0.3,
+            safe_distance: 0.0,
+            max_ancestry_level: 2,
+        });
+        let mut soln = RRTResult {
+            states: vec![],
+            references: vec![],
+            inputs: vec![],
+            times: vec![],
+            cost: 0.0,
+        };
+        rrt.enc.load_hazards_from_json()?;
+        soln.load_from_json()?;
+        println!("soln length: {}", soln.states.len());
+        rrt.optimize_solution(&mut soln)?;
+        println!("optimized soln length: {}", soln.states.len());
+        // soln = rrt.steer_through_solution(&soln)?;
+        Python::with_gil(|py| -> PyResult<()> {
+            let _soln_py = soln.to_object(py);
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_grow_towards_goal() -> PyResult<()> {
+        let mut rrt = PQRRTStar::py_new(PQRRTParams {
+            max_nodes: 2500,
+            max_iter: 4000,
+            iter_between_direct_goal_growth: 500,
+            min_node_dist: 30.0,
+            goal_radius: 300.0,
+            step_size: 0.5,
+            max_steering_time: 25.0,
+            steering_acceptance_radius: 5.0,
+            gamma: 1200.0,
+            max_nn_node_dist: 125.0,
+            max_sample_adjustments: 50,
+            lambda_sample_adjustment: 0.3,
+            safe_distance: 0.0,
+            max_ancestry_level: 2,
         });
         let xs_start = [
             6581590.0,
@@ -1114,11 +1174,11 @@ mod tests {
             let xs_goal_pyany = xs_goal.into_py(py);
             let xs_goal_py = xs_goal_pyany.as_ref(py).downcast::<PyList>().unwrap();
             rrt.set_goal_state(xs_goal_py)?;
-            rrt.set_speed_reference(6.0)?;
+            rrt.set_speed_reference(4.0)?;
 
             let do_list = Vec::<[f64; 6]>::new().into_py(py);
             let do_list = do_list.as_ref(py).downcast::<PyList>().unwrap();
-            let result = rrt.grow_towards_goal(xs_start_py, 6.0, do_list, py)?;
+            let result = rrt.grow_towards_goal(xs_start_py, 4.0, do_list, py)?;
             let pydict = result.as_ref(py).downcast::<PyDict>().unwrap();
             println!("rrtresult states: {:?}", pydict.get_item("states"));
             Ok(())

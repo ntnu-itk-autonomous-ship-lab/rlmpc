@@ -60,11 +60,11 @@ impl LOSGuidance {
         let cross_track_error = -(xs_now[0] - xs_goal[0]) * f64::sin(alpha)
             + (xs_now[1] - xs_goal[1]) * f64::cos(alpha);
 
-        if cross_track_error.abs() > self.max_cross_track_error_int {
-            self.cross_track_error_int = 0.0;
-        }
         if cross_track_error.abs() <= self.cross_track_error_int_threshold {
             self.cross_track_error_int += cross_track_error * dt;
+        }
+        if self.cross_track_error_int.abs() > self.max_cross_track_error_int {
+            self.cross_track_error_int -= cross_track_error * dt;
         }
 
         let chi_r =
@@ -234,9 +234,9 @@ impl Steering for SimpleSteering<Telemetron> {
                 ((xs_goal[0] - xs_next[0]).powi(2) + (xs_goal[1] - xs_next[1]).powi(2)).sqrt();
             if dist2goal < acceptance_radius {
                 reached_goal = true;
-                refs_array.push(refs);
-                u_array.push(tau);
-                t_array.push(time.clone());
+                // refs_array.push(refs);
+                // u_array.push(tau);
+                // t_array.push(time.clone());
                 break;
             }
         }
