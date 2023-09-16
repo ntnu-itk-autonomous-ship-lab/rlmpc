@@ -97,7 +97,7 @@ impl InformedRRTStar {
         println!("InformedRRTStar initialized with params: {:?}", params);
         Self {
             c_best: std::f64::INFINITY,
-            z_best_parent: RRTNode::new(Vector6::zeros(), 0.0, 0.0, 0.0),
+            z_best_parent: RRTNode::new(Vector6::zeros(), Vec::new(), Vec::new(), 0.0, 0.0, 0.0),
             solutions: Vec::new(),
             params: params.clone(),
             steering: SimpleSteering::new(),
@@ -126,6 +126,8 @@ impl InformedRRTStar {
             cost: 0.0,
             d2land: 0.0,
             state: self.xs_start.clone(),
+            trajectory: Vec::new(),
+            controls: Vec::new(),
             time: 0.0,
         });
         let root_id = self.bookkeeping_tree.insert(root_node, AsRoot).unwrap();
@@ -137,6 +139,8 @@ impl InformedRRTStar {
             cost: 0.0,
             d2land: 0.0,
             state: self.xs_start.clone(),
+            trajectory: Vec::new(),
+            controls: Vec::new(),
             time: 0.0,
         });
         self.num_nodes += 1;
@@ -218,7 +222,7 @@ impl InformedRRTStar {
             z_new = RRTNode::default();
             let z_rand = self.sample()?;
             let z_nearest = self.nearest(&z_rand)?;
-            let (xs_array, _, _, t_new, _) = self.steer(
+            let (xs_array, u_array, _, t_new, _) = self.steer(
                 &z_nearest,
                 &z_rand,
                 self.params.max_steering_time,
@@ -233,6 +237,8 @@ impl InformedRRTStar {
                 let path_length = utils::compute_path_length(&xs_array);
                 z_new = RRTNode::new(
                     xs_new,
+                    xs_array,
+                    u_array,
                     z_nearest.cost + path_length,
                     0.0,
                     z_nearest.time + t_new,
@@ -343,7 +349,7 @@ impl InformedRRTStar {
         times.push(z_current.data().time);
         states.reverse();
         times.reverse();
-        Ok(RRTResult::new((states, vec![], vec![], times, cost)))
+        Ok(RRTResult::new((states, vec![], times, cost)))
     }
 
     // Prune state nodes from the solution to make the trajectory smoother and more optimal wrt distance
@@ -416,7 +422,7 @@ impl InformedRRTStar {
         if num_iter % self.params.iter_between_direct_goal_growth != 0 {
             return Ok(false);
         }
-        let z_goal = RRTNode::new(self.xs_goal.clone(), 0.0, 0.0, 0.0);
+        let z_goal = RRTNode::new(self.xs_goal.clone(), Vec::new(), Vec::new(), 0.0, 0.0, 0.0);
         let z_nearest = self.nearest(&z_goal)?;
         self.attempt_goal_insertion(&z_nearest, c_best, max_steering_time)
     }
@@ -431,8 +437,8 @@ impl InformedRRTStar {
             println!("Attempted goal insertion with same node as best parent");
             return Ok(false);
         }
-        let mut z_goal_ = RRTNode::new(self.xs_goal.clone(), 0.0, 0.0, 0.0);
-        let (xs_array, _, _, t_new, reached) = self.steer(
+        let mut z_goal_ = RRTNode::new(self.xs_goal.clone(), Vec::new(), Vec::new(), 0.0, 0.0, 0.0);
+        let (xs_array, u_array, _, t_new, reached) = self.steer(
             &z,
             &z_goal_,
             max_steering_time,
@@ -451,7 +457,7 @@ impl InformedRRTStar {
             );
             return Ok(false);
         }
-        z_goal_ = RRTNode::new(x_new, cost, 0.0, z.time + t_new);
+        z_goal_ = RRTNode::new(x_new, xs_array, u_array, cost, 0.0, z.time + t_new);
         self.add_solution(&z, &z_goal_)?;
         Ok(true)
     }
@@ -492,7 +498,7 @@ impl InformedRRTStar {
             if z_new_parent_id == z_near.clone().id.unwrap() {
                 continue;
             }
-            let (xs_array, _, _, t_new, reached) = self.steer(
+            let (xs_array, u_array, _, t_new, reached) = self.steer(
                 &z_new,
                 &z_near,
                 10.0 * self.params.max_steering_time,
@@ -503,6 +509,8 @@ impl InformedRRTStar {
                 let path_length = utils::compute_path_length(&xs_array);
                 let z_new_near = RRTNode::new(
                     xs_new_near,
+                    xs_array,
+                    u_array,
                     z_new.cost + path_length,
                     0.0,
                     z_new.time + t_new,
@@ -572,7 +580,7 @@ impl InformedRRTStar {
             if z_near.id.clone().unwrap() == z_nearest_id {
                 continue;
             }
-            let (xs_array, _, _, t_new, reached) = self.steer(
+            let (xs_array, u_array, _, t_new, reached) = self.steer(
                 &z_near,
                 &z_new,
                 10.0 * self.params.max_steering_time,
@@ -583,7 +591,8 @@ impl InformedRRTStar {
                 let path_length = utils::compute_path_length(&xs_array);
                 let cost = z_near.cost + path_length;
                 if cost < z_new_.cost {
-                    z_new_ = RRTNode::new(xs_new, cost, 0.0, z_near.time + t_new);
+                    z_new_ =
+                        RRTNode::new(xs_new, xs_array, u_array, cost, 0.0, z_near.time + t_new);
                     z_parent = z_near.clone();
                 }
             }
@@ -691,7 +700,6 @@ impl InformedRRTStar {
         Ok(RRTResult {
             states: xs_array,
             inputs: u_array,
-            references: refs_array,
             times: t_array,
             cost: new_cost,
         })
@@ -721,6 +729,8 @@ impl InformedRRTStar {
                     state: Vector6::new(p_rand[0], p_rand[1], 0.0, 0.0, 0.0, 0.0),
                     cost: 0.0,
                     d2land: 0.0,
+                    trajectory: Vec::new(),
+                    controls: Vec::new(),
                     time: 0.0,
                 });
             } else {
@@ -792,7 +802,7 @@ impl InformedRRTStar {
 
     fn extract_best_solution(&mut self) -> PyResult<RRTResult> {
         let mut opt_soln = self.solutions.iter().fold(
-            RRTResult::new((vec![], vec![], vec![], vec![], std::f64::INFINITY)),
+            RRTResult::new((vec![], vec![], vec![], std::f64::INFINITY)),
             |acc, x| {
                 if x.cost < acc.cost {
                     x.clone()
@@ -868,6 +878,8 @@ mod tests {
             cost: 100.0,
             d2land: 20.0,
             state: Vector6::new(100.0, 0.0, 0.0, 5.0, 0.0, 0.0),
+            trajectory: Vec::new(),
+            controls: Vec::new(),
             time: 20.0,
         };
         let Z_near = rrt.nearest_neighbors(&z_new)?;
@@ -898,7 +910,6 @@ mod tests {
         });
         let mut soln = RRTResult {
             states: vec![],
-            references: vec![],
             inputs: vec![],
             times: vec![],
             cost: 0.0,

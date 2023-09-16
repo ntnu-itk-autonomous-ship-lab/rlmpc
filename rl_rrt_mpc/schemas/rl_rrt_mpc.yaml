@@ -22,6 +22,9 @@ pq_rrt:
     min_node_dist:
       required: True
       type: float
+    min_steering_time:
+      required: True
+      type: float
     goal_radius:
       required: True
       type: float

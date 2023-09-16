@@ -41,7 +41,8 @@ class PQRRTParams:
     min_node_dist: float = 5.0
     goal_radius: float = 100.0
     step_size: float = 0.1
-    max_steering_time: float = 20.0
+    min_steering_time: float = 5.0
+    max_steering_time: float = 25.0
     steering_acceptance_radius: float = 5.0
     max_nn_node_dist: float = 300.0
     gamma: float = 1000.0
@@ -120,7 +121,6 @@ class RLRRTMPC(ci.ICOLAV):
 
         self._rrt_inputs: np.ndarray = np.empty(3)
         self._rrt_trajectory: np.ndarray = np.empty(6)
-        self._rrt_references: np.ndarray = np.empty(2)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
@@ -178,17 +178,14 @@ class RLRRTMPC(ci.ICOLAV):
 
             hf.plot_rrt_tree(self._rrt.get_tree_as_list_of_dicts(), enc)
             # rrt_solution = hf.load_rrt_solution()
-            rrt_solution["references"] = [[r[0], r[1]] for r in rrt_solution["references"]]
             times = np.array(rrt_solution["times"])
             n_samples = len(times)
             self._rrt_trajectory = np.zeros((6, n_samples))
             self._rrt_inputs = np.zeros((3, n_samples - 1))
-            self._rrt_references = np.zeros((2, n_samples - 1))
             for k in range(n_samples):
                 self._rrt_trajectory[:, k] = np.array(rrt_solution["states"][k])
                 if k < n_samples - 1:
                     self._rrt_inputs[:, k] = np.array(rrt_solution["inputs"][k])
-                    self._rrt_references[:, k] = np.array(rrt_solution["references"][k])
 
             self._setup_mpc_static_obstacle_input(ownship_state, goal_state, enc, show_plots=self._mpc.params.debug, **kwargs)
             self._rrt_trajectory[:2, :] -= self._map_origin.reshape((2, 1))

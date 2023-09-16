@@ -160,7 +160,7 @@ pub fn wrap_angle_to_02pi(x: f64) -> f64 {
 }
 
 pub fn wrap_angle_diff_to_pmpi(x: f64, y: f64) -> f64 {
-    let diff = wrap_angle_to_02pi(x) - wrap_angle_to_02pi(y);
+    let diff = x - y;
     wrap_angle_to_pmpi(diff)
 }
 

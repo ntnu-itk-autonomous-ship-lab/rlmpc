@@ -2,20 +2,21 @@ rl:
   learning_rate: 0.1
 
 pq_rrt:
-  max_nodes: 2500
-  max_iter: 5000
+  max_nodes: 3000
+  max_iter: 8000
   iter_between_direct_goal_growth: 500
-  min_node_dist: 25.0
+  min_node_dist: 30.0
   goal_radius: 300.0
   step_size: 0.5
+  min_steering_time: 3.0
   max_steering_time: 25.0
-  steering_acceptance_radius: 5.0
-  max_nn_node_dist: 150.0
+  steering_acceptance_radius: 30.0
+  max_nn_node_dist: 200.0
   gamma: 1200.0
   max_sample_adjustments: 80
   lambda_sample_adjustment: 0.3
   safe_distance: 0.1
-  max_ancestry_level: 2
+  max_ancestry_level: 1
 
 # i_rrt:
 #   max_nodes: 2500
@@ -67,18 +68,18 @@ mpc:
       expand_mx_funcs_to_sx: False
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 50
-      nlp_solver_tol_stat: 0.01
+      nlp_solver_max_iter: 65
+      nlp_solver_tol_stat: 0.05
       nlp_solver_tol_eq: 0.0001
-      nlp_solver_tol_ineq: 0.001
+      nlp_solver_tol_ineq: 0.0001
       nlp_solver_tol_comp: 0.001
       nlp_solver_ext_qp_res: 0
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" #"PARTIAL_CONDENSING_HPIPM"  "FULL_CONDENSING_QPOASES"
-      qp_solver_iter_max: 100
+      qp_solver_iter_max: 50
       qp_solver_warm_start: 1
       qp_solver_tol_stat: 0.01
       qp_solver_tol_eq: 0.001
-      qp_solver_tol_ineq: 0.001
+      qp_solver_tol_ineq: 0.0005
       qp_solver_tol_comp: 0.001
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"

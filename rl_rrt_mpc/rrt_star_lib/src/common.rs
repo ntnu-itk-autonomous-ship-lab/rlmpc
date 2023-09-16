@@ -6,7 +6,7 @@
 //! ## Usage
 //! Intended for use through Python (pyo3) bindings. Relies on getting ENC data from python shapely objects.
 use id_tree::*;
-use nalgebra::{Vector2, Vector6};
+use nalgebra::{Vector2, Vector3, Vector6};
 use pyo3::conversion::ToPyObject;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -21,16 +21,27 @@ pub struct RRTNode {
     pub cost: f64,
     pub d2land: f64,
     pub state: Vector6<f64>,
+    pub trajectory: Vec<Vector6<f64>>, // Trajectory from parent to this node
+    pub controls: Vec<Vector3<f64>>,   // Control inputs from parent to this node
     pub time: f64,
 }
 
 impl RRTNode {
-    pub fn new(state: Vector6<f64>, cost: f64, d2land: f64, time: f64) -> Self {
+    pub fn new(
+        state: Vector6<f64>,
+        trajectory: Vec<Vector6<f64>>,
+        controls: Vec<Vector3<f64>>,
+        cost: f64,
+        d2land: f64,
+        time: f64,
+    ) -> Self {
         Self {
             id: None,
             state,
             cost,
             d2land,
+            trajectory: trajectory,
+            controls: controls,
             time,
         }
     }
@@ -67,20 +78,18 @@ impl PointDistance for RRTNode {
 #[derive(Debug, Clone, FromPyObject, Serialize, Deserialize)]
 pub struct RRTResult {
     pub states: Vec<[f64; 6]>,
-    pub references: Vec<(f64, f64)>,
     pub inputs: Vec<[f64; 3]>,
     pub times: Vec<f64>,
     pub cost: f64,
 }
 
 impl RRTResult {
-    pub fn new(solution: (Vec<[f64; 6]>, Vec<(f64, f64)>, Vec<[f64; 3]>, Vec<f64>, f64)) -> Self {
+    pub fn new(solution: (Vec<[f64; 6]>, Vec<[f64; 3]>, Vec<f64>, f64)) -> Self {
         Self {
             states: solution.0,
-            references: solution.1,
-            inputs: solution.2,
-            times: solution.3,
-            cost: solution.4,
+            inputs: solution.1,
+            times: solution.2,
+            cost: solution.3,
         }
     }
 
@@ -99,7 +108,6 @@ impl RRTResult {
         let solution_file = File::open(rust_root.join("data/rrt_result.json")).unwrap();
         let result: RRTResult = serde_json::from_reader(solution_file).unwrap();
         self.states = result.states;
-        self.references = result.references;
         self.inputs = result.inputs;
         self.times = result.times;
         self.cost = result.cost;
@@ -110,7 +118,6 @@ impl RRTResult {
 impl ToPyObject for RRTResult {
     fn to_object(&self, py: Python) -> PyObject {
         let states = PyList::empty(py);
-        let references = PyList::empty(py);
         let inputs = PyList::empty(py);
         let times = PyList::empty(py);
         let n_wps = self.states.len();
@@ -122,7 +129,6 @@ impl ToPyObject for RRTResult {
             states.append(self.states[i].to_object(py)).unwrap();
             times.append(self.times[i].to_object(py)).unwrap();
             if i < n_wps - 1 {
-                references.append(self.references[i].to_object(py)).unwrap();
                 inputs.append(self.inputs[i].to_object(py)).unwrap();
             }
         }
@@ -131,9 +137,6 @@ impl ToPyObject for RRTResult {
         result_dict
             .set_item("states", states)
             .expect("Solution states should be set");
-        result_dict
-            .set_item("references", references)
-            .expect("Solution references should be set");
         result_dict
             .set_item("inputs", inputs)
             .expect("Solution inputs should be set");
@@ -159,6 +162,8 @@ mod tests {
             cost: 0.0,
             d2land: 0.0,
             state: Vector6::zeros(),
+            trajectory: Vec::new(),
+            controls: Vec::new(),
             time: 0.0,
         };
         assert_eq!(node.state, Vector6::zeros());
@@ -173,6 +178,9 @@ mod tests {
             cost: 0.0,
             d2land: 0.0,
             state: Vector6::zeros(),
+            trajectory: Vec::new(),
+            controls: Vec::new(),
+
             time: 0.0,
         });
 
@@ -181,6 +189,8 @@ mod tests {
             cost: 2.0,
             d2land: 40.0,
             state: Vector6::new(50.0, 50.0, 0.0, 0.0, 0.0, 0.0),
+            trajectory: Vec::new(),
+            controls: Vec::new(),
             time: 20.0,
         });
 

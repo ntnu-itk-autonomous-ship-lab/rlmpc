@@ -284,11 +284,13 @@ def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC, T: float, dt:
 def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
     enc.start_display()
     for node in node_list:
-        enc.draw_circle((node["state"][1], node["state"][0]), 5.0, color="black", fill=True, thickness=1.0, edge_style=None)
+        enc.draw_circle((node["state"][1], node["state"][0]), 2.5, color="green", fill=False, thickness=0.8, edge_style=None)
         for sub_node in node_list:
             if node["id"] == sub_node["id"] or sub_node["parent_id"] != node["id"]:
                 continue
-            enc.draw_line([(node["state"][1], node["state"][0]), (sub_node["state"][1], sub_node["state"][0])], color="white", width=0.5, thickness=0.5, marker_type=None)
+            points = [(tt[1], tt[0]) for tt in sub_node["trajectory"]]
+            if len(points) > 1:
+                enc.draw_line(points, color="white", width=0.5, thickness=0.5, marker_type=None)
 
 
 def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, length_scaling: float = 1.0, width_scaling: float = 1.0) -> geometry.Polygon:
