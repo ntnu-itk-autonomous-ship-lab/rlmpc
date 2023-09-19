@@ -1,7 +1,7 @@
 //! # Steering
 //! Implements a simple way of steering a Ship from a startpoint to an endpoint, using a simple surge and heading controller for a 3DOF surface ship model as in Tengesdal et. al. 2021, with LOS guidance.
 //!
-use crate::model::{ShipModel, Telemetron, TelemetronParams};
+use crate::model::{KinematicCSOG, ShipModel, Telemetron, TelemetronParams};
 use crate::utils;
 use nalgebra::Vector3;
 use nalgebra::Vector6;
@@ -24,6 +24,67 @@ pub trait Steering {
         Vec<f64>,
         bool,
     );
+
+    fn steer_through_waypoints(
+        &mut self,
+        xs_start: &Vector6<f64>,
+        waypoints: &Vec<Vector6<f64>>,
+        U_d: f64,
+        acceptance_radius: f64,
+        time_step: f64,
+        max_steering_time: f64,
+    ) -> (
+        Vec<Vector6<f64>>,
+        Vec<Vector3<f64>>,
+        Vec<(f64, f64)>,
+        Vec<f64>,
+        bool,
+    ) {
+        let mut radius = acceptance_radius;
+        let mut t_array: Vec<f64> = Vec::new();
+        let mut xs_array: Vec<Vector6<f64>> = Vec::new();
+        let mut u_array: Vec<Vector3<f64>> = Vec::new();
+        let mut refs_array: Vec<(f64, f64)> = Vec::new();
+        let mut reached_last = false;
+        let n_wps = waypoints.len();
+        assert_eq!(n_wps > 1, true);
+        let mut xs_current = xs_start.clone();
+        let mut wp_idx = 0;
+        while wp_idx < n_wps - 1 {
+            if wp_idx == n_wps - 2 {
+                radius = 0.3;
+            }
+            let (mut xs_array_, u_array_, refs_array_, t_array_, reached) = self.steer(
+                &xs_current,
+                &waypoints[wp_idx + 1].into(),
+                U_d,
+                radius,
+                time_step,
+                max_steering_time,
+            );
+            let last_psi_diff = xs_array_.last().unwrap()[2] - waypoints[wp_idx + 1][2];
+            reached_last = reached && last_psi_diff.abs() < 3.0 * 180.0 / f64::consts::PI;
+            xs_current = xs_array_.last().unwrap().clone().into();
+            wp_idx += 1;
+            xs_array_.pop();
+            xs_array.extend(xs_array_);
+            u_array.extend(u_array_);
+            refs_array.extend(refs_array_);
+            t_array.extend(
+                t_array_
+                    .iter()
+                    .map(|t| {
+                        if t_array.len() > 0 {
+                            t + t_array.last().unwrap().clone()
+                        } else {
+                            *t
+                        }
+                    })
+                    .collect::<Vec<f64>>(),
+            );
+        }
+        (xs_array, u_array, refs_array, t_array, reached_last)
+    }
 }
 
 /// Simple LOS guidance specialized for following 1 waypoint segment
@@ -40,7 +101,7 @@ pub struct LOSGuidance {
 impl LOSGuidance {
     pub fn new() -> Self {
         Self {
-            K_p: 0.035,
+            K_p: 0.06,
             K_i: 0.0,
             max_cross_track_error_int: 30.0,
             cross_track_error_int: 0.0,
@@ -219,8 +280,63 @@ impl Steering for SimpleSteering<Telemetron> {
                 &refs,
                 &xs_next,
                 time_step,
-                &self.ship_model.params,
+                &self.ship_model.params(),
             );
+            xs_next = self.ship_model.erk4_step(time_step, &xs_next, &tau);
+
+            refs_array.push(refs);
+            u_array.push(tau);
+            t_array.push(time.clone());
+            time += time_step;
+
+            xs_array.push(xs_next);
+            // Break if inside final waypoint acceptance radius
+            let dist2goal =
+                ((xs_goal[0] - xs_next[0]).powi(2) + (xs_goal[1] - xs_next[1]).powi(2)).sqrt();
+            if dist2goal < acceptance_radius {
+                reached_goal = true;
+                // refs_array.push(refs);
+                // u_array.push(tau);
+                // t_array.push(time.clone());
+                break;
+            }
+        }
+        //println!("xs_next: {:?} | time: {:.2}", xs_next, time);
+        (xs_array, u_array, refs_array, t_array, reached_goal)
+    }
+}
+
+#[allow(non_snake_case)]
+impl Steering for SimpleSteering<KinematicCSOG> {
+    fn steer(
+        &mut self,
+        xs_start: &Vector6<f64>,
+        xs_goal: &Vector6<f64>,
+        U_d: f64,
+        acceptance_radius: f64,
+        time_step: f64,
+        max_steering_time: f64,
+    ) -> (
+        Vec<Vector6<f64>>,
+        Vec<Vector3<f64>>,
+        Vec<(f64, f64)>,
+        Vec<f64>,
+        bool,
+    ) {
+        let mut time = 0.0;
+        let mut t_array = vec![];
+        let mut xs_array: Vec<Vector6<f64>> = vec![xs_start.clone()];
+        let mut u_array: Vec<Vector3<f64>> = vec![];
+        let mut refs_array: Vec<(f64, f64)> = vec![];
+        let mut xs_next = xs_start.clone();
+        let mut reached_goal = false;
+        //println!("xs_start: {:?} | xs_goal: {:?}", xs_start, xs_goal);
+        while time <= max_steering_time {
+            let refs: (f64, f64) = self
+                .los_guidance
+                .compute_refs(&xs_next, xs_start, xs_goal, U_d, time_step);
+
+            let tau: Vector3<f64> = Vector3::new(refs.0, refs.1, 0.0);
             xs_next = self.ship_model.erk4_step(time_step, &xs_next, &tau);
 
             refs_array.push(refs);

@@ -201,6 +201,7 @@ where
 pub fn draw_current_situation(
     filename: &str,
     xs_array: &Vec<Vector6<f64>>,
+    waypoints: &Option<Vec<Vector6<f64>>>,
     tree: &Tree<RRTNode>,
     enc_data: &ENCData,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -256,6 +257,12 @@ pub fn draw_current_situation(
     draw_tree_lines(&drawing_area, &mut chart, tree, &root_node_id)?;
 
     draw_trajectory(&drawing_area, &mut chart, &xs_array, &MAGENTA)?;
+    match waypoints {
+        Some(waypoints) => {
+            draw_trajectory(&drawing_area, &mut chart, &waypoints, &BLUE)?;
+        }
+        None => {}
+    }
     draw_ownship(
         &drawing_area,
         &mut chart,
