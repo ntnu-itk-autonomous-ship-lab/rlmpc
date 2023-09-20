@@ -40,7 +40,7 @@ pub trait Steering {
         Vec<f64>,
         bool,
     ) {
-        let mut radius = acceptance_radius;
+        let radius = acceptance_radius;
         let mut t_array: Vec<f64> = Vec::new();
         let mut xs_array: Vec<Vector6<f64>> = Vec::new();
         let mut u_array: Vec<Vector3<f64>> = Vec::new();
@@ -51,9 +51,6 @@ pub trait Steering {
         let mut xs_current = xs_start.clone();
         let mut wp_idx = 0;
         while wp_idx < n_wps - 1 {
-            if wp_idx == n_wps - 2 {
-                radius = 0.3;
-            }
             let (mut xs_array_, u_array_, refs_array_, t_array_, reached) = self.steer(
                 &xs_current,
                 &waypoints[wp_idx + 1].into(),
@@ -101,12 +98,16 @@ pub struct LOSGuidance {
 impl LOSGuidance {
     pub fn new() -> Self {
         Self {
-            K_p: 0.06,
+            K_p: 0.035,
             K_i: 0.0,
             max_cross_track_error_int: 30.0,
             cross_track_error_int: 0.0,
             cross_track_error_int_threshold: 5.0,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.cross_track_error_int = 0.0;
     }
 
     pub fn compute_refs(
@@ -117,7 +118,7 @@ impl LOSGuidance {
         U_d: f64,
         dt: f64,
     ) -> (f64, f64) {
-        let alpha = f64::atan2(xs_goal[1] - xs_start[1], xs_goal[0] - xs_start[0]);
+        let alpha = (xs_goal[1] - xs_start[1]).atan2(xs_goal[0] - xs_start[0]);
         let cross_track_error = -(xs_now[0] - xs_goal[0]) * f64::sin(alpha)
             + (xs_now[1] - xs_goal[1]) * f64::cos(alpha);
 
@@ -129,7 +130,7 @@ impl LOSGuidance {
         }
 
         let chi_r =
-            f64::atan(-self.K_p * cross_track_error - self.K_i * self.cross_track_error_int);
+            (-self.K_p * cross_track_error - self.K_i * self.cross_track_error_int).atan2(1.0);
         let psi_d = utils::wrap_angle_to_pmpi(alpha + chi_r);
         (U_d, psi_d)
     }
@@ -172,6 +173,13 @@ impl FLSHController {
         }
     }
 
+    fn reset(&mut self) {
+        self.U_error_int = 0.0;
+        self.psi_error_int = 0.0;
+        self.psi_d_prev = 0.0;
+        self.psi_prev = 0.0;
+    }
+
     fn compute_inputs(
         &mut self,
         refs: &(f64, f64),
@@ -179,11 +187,14 @@ impl FLSHController {
         dt: f64,
         model_params: &TelemetronParams,
     ) -> Vector3<f64> {
-        let psi: f64 = xs[2];
+        let psi: f64 = utils::wrap_angle_to_pmpi(xs[2]);
         let psi_unwrapped = utils::unwrap_angle(self.psi_prev, psi);
         let psi_d: f64 = refs.1;
         let psi_d_unwrapped = utils::unwrap_angle(self.psi_d_prev, psi_d);
         let psi_error: f64 = utils::wrap_angle_diff_to_pmpi(psi_d_unwrapped, psi_unwrapped);
+        // if (psi_d < 0.0 && psi > 0.0) || (psi_d > 0.0 && psi < 0.0) {
+        //     println!("psi_d={psi_d} | psi_d_unwrapped={psi_d_unwrapped} | psi={psi} | psi_unwrapped={psi_unwrapped} | psi_error={psi_error}");
+        // }
         self.psi_prev = psi;
         self.psi_d_prev = psi_d;
         if self.psi_error_int.abs() > self.max_psi_error_int {
@@ -270,6 +281,8 @@ impl Steering for SimpleSteering<Telemetron> {
         let mut refs_array: Vec<(f64, f64)> = vec![];
         let mut xs_next = xs_start.clone();
         let mut reached_goal = false;
+        self.los_guidance.reset();
+        self.flsh_controller.reset();
         //println!("xs_start: {:?} | xs_goal: {:?}", xs_start, xs_goal);
         while time <= max_steering_time {
             let refs: (f64, f64) = self

@@ -94,6 +94,7 @@ pub struct PQRRTStar {
     pub xs_goal: Vector6<f64>,
     pub U_d: f64,
     pub num_nodes: u64,
+    pub num_iter: u64,
     pub rtree: RTree<RRTNode>,
     bookkeeping_tree: Tree<RRTNode>,
     rng: ChaChaRng,
@@ -115,6 +116,7 @@ impl PQRRTStar {
             xs_goal: Vector6::zeros(),
             U_d: 5.0,
             num_nodes: 0,
+            num_iter: 0,
             rtree: RTree::new(),
             bookkeeping_tree: Tree::new(),
             rng: ChaChaRng::from_entropy(),
@@ -215,26 +217,21 @@ impl PQRRTStar {
 
         self.c_best = std::f64::INFINITY;
         self.solutions = Vec::new();
+
         let mut z_new = self.get_root_node();
-        let mut num_iter = 0;
+        self.num_iter = 0;
         let goal_attempt_steering_time = 10.0 * 60.0;
-        while self.num_nodes < self.params.max_nodes && num_iter < self.params.max_iter {
-            if self.attempt_direct_goal_growth(num_iter, self.c_best, goal_attempt_steering_time)? {
+        while self.num_nodes < self.params.max_nodes && self.num_iter < self.params.max_iter {
+            if self.attempt_direct_goal_growth(
+                self.num_iter,
+                self.c_best,
+                goal_attempt_steering_time,
+            )? {
                 continue;
             }
 
             if self.goal_reachable(&z_new) {
-                let accepted = self.attempt_goal_insertion(
-                    &z_new,
-                    self.c_best,
-                    self.params.max_steering_time,
-                )?;
-                if accepted {
-                    println!(
-                        "Solution Found! Num iter: {} | Num nodes: {} | c_best: {}",
-                        num_iter, self.num_nodes, self.c_best
-                    );
-                }
+                self.attempt_goal_insertion(&z_new, self.c_best, self.params.max_steering_time)?;
             }
 
             z_new = RRTNode::default();
@@ -272,11 +269,11 @@ impl PQRRTStar {
                 z_new = self.insert(&z_new, &z_parent)?;
                 self.rewire(&z_new, &Z_near)?;
             }
-            num_iter += 1;
-            if num_iter % 1000 == 0 {
+            self.num_iter += 1;
+            if self.num_iter % 5000 == 0 {
                 println!(
                     "Num iter: {} | Num nodes: {} | c_best: {}",
-                    num_iter, self.num_nodes, self.c_best
+                    self.num_iter, self.num_nodes, self.c_best
                 );
             }
         }
@@ -362,6 +359,10 @@ impl PQRRTStar {
         self.solutions.push(soln.clone());
         self.c_best = self.c_best.min(soln.cost);
         self.z_best_parent = z.clone();
+        println!(
+            "Solution Found! Num iter: {} | Num nodes: {} | c_best: {}",
+            self.num_iter, self.num_nodes, self.c_best
+        );
         Ok(())
     }
 
@@ -369,6 +370,7 @@ impl PQRRTStar {
     pub fn extract_solution(&self, z: &RRTNode) -> PyResult<RRTResult> {
         let mut z_current = self.bookkeeping_tree.get(&z.clone().id.unwrap()).unwrap();
         let cost = z_current.data().cost;
+        let mut node_states: Vec<[f64; 6]> = vec![z_current.data().clone().state.into()];
         let mut trajectories: Vec<Vec<[f64; 6]>> =
             vec![z.trajectory.clone().into_iter().map(|x| x.into()).collect()];
         let mut controls: Vec<Vec<[f64; 3]>> =
@@ -376,7 +378,7 @@ impl PQRRTStar {
         while z_current.parent().is_some() {
             let parent_id = z_current.parent().unwrap();
             let z_parent = self.bookkeeping_tree.get(&parent_id).unwrap();
-
+            node_states.push(z_parent.data().state.clone().into());
             trajectories.push(
                 z_parent
                     .data()
@@ -397,6 +399,7 @@ impl PQRRTStar {
             );
             z_current = z_parent;
         }
+        node_states.reverse();
         let states = trajectories
             .iter()
             .rev()
@@ -410,63 +413,45 @@ impl PQRRTStar {
             .map(|x| *x)
             .collect::<Vec<[f64; 3]>>();
         let times = Vec::from_iter((0..states.len()).map(|i| i as f64 * self.params.step_size));
-        Ok(RRTResult::new((states, inputs, times, cost)))
+        Ok(RRTResult::new((node_states, inputs, times, cost)))
     }
 
     // Prune state nodes from the solution to make the trajectory smoother and more optimal wrt distance
-    pub fn optimize_solution(&mut self, soln: &mut RRTResult) -> PyResult<()> {
-        // soln.save_to_json()?;
+    fn optimize_solution(&mut self, soln: &mut RRTResult) -> PyResult<()> {
+        //soln.save_to_json()?;
         if soln.states.len() < 2 {
             soln.states = vec![];
             return Ok(());
         }
-        // let mut waypoints: Vec<[f64; 6]> = vec![soln.states.last().unwrap().clone()];
+        // let mut states: Vec<[f64; 6]> = vec![soln.states.last().unwrap().clone()];
         // let mut idx: usize = soln.states.len() - 1;
-        // println!("Optimizing solution with {} states", soln.states.len());
         // while idx > 0 {
         //     for j in 0..idx {
-        //         // let xs_array = vec![
-        //         //     soln.states[j].clone().into(),
-        //         //     soln.states[idx].clone().into(),
-        //         // ];
         //         let state_j = Vector6::from_vec(soln.states[j].clone().to_vec());
         //         let state_idx = Vector6::from_vec(soln.states[idx].clone().to_vec());
-        //         let (xs_array, u_array, ref_array, _, reached) = self.steering.steer(
+        //         let (xs_array, _, _, _, reached) = self.steering.steer(
         //             &state_j,
         //             &state_idx,
         //             self.U_d,
         //             self.params.steering_acceptance_radius,
         //             self.params.step_size,
-        //             50.0 * self.params.max_steering_time,
+        //             10.0 * self.params.max_steering_time,
         //         );
-
-        //         let is_collision_free = self.is_collision_free(&xs_array);
-        //         if is_collision_free && reached || j == idx - 1 {
-        //             waypoints.push(soln.states[j].clone());
+        //         let is_coll = self.is_collision_free(&xs_array);
+        //         if (is_coll && reached) || j == idx - 1 {
+        //             states.push(soln.states[j].clone());
         //             idx = j;
         //             break;
         //         }
         //     }
         // }
-        // waypoints.reverse();
-        *soln = self.steer_through_waypoints(&soln.states)?;
-        // let new_cost = utils::compute_path_length(
-        //     &states
-        //         .iter()
-        //         .map(|x| Vector6::from(*x))
-        //         .collect::<Vec<Vector6<f64>>>(),
+        // assert_eq!(
+        //     states.len() > 1,
+        //     true,
+        //     "Optimized solution has less than 2 states",
         // );
-        // if states.len() > 1 {
-        //     states.reverse();
-        //     inputs.reverse();
-        //     references.reverse();
-        //     let times = Vec::from_iter((0..states.len()).map(|i| i as f64 * self.params.step_size));
-        //     soln.states = states;
-        //     soln.inputs = inputs;
-        //     soln.references = references;
-        //     soln.times = times;
-        //     soln.cost = new_cost;
-        // }
+        // states.reverse();
+        *soln = self.steer_through_waypoints(&soln.states)?;
         Ok(())
     }
 
@@ -480,6 +465,9 @@ impl PQRRTStar {
     pub fn is_collision_free(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
         if self.enc.is_empty() {
             return true;
+        }
+        if !self.enc.array_inside_bbox(&xs_array) {
+            return false;
         }
         let is_collision_free = !self.enc.intersects_with_trajectory(&xs_array);
         is_collision_free
@@ -497,7 +485,6 @@ impl PQRRTStar {
         let tup = nearest.unwrap();
         if let Some(ids) = ids_to_exclude {
             if ids.contains(&tup.0.id.clone().unwrap()) {
-                println!("excluded");
                 return false;
             }
         }
@@ -540,12 +527,8 @@ impl PQRRTStar {
             return Ok(false);
         }
         let mut z_goal_ = RRTNode::new(self.xs_goal.clone(), Vec::new(), Vec::new(), 0.0, 0.0, 0.0);
-        let (xs_array, u_array, _, t_new, reached) = self.steer(
-            &z,
-            &z_goal_,
-            max_steering_time,
-            self.params.steering_acceptance_radius,
-        )?;
+        let (xs_array, u_array, _, t_new, reached) =
+            self.steer(&z, &z_goal_, max_steering_time, 5.0)?;
         let x_new: Vector6<f64> = xs_array.last().copied().unwrap();
 
         if !(self.is_collision_free(&xs_array)
@@ -605,6 +588,15 @@ impl PQRRTStar {
         Ok(parent_id.clone())
     }
 
+    pub fn non_feasible_steer(&self, z_start: &RRTNode, z_end: &RRTNode) -> bool {
+        // If its new node is too close and the angle between the two nodes is too large, skip
+        let p_end = Vector2::new(z_end.state[0], z_end.state[1]);
+        let p_start = Vector2::new(z_start.state[0], z_start.state[1]);
+        let los = (p_end[1] - p_start[0]).atan2(p_end[0] - p_start[0]);
+        (p_start - p_end).norm() < self.params.min_node_dist
+            && los.abs() * 180.0 / std::f64::consts::PI > 90.0
+    }
+
     pub fn rewire(&mut self, z_new: &RRTNode, Z_near: &Vec<RRTNode>) -> PyResult<()> {
         let z_new_parent_id = self.get_parent_id(&z_new)?;
         for z_near in Z_near.iter() {
@@ -612,20 +604,31 @@ impl PQRRTStar {
             if z_new_parent_id == z_near_id {
                 continue;
             }
-            let mut waypoints: Vec<Vector6<f64>> = vec![z_new.state.clone()];
-            let x_pad = z_near.state[0] - 60.0 * f64::cos(z_near.state[2]);
-            let y_pad = z_near.state[1] - 60.0 * f64::sin(z_near.state[2]);
-            let xs_middle = Vector6::new(x_pad, y_pad, z_near.state[2], z_near.state[3], 0.0, 0.0);
-            waypoints.push(xs_middle);
-            waypoints.push(z_near.state.clone());
-            let (xs_array, u_array, _, t_array, reached) = self.steering.steer_through_waypoints(
-                &z_new.state.clone(),
-                &waypoints,
-                self.U_d,
-                self.params.steering_acceptance_radius,
-                self.params.step_size,
+
+            if self.non_feasible_steer(&z_new, &z_near) {
+                continue;
+            }
+            // let mut waypoints: Vec<Vector6<f64>> = vec![z_new.state.clone()];
+            // let x_pad = z_near.state[0] - 30.0 * f64::cos(z_near.state[2]);
+            // let y_pad = z_near.state[1] - 30.0 * f64::sin(z_near.state[2]);
+            // let xs_middle = Vector6::new(x_pad, y_pad, z_near.state[2], z_near.state[3], 0.0, 0.0);
+            // waypoints.push(xs_middle);
+            // waypoints.push(z_near.state.clone());
+            // let (xs_array, u_array, _, t_array, reached) = self.steering.steer_through_waypoints(
+            //     &z_new.state.clone(),
+            //     &waypoints,
+            //     self.U_d,
+            //     self.params.steering_acceptance_radius,
+            //     self.params.step_size,
+            //     5.0 * self.params.max_steering_time,
+            // );
+            //let t_new = t_array.last().copied().unwrap();
+            let (xs_array, u_array, _, t_new, reached) = self.steer(
+                &z_new.clone(),
+                &z_near.clone(),
                 5.0 * self.params.max_steering_time,
-            );
+                1.0,
+            )?;
             // utils::draw_current_situation(
             //     "current_situation.png",
             //     &xs_array.clone(),
@@ -634,7 +637,6 @@ impl PQRRTStar {
             //     &self.enc,
             // )
             // .unwrap();
-            let t_new = t_array.last().copied().unwrap();
             let xs_new_near: Vector6<f64> = xs_array.last().copied().unwrap();
             let path_length = utils::compute_path_length(&xs_array);
             let z_new_near = RRTNode::new(
@@ -652,10 +654,6 @@ impl PQRRTStar {
                 && reached
                 && z_new_near.cost < z_near.cost
             {
-                println!(
-                    "Rewiring node {:?} with cost {}",
-                    z_near.id, z_new_near.cost
-                );
                 self.rtree.remove(z_near);
                 // let p_near = Vector2::new(z_near.state[0], z_near.state[1]);
                 // let p_new_near = Vector2::new(z_new_near.state[0], z_new_near.state[1]);
@@ -715,6 +713,11 @@ impl PQRRTStar {
 
     /// Find the ancestor of z at level d. If no d-level ancestor, return the highest lvl ancestor. If the node has no ancestor (is root) return error on second line
     pub fn ancestor(&self, z: &RRTNode, d: u64) -> PyResult<RRTNode> {
+        if d == 0 {
+            return Err(PyErr::new::<pyo3::exceptions::PyException, _>(
+                "No valid ancestor for d = 0",
+            ));
+        }
         let root_id = self.bookkeeping_tree.root_node_id().unwrap();
         let mut z_parent_id = self.get_parent_id(&z)?;
         let mut z_parent = self.bookkeeping_tree.get(&z_parent_id).unwrap().data();
@@ -735,10 +738,10 @@ impl PQRRTStar {
                 Ok(z) => z,
                 Err(_) => continue,
             };
-            let id_already_in_vec = Z_parents
+            let ids_already_in_vec = Z_parents
                 .iter()
                 .any(|z: &RRTNode| z.clone().id.unwrap() == z_d_level_ancestor.clone().id.unwrap());
-            if id_already_in_vec {
+            if ids_already_in_vec {
                 continue;
             }
             Z_parents.push(z_d_level_ancestor);
@@ -763,6 +766,11 @@ impl PQRRTStar {
             if z_near.id.clone().unwrap() == z_nearest_id {
                 continue;
             }
+
+            if self.non_feasible_steer(&z_near, &z_new) {
+                continue;
+            }
+
             let (xs_array, u_array, _, t_new, reached) = self.steer(
                 &z_near,
                 &z_new,
@@ -804,7 +812,16 @@ impl PQRRTStar {
             .max_by(|x, y| x.partial_cmp(y).unwrap())
             .unwrap();
         let d_0end = ((x0[0] - xend[0]).powi(2) + (x0[1] - xend[1]).powi(2)).sqrt();
-        if max_psi_diff.abs() * 180.0 / std::f64::consts::PI > 130.0 && d_0end < 200.0 {
+        // return false;
+
+        if utils::wrap_angle_to_pmpi(max_psi_diff).abs() * 180.0 / std::f64::consts::PI > 120.0
+            && d_0end < 100.0
+        {
+            // println!(
+            //     "Max psi diff: {} | d_0end: {}",
+            //     utils::wrap_angle_to_pmpi(max_psi_diff) * 180.0 / std::f64::consts::PI,
+            //     d_0end
+            // );
             return true;
         }
         false
@@ -831,13 +848,6 @@ impl PQRRTStar {
             self.params.step_size,
             max_steering_time,
         );
-        // self.draw_steering_results(
-        //     &z_nearest.state,
-        //     &z_rand.state,
-        //     &refs_array,
-        //     &xs_array,
-        //     acceptance_radius,
-        // )?;
         Ok((
             xs_array,
             u_array,
@@ -864,7 +874,7 @@ impl PQRRTStar {
             self.U_d,
             self.params.steering_acceptance_radius,
             self.params.step_size,
-            50.0 * self.params.max_steering_time,
+            10.0 * self.params.max_steering_time,
         );
         assert_eq!(reached_last, true);
 
@@ -923,7 +933,7 @@ impl PQRRTStar {
                     time: 0.0,
                 });
             } else {
-                println!("Sampled inside hazard");
+                //println!("Sampled inside hazard");
             }
         }
     }
@@ -943,24 +953,6 @@ impl PQRRTStar {
             &p_goal,
             xs_soln_array,
             &self.enc,
-        );
-        return res.map_err(|e| utils::map_err_to_pyerr(e));
-    }
-
-    fn draw_steering_results(
-        &self,
-        xs_start: &Vector6<f64>,
-        xs_goal: &Vector6<f64>,
-        refs_array: &Vec<(f64, f64)>,
-        xs_array: &Vec<Vector6<f64>>,
-        acceptance_radius: f64,
-    ) -> PyResult<()> {
-        let res = utils::draw_steering_results(
-            &xs_start,
-            &xs_goal,
-            &refs_array,
-            &xs_array,
-            acceptance_radius,
         );
         return res.map_err(|e| utils::map_err_to_pyerr(e));
     }

@@ -148,19 +148,25 @@ impl ENCData {
     }
 
     pub fn intersects_with_trajectory(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
-        let mut step = 1;
-        if xs_array.len() > 100 {
-            step = 2;
-        }
-        let traj_linestring = LineString(
-            xs_array
-                .iter()
-                .step_by(step)
-                .map(|x| coord! {x: x[0], y: x[1]})
-                .collect(),
-        );
+        let traj_linestring =
+            LineString(xs_array.iter().map(|x| coord! {x: x[0], y: x[1]}).collect());
         let intersect = self.intersects_with_linestring(&traj_linestring);
         intersect
+    }
+
+    pub fn array_inside_bbox(&self, xs_array: &Vec<Vector6<f64>>) -> bool {
+        let x_min = self.bbox.min().x;
+        let x_max = self.bbox.max().x;
+        let y_min = self.bbox.min().y;
+        let y_max = self.bbox.max().y;
+        for xs in xs_array.iter() {
+            let x = xs[0];
+            let y = xs[1];
+            if x < x_min || x > x_max || y < y_min || y > y_max {
+                return false;
+            }
+        }
+        true
     }
 
     /// Calculate the distance from a point to the closest point on the ENC

@@ -3,6 +3,7 @@
 //!
 use crate::common::RRTNode;
 use crate::enc_data::ENCData;
+use approx::assert_relative_eq;
 use geo::{coord, LineString, MultiPolygon, Point, Polygon, Rect, Rotate};
 use id_tree::*;
 use nalgebra::{
@@ -148,7 +149,7 @@ pub fn Rmtrx(psi: f64) -> Matrix3<f64> {
 }
 
 pub fn wrap_min_max(x: f64, x_min: f64, x_max: f64) -> f64 {
-    x_min + (x - x_min) % (x_max - x_min)
+    x_min + modulo(x - x_min, x_max - x_min)
 }
 
 pub fn wrap_angle_to_pmpi(x: f64) -> f64 {
@@ -159,9 +160,20 @@ pub fn wrap_angle_to_02pi(x: f64) -> f64 {
     wrap_min_max(x, 0.0, 2.0 * consts::PI)
 }
 
+pub fn modulo(x: f64, y: f64) -> f64 {
+    ((x % y) + y) % y
+}
+
 pub fn wrap_angle_diff_to_pmpi(x: f64, y: f64) -> f64 {
-    let diff = x - y;
-    wrap_angle_to_pmpi(diff)
+    //println!("x: {}, y: {}", x, y);
+    let diff1 = modulo(x - y, 2.0 * consts::PI);
+    let diff2 = modulo(y - x, 2.0 * consts::PI);
+    //println!("diff1: {}, diff2: {}", diff1, diff2);
+    if diff1 < diff2 {
+        diff1
+    } else {
+        -diff2
+    }
 }
 
 pub fn unwrap_angle(x_prev: f64, x: f64) -> f64 {
@@ -660,6 +672,23 @@ mod tests {
         assert_eq!(wrap_angle_to_pmpi(3.0 * consts::PI), -consts::PI);
         assert_eq!(wrap_angle_to_pmpi(-2.0 * consts::PI), 0.0);
         assert_eq!(wrap_angle_to_pmpi(-3.0 * consts::PI), consts::PI);
+    }
+
+    #[test]
+    fn test_wrap_angle_diff_pmpi() {
+        let x = -3.055;
+        let y = 2.4318;
+        let diff = wrap_angle_diff_to_pmpi(x, y);
+        //println!("diff: {:?}", diff);
+        let diff1 =
+            wrap_angle_diff_to_pmpi(-179.0 * consts::PI / 180.0, 179.0 * consts::PI / 180.0);
+        assert_relative_eq!(diff1, 2.0 * consts::PI / 180.0, epsilon = 0.0001);
+        let diff2 =
+            wrap_angle_diff_to_pmpi(170.0 * consts::PI / 180.0, -179.0 * consts::PI / 180.0);
+        assert_relative_eq!(diff2, -11.0 * consts::PI / 180.0, epsilon = 0.0001);
+        let diff3 =
+            wrap_angle_diff_to_pmpi(-179.0 * consts::PI / 180.0, 170.0 * consts::PI / 180.0);
+        assert_relative_eq!(diff3, 11.0 * consts::PI / 180.0, epsilon = 0.0001);
     }
 
     #[allow(non_snake_case)]

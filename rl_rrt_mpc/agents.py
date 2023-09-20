@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+import colav_simulator.common.map_functions as mapf
 import colav_simulator.core.colav.colav_interface as ci
 import colav_simulator.core.controllers as controllers
 import colav_simulator.core.guidances as guidances
@@ -20,7 +21,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
-import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.models as mpc_models
 import rl_rrt_mpc.mpc.mpc as mpc
@@ -124,7 +124,6 @@ class RLRRTMPC(ci.ICOLAV):
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
-
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
         self._initialized = False
@@ -162,7 +161,7 @@ class RLRRTMPC(ci.ICOLAV):
             self._t_prev = t
             self._map_origin = ownship_state[:2]
             self._initialized = True
-            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
+            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc, buffer=None)
             self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
             safe_sea_triangulation = mapf.create_safe_sea_triangulation(enc, self._min_depth, show_plots=False)
             self._rrt.transfer_enc_hazards(relevant_grounding_hazards[0])

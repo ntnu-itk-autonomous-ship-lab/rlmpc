@@ -225,7 +225,7 @@ def find_minimum_depth(vessel_draft, enc: senc.ENC):
     return lowest_possible_depth
 
 
-def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> geometry.MultiPolygon:
+def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC, buffer: Optional[float] = None) -> geometry.MultiPolygon:
     """Extracts the relevant grounding hazards from the ENC as a multipolygon.
 
     This includes land, shore and seabed polygons that are below the vessel`s minimum depth.
@@ -233,6 +233,7 @@ def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> 
     Args:
         vessel_min_depth (int): The minimum depth required for the vessel to avoid grounding.
         enc (senc.ENC): The ENC to check for grounding.
+        buffer (Optional[float], optional): Buffer size. Defaults to None.
 
     Returns:
         geometry.MultiPolygon: The relevant grounding hazards.
@@ -242,7 +243,10 @@ def extract_relevant_grounding_hazards(vessel_min_depth: int, enc: senc.ENC) -> 
     relevant_hazards = [enc.land.geometry.union(enc.shore.geometry).union(dangerous_seabed)]
     filtered_relevant_hazards = []
     for hazard in relevant_hazards:
-        filtered_relevant_hazards.append(geometry.MultiPolygon(geometry.Polygon(p.exterior) for p in hazard.geoms))
+        poly = geometry.MultiPolygon(geometry.Polygon(p.exterior) for p in hazard.geoms)
+        if buffer is not None:
+            poly = poly.buffer(buffer)
+        filtered_relevant_hazards.append(poly)
     return filtered_relevant_hazards
 
 

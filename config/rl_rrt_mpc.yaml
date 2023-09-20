@@ -2,21 +2,21 @@ rl:
   learning_rate: 0.1
 
 pq_rrt:
-  max_nodes: 3000
-  max_iter: 50000
+  max_nodes: 2500
+  max_iter: 15000
   iter_between_direct_goal_growth: 500
-  min_node_dist: 25.0
+  min_node_dist: 15.0
   goal_radius: 300.0
   step_size: 0.5
-  min_steering_time: 3.0
-  max_steering_time: 25.0
-  steering_acceptance_radius: 30.0
-  max_nn_node_dist: 200.0
+  min_steering_time: 5.0
+  max_steering_time: 30.0
+  steering_acceptance_radius: 10.0
+  max_nn_node_dist: 150.0
   gamma: 1200.0
   max_sample_adjustments: 100
-  lambda_sample_adjustment: 0.2
+  lambda_sample_adjustment: 20.0
   safe_distance: 0.1
-  max_ancestry_level: 4
+  max_ancestry_level: 1
 
 # i_rrt:
 #   max_nodes: 2500
