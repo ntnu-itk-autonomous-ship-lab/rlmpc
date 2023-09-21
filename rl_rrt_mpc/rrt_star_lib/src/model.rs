@@ -149,7 +149,7 @@ impl ShipModel for Telemetron {
         let mut xs_new: Vector6<f64> = xs + dt * (k1 + 2.0 * k2 + 2.0 * k3 + k4) / 6.0;
         // println!("xs_new: {:?}", xs_new);
         xs_new[2] = utils::wrap_angle_to_pmpi(xs_new[2]);
-        xs_new[3] = utils::saturate(xs_new[3], self.params.U_min, self.params.U_max);
+        xs_new[3] = utils::saturate(xs_new[3], -self.params.U_max, self.params.U_max);
         xs_new[4] = utils::saturate(xs_new[4], -self.params.U_max, self.params.U_max);
         xs_new[5] = utils::saturate(xs_new[5], -self.params.r_max, self.params.r_max);
         //println!("xs_new after sat: {:?}", xs_new);
@@ -160,7 +160,7 @@ impl ShipModel for Telemetron {
         let mut xs_new: Vector6<f64> = xs + dt * self.dynamics(xs, tau);
         // println!("xs_new: {:?}", xs_new);
         xs_new[2] = utils::wrap_angle_to_pmpi(xs_new[2]);
-        xs_new[3] = utils::saturate(xs_new[3], self.params.U_min, self.params.U_max);
+        xs_new[3] = utils::saturate(xs_new[3], -self.params.U_max, self.params.U_max);
         xs_new[4] = utils::saturate(xs_new[4], -self.params.U_max, self.params.U_max);
         xs_new[5] = utils::saturate(xs_new[5], -self.params.r_max, self.params.r_max);
         //println!("xs_new after sat: {:?}", xs_new);

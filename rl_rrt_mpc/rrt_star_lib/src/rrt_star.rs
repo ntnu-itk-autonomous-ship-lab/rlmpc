@@ -1,5 +1,5 @@
 //! # RRT*
-//! Contains the main informed RRT* functionality
+//! Contains the main RRT* functionality
 //!
 use crate::common::{RRTNode, RRTResult};
 use crate::enc_data::ENCData;
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 #[derive(FromPyObject, Serialize, Deserialize, Debug, Clone, Copy)]
-pub struct InformedRRTParams {
+pub struct RRTStarParams {
     pub max_nodes: u64,
     pub max_iter: u64,
     pub iter_between_direct_goal_growth: u64,
@@ -35,7 +35,7 @@ pub struct InformedRRTParams {
     pub gamma: f64,            // nearest neighbor radius parameter
 }
 
-impl InformedRRTParams {
+impl RRTStarParams {
     pub fn default() -> Self {
         Self {
             max_nodes: 10000,
@@ -62,7 +62,7 @@ impl InformedRRTParams {
             .add_source(config::File::with_name(filename))
             .build()
             .unwrap()
-            .try_deserialize::<InformedRRTParams>()
+            .try_deserialize::<RRTStarParams>()
             .unwrap();
         cfg
     }
@@ -76,11 +76,11 @@ impl InformedRRTParams {
 
 #[allow(non_snake_case)]
 #[pyclass]
-pub struct InformedRRTStar {
+pub struct RRTStar {
     pub c_best: f64,
     pub z_best_parent: RRTNode,
     pub solutions: Vec<RRTResult>, // (states, times, cost) for each solution
-    pub params: InformedRRTParams,
+    pub params: RRTStarParams,
     pub steering: SimpleSteering<Telemetron>,
     pub xs_start: Vector6<f64>,
     pub xs_goal: Vector6<f64>,
@@ -94,10 +94,10 @@ pub struct InformedRRTStar {
 }
 
 #[pymethods]
-impl InformedRRTStar {
+impl RRTStar {
     #[new]
-    pub fn py_new(params: InformedRRTParams) -> Self {
-        println!("InformedRRTStar initialized with params: {:?}", params);
+    pub fn py_new(params: RRTStarParams) -> Self {
+        println!("RRT* initialized with params: {:?}", params);
         Self {
             c_best: std::f64::INFINITY,
             z_best_parent: RRTNode::new(Vector6::zeros(), Vec::new(), Vec::new(), 0.0, 0.0, 0.0),
@@ -260,17 +260,14 @@ impl InformedRRTStar {
             }
         };
         let duration = start.elapsed();
-        println!(
-            "Informed RRT* runtime: {:?}",
-            duration.as_millis() as f64 / 1000.0
-        );
+        println!("RRT* runtime: {:?}", duration.as_millis() as f64 / 1000.0);
         //self.draw_tree(Some(&opt_soln))?;
         Ok(opt_soln.to_object(py))
     }
 }
 
 #[allow(non_snake_case)]
-impl InformedRRTStar {
+impl RRTStar {
     fn append_subtree_to_list(
         &self,
         list: &PyList,
@@ -804,18 +801,11 @@ impl InformedRRTStar {
         map_bbox = utils::bbox_from_corner_points(&p_start, &p_goal, 500.0, 500.0);
         // println!("Map bbox: {:?}", map_bbox);
         loop {
-            let p_rand = if self.c_best != f64::INFINITY {
-                utils::informed_sample(&p_start, &p_goal, self.c_best, &mut self.rng)
+            let p_rand = if !self.enc.safe_sea_triangulation.is_empty() {
+                // println!("Sampled from triangulation!");
+                utils::sample_from_triangulation(&self.enc.safe_sea_triangulation, &mut self.rng)
             } else {
-                if !self.enc.safe_sea_triangulation.is_empty() {
-                    // println!("Sampled from triangulation!");
-                    utils::sample_from_triangulation(
-                        &self.enc.safe_sea_triangulation,
-                        &mut self.rng,
-                    )
-                } else {
-                    utils::sample_from_bbox(&map_bbox, &mut self.rng)
-                }
+                utils::sample_from_bbox(&map_bbox, &mut self.rng)
             };
 
             // println!("Sampled: {:?}", p_rand);
@@ -831,7 +821,7 @@ impl InformedRRTStar {
                     time: 0.0,
                 });
             } else {
-                // println!("Sampled inside hazard");
+                //println!("Sampled inside hazard");
             }
         }
     }
@@ -873,7 +863,7 @@ impl InformedRRTStar {
         Ok(())
     }
 
-    /// Compute nearest neightbours radius as in RRT* by Karaman and Frazzoli, used for search and sampling
+    /// Compute nearest neightbours radius as in RRTStar* by Karaman and Frazzoli, used for search and sampling
     fn compute_nn_radius(&self) -> f64 {
         let dim = 2;
         let n = self.rtree.size() as f64;
@@ -914,7 +904,7 @@ mod tests {
 
     #[test]
     fn test_sample() -> PyResult<()> {
-        let mut rrt = InformedRRTStar::py_new(InformedRRTParams {
+        let mut rrt = RRTStar::py_new(RRTStarParams {
             max_nodes: 1000,
             max_iter: 100000,
             iter_between_direct_goal_growth: 100,
@@ -935,7 +925,7 @@ mod tests {
     #[test]
     #[allow(non_snake_case)]
     fn test_choose_parent_and_insert() -> PyResult<()> {
-        let mut rrt = InformedRRTStar::py_new(InformedRRTParams {
+        let mut rrt = RRTStar::py_new(RRTStarParams {
             max_nodes: 1000,
             max_iter: 100000,
             iter_between_direct_goal_growth: 100,
@@ -984,7 +974,7 @@ mod tests {
 
     #[test]
     fn test_optimize_solution() -> PyResult<()> {
-        let mut rrt = InformedRRTStar::py_new(InformedRRTParams {
+        let mut rrt = RRTStar::py_new(RRTStarParams {
             max_nodes: 1700,
             max_iter: 10000,
             iter_between_direct_goal_growth: 100,
@@ -1016,7 +1006,7 @@ mod tests {
     }
     #[test]
     fn test_grow_towards_goal() -> PyResult<()> {
-        let mut rrt = InformedRRTStar::py_new(InformedRRTParams {
+        let mut rrt = RRTStar::py_new(RRTStarParams {
             max_nodes: 2000,
             max_iter: 10000,
             iter_between_direct_goal_growth: 100,

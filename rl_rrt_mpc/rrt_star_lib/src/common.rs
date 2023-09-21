@@ -1,10 +1,5 @@
 //! # RRT* interface
-//! Implements two Rapidly-exploring Random Tree (RRT*) algorithms in Rust:
-//! - PQ-RRT* (Potential field Quick RRT*)
-//! - Informed RRT*
-//!
-//! ## Usage
-//! Intended for use through Python (pyo3) bindings. Relies on getting ENC data from python shapely objects.
+
 use id_tree::*;
 use nalgebra::{Vector2, Vector3, Vector6};
 use pyo3::conversion::ToPyObject;
@@ -19,7 +14,7 @@ use std::fs::File;
 pub struct RRTNode {
     pub id: Option<NodeId>,
     pub cost: f64,
-    pub d2land: f64,
+    pub d2land: f64, // Not used as of now, but could be interesting to use in the RRT-cost.
     pub state: Vector6<f64>,
     pub trajectory: Vec<Vector6<f64>>, // Trajectory from parent to this node
     pub controls: Vec<Vector3<f64>>,   // Control inputs from parent to this node

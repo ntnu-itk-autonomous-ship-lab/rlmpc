@@ -222,16 +222,10 @@ impl PQRRTStar {
         self.num_iter = 0;
         let goal_attempt_steering_time = 10.0 * 60.0;
         while self.num_nodes < self.params.max_nodes && self.num_iter < self.params.max_iter {
-            if self.attempt_direct_goal_growth(
-                self.num_iter,
-                self.c_best,
-                goal_attempt_steering_time,
-            )? {
-                continue;
-            }
+            self.attempt_direct_goal_growth(goal_attempt_steering_time)?;
 
             if self.goal_reachable(&z_new) {
-                self.attempt_goal_insertion(&z_new, self.c_best, self.params.max_steering_time)?;
+                self.attempt_goal_insertion(&z_new, self.params.max_steering_time)?;
             }
 
             z_new = RRTNode::default();
@@ -285,10 +279,7 @@ impl PQRRTStar {
             }
         };
         let duration = start.elapsed();
-        println!(
-            "PQRRT* run time: {:?}",
-            duration.as_millis() as f64 / 1000.0
-        );
+        println!("PQRRT* runtime: {:?}", duration.as_millis() as f64 / 1000.0);
         //self.draw_tree(Some(&opt_soln))?;
         Ok(opt_soln.to_object(py))
     }
@@ -502,24 +493,18 @@ impl PQRRTStar {
         dist_squared < self.params.goal_radius.powi(2)
     }
 
-    pub fn attempt_direct_goal_growth(
-        &mut self,
-        num_iter: u64,
-        c_best: f64,
-        max_steering_time: f64,
-    ) -> PyResult<bool> {
-        if num_iter % self.params.iter_between_direct_goal_growth != 0 {
+    pub fn attempt_direct_goal_growth(&mut self, max_steering_time: f64) -> PyResult<bool> {
+        if self.num_iter % self.params.iter_between_direct_goal_growth != 0 {
             return Ok(false);
         }
         let z_goal = RRTNode::new(self.xs_goal.clone(), Vec::new(), Vec::new(), 0.0, 0.0, 0.0);
         let z_nearest = self.nearest(&z_goal)?;
-        self.attempt_goal_insertion(&z_nearest, c_best, max_steering_time)
+        self.attempt_goal_insertion(&z_nearest, max_steering_time)
     }
 
     pub fn attempt_goal_insertion(
         &mut self,
         z: &RRTNode,
-        c_best: f64,
         max_steering_time: f64,
     ) -> PyResult<bool> {
         if z.id == self.z_best_parent.id {
@@ -539,10 +524,10 @@ impl PQRRTStar {
             return Ok(false);
         }
         let cost = z.cost + utils::compute_path_length(&xs_array);
-        if cost >= c_best {
+        if cost >= self.c_best {
             println!(
                 "Attempted goal insertion | cost : {} | c_best : {}",
-                cost, c_best
+                cost, self.c_best
             );
             return Ok(false);
         }
@@ -601,11 +586,7 @@ impl PQRRTStar {
         let z_new_parent_id = self.get_parent_id(&z_new)?;
         for z_near in Z_near.iter() {
             let z_near_id = z_near.clone().id.unwrap();
-            if z_new_parent_id == z_near_id {
-                continue;
-            }
-
-            if self.non_feasible_steer(&z_new, &z_near) {
+            if z_new_parent_id == z_near_id || self.non_feasible_steer(&z_new, &z_near) {
                 continue;
             }
             // let mut waypoints: Vec<Vector6<f64>> = vec![z_new.state.clone()];
@@ -629,14 +610,6 @@ impl PQRRTStar {
                 5.0 * self.params.max_steering_time,
                 1.0,
             )?;
-            // utils::draw_current_situation(
-            //     "current_situation.png",
-            //     &xs_array.clone(),
-            //     &Some(waypoints),
-            //     &self.bookkeeping_tree,
-            //     &self.enc,
-            // )
-            // .unwrap();
             let xs_new_near: Vector6<f64> = xs_array.last().copied().unwrap();
             let path_length = utils::compute_path_length(&xs_array);
             let z_new_near = RRTNode::new(

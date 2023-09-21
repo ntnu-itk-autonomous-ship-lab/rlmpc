@@ -1,7 +1,7 @@
 """
-Demonstrates how to use the PQ-RRT* algorithm with the colav-simulator.
+    Demonstrates how to use the RRT algorithm with the colav-simulator.
 
-Remember to install the dependencies (COLAV-simulator) before running this script.
+    Remember to install the dependencies (COLAV-simulator) before running this script.
 
     Author: Trym Tengesdal
 """
@@ -22,7 +22,7 @@ from shapely import strtree
 
 
 @dataclass
-class PQRRTParams:
+class RRTParams:
     max_nodes: int = 2000
     max_iter: int = 10000
     iter_between_direct_goal_growth: int = 500
@@ -34,10 +34,6 @@ class PQRRTParams:
     steering_acceptance_radius: float = 5.0
     max_nn_node_dist: float = 150.0
     gamma: float = 1200.0
-    max_sample_adjustments: int = 100
-    lambda_sample_adjustment: float = 15.0
-    safe_distance: float = 0.1
-    max_ancestry_level: int = 1
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -84,10 +80,10 @@ def shift_nominal_plan(nominal_trajectory: np.ndarray, nominal_inputs: np.ndarra
     return shifted_nominal_trajectory, shifted_nominal_inputs
 
 
-class PQRRTPlanner(ci.ICOLAV):
-    def __init__(self, params: PQRRTParams) -> None:
+class RRT(ci.ICOLAV):
+    def __init__(self, params: RRTParams) -> None:
         self._rrt_params = params
-        self._rrt = rrt_star_lib.PQRRTStar(params)
+        self._rrt = rrt_star_lib.RRT(params)
 
         self._rrt_inputs: np.ndarray = np.empty(3)
         self._rrt_trajectory: np.ndarray = np.empty(6)
@@ -112,9 +108,6 @@ class PQRRTPlanner(ci.ICOLAV):
         w: Optional[stochasticity.DisturbanceData] = None,
         **kwargs,
     ) -> np.ndarray:
-        """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
-        in order to extract relevant grounding hazards.
-        """
         assert goal_state is not None, "Goal state must be provided to the RRT"
         assert enc is not None, "ENC must be provided to the RRT"
         if not self._initialized:
@@ -176,20 +169,19 @@ class PQRRTPlanner(ci.ICOLAV):
 
     def get_colav_data(self) -> dict:
         if not self._initialized:
-            output = {
+            return {
                 "nominal_trajectory": np.zeros((6, 1)),
                 "nominal_inputs": np.zeros((3, 1)),
                 "params": self._rrt_params,
                 "t": self._t_prev,
             }
         else:
-            output = {
+            return {
                 "nominal_trajectory": self._rrt_trajectory,
                 "nominal_inputs": self._rrt_inputs,
                 "params": self._rrt_params,
                 "t": self._t_prev,
             }
-        return output
 
     def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
 
@@ -197,15 +189,11 @@ class PQRRTPlanner(ci.ICOLAV):
             plt_handles["colav_nominal_trajectory"].set_xdata(self._rrt_trajectory[1, 0:-1:10] + self._map_origin[1])
             plt_handles["colav_nominal_trajectory"].set_ydata(self._rrt_trajectory[0, 0:-1:10] + self._map_origin[0])
 
-        if self._mpc_trajectory.size > 6:
-            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:10])
-            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:10])
-
         return plt_handles
 
 
 if __name__ == "__main__":
-    rrt = PQRRTPlanner(PQRRTParams())
+    rrt = RRT(RRTParams())
 
     scenario_file = dp.scenarios / "rl_scenario.yaml"
     scenario_generator = ScenarioGenerator()
