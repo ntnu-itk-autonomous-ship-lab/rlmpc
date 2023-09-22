@@ -121,6 +121,7 @@ class RLRRTMPC(ci.ICOLAV):
 
         self._rrt_inputs: np.ndarray = np.empty(3)
         self._rrt_trajectory: np.ndarray = np.empty(6)
+        self._rrt_waypoints: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
         self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
@@ -161,7 +162,7 @@ class RLRRTMPC(ci.ICOLAV):
             self._t_prev = t
             self._map_origin = ownship_state[:2]
             self._initialized = True
-            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc, buffer=None)
+            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(self._min_depth, enc, buffer=None)
             self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
             safe_sea_triangulation = mapf.create_safe_sea_triangulation(enc, self._min_depth, show_plots=False)
             self._rrt.transfer_enc_hazards(relevant_grounding_hazards[0])
@@ -171,16 +172,16 @@ class RLRRTMPC(ci.ICOLAV):
 
             U_d = ownship_state[3]  # Constant desired speed given by the initial own-ship speed
             rrt_solution: dict = self._rrt.grow_towards_goal(ownship_state.tolist(), U_d, [])
-            print("RRT-run completed")
-            if not rrt_solution:
-                print("WARNING: RRT failed to find a solution")
-
-            hf.plot_rrt_tree(self._rrt.get_tree_as_list_of_dicts(), enc)
-            # rrt_solution = hf.load_rrt_solution()
             times = np.array(rrt_solution["times"])
             n_samples = len(times)
+            if n_samples == 0:
+                raise RuntimeError("RRT did not find a solution")
             self._rrt_trajectory = np.zeros((6, n_samples))
             self._rrt_inputs = np.zeros((3, n_samples - 1))
+            n_wps = len(rrt_solution["waypoints"])
+            self._rrt_waypoints = np.zeros((3, n_wps))
+            for k in range(n_wps):
+                self._rrt_waypoints[:, k] = np.array(rrt_solution["waypoints"][k])
             for k in range(n_samples):
                 self._rrt_trajectory[:, k] = np.array(rrt_solution["states"][k])
                 if k < n_samples - 1:
@@ -233,24 +234,21 @@ class RLRRTMPC(ci.ICOLAV):
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
             self._t_prev_mpc = t
-            if t == 190.0 or t == 400.0 or t == 550.0:
-                print("here")
-
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
         self._t_prev = t
         # Alternative 1: Use LOS-guidance to track the MPC trajectory
-        # self._references = self._los.compute_references(
-        #     self._mpc_trajectory[:2, :], speed_plan=self._mpc_trajectory[3, :], times=None, xs=ownship_state, dt=t - self._t_prev
-        # )
-        # self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
-        # self._references[:nx, :] = self._mpc_trajectory
+        step = int(t / self._mpc.params.dt) * 2
+        mpc_speed_plan = np.linalg.norm(self._mpc_trajectory[3:5, :], axis=0)
+        self._references = self._los.compute_references(
+            self._mpc_trajectory[:2, :-1:step], speed_plan=mpc_speed_plan[:-1:step], times=None, xs=ownship_state, dt=t - self._t_prev
+        )
 
         # Alternative 2: Apply MPC inputs directly to the ownship
-        self._references = np.zeros((9, len(self._mpc_inputs[0, :])))
-        self._references[:2, :] = self._mpc_inputs
+        # self._references = np.zeros((9, len(self._mpc_inputs[0, :])))
+        # self._references[:2, :] = self._mpc_inputs
 
         return self._references
 
@@ -507,7 +505,7 @@ class RLMPC(ci.ICOLAV):
             - **kwargs: Additional keyword arguments.
         """
         self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
-        relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards(self._min_depth, enc)
+        relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(self._min_depth, enc)
         self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
         poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(

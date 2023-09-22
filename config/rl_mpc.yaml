@@ -29,7 +29,7 @@ mpc:
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: False
     debug: True
-  enable_acados: False
+  enable_acados: True
   solver_options:
     casadi:
       solver_type: "ipopt"
