@@ -2,7 +2,7 @@
     parameters.py
 
     Summary:
-        Contains a dataclasses for a parameter interface and parameters used by the RL(N)MPC mid-level COLAV.
+        Contains parameter classes for a lower level anti-grounding + dynamic obstacle avoiding MPC, and an RL-MPC for mid-level COLAV.
 
     Author: Trym Tengesdal
 """
@@ -46,8 +46,57 @@ class IParams(ABC):
 
 
 @dataclass
+class AntiGroundingMPCParams(IParams):
+    """Class for parameters used by the lower level anti-grounding + dynamic obstacle avoiding MPC. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
+
+    rate: float = 5.0  # rate of the controller
+    reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box
+    T: float = 10.0  # prediction horizon
+    dt: float = 0.5  # time step
+    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])  # state cost matrix
+    R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
+    w_L2: float = 1e4  # slack variable weight L2 norm
+    w_L1: float = 1e2  # slack variable weight L1 norm
+    d_safe_so: float = 5.0  # safety distance to static obstacles
+    d_safe_do: float = 5.0  # safety distance to dynamic obstacles
+    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
+    max_num_so_constr: int = 5  # maximum number of static obstacle constraints
+    max_num_do_constr: int = 0  # maximum number of dynamic obstacle constraints
+    path_following: bool = False  # whether to use path following or trajectory tracking
+    debug: bool = False  # whether to print debug information
+
+    @classmethod
+    def from_dict(self, config_dict: dict):
+        params = AntiGroundingMPCParams(**config_dict)
+        params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
+        params.Q = np.diag(params.Q)
+        params.R = np.diag(params.R)
+        if params.path_following and params.Q.shape[0] != 2:
+            raise ValueError("Q must be a 2x2 matrix when path_following is True.")
+
+        if not params.path_following and params.Q.shape[0] != 6:
+            raise ValueError("Q must be a 6x6 matrix when path_following is False (trajectory tracking).")
+
+        return params
+
+    def to_dict(self) -> dict:
+        config_dict = asdict(self)
+        config_dict["so_constr_type"] = self.so_constr_type.name
+        config_dict["Q"] = self.Q.diagonal().tolist()
+        return config_dict
+
+    def adjustable(self) -> np.ndarray:
+        """Returns an array of the adjustable parameters by the RL scheme.
+
+        Returns:
+            np.ndarray: Array of adjustable parameters.
+        """
+        return np.array([*self.Q.flatten().tolist(), *self.R.flatten().tolist(), self.d_safe_so, self.d_safe_do])
+
+
+@dataclass
 class RLMPCParams(IParams):
-    """Class for parameters used by the RL(N)MPC mid-level COLAV. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
+    """Class for parameters used by the mid-level risk-aware RL-MPC."""
 
     rate: float = 5.0  # rate of the controller
     reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box

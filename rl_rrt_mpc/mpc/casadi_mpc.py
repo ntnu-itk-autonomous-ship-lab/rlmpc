@@ -7,79 +7,37 @@
     Author: Trym Tengesdal
 """
 import time
-from dataclasses import asdict, dataclass, field
 from typing import Optional, Tuple, TypeVar
 
 import casadi as csd
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
+import rl_rrt_mpc.common.integrators as integrators
 import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.math_functions as mf
-import rl_rrt_mpc.mpc.integrators as integrators
+import rl_rrt_mpc.common.set_generator as sg
+import rl_rrt_mpc.mpc.common as mpc_common
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
-import rl_rrt_mpc.mpc.set_generator as sg
 import seacharts.enc as senc
 
 ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
 
-@dataclass
-class CasadiSolverOptions:
-    solver_type: str = "ipopt"
-    solver_tol: float = 1e-6
-    print_level: int = 0
-    print_time: int = 0
-    mu_target: float = 1e-6
-    mu_init: float = 1e-6
-    acceptable_tol: float = 1e-6
-    acceptable_obj_change_tol: float = 1e-6
-    max_iter: int = 1000
-    warm_start_init_point: str = "no"
-    verbose: bool = True
-    jit: bool = True
-    jit_flags: list = field(default_factory=lambda: ["-O0"])
-    compiler: str = "clang"
-    expand_mx_funcs_to_sx: bool = True
-
-    @classmethod
-    def from_dict(cls, config_dict: dict):
-        return CasadiSolverOptions(**config_dict)
-
-    def to_dict(self):
-        return asdict(self)
-
-    def to_opt_settings(self):
-        opts = {
-            self.solver_type + ".tol": self.solver_tol,
-            self.solver_type + ".print_level": self.print_level,
-            "print_time": self.print_time,
-            self.solver_type + ".mu_target": self.mu_target,
-            self.solver_type + ".mu_init": self.mu_init,
-            self.solver_type + ".acceptable_tol": self.acceptable_tol,
-            self.solver_type + ".acceptable_obj_change_tol": self.acceptable_obj_change_tol,
-            self.solver_type + ".max_iter": self.max_iter,
-            self.solver_type + ".warm_start_init_point": self.warm_start_init_point,
-            "verbose": self.verbose,
-            "jit": self.jit,
-            "jit_options": {"flags": self.jit_flags},
-            "compiler": self.compiler,
-            "expand": self.expand_mx_funcs_to_sx,
-        }
-        return opts
-
-
 class CasadiMPC:
     def __init__(
-        self, model: models.Telemetron, params: Optional[ParamClass] = parameters.RLMPCParams(), solver_options: CasadiSolverOptions = CasadiSolverOptions()
+        self,
+        model: models.MPCModel,
+        params: Optional[ParamClass] = parameters.RLMPCParams(),
+        solver_options: mpc_common.CasadiSolverOptions = mpc_common.CasadiSolverOptions(),
     ) -> None:
         self._model = model
         if params:
             self._params0: ParamClass = params
             self._params: ParamClass = params
 
-        self._solver_options: CasadiSolverOptions = solver_options
+        self._solver_options: mpc_common.CasadiSolverOptions = solver_options
         self._initialized_v: bool = False
         self._initialized_q: bool = False
         self._map_origin: np.ndarray = np.array([])
@@ -129,12 +87,20 @@ class CasadiMPC:
 
         Returns:
             np.ndarray: Array of parameters. The order of the parameters are:
+                - model parameters (if any)
                 - Q (flattened)
                 - R (flattened)
                 - d_safe_so
                 - d_safe_do
         """
-        return self._params.adjustable()
+        if isinstance(self._model, models.KinematicCSOG):
+            mdl_params = self._model.params()
+            mdl_adjustable_params = np.array([mdl_params.T_chi, mdl_params.T_U])
+        else:
+            mdl_adjustable_params = np.array([])
+        mdl_adjustable_params = self._model.get_adjustable_params()
+        mpc_adjustable_params = np.concatenate((self._params.Q.flatten(), self._params.R.flatten(), np.array([self._params.d_safe_so, self._params.d_safe_do])))
+        return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
     def _create_initial_warm_start(self, xs: np.ndarray, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], dim_g: int) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
@@ -386,7 +352,7 @@ class CasadiMPC:
         dt = self._params.dt
 
         nx, nu = self._model.dims()
-        xdot, x, u = self._model.as_casadi()
+        xdot, x, u, p_mdl = self._model.as_casadi()
 
         # Box constraints on NLP decision variables
         lbu_k, ubu_k, lbx_k, ubx_k = self._model.get_input_state_bounds()
@@ -408,6 +374,8 @@ class CasadiMPC:
         U = []
         X = []
         Sigma = []
+
+        p_adjustable.append(p_mdl)
 
         # Initial state constraint
         x_0 = csd.MX.sym("x_0_constr", nx, 1)
@@ -462,7 +430,7 @@ class CasadiMPC:
 
         ship_vertices = self._model.params().ship_vertices
 
-        # Dynamic obstacle augmented state parameters (x, y, Vx, Vy, length, width) * N + 1
+        # Dynamic obstacle augmented state parameters (x, y, chi, U, length, width) * N + 1
         nx_do = 6
         X_do = csd.MX.sym("X_do", nx_do * self._params.max_num_do_constr, N + 1)
         p_fixed.append(csd.reshape(X_do, -1, 1))
@@ -498,7 +466,7 @@ class CasadiMPC:
 
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
         stage_cost = quadratic_cost(x_k[0:dim_Q], X_ref[:, 0], Qmtrx)
-        erk4 = integrators.ERK4(x=x, p=u, ode=xdot, quad=stage_cost, h=dt)
+        erk4 = integrators.ERK4(x=x, p=csd.vertcat(u, p_mdl), ode=xdot, quad=stage_cost, h=dt)
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
             U.append(u_k)
@@ -514,7 +482,7 @@ class CasadiMPC:
             g_ineq_list.extend(do_constr_k)
 
             # Shooting gap constraints
-            x_k_end, _, _, _, _, _, _, _ = erk4(x_k, u_k)
+            x_k_end, _, _, _, _, _, _, _ = erk4(x_k, csd.vertcat(u_k, p_mdl))
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
             X.append(x_k)
             g_eq_list.append(x_k_end - x_k)

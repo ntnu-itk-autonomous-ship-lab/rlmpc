@@ -1,8 +1,8 @@
 """
-    rlmpc.py
+    mpc.py
 
     Summary:
-        Contains a class for a Reinforcement Learning (RL) (N)MPC trajectory tracking/path following controller with collision avoidance functionality.
+        Contains a class for an MPC trajectory tracking/path following controller with collision avoidance functionality.
 
 
     Author: Trym Tengesdal
@@ -12,13 +12,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple, Type
 
+import colav_simulator.core.models as cs_models
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.casadi_mpc as casadi_mpc
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as mpc_parameters
-import rl_rrt_mpc.mpc.set_generator as sg
 import seacharts.enc as senc
 
 uname_result = platform.uname()
@@ -46,19 +46,29 @@ class Config:
     enable_acados: bool = False
     mpc: Type[mpc_parameters.IParams] = mpc_parameters.RLMPCParams()
     solver_options: SolverConfig = SolverConfig()
+    model: Type[models.MPCModel] = models.KinematicCSOG()
 
     @classmethod
     def from_dict(self, config_dict: dict):
+
+        if "csog" in config_dict["model"]:
+            model = models.KinematicCSOG(cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"]))
+        elif "telemetron" in config_dict["model"]:
+            model = models.Telemetron()
+        else:
+            model = models.KinematicCSOG(cs_models.KinematicCSOGParams())
+
         config = Config(
             enable_acados=config_dict["enable_acados"],
             mpc=mpc_parameters.RLMPCParams.from_dict(config_dict["params"]),
             solver_options=SolverConfig.from_dict(config_dict["solver_options"]),
+            model=model,
         )
         return config
 
 
 class MPC:
-    def __init__(self, model: models.Telemetron, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
+    def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
         if config:
             self._params0 = config.mpc
             self._params = config.mpc
@@ -71,13 +81,9 @@ class MPC:
             self._solver_options = default_config.solver_options
             self._acados_enabled = default_config.enable_acados
 
-        self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(model, self._params, self._solver_options.casadi)
+        self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(config.model, self._params, self._solver_options.casadi)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(model, self._params, self._solver_options.acados)
-
-        self._initialized: bool = False
-        self._s: float = 0.0
-        self._set_generator: Optional[sg.SetGenerator] = None
+            self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(config.model, self._params, self._solver_options.acados)
 
     @property
     def params(self) -> mpc_parameters.IParams:

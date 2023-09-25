@@ -30,7 +30,7 @@ class MPCModel(ABC):
         "Returns an AcadosModel object for the given model."
 
     @abstractmethod
-    def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX]:
+    def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
         """Returns casadi relevant symbolics for the model"""
 
     @abstractmethod
@@ -38,12 +38,101 @@ class MPCModel(ABC):
         """Returns input and state constraint boxes relevant for the model."""
 
 
+class KinematicCSOG(MPCModel):
+    def __init__(self, params: cs_models.KinematicCSOGParams = cs_models.KinematicCSOGParams()):
+        self._acados_model = AcadosModel()
+        self._params = params
+        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
+        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
+
+        # Input and state bounds
+        min_speed = self._params.U_min
+        max_speed = self._params.U_max
+        approx_inf = 1e10
+        self.lbu = np.array(
+            [
+                -approx_inf,
+                min_speed,
+            ]
+        )
+        self.ubu = np.array([np.inf, max_speed])
+
+        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, min_speed])
+        self.ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed])
+
+    def params(self) -> cs_models.KinematicCSOGParams:
+        return self._params
+
+    def dims(self) -> Tuple[int, int]:
+        return 4, 2
+
+    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+        """Forms the equations of motion for the Telemetron vessel
+
+        Returns:
+            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state and input symbolic vectors
+        """
+        x = csd.MX.sym("x", 4)
+        u = csd.MX.sym("u", 2)  # Fx, Fy as inputs
+        xdot = csd.MX.sym("x_dot", 4)
+
+        T_U = csd.MX.sym("T_U", 1)
+        T_chi = csd.MX.sym("T_chi", 1)
+        p = csd.vertcat(T_chi, T_U)
+
+        kinematics = csd.vertcat(x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), (u[0] - x[2]) / T_chi, (u[1] - x[3]) / T_U)
+        f_expl = kinematics
+        f_impl = xdot - f_expl
+        return f_impl, f_expl, xdot, x, u, p
+
+    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, dt: float, N: int) -> np.ndarray:
+        """Simulate N Euler steps for the Telemetron vessel
+
+        Args:
+            - xs (np.ndarray): State vector
+            - u (np.ndarray): Input vector
+            - dt (float): Time step
+            - N (int): Number of steps to simulate
+
+        Returns:
+            np.ndarray: Next state vector
+        """
+        soln = np.zeros((self.x.shape[0], N))
+        xs_k = xs
+        for k in range(N):
+            soln[:, k] = xs_k
+            xdot = self.dynamics(xs_k, u).full().flatten()
+            dxs = xdot * dt
+            xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
+        return soln
+
+    def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        return self.lbu, self.ubu, self.lbx, self.ubx
+
+    def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
+        return self.f_expl, self.x, self.u, self.p
+
+    def as_acados(self) -> AcadosModel:
+        self._acados_model.f_impl_expr = self.f_impl
+        self._acados_model.f_expl_expr = self.f_expl
+        self._acados_model.x = self.x
+        self._acados_model.xdot = self.xdot
+        self._acados_model.u = self.u
+        self._acados_model.p = self.p
+        self._acados_model.name = "kinematic_csog"
+        return self._acados_model
+
+    @property
+    def acados_model(self):
+        return self._acados_model
+
+
 class Telemetron(MPCModel):
     def __init__(self, params: cs_models.TelemetronParams = cs_models.TelemetronParams()):
         self._acados_model = AcadosModel()
         self._params = params
-        self.f_impl, self.f_expl, self.xdot, self.x, self.u = self.setup_equations_of_motion()
-        self.dynamics = csd.Function("dynamics", [self.x, self.u], [self.f_expl], ["x", "u"], ["f_expl"])
+        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
+        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
         # Input and state bounds
         min_Fx = self._params.Fx_limits[0]
         max_Fx = self._params.Fx_limits[1]
@@ -69,7 +158,7 @@ class Telemetron(MPCModel):
     def dims(self) -> Tuple[int, int]:
         return 6, 2
 
-    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the Telemetron vessel
 
         Returns:
@@ -91,9 +180,11 @@ class Telemetron(MPCModel):
         B = np.array([[1, 0], [0, 1], [0, -self._params.l_r]])
         kinetics = Minv @ (-C @ x[3:6] - D @ x[3:6] + B @ u)
 
+        p = csd.MX.sym("p", 0)
+
         f_expl = csd.vertcat(kinematics, kinetics)
         f_impl = xdot - f_expl
-        return f_impl, f_expl, xdot, x, u
+        return f_impl, f_expl, xdot, x, u, p
 
     def euler_n_step(self, xs: np.ndarray, u: np.ndarray, dt: float, N: int) -> np.ndarray:
         """Simulate N Euler steps for the Telemetron vessel
@@ -117,27 +208,12 @@ class Telemetron(MPCModel):
         return soln
 
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Returns the bounds for the state and input vectors.
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Returns the lower and upper bounds for the input and state vectors, respectively
-        """
         return self.lbu, self.ubu, self.lbx, self.ubx
 
-    def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX]:
-        """Returns casadi relevant symbolics for the Telemetron
-
-        Returns:
-            Tuple[csd.MX, csd.MX, csd.MX]: Returns the Telemetron model dynamics f(x, u), the state and input vector symbolics
-        """
-        return self.f_expl, self.x, self.u
+    def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
+        return self.f_expl, self.x, self.u, self.p
 
     def as_acados(self) -> AcadosModel:
-        """Returns an AcadosModel object for the Telemetron
-
-        Returns:
-            AcadosModel: Telemetron model as acados compatible object
-        """
         self._acados_model.f_impl_expr = self.f_impl
         self._acados_model.f_expl_expr = self.f_expl
         self._acados_model.x = self.x

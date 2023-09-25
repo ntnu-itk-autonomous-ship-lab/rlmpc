@@ -48,6 +48,16 @@ mpc:
     max_num_do_constr: 0 # per shooting node in the mpc
     path_following: False
     debug: True
+  model:
+    csog:
+      draft: 3.0
+      length: 50.0
+      width: 10.0
+      T_chi: 3.0
+      T_U: 5.0
+      r_max: 10.0
+      U_min: 0.0
+      U_max: 15.0
   enable_acados: False
   solver_options:
     casadi:

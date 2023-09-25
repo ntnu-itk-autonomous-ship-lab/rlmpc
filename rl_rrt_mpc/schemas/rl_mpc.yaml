@@ -96,7 +96,45 @@ mpc:
         debug:
           required: True
           type: boolean
-
+    model:
+      required: True
+      type: dict
+      schema:
+        csog:
+          type: dict
+          excludes: [telemetron]
+          schema:
+            draft:
+              required: True
+              type: float
+            length:
+              required: True
+              type: float
+            width:
+              required: True
+              type: float
+            ship_vertices:
+              required: False
+              type: list
+            T_chi:
+              required: True
+              type: float
+            T_U:
+              required: True
+              type: float
+            r_max:
+              required: True
+              type: float
+            U_min:
+              required: True
+              type: float
+            U_max:
+              required: True
+              type: float
+        telemetron:
+          type: string
+          empty: True
+          excludes: [csog]
 
     enable_acados:
       required: True

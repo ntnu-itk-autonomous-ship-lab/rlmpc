@@ -14,6 +14,7 @@ import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.map_functions as mapf
 import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.common.paths as dp
+import rl_rrt_mpc.mpc.common as mpc_common
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import seacharts.enc as senc
@@ -23,38 +24,10 @@ from acados_template.acados_ocp_solver import AcadosOcpSolver
 ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
 
 
-def parse_acados_solver_options(config_dict: dict):
-    acados_solver_options = AcadosOcpOptions()
-    acados_solver_options.nlp_solver_type = config_dict["nlp_solver_type"]
-    acados_solver_options.nlp_solver_max_iter = config_dict["nlp_solver_max_iter"]
-    acados_solver_options.nlp_solver_tol_eq = config_dict["nlp_solver_tol_eq"]
-    acados_solver_options.nlp_solver_tol_ineq = config_dict["nlp_solver_tol_ineq"]
-    acados_solver_options.nlp_solver_tol_comp = config_dict["nlp_solver_tol_comp"]
-    acados_solver_options.nlp_solver_tol_stat = config_dict["nlp_solver_tol_stat"]
-    acados_solver_options.nlp_solver_ext_qp_res = config_dict["nlp_solver_ext_qp_res"]
-    acados_solver_options.qp_solver = config_dict["qp_solver_type"]
-    acados_solver_options.qp_solver_iter_max = config_dict["qp_solver_iter_max"]
-    acados_solver_options.qp_solver_warm_start = config_dict["qp_solver_warm_start"]
-    acados_solver_options.qp_solver_tol_eq = config_dict["qp_solver_tol_eq"]
-    acados_solver_options.qp_solver_tol_ineq = config_dict["qp_solver_tol_ineq"]
-    acados_solver_options.qp_solver_tol_comp = config_dict["qp_solver_tol_comp"]
-    acados_solver_options.qp_solver_tol_stat = config_dict["qp_solver_tol_stat"]
-    acados_solver_options.hessian_approx = config_dict["hessian_approx_type"]
-    acados_solver_options.globalization = config_dict["globalization"]
-    if config_dict["regularize_method"] != "NONE":
-        acados_solver_options.regularize_method = config_dict["regularize_method"]
-    acados_solver_options.levenberg_marquardt = config_dict["levenberg_marquardt"]
-    acados_solver_options.print_level = config_dict["print_level"]
-    acados_solver_options.ext_fun_compile_flags = config_dict["ext_fun_compile_flags"]
-    if "HPIPM" in config_dict["qp_solver_type"]:
-        acados_solver_options.hpipm_mode = "BALANCE"
-    return acados_solver_options
-
-
 class AcadosMPC:
-    def __init__(self, model: models.Telemetron, params: ParamClass, solver_options: dict) -> None:
+    def __init__(self, model: models.MPCModel, params: ParamClass, solver_options: dict) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
-        self._acados_ocp.solver_options = parse_acados_solver_options(solver_options)
+        self._acados_ocp.solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self._model = model
 
         self._params0: ParamClass = params
@@ -93,6 +66,7 @@ class AcadosMPC:
         Args:
             params (list): List of parameters to update. The order of the parameters are:
                 - Q
+                - R
                 - d_safe_so
                 - d_safe_do
 
@@ -115,12 +89,20 @@ class AcadosMPC:
 
         Returns:
             np.ndarray: Array of parameters. The order of the parameters are:
-                - Q
-                - R
+                - model parameters (if any)
+                - Q (flattened)
+                - R (flattened)
                 - d_safe_so
                 - d_safe_do
         """
-        return self._params.adjustable()
+        if isinstance(self._model, models.KinematicCSOG):
+            mdl_params = self._model.params()
+            mdl_adjustable_params = np.concatenate((mdl_params.T_chi, mdl_params.T_U))
+        else:
+            mdl_adjustable_params = np.array([])
+        mdl_adjustable_params = self._model.get_adjustable_params()
+        mpc_adjustable_params = np.concatenate((self._params.Q.flatten(), self._params.R.flatten(), np.array([self._params.d_safe_so, self._params.d_safe_do])))
+        return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
     def _set_initial_warm_start(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
         """Sets the initial warm start state (and input) trajectory for the NMPC.
@@ -404,6 +386,7 @@ class AcadosMPC:
 
         x = self._acados_ocp.model.x
         u = self._acados_ocp.model.u
+        self._p_adjustable = csd.vertcat(self._acados_ocp.model.p)
 
         self._acados_ocp.cost.cost_type = "EXTERNAL"
         self._acados_ocp.cost.cost_type_e = "EXTERNAL"
@@ -433,8 +416,7 @@ class AcadosMPC:
             )
             @ Qscaling
         )
-        Rmtrx = hf.casadi_matrix_from_vector(R_vec, nu, nu)
-        self._p_adjustable = csd.vertcat(Q_vec, R_vec)
+        self._p_adjustable = csd.vertcat(self._p_adjustable, Q_vec, R_vec)
         self._num_adjustable_params += dim_Q * dim_Q + nu * nu
 
         x_ref = csd.MX.sym("x_ref", dim_Q)
@@ -502,9 +484,8 @@ class AcadosMPC:
             self._acados_ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
             self._acados_ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
 
-        # Parameters consist of RL adjustable parameters, and fixed parameters
+        # Parameters consist of RL adjustable parameters and fixed parameters
         # (either nominal trajectory or dynamic obstacle related).
-        # The model parameters are considered fixed.
         self._acados_ocp.model.p = csd.vertcat(self._p_adjustable, self._p_fixed)
         self._acados_ocp.dims.np = self._acados_ocp.model.p.size()[0]
 

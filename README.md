@@ -1,18 +1,29 @@
 
 # RL-RRT-MPC
-This repository implements an Informed RRT*-based planning algorithm for a maritime vessel navigating at sea, with a Model Predictive Control for further trajectory planning.
-RL is used to update the algorithm parameters.
+This repository implements a two-layer trajectory planning algorithm consisting of an RRT for top-level static obstacle collision-free motion planning and an RL-MPC for mid-level local collision-free trajectory planning.
 
 
-## Installation
+[![platform](https://img.shields.io/badge/platform-linux-lightgrey)]()
+[![python version](https://img.shields.io/badge/python-3.10-blue)]()
+[![python version](https://img.shields.io/badge/python-3.11-blue)]()
 
-To install and use this COLAV system, install `acados` and the corresponding Python package `acados_template`, and then perform the following commands
-```bash
-cd rl_rrt_mpc
-pip install -e .
-cd informed_rrt_star_rust
-maturin develop
-```
+## Dependencies
+Install these first.
+
+- acados_template (and acados locally)
+- maturin
+- matplotlib
+- shapely
+- numpy
+- rrt-rs: https://github.com/NTNU-Autoship-Internal/rrt-rs
+- seacharts: https://github.com/trymte/seacharts
+- colav_simulator: https://github.com/NTNU-Autoship-Internal/colav_simulator
+
+## Installation and usage in Python
+
+- 1: Install python dependencies.
+- 2: Install rrt-rs.
+- 3: Install package locally with `pip install -e .`
 
 
 ## Usage

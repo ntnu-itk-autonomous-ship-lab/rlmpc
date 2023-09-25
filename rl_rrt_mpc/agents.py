@@ -103,7 +103,7 @@ class RLRRTMPCBuilder:
     def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt_star_lib.PQRRTStar, mpc.MPC]:
         rl_obj = rl.RL(config.rl_method)
         rrt_obj = rrt_star_lib.PQRRTStar(config.rrt)
-        rlmpc_obj = mpc.MPC(mpc_models.Telemetron(), config.mpc)
+        rlmpc_obj = mpc.MPC(config.mpc)
         return rl_obj, rrt_obj, rlmpc_obj
 
 
@@ -387,7 +387,7 @@ class RLMPC(ci.ICOLAV):
 
         self._rl = rl.RL(self._config.rl)
         self._los = guidances.LOSGuidance(self._config.los)
-        self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
+        self._mpc = mpc.MPC(self._config.mpc)
 
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
