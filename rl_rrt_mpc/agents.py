@@ -22,10 +22,9 @@ import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.mpc.models as mpc_models
+import rl_rrt_mpc.common.set_generator as sg
 import rl_rrt_mpc.mpc.mpc as mpc
-import rl_rrt_mpc.mpc.parameters as mpc_params
-import rl_rrt_mpc.mpc.set_generator as sg
+import rl_rrt_mpc.parameters as mpc_params
 import rl_rrt_mpc.rl as rl
 import rrt_star_lib
 import seacharts.enc as senc
@@ -61,38 +60,27 @@ class PQRRTParams:
 
 
 @dataclass
-class IRRTParams:
-    max_nodes: int = 2000
-    max_iter: int = 10000
-    iter_between_direct_goal_growth: int = 100
-    min_node_dist: float = 5.0
-    goal_radius: float = 100.0
-    step_size: float = 0.1
-    max_steering_time: float = 20.0
-    steering_acceptance_radius: float = 5.0
-    max_nn_node_dist: float = 300.0
-    gamma: float = 1000.0
+class PQRRTConfig:
+    params: PQRRTParams = PQRRTParams()
+    model: sim_models.KinematicCSOGParams = sim_models.KinematicCSOGParams()
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        config = cls(**config_dict)
+        config = PQRRTConfig(params=PQRRTParams.from_dict(config_dict["params"]), model=sim_models.KinematicCSOGParams.from_dict(config_dict["model"]))
         return config
-
-    def to_dict(self):
-        return asdict(self)
 
 
 @dataclass
 class RLRRTMPCParams:
     rl_method: rl.RLParams
-    rrt: PQRRTParams
+    rrt: PQRRTConfig
     mpc: mpc.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLRRTMPCParams(
             rl_method=rl.RLParams.from_dict(config_dict["rl"]),
-            rrt=PQRRTParams.from_dict(config_dict["pq_rrt"]),
+            rrt=PQRRTConfig.from_dict(config_dict["pq_rrt"]),
             mpc=mpc.Config.from_dict(config_dict["mpc"]),
         )
         return config
@@ -102,7 +90,7 @@ class RLRRTMPCBuilder:
     @classmethod
     def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt_star_lib.PQRRTStar, mpc.MPC]:
         rl_obj = rl.RL(config.rl_method)
-        rrt_obj = rrt_star_lib.PQRRTStar(config.rrt)
+        rrt_obj = rrt_star_lib.PQRRTStar(config.rrt.model, config.rrt.params)
         rlmpc_obj = mpc.MPC(config.mpc)
         return rl_obj, rrt_obj, rlmpc_obj
 
@@ -124,7 +112,7 @@ class RLRRTMPC(ci.ICOLAV):
         self._rrt_waypoints: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
-        self._mpc = mpc.MPC(mpc_models.Telemetron(), self._config.mpc)
+        self._mpc = mpc.MPC(self._config.mpc)
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
         self._initialized = False

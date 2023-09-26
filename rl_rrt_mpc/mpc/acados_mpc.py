@@ -18,7 +18,7 @@ import rl_rrt_mpc.mpc.common as mpc_common
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import seacharts.enc as senc
-from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
+from acados_template.acados_ocp import AcadosOcp
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
