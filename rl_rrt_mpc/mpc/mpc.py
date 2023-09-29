@@ -17,6 +17,7 @@ import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.casadi_mpc as casadi_mpc
+import rl_rrt_mpc.mpc.common as common
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as mpc_parameters
 import seacharts.enc as senc
@@ -33,11 +34,11 @@ else:
 @dataclass
 class SolverConfig:
     acados: dict = field(default_factory=dict)
-    casadi: casadi_mpc.CasadiSolverOptions = casadi_mpc.CasadiSolverOptions()
+    casadi: common.CasadiSolverOptions = common.CasadiSolverOptions()
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        config = SolverConfig(acados=config_dict["acados"], casadi=casadi_mpc.CasadiSolverOptions.from_dict(config_dict["casadi"]))
+        config = SolverConfig(acados=config_dict["acados"], casadi=common.CasadiSolverOptions.from_dict(config_dict["casadi"]))
         return config
 
 
