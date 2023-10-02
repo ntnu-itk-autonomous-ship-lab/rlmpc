@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import casadi as csd
+import colav_simulator.core.controllers as controllers
+import colav_simulator.core.guidances as guidances
+import colav_simulator.core.integrators as sim_integrators
+import colav_simulator.core.models as sim_models
 import numpy as np
 import rl_rrt_mpc.common.file_utils as fu
 import rl_rrt_mpc.common.math_functions as mf
@@ -18,7 +22,143 @@ import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
 import yaml
+from scipy.interpolate import interp1d
 from scipy.stats import chi2
+
+
+def create_los_based_trajectory(
+    xs: np.ndarray,
+    waypoints: np.ndarray,
+    speed_plan: np.ndarray,
+    los: guidances.LOSGuidance,
+    dt: float,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Creates a trajectory based on the provided LOS guidance, controller and model.
+
+    Args:
+        - xs (np.ndarray): State vector
+        - waypoints (np.ndarray): Waypoints
+        - speed_plan (np.ndarray): Speed plan
+        - los (guidances.LOSGuidance): LOS guidance object
+        - dt (float): Time step
+
+    Returns:
+        np.ndarray: Trajectory
+    """
+    model = sim_models.Telemetron()
+    controller = controllers.FLSH(model.params)
+    trajectory = []
+    inputs = []
+    xs_k = xs
+    t = 0.0
+    reached_goal = False
+    t_braking = 30.0
+    t_brake_start = 0.0
+    while t < 2000.0:
+        trajectory.append(xs_k)
+        references = los.compute_references(waypoints, speed_plan, None, xs_k, dt)
+        if reached_goal:
+            references[3:] = np.tile(0.0, (references[3:].size, 1))
+        u = controller.compute_inputs(references, xs_k, dt)
+        inputs.append(u)
+        w = None
+        xs_k = sim_integrators.erk4_integration_step(model.dynamics, model.bounds, xs_k, u, w, dt)
+
+        dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
+        t += dt
+        if dist2goal < 70.0 and not reached_goal:
+            reached_goal = True
+            t_brake_start = t
+
+        if reached_goal and t - t_brake_start > t_braking:
+            break
+
+    return np.array(trajectory).T, np.array(inputs)[:, :2].T
+
+
+def interpolate_solution(trajectory: np.ndarray, inputs: np.ndarray, t: float, t_prev: float, T_mpc: float, dt_mpc: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Interpolates the solution from the MPC to the time step in the simulation.
+
+    Args:
+        - trajectory (np.ndarray): The solution state trajectory.
+        - inputs (np.ndarray): The solution input trajectory.
+        - t (float): The current time step.
+        - t_prev (float): The previous time step.
+        - T_mpc (float): The MPC horizon.
+        - dt_mpc (float): The MPC time step.
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: The interpolated solution state trajectory and input trajectory.
+    """
+    intp_trajectory = trajectory
+    intp_inputs = inputs
+    if dt_mpc > t - t_prev or dt_mpc < t - t_prev:
+        nx = trajectory.shape[0]
+        nu = inputs.shape[0]
+        dt_sim = np.max([t - t_prev, 0.5])
+        sim_times = np.arange(0.0, T_mpc, dt_sim)
+        mpc_times = np.arange(0.0, T_mpc, dt_mpc)
+        for k in range(nx):
+            intp_trajectory[k, :] = interp1d(mpc_times, trajectory[k, :], kind="linear", bounds_error=False)(sim_times)
+        for k in range(nu):
+            intp_inputs[k, :] = interp1d(mpc_times, inputs[k, :], kind="linear", bounds_error=False)(sim_times)
+
+        return intp_trajectory, intp_inputs
+
+        x_d = interp1d(mpc_times, trajectory[0, :], kind="linear", bounds_error=False)
+        y_d = interp1d(mpc_times, trajectory[1, :], kind="linear", bounds_error=False)
+        psi_d = interp1d(mpc_times, trajectory[2, :], kind="linear", bounds_error=False)
+        u_d = interp1d(mpc_times, trajectory[3, :], kind="linear", bounds_error=False)
+        v_d = interp1d(mpc_times, trajectory[4, :], kind="linear", bounds_error=False)
+        r_d = interp1d(mpc_times, trajectory[5, :], kind="linear", bounds_error=False)
+        intp_trajectory = np.zeros((6, len(sim_times)))
+        intp_trajectory[0, :] = x_d(sim_times)
+        intp_trajectory[1, :] = y_d(sim_times)
+        intp_trajectory[2, :] = psi_d(sim_times)
+        intp_trajectory[3, :] = u_d(sim_times)
+        intp_trajectory[4, :] = v_d(sim_times)
+        intp_trajectory[5, :] = r_d(sim_times)
+        X_d = interp1d(mpc_times, inputs[0, :], kind="linear", bounds_error=False)
+        Y_d = interp1d(mpc_times, inputs[1, :], kind="linear", bounds_error=False)
+        intp_inputs = np.zeros((2, len(sim_times)))
+        intp_inputs[0, :] = X_d(sim_times)
+        intp_inputs[1, :] = Y_d(sim_times)
+    return intp_trajectory, intp_inputs
+
+
+def shift_nominal_plan(nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, ownship_state: np.ndarray, N: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Updates the nominal trajectory and inputs to the MPC based on the current ownship state. This is done by
+    find closest point on nominal trajectory to the current state and then shifting the nominal trajectory to this point
+
+    Args:
+        - nominal_trajectory (np.ndarray): The nominal trajectory.
+        - nominal_inputs (np.ndarray): The nominal inputs.
+        - ownship_state (np.ndarray): The ownship state.
+        - N (int): MPC horizon length in samples
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: The shifted nominal trajectory and inputs.
+    """
+    nx = ownship_state.size
+    nu = nominal_inputs.shape[0]
+    closest_idx = int(np.argmin(np.linalg.norm(nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(nominal_trajectory[0, :]), 1)).T, axis=0)))
+    shifted_nominal_trajectory = nominal_trajectory[:, closest_idx:]
+    shifted_nominal_inputs = nominal_inputs[:, closest_idx:]
+    n_samples = shifted_nominal_trajectory.shape[1]
+    if n_samples == 0:  # Done with following nominal trajectory, stop
+        shifted_nominal_trajectory = np.tile(np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)).T
+        shifted_nominal_inputs = np.zeros((nu, N))
+    elif n_samples < N + 1:
+        shifted_nominal_trajectory = np.zeros((nx, N + 1))
+        shifted_nominal_trajectory[:, :n_samples] = nominal_trajectory[:, closest_idx : closest_idx + n_samples]
+        shifted_nominal_trajectory[:, n_samples:] = np.tile(nominal_trajectory[:, closest_idx + n_samples - 1], (N + 1 - n_samples, 1)).T
+        shifted_nominal_inputs = np.zeros((nu, N))
+        shifted_nominal_inputs[:, : n_samples - 1] = nominal_inputs[:, closest_idx : closest_idx + n_samples - 1]
+        shifted_nominal_inputs[:, n_samples - 1 :] = np.tile(nominal_inputs[:, closest_idx + n_samples - 2], (N - n_samples + 1, 1)).T
+    else:
+        shifted_nominal_trajectory = shifted_nominal_trajectory[:, : N + 1]
+        shifted_nominal_inputs = shifted_nominal_inputs[:, :N]
+    return shifted_nominal_trajectory, shifted_nominal_inputs
 
 
 def decision_trajectories_from_solution(soln: np.ndarray, N: int, nu: int, nx: int, ns: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:

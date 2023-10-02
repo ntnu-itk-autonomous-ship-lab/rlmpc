@@ -10,7 +10,6 @@ import time
 from typing import Optional, Tuple, TypeVar
 
 import casadi as csd
-import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.integrators as integrators
@@ -93,12 +92,10 @@ class CasadiMPC:
                 - d_safe_so
                 - d_safe_do
         """
+        mdl_adjustable_params = np.array([])
         if isinstance(self._model, models.KinematicCSOG):
             mdl_params = self._model.params()
             mdl_adjustable_params = np.array([mdl_params.T_chi, mdl_params.T_U])
-        else:
-            mdl_adjustable_params = np.array([])
-        mdl_adjustable_params = self._model.get_adjustable_params()
         mpc_adjustable_params = np.concatenate((self._params.Q.flatten(), self._params.R.flatten(), np.array([self._params.d_safe_so, self._params.d_safe_do])))
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
@@ -284,7 +281,7 @@ class CasadiMPC:
         self._current_warmstart_v["lam_g"] = soln["lam_g"].full()
         cost_val = soln["f"].full()[0][0]
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
-        plot_solver_stats(stats, show_plots)
+        mpc_common.plot_casadi_solver_stats(stats, show_plots)
         print(
             f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | sl (max, argmax): ({np.max(Sigma)}, {np.argmax(Sigma)}) | so_constr (max, argmax): ({np.max(so_constr_vals)}, {np.argmax(so_constr_vals)})"
         )
@@ -320,6 +317,122 @@ class CasadiMPC:
         psi = np.unwrap(np.concatenate(([psi[0]], psi)))[1:]
         X[2, :] = psi
         return X, U, Sigma
+
+    def construct_ocp_v2(
+        self, model: models.MPCModel, cost_function: csd.MX, l1_slack_penalty: float, l2_slack_penalty: float, do_constraint_func: Callable, so_constraint_func: Callable
+    ) -> None:
+        """Constructs the OCP for the NMPC problem using pure Casadi.
+
+            Since this is Casadi, this OCP must be converted to an NLP on the form
+
+            min_w     J(w, p)
+            s.t.    lbw <= w <= ubw ∀ w
+                    lbg <= g(w, p) <= ubg
+
+        Args:
+        """
+        g_ineq_list = []
+        g_eq_list = []
+        xdot, x, u, p = model.as_casadi()
+
+        g_ineq_list = so_constraints
+        g_ineq_list.extend(do_constraints)
+
+        # Vectorize and finalize the NLP
+        g_eq = csd.vertcat(*g_eq_list)
+        g_ineq = csd.vertcat(*g_ineq_list)
+
+        lbg_eq = [0.0] * g_eq.shape[0]
+        ubg_eq = [0.0] * g_eq.shape[0]
+        lbg_ineq = [-np.inf] * g_ineq.shape[0]
+        ubg_ineq = [0.0] * g_ineq.shape[0]
+        self._lbg_v = np.concatenate((lbg_eq, lbg_ineq), axis=0)
+        self._ubg_v = np.concatenate((ubg_eq, ubg_ineq), axis=0)
+
+        self._p_fixed = csd.vertcat(*p_fixed)
+        self._p_adjustable = csd.vertcat(*p_adjustable)
+        self._p = csd.vertcat(*p_adjustable, *p_fixed)
+
+        self._num_fixed_ocp_params = num_fixed_ocp_params
+        self._num_adjustable_ocp_params = num_adjustable_ocp_params
+        self._num_ocp_params = num_fixed_ocp_params + num_adjustable_ocp_params
+        self._p_fixed_values = np.zeros((self._num_fixed_ocp_params, 1))
+        self._p_adjustable_values = self.get_adjustable_params()
+
+        self._opt_vars = csd.vertcat(*U, *X, *Sigma)
+
+        # Create value (v) function approximation MPC solver
+        vnlp_prob = {
+            "f": J,
+            "x": self._opt_vars,
+            "p": self._p,
+            "g": csd.vertcat(g_eq, g_ineq),
+        }
+        self._vsolver = csd.nlpsol("vsolver", "ipopt", vnlp_prob, self._solver_options.to_opt_settings())
+
+        self._static_obstacle_constraints = csd.Function(
+            "static_obstacle_constraints", [self._opt_vars, self._p], [csd.vertcat(*so_constraints)], ["w", "p"], ["so_constr"]
+        )
+        self._equality_constraints = csd.Function("equality_constraints", [self._opt_vars, self._p], [g_eq], ["w", "p"], ["g_eq"])
+        self._inequality_constraints = csd.Function("inequality_constraints", [self._opt_vars, self._p], [g_ineq], ["w", "p"], ["g_ineq"])
+        if self._params.max_num_so_constr + self._params.max_num_do_constr == 0.0:
+            self._decision_trajectories = csd.Function(
+                "decision_trajectories",
+                [self._opt_vars],
+                [
+                    csd.reshape(csd.vertcat(*X), nx, -1),
+                    csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.vertcat(*Sigma),
+                ],
+                ["w"],
+                ["X", "U", "Sigma"],
+            )
+            self._decision_variables = csd.Function(
+                "decision_variables",
+                [
+                    csd.reshape(csd.vertcat(*X), nx, -1),
+                    csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.vertcat(*Sigma),
+                ],
+                [self._opt_vars],
+                ["X", "U", "Sigma"],
+                ["w"],
+            )
+        else:
+            self._decision_trajectories = csd.Function(
+                "decision_trajectories",
+                [self._opt_vars],
+                [
+                    csd.reshape(csd.vertcat(*X), nx, -1),
+                    csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.reshape(csd.vertcat(*Sigma), self._params.max_num_so_constr + self._params.max_num_do_constr, -1),
+                ],
+                ["w"],
+                ["X", "U", "Sigma"],
+            )
+            self._decision_variables = csd.Function(
+                "decision_variables",
+                [
+                    csd.reshape(csd.vertcat(*X), nx, -1),
+                    csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.reshape(csd.vertcat(*Sigma), self._params.max_num_so_constr + self._params.max_num_do_constr, -1),
+                ],
+                [self._opt_vars],
+                ["X", "U", "Sigma"],
+                ["w"],
+            )
+        # self._dlag_v = self.build_sensitivity(J, g_eq, g_ineq)
+
+        # Create action-value (q or Q(s, a)) function approximation
+        g_eq = csd.vertcat(g_eq, u_0 - U[0])
+        lbg_eq = [0.0] * g_eq.shape[0]
+        ubg_eq = [0.0] * g_eq.shape[0]
+        self._lbg_q = np.concatenate((lbg_eq, lbg_ineq), axis=0)
+        self._ubg_q = np.concatenate((ubg_eq, ubg_ineq), axis=0)
+
+        qnlp_prob = {"f": J, "x": self._opt_vars, "p": self._p, "g": csd.vertcat(g_eq, g_ineq)}
+        self._qsolver = csd.nlpsol("qsolver", "ipopt", qnlp_prob, self._solver_options.to_opt_settings())
+        # self._dlag_q = self.build_sensitivity(J, g_eq, g_ineq)
 
     def construct_ocp(self, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0]), min_depth: int = 5) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
@@ -465,14 +578,14 @@ class CasadiMPC:
         so_constr_list = []
 
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
-        stage_cost = quadratic_cost(x_k[0:dim_Q], X_ref[:, 0], Qmtrx)
+        stage_cost = mpc_common.quadratic_cost(x_k[0:dim_Q], X_ref[:, 0], Qmtrx)
         erk4 = integrators.ERK4(x=x, p=csd.vertcat(u, p_mdl), ode=xdot, quad=stage_cost, h=dt)
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
             U.append(u_k)
 
             # Sum stage costs
-            J += gamma**k * (quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + quadratic_cost(u_k, U_ref[:, k], Rmtrx) + W.T @ sigma_k)
+            J += gamma**k * (mpc_common.quadratic_cost(x_k[0:dim_Q], X_ref[:, k], Qmtrx) + mpc_common.quadratic_cost(u_k, U_ref[:, k], Rmtrx) + W.T @ sigma_k)
 
             so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, d_safe_so)
             so_constr_list.extend(so_constr_k)
@@ -491,7 +604,7 @@ class CasadiMPC:
             Sigma.append(sigma_k)
 
         # Terminal costs and constraints
-        J += gamma**N * (quadratic_cost(x_k[:dim_Q], X_ref[:, N], Qmtrx) + W.T @ sigma_k)
+        J += gamma**N * (mpc_common.quadratic_cost(x_k[:dim_Q], X_ref[:, N], Qmtrx) + W.T @ sigma_k)
 
         so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, d_safe_so)
         so_constr_list.extend(so_constr_N)
@@ -1000,52 +1113,3 @@ class CasadiMPC:
         prob.solve(solver="CVXOPT")
         P_up = parameter_values + dp.value
         return P_up
-
-
-def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
-    """Forms the NMPC stage cost function used by the mid-level COLAV method.
-
-    Args:
-        var (csd.MX): Decision variable to weight quadratically (e.g. state, input, slack)
-        var_ref (csd.MX): Reference (input or state fixed parameter) variable
-        W (csd.MX): Weighting matrix for the decision variable error
-
-    Returns:
-        csd.MX: Cost function
-    """
-    return (var_ref - var).T @ W @ (var_ref - var)
-
-
-def plot_solver_stats(stats: dict, show_plots: bool = True) -> None:
-    """Plots solver statistics for the COLAV MPC method.
-
-    Args:
-        - stats (dict): Dictionary of solver statistics
-        - show_plots (bool, optional): Whether to show plots or not. Defaults to True.
-    """
-    if show_plots:
-        fig = plt.figure()
-        axs = fig.subplot_mosaic(
-            [
-                ["cost"],
-                ["inf"],
-                ["step_lengths"],
-            ]
-        )
-
-        axs["cost"].plot(stats["iterations"]["obj"], "b")
-        axs["cost"].set_xlabel("Iteration number")
-        axs["cost"].set_ylabel("J")
-
-        axs["inf"].plot(np.array(stats["iterations"]["inf_pr"]), "b--")
-        axs["inf"].plot(np.array(stats["iterations"]["inf_du"]), "r--")
-        axs["inf"].legend(["Primal Infeasibility", "Dual Infeasibility"])
-        axs["inf"].set_xlabel("Iteration number")
-
-        axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_pr"]), "b--")
-        axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_du"]), "r--")
-        axs["step_lengths"].legend(["Primal Step Length", "Dual Step Length"])
-        axs["step_lengths"].set_xlabel("Iteration number")
-        axs["step_lengths"].set_ylabel("Step Length")
-        plt.show(block=False)
-    return None

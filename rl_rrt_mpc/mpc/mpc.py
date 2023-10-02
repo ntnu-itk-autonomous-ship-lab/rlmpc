@@ -32,21 +32,10 @@ else:
 
 
 @dataclass
-class SolverConfig:
-    acados: dict = field(default_factory=dict)
-    casadi: common.CasadiSolverOptions = common.CasadiSolverOptions()
-
-    @classmethod
-    def from_dict(self, config_dict: dict):
-        config = SolverConfig(acados=config_dict["acados"], casadi=common.CasadiSolverOptions.from_dict(config_dict["casadi"]))
-        return config
-
-
-@dataclass
 class Config:
     enable_acados: bool = False
     mpc: Type[mpc_parameters.IParams] = mpc_parameters.RLMPCParams()
-    solver_options: SolverConfig = SolverConfig()
+    solver_options: common.SolverConfig = common.SolverConfig()
     model: Type[models.MPCModel] = models.KinematicCSOG()
 
     @classmethod
@@ -62,7 +51,7 @@ class Config:
         config = Config(
             enable_acados=config_dict["enable_acados"],
             mpc=mpc_parameters.RLMPCParams.from_dict(config_dict["params"]),
-            solver_options=SolverConfig.from_dict(config_dict["solver_options"]),
+            solver_options=common.SolverConfig.from_dict(config_dict["solver_options"]),
             model=model,
         )
         return config
@@ -73,7 +62,7 @@ class MPC:
         if config:
             self._params0 = config.mpc
             self._params = config.mpc
-            self._solver_options: SolverConfig = config.solver_options
+            self._solver_options: common.SolverConfig = config.solver_options
             self._acados_enabled: bool = config.enable_acados
         else:
             default_config = cp.extract(Config, config_file, dp.rl_rrt_mpc_schema)

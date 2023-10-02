@@ -9,6 +9,9 @@
 """
 from dataclasses import asdict, dataclass, field
 
+import casadi as csd
+import matplotlib.pyplot as plt
+import numpy as np
 from acados_template.acados_ocp import AcadosOcpOptions
 
 
@@ -94,3 +97,52 @@ class SolverConfig:
     def from_dict(self, config_dict: dict):
         config = SolverConfig(acados=config_dict["acados"], casadi=CasadiSolverOptions.from_dict(config_dict["casadi"]))
         return config
+
+
+def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
+    """Forms the NMPC stage cost function used by the mid-level COLAV method.
+
+    Args:
+        var (csd.MX): Decision variable to weight quadratically (e.g. state, input, slack)
+        var_ref (csd.MX): Reference (input or state fixed parameter) variable
+        W (csd.MX): Weighting matrix for the decision variable error
+
+    Returns:
+        csd.MX: Cost function
+    """
+    return (var_ref - var).T @ W @ (var_ref - var)
+
+
+def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:
+    """Plots solver statistics for the COLAV MPC method.
+
+    Args:
+        - stats (dict): Dictionary of solver statistics
+        - show_plots (bool, optional): Whether to show plots or not. Defaults to True.
+    """
+    if show_plots:
+        fig = plt.figure()
+        axs = fig.subplot_mosaic(
+            [
+                ["cost"],
+                ["inf"],
+                ["step_lengths"],
+            ]
+        )
+
+        axs["cost"].plot(stats["iterations"]["obj"], "b")
+        axs["cost"].set_xlabel("Iteration number")
+        axs["cost"].set_ylabel("J")
+
+        axs["inf"].plot(np.array(stats["iterations"]["inf_pr"]), "b--")
+        axs["inf"].plot(np.array(stats["iterations"]["inf_du"]), "r--")
+        axs["inf"].legend(["Primal Infeasibility", "Dual Infeasibility"])
+        axs["inf"].set_xlabel("Iteration number")
+
+        axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_pr"]), "b--")
+        axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_du"]), "r--")
+        axs["step_lengths"].legend(["Primal Step Length", "Dual Step Length"])
+        axs["step_lengths"].set_xlabel("Iteration number")
+        axs["step_lengths"].set_ylabel("Step Length")
+        plt.show(block=False)
+    return None
