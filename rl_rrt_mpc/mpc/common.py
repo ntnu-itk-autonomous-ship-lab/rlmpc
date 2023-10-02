@@ -12,7 +12,10 @@ from dataclasses import asdict, dataclass, field
 import casadi as csd
 import matplotlib.pyplot as plt
 import numpy as np
-from acados_template.acados_ocp import AcadosOcpOptions
+import rl_rrt_mpc.common.paths as dp
+import rl_rrt_mpc.mpc.models as models
+from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
+from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 
 @dataclass
@@ -146,3 +149,108 @@ def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:
         axs["step_lengths"].set_ylabel("Step Length")
         plt.show(block=False)
     return None
+
+
+def construct_acados_ocp(
+    self,
+    model: models.MPCModel,
+    cost_function: csd.MX,
+    l1_slack_penalty: float,
+    l2_slack_penalty: float,
+    do_constraints: csd.MX,
+    so_constraints: csd.MX,
+    parameters: csd.MX,
+    parameter_values: np.ndarray,
+    horizon: float,
+    time_step: float,
+    solver_options: AcadosOcpOptions,
+) -> AcadosOcpSolver:
+    """
+    Constructs the OCP for the NMPC COLAV problem using ACADOS.
+
+    Args:
+        model (models.MPCModel): Model of the system.
+        cost_function (csd.MX): Cost function of the OCP.
+        l1_slack_penalty (float): L1 penalty on the slack variables.
+        l2_slack_penalty (float): L2 penalty on the slack variables.
+        do_constraints (csd.MX): Dynamic obstacle constraints.
+        so_constraints (csd.MX): Static obstacle constraints.
+        parameters (csd.MX): Parameters of the OCP.
+        parameter_values (np.ndarray): Values of the parameters.
+        horizon (float): Planning horizon.
+        time_step (float): Time step of the OCP.
+        solver_options (AcadosOcpOptions): AcadosOCPSolver options.
+
+    Returns:
+        AcadosOcpSolver: ACADOS OCP solver.
+    """
+    acados_ocp: AcadosOcp = AcadosOcp()
+    acados_ocp.solver_options = solver_options
+    acados_ocp.model = model.as_acados()
+    acados_ocp.dims.N = int(horizon / time_step)
+    acados_ocp.solver_options.qp_solver_cond_N = acados_ocp.dims.N
+    acados_ocp.solver_options.tf = horizon
+
+    nx = acados_ocp.model.x.size()[0]
+    nu = acados_ocp.model.u.size()[0]
+    acados_ocp.dims.nx = nx
+    acados_ocp.dims.nu = nu
+
+    acados_ocp.cost.cost_type = "EXTERNAL"
+    acados_ocp.cost.cost_type_e = "EXTERNAL"
+    acados_ocp.model.cost_expr_ext_cost = cost_function
+    acados_ocp.model.cost_expr_ext_cost_e = cost_function
+
+    approx_inf = 1e6
+    lbu, ubu, lbx, ubx = model.get_input_state_bounds()
+
+    # Input constraints lbu <= u <= ubu ∀ u
+    acados_ocp.constraints.idxbu = np.array(range(nu))
+    acados_ocp.constraints.lbu = lbu
+    acados_ocp.constraints.ubu = ubu
+
+    # State constraints lbx <= x <= ubx ∀ x
+    acados_ocp.constraints.x0 = lbx
+    acados_ocp.constraints.idxbx = np.array(range(nx))
+    acados_ocp.constraints.lbx = lbx[acados_ocp.constraints.idxbx]
+    acados_ocp.constraints.ubx = ubx[acados_ocp.constraints.idxbx]
+
+    acados_ocp.constraints.idxbx_e = np.array(range(nx))
+    acados_ocp.constraints.lbx_e = lbx[acados_ocp.constraints.idxbx_e]
+    acados_ocp.constraints.ubx_e = ubx[acados_ocp.constraints.idxbx_e]
+
+    # Dynamic and static obstacle constraints together on the form -inf <= h(x, u, p) <= 0 + s_upper
+    n_path_constr = len(so_constraints) + len(do_constraints)
+    if n_path_constr:
+        acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
+        acados_ocp.constraints.lh_e = acados_ocp.constraints.lh
+        acados_ocp.constraints.uh = np.zeros(n_path_constr)
+        acados_ocp.constraints.uh_e = acados_ocp.constraints.uh
+
+        # Slacks on dynamic obstacle and static obstacle constraints
+        acados_ocp.constraints.idxsh = np.array(range(n_path_constr))
+        acados_ocp.constraints.idxsh_e = np.array(range(n_path_constr))
+
+        acados_ocp.cost.Zl = 0 * l2_slack_penalty * np.ones(n_path_constr)
+        acados_ocp.cost.Zl_e = 0 * l2_slack_penalty * np.ones(n_path_constr)
+        acados_ocp.cost.Zu = l2_slack_penalty * np.ones(n_path_constr)
+        acados_ocp.cost.Zu_e = l2_slack_penalty * np.ones(n_path_constr)
+        acados_ocp.cost.zl = 0 * l1_slack_penalty * np.ones(n_path_constr)
+        acados_ocp.cost.zl_e = 0 * l1_slack_penalty * np.ones(n_path_constr)
+        acados_ocp.cost.zu = l1_slack_penalty * np.ones(n_path_constr)
+        acados_ocp.cost.zu_e = l1_slack_penalty * np.ones(n_path_constr)
+
+        con_h_expr = []
+        con_h_expr.extend(so_constraints)
+        con_h_expr.extend(do_constraints)
+
+        acados_ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
+        acados_ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
+
+    acados_ocp.model.p = parameters
+    acados_ocp.dims.np = acados_ocp.model.p.size()[0]
+    acados_ocp.parameter_values = parameter_values
+
+    solver_json = "acados_ocp_" + acados_ocp.model.name + ".json"
+    acados_ocp.code_export_directory = dp.acados_code_gen.as_posix()
+    return AcadosOcpSolver(acados_ocp, json_file=solver_json)

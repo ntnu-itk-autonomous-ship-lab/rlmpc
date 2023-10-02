@@ -17,8 +17,11 @@ acados_code_gen = root / "acados_code_gen"
 
 schemas = package / "schemas"
 rl_rrt_mpc_schema = schemas / "rl_rrt_mpc.yaml"
-rl_mpc_schema = schemas / "rl_mpc.yaml"
+rlmpc_schema = schemas / "rlmpc.yaml"
+ttmpc_schema = schemas / "ttmpc.yaml"
 
 rl_rrt_mpc_config = config / "rl_rrt_mpc.yaml"
-rl_mpc_config = config / "rl_mpc.yaml"
+rlmpc_config = config / "rlmpc.yaml"
+ttmpc_config = config / "ttmpc.yaml"
+
 rrt_solution = data / "rrt_solution.yaml"

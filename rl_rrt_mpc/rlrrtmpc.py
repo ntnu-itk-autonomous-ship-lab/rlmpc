@@ -20,7 +20,7 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.set_generator as sg
-import rl_rrt_mpc.mpc.mpc as mpc
+import rl_rrt_mpc.mpc.mpc_interface as mpc_interface
 import rl_rrt_mpc.mpc.parameters as mpc_params
 import rl_rrt_mpc.rl as rl
 import rrt_star_lib
@@ -70,24 +70,24 @@ class PQRRTConfig:
 class RLRRTMPCParams:
     rl_method: rl.RLParams
     rrt: PQRRTConfig
-    mpc: mpc.Config
+    mpc: mpc_interface.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLRRTMPCParams(
             rl_method=rl.RLParams.from_dict(config_dict["rl"]),
             rrt=PQRRTConfig.from_dict(config_dict["pq_rrt"]),
-            mpc=mpc.Config.from_dict(config_dict["mpc"]),
+            mpc=mpc_interface.Config.from_dict(config_dict["mpc"]),
         )
         return config
 
 
 class RLRRTMPCBuilder:
     @classmethod
-    def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt_star_lib.PQRRTStar, mpc.MPC]:
+    def build(cls, config: RLRRTMPCParams) -> Tuple[rl.RL, rrt_star_lib.PQRRTStar, mpc_interface.MPC]:
         rl_obj = rl.RL(config.rl_method)
         rrt_obj = rrt_star_lib.PQRRTStar(config.rrt.model, config.rrt.params)
-        rlmpc_obj = mpc.MPC(config.mpc)
+        rlmpc_obj = mpc_interface.MPC(config.mpc)
         return rl_obj, rrt_obj, rlmpc_obj
 
 
@@ -108,7 +108,7 @@ class RLRRTMPC(ci.ICOLAV):
         self._rrt_waypoints: np.ndarray = np.empty(3)
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
 
-        self._mpc = mpc.MPC(self._config.mpc)
+        self._mpc = mpc_interface.MPC(self._config.mpc)
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
         self._initialized = False

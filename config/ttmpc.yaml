@@ -5,7 +5,7 @@ los:
   K_i: 0.0
   max_cross_track_error_int: 101.0
 
-mpc:
+ttmpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
@@ -15,6 +15,7 @@ mpc:
     R: [0.0001, 0.001]
     w_L2: 0.0
     w_L1: 12000.0
+    gamma: 1.0
     d_safe_so: 5.0
     d_safe_do: 10.0
     so_constr_type: "PARAMETRICSURFACE"

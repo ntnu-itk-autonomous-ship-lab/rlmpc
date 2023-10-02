@@ -2,12 +2,12 @@
     casadi_mpc.py
 
     Summary:
-        Contains a class for an (RL) NMPC (impl in casadi) trajectory tracking/path following controller with incorporated collision avoidance.
+        Casadi MPC class for the anti-grounding MPC.
 
     Author: Trym Tengesdal
 """
 import time
-from typing import Optional, Tuple, TypeVar
+from typing import Optional, Tuple
 
 import casadi as csd
 import numpy as np
@@ -21,20 +21,17 @@ import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import seacharts.enc as senc
 
-ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
-
 
 class CasadiMPC:
     def __init__(
         self,
         model: models.MPCModel,
-        params: Optional[ParamClass] = parameters.RLMPCParams(),
-        solver_options: mpc_common.CasadiSolverOptions = mpc_common.CasadiSolverOptions(),
+        params: parameters.TTMPCParams,
+        solver_options: mpc_common.CasadiSolverOptions,
     ) -> None:
         self._model = model
-        if params:
-            self._params0: ParamClass = params
-            self._params: ParamClass = params
+        self._params0: parameters.TTMPCParams = params
+        self._params: parameters.TTMPCParams = params
 
         self._solver_options: mpc_common.CasadiSolverOptions = solver_options
         self._initialized_v: bool = False
@@ -59,11 +56,13 @@ class CasadiMPC:
         self._num_ocp_params: int = 0
         self._num_fixed_ocp_params: int = 0
         self._num_adjustable_ocp_params: int = 0
+        self._p_mdl = csd.MX.sym("p_mdl", 0)
         self._p_fixed: csd.MX = csd.MX.sym("p_fixed", 0)
         self._p_adjustable: csd.MX = csd.MX.sym("p_adjustable", 0)
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
         self._set_generator: Optional[sg.SetGenerator] = None
+        self._p_mdl_values: np.ndarray = np.array([])
         self._p_fixed_so_values: np.ndarray = np.array([])
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -152,10 +151,10 @@ class CasadiMPC:
 
         if offset == 0:
             inputs_past_N = np.tile(u_mod, (n_shifts, 1)).T
-            states_past_N = self._model.euler_n_step(X_prev[:, -1], u_mod, self._params.dt, n_shifts)
+            states_past_N = self._model.euler_n_step(X_prev[:, -1], u_mod, self._p_mdl_values, self._params.dt, n_shifts)
         else:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
-            states_past_N = self._model.euler_n_step(X_prev[:, -offset], u_mod, self._params.dt, n_shifts + offset)
+            states_past_N = self._model.euler_n_step(X_prev[:, -offset], u_mod, self._p_mdl_values, self._params.dt, n_shifts + offset)
 
         if offset == 0:
             U_warm_start = np.concatenate((U_prev[:, n_shifts:], inputs_past_N), axis=1)
@@ -318,132 +317,6 @@ class CasadiMPC:
         X[2, :] = psi
         return X, U, Sigma
 
-    def construct_ocp_v2(
-        self,
-        model: models.MPCModel,
-        cost_function: csd.MX,
-        l1_slack_penalty: float,
-        l2_slack_penalty: float,
-        do_constraints: list,
-        so_constraints: list,
-        X: list,
-        U: list,
-        Sigma: list,
-        parameters: list,
-    ) -> None:
-        """Constructs the OCP for the NMPC problem using pure Casadi.
-
-            Since this is Casadi, this OCP must be converted to an NLP on the form
-
-            min_w     J(w, p)
-            s.t.    lbw <= w <= ubw ∀ w
-                    lbg <= g(w, p) <= ubg
-
-        Args:
-        """
-        g_ineq_list = []
-        g_eq_list = []
-        xdot, x, u, p = model.as_casadi()
-
-        g_ineq_list = so_constraints
-        g_ineq_list.extend(do_constraints)
-
-        # Vectorize and finalize the NLP
-        g_eq = csd.vertcat(*g_eq_list)
-        g_ineq = csd.vertcat(*g_ineq_list)
-
-        lbg_eq = [0.0] * g_eq.shape[0]
-        ubg_eq = [0.0] * g_eq.shape[0]
-        lbg_ineq = [-np.inf] * g_ineq.shape[0]
-        ubg_ineq = [0.0] * g_ineq.shape[0]
-        self._lbg_v = np.concatenate((lbg_eq, lbg_ineq), axis=0)
-        self._ubg_v = np.concatenate((ubg_eq, ubg_ineq), axis=0)
-
-        self._p_fixed = csd.vertcat(*p_fixed)
-        self._p_adjustable = csd.vertcat(*p_adjustable)
-        self._p = csd.vertcat(*p_adjustable, *p_fixed)
-
-        self._num_fixed_ocp_params = num_fixed_ocp_params
-        self._num_adjustable_ocp_params = num_adjustable_ocp_params
-        self._num_ocp_params = num_fixed_ocp_params + num_adjustable_ocp_params
-        self._p_fixed_values = np.zeros((self._num_fixed_ocp_params, 1))
-        self._p_adjustable_values = self.get_adjustable_params()
-
-        self._opt_vars = csd.vertcat(*U, *X, *Sigma)
-
-        # Create value (v) function approximation MPC solver
-        vnlp_prob = {
-            "f": cost_function,
-            "x": self._opt_vars,
-            "p": csd.vertcat(*parameters),
-            "g": csd.vertcat(g_eq, g_ineq),
-        }
-        self._vsolver = csd.nlpsol("vsolver", "ipopt", vnlp_prob, self._solver_options.to_opt_settings())
-
-        self._static_obstacle_constraints = csd.Function(
-            "static_obstacle_constraints", [self._opt_vars, self._p], [csd.vertcat(*so_constraints)], ["w", "p"], ["so_constr"]
-        )
-        self._equality_constraints = csd.Function("equality_constraints", [self._opt_vars, self._p], [g_eq], ["w", "p"], ["g_eq"])
-        self._inequality_constraints = csd.Function("inequality_constraints", [self._opt_vars, self._p], [g_ineq], ["w", "p"], ["g_ineq"])
-        if self._params.max_num_so_constr + self._params.max_num_do_constr == 0.0:
-            self._decision_trajectories = csd.Function(
-                "decision_trajectories",
-                [self._opt_vars],
-                [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
-                    csd.reshape(csd.vertcat(*U), nu, -1),
-                    csd.vertcat(*Sigma),
-                ],
-                ["w"],
-                ["X", "U", "Sigma"],
-            )
-            self._decision_variables = csd.Function(
-                "decision_variables",
-                [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
-                    csd.reshape(csd.vertcat(*U), nu, -1),
-                    csd.vertcat(*Sigma),
-                ],
-                [self._opt_vars],
-                ["X", "U", "Sigma"],
-                ["w"],
-            )
-        else:
-            self._decision_trajectories = csd.Function(
-                "decision_trajectories",
-                [self._opt_vars],
-                [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
-                    csd.reshape(csd.vertcat(*U), nu, -1),
-                    csd.reshape(csd.vertcat(*Sigma), self._params.max_num_so_constr + self._params.max_num_do_constr, -1),
-                ],
-                ["w"],
-                ["X", "U", "Sigma"],
-            )
-            self._decision_variables = csd.Function(
-                "decision_variables",
-                [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
-                    csd.reshape(csd.vertcat(*U), nu, -1),
-                    csd.reshape(csd.vertcat(*Sigma), self._params.max_num_so_constr + self._params.max_num_do_constr, -1),
-                ],
-                [self._opt_vars],
-                ["X", "U", "Sigma"],
-                ["w"],
-            )
-        # self._dlag_v = self.build_sensitivity(J, g_eq, g_ineq)
-
-        # Create action-value (q or Q(s, a)) function approximation
-        g_eq = csd.vertcat(g_eq, u_0 - U[0])
-        lbg_eq = [0.0] * g_eq.shape[0]
-        ubg_eq = [0.0] * g_eq.shape[0]
-        self._lbg_q = np.concatenate((lbg_eq, lbg_ineq), axis=0)
-        self._ubg_q = np.concatenate((ubg_eq, ubg_ineq), axis=0)
-
-        qnlp_prob = {"f": J, "x": self._opt_vars, "p": self._p, "g": csd.vertcat(g_eq, g_ineq)}
-        self._qsolver = csd.nlpsol("qsolver", "ipopt", qnlp_prob, self._solver_options.to_opt_settings())
-        # self._dlag_q = self.build_sensitivity(J, g_eq, g_ineq)
-
     def construct_ocp(self, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0]), min_depth: int = 5) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
@@ -476,6 +349,7 @@ class CasadiMPC:
 
         nx, nu = self._model.dims()
         xdot, x, u, p_mdl = self._model.as_casadi()
+        self._p_mdl = p_mdl
 
         # Box constraints on NLP decision variables
         lbu_k, ubu_k, lbx_k, ubx_k = self._model.get_input_state_bounds()

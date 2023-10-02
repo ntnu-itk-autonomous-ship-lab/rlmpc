@@ -1,14 +1,14 @@
 """
-    mpc.py
+    agmpc.py
 
     Summary:
-        Contains a class for an MPC trajectory tracking/path following controller with collision avoidance functionality.
+        Contains the class for an anti-grounding MPC controller.
 
 
     Author: Trym Tengesdal
 """
 import platform
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, Type
 
@@ -16,17 +16,18 @@ import colav_simulator.core.models as cs_models
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.mpc.casadi_mpc as casadi_mpc
 import rl_rrt_mpc.mpc.common as common
 import rl_rrt_mpc.mpc.models as models
+import rl_rrt_mpc.mpc.mpc_interface as mpc_interface
 import rl_rrt_mpc.mpc.parameters as mpc_parameters
+import rl_rrt_mpc.mpc.trajectory_tracking.casadi_mpc as casadi_mpc
 import seacharts.enc as senc
 
 uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
     ACADOS_COMPATIBLE = False  # ACADOS does not support arm64 and macOS yet
 else:
-    import rl_rrt_mpc.mpc.acados_mpc as acados_mpc
+    import rl_rrt_mpc.mpc.trajectory_tracking.acados_mpc as acados_mpc
 
     ACADOS_COMPATIBLE = True
 
@@ -34,9 +35,9 @@ else:
 @dataclass
 class Config:
     enable_acados: bool = False
-    mpc: Type[mpc_parameters.IParams] = mpc_parameters.RLMPCParams()
+    mpc: mpc_parameters.TTMPCParams = mpc_parameters.TTMPCParams()
     solver_options: common.SolverConfig = common.SolverConfig()
-    model: Type[models.MPCModel] = models.KinematicCSOG()
+    model: Type[models.MPCModel] = models.Telemetron()
 
     @classmethod
     def from_dict(self, config_dict: dict):
@@ -46,27 +47,27 @@ class Config:
         elif "telemetron" in config_dict["model"]:
             model = models.Telemetron()
         else:
-            model = models.KinematicCSOG(cs_models.KinematicCSOGParams())
+            model = models.Telemetron(cs_models.TelemetronParams())
 
         config = Config(
             enable_acados=config_dict["enable_acados"],
-            mpc=mpc_parameters.RLMPCParams.from_dict(config_dict["params"]),
+            mpc=mpc_parameters.TTMPCParams.from_dict(config_dict["params"]),
             solver_options=common.SolverConfig.from_dict(config_dict["solver_options"]),
             model=model,
         )
         return config
 
 
-class MPC:
+class TTMPC(mpc_interface.IMPC):
+    """Class for the trajectory tracking MPC with COLAV. Quadratic cost in states and inputs. Nonlinear obstacle constraints."""
+
     def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
         if config:
-            self._params0 = config.mpc
             self._params = config.mpc
             self._solver_options: common.SolverConfig = config.solver_options
             self._acados_enabled: bool = config.enable_acados
         else:
             default_config = cp.extract(Config, config_file, dp.rl_rrt_mpc_schema)
-            self._params0 = default_config.mpc
             self._params = default_config.mpc
             self._solver_options = default_config.solver_options
             self._acados_enabled = default_config.enable_acados
@@ -76,7 +77,7 @@ class MPC:
             self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(config.model, self._params, self._solver_options.acados)
 
     @property
-    def params(self) -> mpc_parameters.IParams:
+    def params(self) -> mpc_parameters.TTMPCParams:
         return self._params
 
     def action_value(self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray) -> Tuple[float, dict]:

@@ -1,8 +1,8 @@
 """
-    rl_rrt_mpc.py
+    rlmpc.py
 
     Summary:
-        Contains the main RL-RRT-MPC (top and mid-level COLAV planner) and RL-MPC (mid-level COLAV planner) system class.
+        COLAV-simulator wrapper for the RL-MPC algorithm.
 
     Author: Trym Tengesdal
 """
@@ -20,7 +20,7 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.set_generator as sg
-import rl_rrt_mpc.mpc.mpc as mpc
+import rl_rrt_mpc.mpc.mpc_interface as mpc_interface
 import rl_rrt_mpc.mpc.parameters as mpc_params
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
@@ -30,17 +30,15 @@ from shapely import strtree
 @dataclass
 class RLMPCParams:
     rl: rl.RLParams
-    ktp: guidances.KTPGuidanceParams
     los: guidances.LOSGuidanceParams
-    mpc: mpc.Config
+    mpc: mpc_interface.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLMPCParams(
             rl=rl.RLParams.from_dict(config_dict["rl"]),
-            ktp=guidances.KTPGuidanceParams.from_dict(config_dict["ktp"]),
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
-            mpc=mpc.Config.from_dict(config_dict["mpc"]),
+            mpc=mpc_interface.Config.from_dict(config_dict["mpc"]),
         )
         return config
 
@@ -59,7 +57,7 @@ class RLMPC(ci.ICOLAV):
 
         self._rl = rl.RL(self._config.rl)
         self._los = guidances.LOSGuidance(self._config.los)
-        self._mpc = mpc.MPC(self._config.mpc)
+        self._mpc = mpc_interface.MPC(self._config.mpc)
 
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])

@@ -6,7 +6,7 @@
 
     Author: Trym Tengesdal
 """
-from typing import Optional, Tuple, TypeVar
+from typing import Optional, Tuple
 
 import casadi as csd
 import numpy as np
@@ -21,29 +21,29 @@ import seacharts.enc as senc
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
-ParamClass = TypeVar("ParamClass", bound=parameters.IParams)
-
 
 class AcadosMPC:
-    def __init__(self, model: models.MPCModel, params: ParamClass, solver_options: dict) -> None:
+    def __init__(self, model: models.MPCModel, params: parameters.TTMPCParams, solver_options: AcadosOcpOptions) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._acados_ocp.solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self._model = model
 
-        self._params0: ParamClass = params
-        self._params: ParamClass = params
+        self._params0: parameters.TTMPCParams = params
+        self._params: parameters.TTMPCParams = params
 
         self._x_warm_start: np.ndarray = np.array([])
         self._u_warm_start: np.ndarray = np.array([])
         self._initialized = False
         self._map_origin: np.ndarray = np.array([0.0, 0.0])
 
+        self._p_mdl: csd.MX = csd.MX.sym("p_mdl", 0)
         self._p_fixed: csd.MX = csd.MX.sym("p_fixed", 0)
         self._p_adjustable: csd.MX = csd.MX.sym("p_adjustable", 0)
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
         self._p_fixed_so_values: np.ndarray = np.zeros(0)
         self._p_adjustable_values: np.ndarray = np.zeros(0)
+        self._p_mdl_values: np.ndarray = np.zeros(0)
         self._num_fixed_params: int = 0
         self._num_adjustable_params: int = 0
 
@@ -140,10 +140,10 @@ class AcadosMPC:
         # Simulate the system from t_N to t_N+n_shifts with the last input
         if offset == 0:
             inputs_past_N = np.tile(u_mod, (n_shifts, 1)).T
-            states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], u_mod, self._params.dt, n_shifts)
+            states_past_N = self._model.euler_n_step(self._x_warm_start[:, -1], u_mod, self._p_mdl_values, self._params.dt, n_shifts)
         else:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
-            states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._params.dt, n_shifts + offset)
+            states_past_N = self._model.euler_n_step(self._x_warm_start[:, -offset], u_mod, self._p_mdl_values, self._params.dt, n_shifts + offset)
 
         if offset == 0:
             u_warm_start = np.concatenate((self._u_warm_start[:, n_shifts:], inputs_past_N), axis=1)

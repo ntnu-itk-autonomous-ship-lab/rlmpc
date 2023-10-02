@@ -85,12 +85,13 @@ class KinematicCSOG(MPCModel):
         f_impl = xdot - f_expl
         return f_impl, f_expl, xdot, x, u, p
 
-    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
         """Simulate N Euler steps for the Telemetron vessel
 
         Args:
             - xs (np.ndarray): State vector
             - u (np.ndarray): Input vector
+            - p (np.ndarray): Parameter vector
             - dt (float): Time step
             - N (int): Number of steps to simulate
 
@@ -101,7 +102,7 @@ class KinematicCSOG(MPCModel):
         xs_k = xs
         for k in range(N):
             soln[:, k] = xs_k
-            xdot = self.dynamics(xs_k, u).full().flatten()
+            xdot = self.dynamics(xs_k, u, p).full().flatten()
             dxs = xdot * dt
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
@@ -186,12 +187,13 @@ class Telemetron(MPCModel):
         f_impl = xdot - f_expl
         return f_impl, f_expl, xdot, x, u, p
 
-    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
         """Simulate N Euler steps for the Telemetron vessel
 
         Args:
             - xs (np.ndarray): State vector
             - u (np.ndarray): Input vector
+            - p (np.ndarray): Parameter vector
             - dt (float): Time step
             - N (int): Number of steps to simulate
 
@@ -202,7 +204,7 @@ class Telemetron(MPCModel):
         xs_k = xs
         for k in range(N):
             soln[:, k] = xs_k
-            xdot = self.dynamics(xs_k, u).full().flatten()
+            xdot = self.dynamics(xs_k, u, p).full().flatten()
             dxs = xdot * dt
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln

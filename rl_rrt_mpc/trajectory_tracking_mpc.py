@@ -1,8 +1,8 @@
 """
-    rl_rrt_mpc.py
+    antigrounding_mpc.py
 
     Summary:
-        Contains the main RL-RRT-MPC (top and mid-level COLAV planner) and RL-MPC (mid-level COLAV planner) system class.
+        COLAV-simulator planner wrapper for the anti-grounding MPC.
 
     Author: Trym Tengesdal
 """
@@ -20,40 +20,38 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.set_generator as sg
-import rl_rrt_mpc.mpc.mpc as mpc
 import rl_rrt_mpc.mpc.parameters as mpc_params
-import rl_rrt_mpc.rl as rl
+import rl_rrt_mpc.mpc.trajectory_tracking.ttmpc as ttmpc
 import seacharts.enc as senc
 from shapely import strtree
 
 
 @dataclass
-class AntigroundingMPCParams:
+class TrajectoryTrackingMPCParams:
     los: guidances.LOSGuidanceParams
-    mpc: mpc.Config
+    mpc: ttmpc.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        config = AntigroundingMPCParams(
+        config = TrajectoryTrackingMPCParams(
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
-            mpc=mpc.Config.from_dict(config_dict["mpc"]),
+            mpc=ttmpc.Config.from_dict(config_dict["ttmpc"]),
         )
         return config
 
 
-class AntiGroundingMPC(ci.ICOLAV):
+class TrajectoryTrackingMPC(ci.ICOLAV):
     """MPC for COLAV with anti-grounding functionality."""
 
-    def __init__(self, config: Optional[AntigroundingMPCParams] = None, config_file: Optional[Path] = dp.rl_mpc_config) -> None:
+    def __init__(self, config: Optional[TrajectoryTrackingMPCParams] = None, config_file: Optional[Path] = dp.ttmpc_config) -> None:
 
         if config:
-            self._config: AntigroundingMPCParams = config
+            self._config: TrajectoryTrackingMPCParams = config
         else:
-            self._config = cp.extract(AntigroundingMPCParams, config_file, dp.rl_mpc_schema)
+            self._config = cp.extract(TrajectoryTrackingMPCParams, config_file, dp.ttmpc_schema)
 
-        self._rl = rl.RL(self._config.rl)
         self._los = guidances.LOSGuidance(self._config.los)
-        self._mpc = mpc.MPC(self._config.mpc)
+        self._mpc = ttmpc.TTMPC(self._config.mpc)
 
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])

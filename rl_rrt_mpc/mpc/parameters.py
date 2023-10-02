@@ -2,7 +2,7 @@
     parameters.py
 
     Summary:
-        Contains parameter classes for a lower level anti-grounding + dynamic obstacle avoiding MPC, and an RL-MPC for mid-level COLAV.
+        Contains parameter classes for MPC-based COLAV in different flavours.
 
     Author: Trym Tengesdal
 """
@@ -46,8 +46,8 @@ class IParams(ABC):
 
 
 @dataclass
-class AntiGroundingMPCParams(IParams):
-    """Class for parameters used by the lower level anti-grounding + dynamic obstacle avoiding MPC. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
+class TTMPCParams(IParams):
+    """Class for parameters used by the lower level trajectory tracking MPC with COLAV. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
 
     rate: float = 5.0  # rate of the controller
     reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box
@@ -57,6 +57,7 @@ class AntiGroundingMPCParams(IParams):
     R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
     w_L2: float = 1e4  # slack variable weight L2 norm
     w_L1: float = 1e2  # slack variable weight L1 norm
+    gamma: float = 0.9  # discount factor in RL setting
     d_safe_so: float = 5.0  # safety distance to static obstacles
     d_safe_do: float = 5.0  # safety distance to dynamic obstacles
     so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
@@ -67,7 +68,7 @@ class AntiGroundingMPCParams(IParams):
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        params = AntiGroundingMPCParams(**config_dict)
+        params = TTMPCParams(**config_dict)
         params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
         params.Q = np.diag(params.Q)
         params.R = np.diag(params.R)
