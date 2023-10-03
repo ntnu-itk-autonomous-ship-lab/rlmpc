@@ -25,7 +25,7 @@ ttmpc:
     debug: True
   model:
     telemetron: ""
-  enable_acados: False
+  enable_acados: True
   solver_options:
     casadi:
       solver_type: "ipopt"

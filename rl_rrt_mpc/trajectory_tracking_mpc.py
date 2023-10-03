@@ -253,11 +253,11 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
     def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
 
         if self._nominal_trajectory.size > 6:
-            plt_handles["colav_nominal_trajectory"].set_xdata(self._nominal_trajectory[1, 0:-1:10] + self._map_origin[1])
-            plt_handles["colav_nominal_trajectory"].set_ydata(self._nominal_trajectory[0, 0:-1:10] + self._map_origin[0])
+            plt_handles["colav_nominal_trajectory"].set_xdata(self._nominal_trajectory[1, 0:-1:5] + self._map_origin[1])
+            plt_handles["colav_nominal_trajectory"].set_ydata(self._nominal_trajectory[0, 0:-1:5] + self._map_origin[0])
 
         if self._mpc_trajectory.size > 6:
-            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:10])
-            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:10])
+            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:2])
+            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:2])
 
         return plt_handles

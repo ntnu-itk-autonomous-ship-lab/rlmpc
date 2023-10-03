@@ -1,8 +1,8 @@
 """
-    agmpc.py
+    ttmpc.py
 
     Summary:
-        Contains the class for an anti-grounding MPC controller.
+        Contains the class for a trajectory tracking MPC-based COLAV planner.
 
 
     Author: Trym Tengesdal

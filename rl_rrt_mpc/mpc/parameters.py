@@ -96,8 +96,8 @@ class TTMPCParams(IParams):
 
 
 @dataclass
-class RLMPCParams(IParams):
-    """Class for parameters used by the mid-level risk-aware RL-MPC."""
+class RiskBasedMPCParams(IParams):
+    """Class for parameters used by the mid-level risk-aware Riskbased-MPC."""
 
     rate: float = 5.0  # rate of the controller
     reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box
@@ -118,7 +118,7 @@ class RLMPCParams(IParams):
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        params = RLMPCParams(**config_dict)
+        params = RiskBasedMPCParams(**config_dict)
         params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
         params.Q = np.diag(params.Q)
         params.R = np.diag(params.R)
