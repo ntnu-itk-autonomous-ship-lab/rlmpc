@@ -100,10 +100,10 @@ class RiskBasedMPCParams(IParams):
     """Class for parameters used by the mid-level risk-aware Riskbased-MPC."""
 
     rate: float = 5.0  # rate of the controller
-    reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box
-    T: float = 10.0  # prediction horizon
-    dt: float = 0.5  # time step
-    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])  # state cost matrix
+    reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
+    T: float = 100.0  # prediction horizon
+    dt: float = 1.0  # time step
+    Q: np.ndarray = np.diag([1.0, 1.0, 1.0])  # path following cost matrix
     R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
     w_L2: float = 1e4  # slack variable weight L2 norm
     w_L1: float = 1e2  # slack variable weight L1 norm
@@ -113,7 +113,6 @@ class RiskBasedMPCParams(IParams):
     so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
     max_num_so_constr: int = 5  # maximum number of static obstacle constraints
     max_num_do_constr: int = 0  # maximum number of dynamic obstacle constraints
-    path_following: bool = False  # whether to use path following or trajectory tracking
     debug: bool = False  # whether to print debug information
 
     @classmethod
@@ -122,12 +121,6 @@ class RiskBasedMPCParams(IParams):
         params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
         params.Q = np.diag(params.Q)
         params.R = np.diag(params.R)
-        if params.path_following and params.Q.shape[0] != 2:
-            raise ValueError("Q must be a 2x2 matrix when path_following is True.")
-
-        if not params.path_following and params.Q.shape[0] != 6:
-            raise ValueError("Q must be a 6x6 matrix when path_following is False (trajectory tracking).")
-
         return params
 
     def to_dict(self) -> dict:
