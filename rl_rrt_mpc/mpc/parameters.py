@@ -103,8 +103,9 @@ class RiskBasedMPCParams(IParams):
     reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
-    Q: np.ndarray = np.diag([1.0, 1.0, 1.0])  # path following cost matrix
-    R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
+    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0])  # path following cost matrix, position (x, y) and path timing (s, sdot)
+    K_speed: float = 1.0  # speed deviation penalty
+    K_fuel: float = 1.0  # fuel penalty
     w_L2: float = 1e4  # slack variable weight L2 norm
     w_L1: float = 1e2  # slack variable weight L1 norm
     gamma: float = 0.9  # discount factor in RL setting
