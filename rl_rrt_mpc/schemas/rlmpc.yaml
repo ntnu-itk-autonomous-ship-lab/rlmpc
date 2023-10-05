@@ -25,14 +25,14 @@ los:
     max_cross_track_error_int:
       required: True
       type: float
-ktp:
-  required: True
-  type: dict
-  schema:
-    epsilon:
-      required: True
-      type: float
-mpc:
+ ktp:
+    type: dict
+    excludes:
+    schema:
+      epsilon:
+        required: True
+        type: float
+midlevel_mpc:
   required: True
   type: dict
   schema:
@@ -52,18 +52,78 @@ mpc:
         dt:
           required: True
           type: float
-        Q:
-          required: True
-          type: list
-          maxlength: 6
-          minlength: 2
-          schema:
-            type: float
-        R:
+        Q_p:
           required: True
           type: list
           maxlength: 4
+          minlength: 4
+          schema:
+            type: float
+        alpha_app_chi:
+          required: True
+          type: list
+          maxlength: 2
           minlength: 2
+          schema:
+            type: float
+        alpha_app_speed:
+          required: True
+          type: list
+          maxlength: 2
+          minlength: 2
+          schema:
+            type: float
+        K_app_chi:
+          required: True
+          type: float
+        K_app_speed:
+          required: True
+          type: float
+        K_speed:
+          required: True
+          type: float
+        K_fuel:
+          required: True
+          type: float
+
+        alpha_gw:
+          required: True
+          type: list
+          maxlength: 2
+          minlength: 2
+          schema:
+            type: float
+        y_0_gw:
+          required: True
+          type: float
+        alpha_ho:
+          required: True
+          type: list
+          maxlength: 2
+          minlength: 2
+          schema:
+            type: float
+        x_0_ho:
+          required: True
+          type: float
+        alpha_ot:
+          required: True
+          type: list
+          maxlength: 2
+          minlength: 2
+          schema:
+            type: float
+        x_0_ot:
+          required: True
+          type: float
+        y_0_ot:
+          required: True
+          type: float
+        w_colregs:
+          required: True
+          type: list
+          maxlength: 3
+          minlength: 3
           schema:
             type: float
         w_L2:
@@ -75,10 +135,10 @@ mpc:
         gamma:
           required: True
           type: float
-        d_safe_so:
+        r_safe_so:
           required: True
           type: float
-        d_safe_do:
+        r_safe_do:
           required: True
           type: float
         so_constr_type:
@@ -87,20 +147,14 @@ mpc:
         max_num_so_constr:
           required: True
           type: integer
-        max_num_do_constr:
+        max_num_do_constr_per_zone:
           required: True
           type: integer
-        path_following:
-          required: True
-          type: boolean
-        debug:
-          required: True
-          type: boolean
     model:
       required: True
       type: dict
       schema:
-        csog:
+        augmented_csog:
           type: dict
           excludes: [telemetron]
           schema:
@@ -131,11 +185,29 @@ mpc:
             U_max:
               required: True
               type: float
+            U_dot_max:
+              required: True
+              type: float
         telemetron:
           type: string
           empty: True
-          excludes: [csog]
-
+          excludes: [augmented_csog]
+    path_timing:
+      required: True
+      type: dict
+      schema:
+        s_min:
+          required: True
+          type: float
+        s_max:
+          required: True
+          type: float
+        s_dot_min:
+          required: True
+          type: float
+        s_dot_max:
+          required: True
+          type: float
     enable_acados:
       required: True
       type: boolean

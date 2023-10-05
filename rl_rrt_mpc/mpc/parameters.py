@@ -96,38 +96,62 @@ class TTMPCParams(IParams):
 
 
 @dataclass
-class RiskBasedMPCParams(IParams):
-    """Class for parameters used by the mid-level risk-aware Riskbased-MPC."""
+class MidlevelMPCParams(IParams):
+    """Class for parameters used by the mid-level MPC COLAV."""
 
     rate: float = 5.0  # rate of the controller
     reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
-    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0])  # path following cost matrix, position (x, y) and path timing (s, sdot)
+    Q_p: np.ndarray = np.diag([0.1, 0.1, 1.0, 1.0])  # path following cost matrix, position (x, y) and path timing (s, sdot)
+    alpha_app_chi: np.ndarray = np.array([112.0, 0.0006])
+    alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
+    K_app_chi: float = 0.5  # turn rate penalty
+    K_app_speed: float = 0.6  # speed deviation penalty
     K_speed: float = 1.0  # speed deviation penalty
     K_fuel: float = 1.0  # fuel penalty
+
+    alpha_gw: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
+    y_0_gw: float = 100.0
+    alpha_ho: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
+    x_0_ho: float = 200.0
+    alpha_ot: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
+    x_0_ot: float = 200.0
+    y_0_ot: float = 100.0
+    w_colregs: np.ndarray = np.array([1.0, 1.0, 1.0])  # weights for the COLREGS potential functions
+
     w_L2: float = 1e4  # slack variable weight L2 norm
     w_L1: float = 1e2  # slack variable weight L1 norm
     gamma: float = 0.9  # discount factor in RL setting
-    d_safe_so: float = 5.0  # safety distance to static obstacles
-    d_safe_do: float = 5.0  # safety distance to dynamic obstacles
+    r_safe_so: float = 5.0  # safety distance radius to static obstacles
+    r_safe_do: float = 10.0  # safety distance radius to dynamic obstacles
     so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
     max_num_so_constr: int = 5  # maximum number of static obstacle constraints
-    max_num_do_constr: int = 0  # maximum number of dynamic obstacle constraints
-    debug: bool = False  # whether to print debug information
+    max_num_do_constr_per_zone: int = 5  # maximum number of dynamic obstacle constraints
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        params = RiskBasedMPCParams(**config_dict)
+        params = MidlevelMPCParams(**config_dict)
         params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
-        params.Q = np.diag(params.Q)
-        params.R = np.diag(params.R)
+        params.Q_p = np.diag(params.Q_p)
+        params.alpha_app_chi = np.array(params.alpha_app_chi)
+        params.alpha_app_speed = np.array(params.alpha_app_speed)
+        params.alpha_gw = np.array(params.alpha_gw)
+        params.alpha_ho = np.array(params.alpha_ho)
+        params.alpha_ot = np.array(params.alpha_ot)
+        params.w_colregs = np.array(params.w_colregs)
         return params
 
     def to_dict(self) -> dict:
         config_dict = asdict(self)
         config_dict["so_constr_type"] = self.so_constr_type.name
-        config_dict["Q"] = self.Q.diagonal().tolist()
+        config_dict["Q_p"] = self.Q_p.diagonal().tolist()
+        config_dict["alpha_app_chi"] = self.alpha_app_chi.tolist()
+        config_dict["alpha_app_speed"] = self.alpha_app_speed.tolist()
+        config_dict["alpha_gw"] = self.alpha_gw.tolist()
+        config_dict["alpha_ho"] = self.alpha_ho.tolist()
+        config_dict["alpha_ot"] = self.alpha_ot.tolist()
+        config_dict["w_colregs"] = self.w_colregs.tolist()
         return config_dict
 
     def adjustable(self) -> np.ndarray:
@@ -136,4 +160,22 @@ class RiskBasedMPCParams(IParams):
         Returns:
             np.ndarray: Array of adjustable parameters.
         """
-        return np.array([*self.Q.flatten().tolist(), *self.R.flatten().tolist(), self.d_safe_so, self.d_safe_do])
+        return np.array(
+            [
+                *self.Q_p.flatten().tolist(),
+                *self.alpha_app_chi.flatten().tolist(),
+                *self.alpha_app_speed.flatten().tolist(),
+                self.K_app_chi,
+                self.K_app_speed,
+                self.K_speed,
+                *self.alpha_gw.tolist(),
+                self.y_0_gw,
+                *self.alpha_ho.tolist(),
+                self.x_0_ho,
+                *self.alpha_ot.tolist(),
+                self.x_0_ot,
+                self.y_0_ot,
+                *self.w_colregs.tolist(),
+                self.r_safe_do,
+            ]
+        )

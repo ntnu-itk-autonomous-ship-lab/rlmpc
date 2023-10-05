@@ -7,6 +7,7 @@
     Author: Trym Tengesdal
 """
 from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass, field
 from typing import Tuple
 
 import casadi as csd
@@ -38,49 +39,112 @@ class MPCModel(ABC):
         """Returns input and state constraint boxes relevant for the model."""
 
 
-class KinematicCSOG(MPCModel):
-    def __init__(self, params: cs_models.KinematicCSOGParams = cs_models.KinematicCSOGParams()):
+@dataclass
+class AugmentedKinematicCSOGParams:
+    name: str = "AugmentedKinematicCSOG"
+    draft: float = 2.0
+    length: float = 10.0
+    ship_vertices: np.ndarray = field(default_factory=lambda: np.empty(2))
+    width: float = 3.0
+    T_chi: float = 3.0
+    T_U: float = 5.0
+    r_max: float = float(np.deg2rad(4))
+    U_min: float = 0.0
+    U_max: float = 15.0
+    U_dot_max: float = 1.0
+
+    @classmethod
+    def from_dict(self, params_dict: dict):
+        params = AugmentedKinematicCSOGParams(
+            draft=params_dict["draft"],
+            length=params_dict["length"],
+            width=params_dict["width"],
+            ship_vertices=np.empty(2),
+            T_chi=params_dict["T_chi"],
+            T_U=params_dict["T_U"],
+            r_max=np.deg2rad(params_dict["r_max"]),
+            U_min=params_dict["U_min"],
+            U_max=params_dict["U_max"],
+            U_dot_max=params_dict["U_dot_max"],
+        )
+        params.ship_vertices = np.array(
+            [
+                [params.length / 2.0, -params.width / 2.0],
+                [params.length / 2.0, params.width / 2.0],
+                [-params.length / 2.0, params.width / 2.0],
+                [-params.length / 2.0, -params.width / 2.0],
+            ]
+        ).T
+        return params
+
+    def to_dict(self):
+        output_dict = asdict(self)
+        output_dict["ship_vertices"] = self.ship_vertices.tolist()
+        output_dict["r_max"] = np.rad2deg(self.r_max)
+        return output_dict
+
+
+class AugmentedKinematicCSOG(MPCModel):
+    """Casadi+Acados model for the kinematic Course and Speed over Ground model, with augmented state:
+
+    xdot = U cos(chi)
+    ydot = U sin(chi)
+    chidot = (chi_d - chi) / T_chi
+    Udot = (U_d - U) / T_U
+    chi_d_dot = u1
+    U_d_dot = u2
+
+    i.e. xs = [x, y, chi, U, chi_d, U_d], and the inputs are u = [chi_d_dot, U_d_dot].
+
+    This allows for constraining the speed and course rate, and penalizing high course and speed changes.
+
+    """
+
+    def __init__(self, params: AugmentedKinematicCSOGParams = AugmentedKinematicCSOGParams()):
         self._acados_model = AcadosModel()
         self._params = params
         self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
         self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
 
         # Input and state bounds
-        min_speed = self._params.U_min
-        max_speed = self._params.U_max
+        U_min = self._params.U_min
+        U_max = self._params.U_max
+        U_dot_max = self._params.U_dot_max
+        r_max = self._params.r_max
         approx_inf = 1e10
         self.lbu = np.array(
             [
-                -approx_inf,
-                min_speed,
+                -r_max,
+                -U_dot_max,
             ]
         )
-        self.ubu = np.array([np.inf, max_speed])
+        self.ubu = np.array([r_max, U_dot_max])
 
-        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, min_speed])
-        self.ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed])
+        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, -approx_inf, U_min])
+        self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, approx_inf, U_max])
 
     def params(self) -> cs_models.KinematicCSOGParams:
         return self._params
 
     def dims(self) -> Tuple[int, int]:
-        return 4, 2
+        return 6, 2
 
     def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
-        """Forms the equations of motion for the Telemetron vessel
+        """Forms the equations of motion for the kinematic model
 
         Returns:
-            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state and input symbolic vectors
+            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state, input and parameter symbolic vectors
         """
-        x = csd.MX.sym("x", 4)
-        u = csd.MX.sym("u", 2)  # Fx, Fy as inputs
-        xdot = csd.MX.sym("x_dot", 4)
+        nx, nu = self.dims()
+        x = csd.MX.sym("x", nx)
+        u = csd.MX.sym("u", nu)
+        xdot = csd.MX.sym("x_dot", nx)
 
         T_U = csd.MX.sym("T_U", 1)
         T_chi = csd.MX.sym("T_chi", 1)
         p = csd.vertcat(T_chi, T_U)
 
-        kinematics = csd.vertcat(x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), (u[0] - x[2]) / T_chi, (u[1] - x[3]) / T_U)
+        kinematics = csd.vertcat(x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), (x[4] - x[2]) / T_chi, (x[5] - x[3]) / T_U, u[0], u[1])
         f_expl = kinematics
         f_impl = xdot - f_expl
         return f_impl, f_expl, xdot, x, u, p
@@ -90,7 +154,7 @@ class KinematicCSOG(MPCModel):
 
         Args:
             - xs (np.ndarray): State vector
-            - u (np.ndarray): Input vector
+            - u (np.ndarray): Input vector (chi_d_dot, U_d_dot)
             - p (np.ndarray): Parameter vector
             - dt (float): Time step
             - N (int): Number of steps to simulate
@@ -120,7 +184,7 @@ class KinematicCSOG(MPCModel):
         self._acados_model.xdot = self.xdot
         self._acados_model.u = self.u
         self._acados_model.p = self.p
-        self._acados_model.name = "kinematic_csog"
+        self._acados_model.name = "augmented_kinematic_csog"
         return self._acados_model
 
     @property
@@ -163,7 +227,7 @@ class Telemetron(MPCModel):
         """Forms the equations of motion for the Telemetron vessel
 
         Returns:
-            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state and input symbolic vectors
+            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state, input and parameter symbolic vectors
         """
         x = csd.MX.sym("x", 6)
         u = csd.MX.sym("u", 2)  # Fx, Fy as inputs
@@ -222,6 +286,127 @@ class Telemetron(MPCModel):
         self._acados_model.xdot = self.xdot
         self._acados_model.u = self.u
         self._acados_model.name = "telemetron"
+        return self._acados_model
+
+    @property
+    def acados_model(self):
+        return self._acados_model
+
+
+@dataclass
+class DoubleIntegratorParams:
+    s_min: float = 0.0
+    s_max: float = 1.0
+    s_dot_min: float = 0.0
+    s_dot_max: float = 1e10
+
+    @classmethod
+    def from_dict(self, params_dict: dict):
+        params = DoubleIntegratorParams(
+            s_min=params_dict["s_min"],
+            s_max=params_dict["s_max"],
+            s_dot_min=params_dict["s_dot_min"],
+            s_dot_max=params_dict["s_dot_max"],
+        )
+        return params
+
+    def to_dict(self):
+        output_dict = asdict(self)
+        return output_dict
+
+
+class DoubleIntegrator(MPCModel):
+    """Typically used for path timing model in the MPC.
+
+    s_dot (x1_dot) = s_dot (x2)
+    s_ddot (x2_dot) = u
+    """
+
+    def __init__(self, params: DoubleIntegratorParams = DoubleIntegratorParams()):
+        self._acados_model = AcadosModel()
+        self._params = params
+        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
+        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
+
+        # Input and state bounds
+        approx_inf = 1e10
+        self.lbu = np.array(
+            [
+                -approx_inf,
+            ]
+        )
+        self.ubu = np.array([approx_inf])
+
+        self.lbx = np.array([self._params.s_min, self._params.s_dot_min])
+        self.ubx = np.array([self._params.s_max, self._params.s_dot_max])
+
+    def set_min_path_variable(self, s_min: float):
+        self._params.s_min = s_min
+        self.lbx[0] = s_min
+
+    def set_max_path_variable(self, s_max: float):
+        self._params.s_max = s_max
+        self.ubx[0] = s_max
+
+    def params(self) -> DoubleIntegratorParams:
+        return self._params
+
+    def dims(self) -> Tuple[int, int]:
+        return 2, 1
+
+    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+        """Forms the equations of motion for the double integrator
+
+        Returns:
+            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state, input and parameter symbolic vectors
+        """
+        x = csd.MX.sym("x", 2)
+        u = csd.MX.sym("u", 1)
+        xdot = csd.MX.sym("x_dot", 2)
+
+        p = csd.vertcat([])
+
+        kinematics = csd.vertcat(x[1], u)
+        f_expl = kinematics
+        f_impl = xdot - f_expl
+        return f_impl, f_expl, xdot, x, u, p
+
+    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+        """Simulate N Euler steps for the Telemetron vessel
+
+        Args:
+            - xs (np.ndarray): State vector
+            - u (np.ndarray): Input vector
+            - p (np.ndarray): Parameter vector
+            - dt (float): Time step
+            - N (int): Number of steps to simulate
+
+        Returns:
+            np.ndarray: Next state vector
+        """
+        soln = np.zeros((self.x.shape[0], N))
+        xs_k = xs
+        for k in range(N):
+            soln[:, k] = xs_k
+            xdot = self.dynamics(xs_k, u, p).full().flatten()
+            dxs = xdot * dt
+            xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
+        return soln
+
+    def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        return self.lbu, self.ubu, self.lbx, self.ubx
+
+    def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
+        return self.f_expl, self.x, self.u, self.p
+
+    def as_acados(self) -> AcadosModel:
+        self._acados_model.f_impl_expr = self.f_impl
+        self._acados_model.f_expl_expr = self.f_expl
+        self._acados_model.x = self.x
+        self._acados_model.xdot = self.xdot
+        self._acados_model.u = self.u
+        self._acados_model.p = self.p
+        self._acados_model.name = "double_integrator"
         return self._acados_model
 
     @property

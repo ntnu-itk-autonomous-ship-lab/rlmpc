@@ -2,7 +2,7 @@
     acados_mpc.py
 
     Summary:
-        Contains a class (impl in Acados) for a risk-aware MPC-based COLAV planner.
+        Contains a class (impl in Acados) for a mid-level MPC-based COLAV planner.
 
     Author: Trym Tengesdal
 """
@@ -23,13 +23,13 @@ from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 
 class AcadosMPC:
-    def __init__(self, model: models.MPCModel, params: parameters.RiskBasedMPCParams, solver_options: AcadosOcpOptions) -> None:
+    def __init__(self, model: models.MPCModel, params: parameters.MidlevelMPCParams, solver_options: AcadosOcpOptions) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._acados_ocp.solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self._model = model
 
-        self._params0: parameters.RiskBasedMPCParams = params
-        self._params: parameters.RiskBasedMPCParams = params
+        self._params0: parameters.MidlevelMPCParams = params
+        self._params: parameters.MidlevelMPCParams = params
 
         self._x_warm_start: np.ndarray = np.array([])
         self._u_warm_start: np.ndarray = np.array([])

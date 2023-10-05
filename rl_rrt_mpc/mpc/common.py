@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 import casadi as csd
 import matplotlib.pyplot as plt
 import numpy as np
+import rl_rrt_mpc.common.math_functions as mf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.models as models
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
@@ -114,6 +115,167 @@ def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
         csd.MX: Cost function
     """
     return (var_ref - var).T @ W @ (var_ref - var)
+
+
+def path_following_cost(x: csd.MX, p_ref: csd.MX, U_ref: csd.MX, Q_p: csd.MX, K_speed: csd.MX, nx_ship: int) -> csd.MX:
+    """Computes the path following cost for an NMPFC COLAV. Assumes the ship model is augmented by the path timing dynamics.
+
+    Args:
+        - x (csd.MX): Current state.
+        - p_ref (csd.MX): Path reference.
+        - U_ref (csd.MX): Speed reference.
+        - Q_p (csd.MX): Path following cost weight matrix.
+        - K_speed (csd.MX): Speed deviation cost weight.
+        - nx_ship (int): Number of states in the ship model.
+
+    Returns:
+        csd.MX: Path following cost.
+    """
+    # relevant states for the path following cost term is the position (x, y) and path timing (s)
+    z = csd.vertcat(x[:2], x[nx_ship])
+    assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
+    assert Q_p.shape[0] == Q_p.shape[1] == p_ref.shape[0], "Path following cost weight matrix must be square and have the same dimension as the path reference."
+    return quadratic_cost(z, p_ref, Q_p) + K_speed * csd.power(x[3] - U_ref, 2)
+
+
+def rate_cost(u: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float) -> csd.MX:
+    """Computes the chattering cost associated with the rate of change of the course and speed references,
+    and stimulates chosing apparent maneuvers.
+
+    Args:
+        u (csd.MX): Current inputs (chi_d_dot, U_d_dot)
+        alpha_app (csd.MX): Apparent maneuver cost parameters.
+        K_app (csd.MX): Apparent maneuver cost weight.
+        r_max (float): Maximum rate of change of the course reference.
+        U_dot_max (float): Maximum rate of change of the speed reference.
+
+    Returns:
+        csd.MX: Chattering cost.
+    """
+    q_chi = alpha_app[0] * u[0] ** 2 + (1.0 - csd.exp(-u[0] ** 2 / alpha_app[1]))
+    q_chi_max = alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
+    q_U = alpha_app[2] * u[1] ** 2 + (1.0 - csd.exp(-u[1] ** 2 / alpha_app[3]))
+    q_U_max = alpha_app[2] * U_dot_max**2 + (1.0 - csd.exp(-(U_dot_max**2) / alpha_app[3]))
+
+    cost = K_app[0] * q_chi / q_chi_max + K_app[1] * q_U / q_U_max
+    return cost
+
+
+def colregs_cost(
+    x: csd.MX,
+    X_do_gw: csd.MX,
+    X_do_ho: csd.MX,
+    X_do_ot: csd.MX,
+    nx_do: int,
+    alpha_gw: csd.MX,
+    x_0_gw: csd.MX,
+    alpha_ho: csd.MX,
+    x_0_ho: csd.MX,
+    alpha_ot: csd.MX,
+    x_0_ot: csd.MX,
+    y_0_ot: csd.MX,
+    weights: csd.MX,
+) -> csd.MX:
+    """Computes the COLREGS cost for the COLAV MPC method using the potential function approach.
+
+    Args:
+        x (csd.MX): Current state.
+        X_do_gw (csd.MX): Dynamic obstacle states in the give-way zone
+        X_do_ho (csd.MX): Dynamic obstacle states in the head-on zone
+        X_do_ot (csd.MX): Dynamic obstacle states in the overtaking zone
+        nx_do (int): Number of states in the dynamic obstacle model.
+        alpha_gw (csd.MX): Attenuation parameters for the give-way situation potential function.
+        x_0_gw (csd.MX): Offset parameter for the give-way situation potential function.
+        alpha_ho (csd.MX): Attenuation parameters for the head-on situation potential function.
+        x_0_ho (csd.MX): Offset parameter for the head-on situation potential function.
+        alpha_ot (csd.MX): Attenuation parameters for the overtaking situation potential function.
+        x_0_ot (csd.MX): Offset parameter for the overtaking situation potential function.
+        y_0_ot (csd.MX): Offset parameter for the overtaking situation potential function.
+        weights (csd.MX): Weights for the COLREGS cost terms.
+
+    Returns:
+        csd.MX: COLREGS cost.
+    """
+    n_do_per_zone = int(X_do_gw.shape[0] / nx_do)
+
+    gw_term = 0.0
+    ho_term = 0.0
+    ot_term = 0.0
+    for i in range(n_do_per_zone):
+        x_aug_do_gw = X_do_gw[i * nx_do : (i + 1) * nx_do]
+        R_chi_do_gw = mf.Rpsi_casadi(x_aug_do_gw[2])
+
+        p_rel = R_chi_do_gw.T @ (x[:2] - x_aug_do_gw[:2])
+        gw_term += gw_potential(p_rel, alpha_gw, x_0_gw)
+
+        x_aug_do_ho = X_do_ho[i * nx_do : (i + 1) * nx_do]
+        R_chi_do_ho = mf.Rpsi_casadi(x_aug_do_ho[2])
+        p_rel = R_chi_do_ho.T @ (x[:2] - x_aug_do_ho[:2])
+        ho_term += ho_potential(p_rel, alpha_ho, x_0_ho)
+
+        x_aug_do_ot = X_do_ot[i * nx_do : (i + 1) * nx_do]
+        R_chi_do_ot = mf.Rpsi_casadi(x_aug_do_ot[2])
+        p_rel = R_chi_do_ot.T @ (x[:2] - x_aug_do_ot[:2])
+        ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot)
+
+    cost = weights[0] * gw_term + weights[1] * ho_term + weights[2] * ot_term
+    return cost
+
+
+def potential_field_base_function(x: csd.MX) -> csd.MX:
+    """Calculates the base nonlinear function for the potential field approach to COLREGS.
+
+    Args:
+        x (csd.MX): Input OS position relative to a target ship
+
+    Returns:
+        csd.MX: The base function value.
+    """
+    return x / csd.sqrt(x**2 + 1)
+
+
+def gw_potential(p: csd.MX, alpha: csd.MX, y_0: csd.MX) -> csd.MX:
+    """Calculates the potential function for the give-way situation.
+
+    Args:
+        p (csd.MX): Position relative to the TS body-fixed frame.
+        alpha (csd.MX): Parameter adjusting the steepness.
+        y_0 (csd.MX): Parameter adjusting the attenuation on the port side of the ship.
+
+    Returns:
+        csd.MX: The potential function value.
+    """
+    return 0.5 * potential_field_base_function(alpha[0] * p[0]) * (potential_field_base_function(alpha[1] * (p[1] - y_0)) + 1)
+
+
+def ho_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX) -> csd.MX:
+    """Calculates the potential function for the head-on situation.
+
+    Args:
+        p (csd.MX): Position relative to the TS body-fixed frame.
+        alpha (csd.MX): Parameter adjusting the steepness.
+        x_0 (csd.MX): Parameter adjusting the attenuation on the ship front.
+
+    Returns:
+        csd.MX: The potential function value.
+    """
+    return 0.5 * (potential_field_base_function(alpha[0] * (x_0 - p[0])) + 1) * potential_field_base_function(alpha[1] * p[1])
+
+
+def ot_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX, y_0: csd.MX) -> csd.MX:
+    """Calculates the potential function for the give-way situation.
+
+    Args:
+        p (csd.MX): Position relative to the TS body-fixed frame.
+        alpha (csd.MX): Parameter adjusting the steepness.
+        x_0 (csd.MX): Parameter adjusting the attenuation on the ship front.
+        y_0 (csd.MX): Parameter adjusting the attenuation on the port side of the ship.
+
+
+    Returns:
+        csd.MX: The potential function value.
+    """
+    return 0.5 * potential_field_base_function(alpha[0] * (x_0 - p[0])) * potential_field_base_function(alpha[1] * csd.fabs(p[1] - y_0))
 
 
 def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:

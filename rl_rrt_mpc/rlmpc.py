@@ -20,10 +20,11 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.set_generator as sg
-import rl_rrt_mpc.mpc.mpc_interface as mpc_interface
+import rl_rrt_mpc.mpc.mid_level.mid_level_mpc as mlmpc
 import rl_rrt_mpc.mpc.parameters as mpc_params
 import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
+from scipy.interpolate import CubicSpline, PchipInterpolator
 from shapely import strtree
 
 
@@ -31,14 +32,16 @@ from shapely import strtree
 class RLMPCParams:
     rl: rl.RLParams
     los: guidances.LOSGuidanceParams
-    mpc: mpc_interface.Config
+    ktp: guidances.KTPGuidanceParams
+    mpc: mlmpc.Config
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLMPCParams(
             rl=rl.RLParams.from_dict(config_dict["rl"]),
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
-            mpc=mpc_interface.Config.from_dict(config_dict["mpc"]),
+            ktp=guidances.KTPGuidanceParams.from_dict(config_dict["ktp"]),
+            mpc=mlmpc.Config.from_dict(config_dict["midlevel_mpc"]),
         )
         return config
 
@@ -48,16 +51,17 @@ class RLMPC(ci.ICOLAV):
     RL is used to update parameters online. Path-following/trajectory tracking can both be used. LOS-guidance is used to generate the nominal trajectory.
     """
 
-    def __init__(self, config: Optional[RLMPCParams] = None, config_file: Optional[Path] = dp.rl_mpc_config) -> None:
+    def __init__(self, config: Optional[RLMPCParams] = None, config_file: Optional[Path] = dp.rlmpc_config) -> None:
 
         if config:
             self._config: RLMPCParams = config
         else:
-            self._config = cp.extract(RLMPCParams, config_file, dp.rl_mpc_schema)
+            self._config = cp.extract(RLMPCParams, config_file, dp.rlmpc_schema)
 
         self._rl = rl.RL(self._config.rl)
         self._los = guidances.LOSGuidance(self._config.los)
-        self._mpc = mpc_interface.MPC(self._config.mpc)
+        self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
+        self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
 
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
@@ -75,6 +79,11 @@ class RLMPC(ci.ICOLAV):
         self._rel_polygons: list = []
         self._original_poly_list: list = []
         self._set_generator: Optional[sg.SetGenerator] = None
+        self._debug: bool = True
+
+        self._x_spline: CubicSpline = CubicSpline([], [])
+        self._y_spline: CubicSpline = CubicSpline([], [])
+        self._heading_spline: PchipInterpolator = PchipInterpolator([], [])
 
     def plan(
         self,
@@ -93,16 +102,17 @@ class RLMPC(ci.ICOLAV):
         """
         assert enc is not None, "ENC must be provided to the RL-MPC"
         N = int(self._mpc.params.T / self._mpc.params.dt)
+        U_ref = np.mean(speed_plan)
         if not self._initialized:
             self._map_origin = ownship_state[:2]
             self._initialized = True
             self._nominal_trajectory, self._nominal_inputs = hf.create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
-            self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
+            self._x_spline, self._y_spline, _, _ = self._ktp.compute_splines(waypoints=waypoints, speed_plan=speed_plan)
+            self._setup_mpc_static_obstacle_input(ownship_state, enc, self._debug, **kwargs)
             self._nominal_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
             self._mpc.construct_ocp(
-                nominal_trajectory=self._nominal_trajectory,
-                nominal_inputs=self._nominal_inputs,
+                nominal_path=[self._x_spline, self._y_spline, U_ref],
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
@@ -111,7 +121,9 @@ class RLMPC(ci.ICOLAV):
                 min_depth=self._min_depth,
             )
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
-        self._update_mpc_so_polygon_input(ownship_state, enc, self._mpc.params.debug)
+        self._update_mpc_so_polygon_input(ownship_state, enc, self._debug)
+
+        # colregs handling of DOs
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             nominal_trajectory, nominal_inputs = hf.shift_nominal_plan(
@@ -132,7 +144,7 @@ class RLMPC(ci.ICOLAV):
             self._mpc_inputs = self._mpc_soln["inputs"]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
-            if enc is not None and self._mpc.params.debug:
+            if self._debug:
                 hf.plot_trajectory(nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "yellow")
                 hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt)
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
@@ -142,10 +154,7 @@ class RLMPC(ci.ICOLAV):
                 self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
             )
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
-            # self._los.reset_wp_counter()
             self._t_prev_mpc = t
-            if t == 190.0 or t == 400.0 or t == 550.0:
-                print("here")
 
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
@@ -158,11 +167,9 @@ class RLMPC(ci.ICOLAV):
         # )
         # self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         # self._references[:nx, :] = self._mpc_trajectory
-
-        # Alternative 2: Apply MPC inputs directly to the ownship
-        self._references = np.zeros((9, len(self._mpc_inputs[0, :])))
-        self._references[:2, :] = self._mpc_inputs
-
+        self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
+        self._references[2, :] = self._mpc_trajectory[4, :]
+        self._references[3, :] = self._mpc_trajectory[5, :]
         return self._references
 
     def _setup_mpc_static_obstacle_input(self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs) -> None:
@@ -179,7 +186,7 @@ class RLMPC(ci.ICOLAV):
         self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
         poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
-            self._nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._mpc.params.debug
+            self._nominal_trajectory, self._geometry_tree, buffer=self._mpc.params.reference_traj_bbox_buffer, enc=enc, show_plots=self._debug
         )
         for poly_tuple in poly_tuple_list:
             self._rel_polygons.extend(poly_tuple[0])

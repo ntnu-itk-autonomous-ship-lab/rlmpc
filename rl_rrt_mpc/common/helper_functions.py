@@ -210,25 +210,61 @@ def ndarray_to_linestring(array: np.ndarray) -> geometry.LineString:
     return geometry.LineString(list(zip(array[0, :], array[1, :])))
 
 
-def casadi_matrix_from_nested_list(M: list):
-    """Convenience function for making a ca.SX matrix from lists of lists
+def casadi_potential_field_base_function(x: csd.MX) -> csd.MX:
+    """Potential field base function f(x) = x / sqrt(x^2 + 1)
+
+    Args:
+        x (csd.MX): Input
+
+    Returns:
+        csd.MX: Output f(x)
+    """
+    return x / csd.sqrt(x**2 + 1)
+
+
+def casadi_matrix_from_nested_list(M: list) -> csd.MX:
+    """Convenience function for making a casadi matrix from lists of lists
     (don't know why this doesn't exist already), the alternative is
-    ca.vertcat(
-        ca.horzcat(a,b,c),
-        ca.horzcat(d,e,f),
-        ...
-    )
 
     Args:
         M (list): List of lists
 
     Returns:
-        csd.SX: Casadi matrix
+        csd.MX: Casadi matrix
     """
     return csd.vertcat(*(csd.horzcat(*row) for row in M))
 
 
-def casadi_matrix_from_vector(v: csd.SX.sym, n_rows: int, n_cols: int):
+def casadi_diagonal_matrix_from_vector(v: csd.MX) -> csd.MX:
+    """Creates a diagonal matrix from a vector.
+
+    Args:
+        v (csd.MX): Vector symbolic representing diagonal entries
+    """
+    n = v.shape[0]
+    llist = []
+    for i in range(n):
+        nested_list = []
+        for j in range(n):
+            if i == j:
+                nested_list.append(v[i])
+            else:
+                nested_list.append(0.0)
+        llist.append(nested_list)
+    return casadi_matrix_from_nested_list(llist)
+
+
+def casadi_matrix_from_vector(v: csd.MX, n_rows: int, n_cols: int) -> csd.MX:
+    """Creates a matrix from a vector.
+
+    Args:
+        v (csd.MX): Vector symbolic representing matrix entries
+        n_rows (int): Rows in matrix
+        n_cols (int): Columns in matrix
+
+    Returns:
+        csd.MX: Casadi matrix
+    """
     llist = []
     for i in range(n_rows):
         nested_list = []
