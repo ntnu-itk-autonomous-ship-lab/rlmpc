@@ -8,8 +8,9 @@ if __name__ == "__main__":
     # rlmpc = agents.RLMPC()
     rlmpc_obj = rlmpc.RLMPC()
     scenario_file = dp.scenarios / "rl_scenario.yaml"
-    scenario_generator = ScenarioGenerator()
+    scenario_generator = ScenarioGenerator(seed=0)
     scenario_data = scenario_generator.generate(config_file=scenario_file)
     simulator = Simulator()
+    simulator.toggle_liveplot_visibility(False)
     output = simulator.run([scenario_data], ownship_colav_system=rlmpc_obj)
     print("done")
