@@ -941,7 +941,7 @@ def compute_surface_approximations_from_polygons(
             )
             for polygon in polygons:
 
-                # Extract the relevant polygon coastline  and buffered polygon coastline
+                # Extract the relevant polygon coastline  and safety buffered polygon coastline
                 relevant_coastline = polygon.intersection(original_polygon_boundary)
                 n_relevant_boundary_points = len(relevant_coastline.exterior.coords.xy[0])
                 relevant_coastline_safety_buffered = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style).intersection(original_polygon_boundary_d_safe)
@@ -974,8 +974,8 @@ def compute_surface_approximations_from_polygons(
                         y_surface_data_points.insert(i + 1 + insert_count, p_mid[1])
                         insert_count += 1
 
-                n_coastline_points = len(y_surface_data_points)
-                # for i in range(n_coastline_points - 1):
+                n_surface_data_points = len(y_surface_data_points)
+                # for i in range(n_surface_data_points - 1):
                 #     if j == 8:
                 #         pi = np.array([x_surface_data_points[i], y_surface_data_points[i]])
                 #         pj = np.array([x_surface_data_points[i + 1], y_surface_data_points[i + 1]])
@@ -988,7 +988,7 @@ def compute_surface_approximations_from_polygons(
                 y_poly_orig = y_surface_data_points.copy()
                 mask_surface_data_points = [1.0] * len(y_surface_data_points)
                 n_boundary_points = len(y_surface_data_points)
-                # print(f"n_boundary_points before: {n_orig_boundary_points} | after: {n_boundary_points}")
+                # print(f"n_boundary_points before: {n_relevant_boundary_points} | after: {n_boundary_points}")
 
                 # Add buffer points just outside the relevant polygon coastline, where the mask is zero or negative (no collision)
                 step_buffer = 1000.0
