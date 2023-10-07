@@ -20,7 +20,7 @@ import rl_rrt_mpc.mpc.common as mpc_common
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import seacharts.enc as senc
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, PchipInterpolator
 
 
 class CasadiMPC:
@@ -65,7 +65,7 @@ class CasadiMPC:
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
         self._set_generator: Optional[sg.SetGenerator] = None
-        self._p_mdl_values: np.ndarray = np.array([])
+        self._p_ship_mdl_values: np.ndarray = np.array([])
         self._p_fixed_so_values: np.ndarray = np.array([])
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -79,20 +79,20 @@ class CasadiMPC:
         self._xs_prev: np.ndarray = np.array([])
         self._min_depth: int = 5
 
+        self._x_path: CubicSpline = CubicSpline([0.0, 1.0], [0.0, 0.0])
+        self._y_path: CubicSpline = CubicSpline([0.0, 1.0], [0.0, 0.0])
+        self._psi_path: PchipInterpolator = PchipInterpolator([0.0, 1.0], [0.0, 0.0])
+        self._U_ref: float = 0.0
+
     @property
     def params(self):
         return self._params
 
     def get_adjustable_params(self) -> np.ndarray:
-        """Returns the RL-tuneable parameters in the NMPC.
+        """Returns the RL-tuneable parameters in the MPC.
 
         Returns:
-            np.ndarray: Array of parameters. The order of the parameters are:
-                - model parameters (if any)
-                - Q (flattened)
-                - R (flattened)
-                - r_safe_so
-                - r_safe_do
+            np.ndarray: Array of parameters.
         """
         mdl_adjustable_params = np.array([])
         if isinstance(self._model, models.AugmentedKinematicCSOG):
@@ -101,23 +101,68 @@ class CasadiMPC:
         mpc_adjustable_params = self.params.adjustable()
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
-    def _create_initial_warm_start(self, xs: np.ndarray, nominal_path: Tuple[CubicSpline, CubicSpline, float], dim_g: int) -> dict:
+    def _set_path_information(self, nominal_path: Tuple[CubicSpline, CubicSpline, PchipInterpolator, float]) -> None:
+        """Sets the path information for the MPC.
+
+        Args:
+            - nominal_path (Tuple[CubicSpline, CubicSpline, PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
+        """
+        x_spline, y_spline, psi_spline, U_ref = nominal_path
+        self._x_path = x_spline
+        self._y_path = y_spline
+        self._psi_path = psi_spline
+        self._U_ref = U_ref
+
+    def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int) -> np.ndarray:
+        """Euler prediction of the ship model and path timing model, concatenated.
+
+        Args:
+            - xs (np.ndarray): Starting state of the system.
+            - u (np.ndarray): Input to apply.
+            - dt (float): Time step.
+            - N (int): Number of steps to predict.
+
+        Returns:
+            np.ndarray: Predicted states.
+        """
+        nx, nu = self._model.dims()
+        nx_p, nu_p = self._path_timing.dims()
+        u_ship = u[:nu]
+        u_path = u[nu:]
+        X_ship = self._model.euler_n_step(xs, u_ship, self._p_ship_mdl_values, self._params.dt, N + 1)
+        X_path = self._path_timing.euler_n_step(xs, u_path, self._p_ship_mdl_values, self._params.dt, N + 1)
+        return np.concatenate((X_ship, X_path))
+
+    def _create_initial_warm_start(self, xs: np.ndarray, dim_g: int) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
 
         Args:
-            - xs (np.ndarray): Initial state of the system.
-            - nominal_path (Tuple[CubicSpline, CubicSpline, float]): Tuple containing the nominal path splines in x and y, and the nominal speed reference.
+            - xs (np.ndarray): Initial state of the system (x, y, chi, U)
             - dim_g (int): Dimension/length of the constraints.
         """
         nx, nu = self._model.dims()
+        nx_p, nu_p = self._path_timing.dims()
         N = int(self._params.T / self._params.dt)
-        w = np.zeros(N * nu)
-        nominal_trajectory_cpy = nominal_trajectory.copy()
-        psi = nominal_trajectory_cpy[2, :]
-        psi_unwrapped = np.unwrap(np.concatenate(([xs[2]], psi)))[1:]
-        nominal_trajectory_cpy[2, :] = psi_unwrapped
-        w = np.concatenate((w, nominal_trajectory_cpy[0:nx, 0 : N + 1].T.flatten()))
-        w = np.concatenate((w, np.zeros((self._params.max_num_so_constr + self._params.max_num_do_constr_per_zone) * (N + 1))))
+        w = np.zeros(nu + nu_p, N)
+
+        path_timing_input = 0.001
+        w[2, :] = path_timing_input * np.ones(N)
+        w = w.flatten()
+
+        xs_k = np.zeros(nx + nx_p)
+        xs_k[:4] = xs[:4]
+        xs_k[4] = xs[2]
+        xs_k[5] = self._U_ref
+
+        u_warm_start = np.zeros(nu + nu_p)
+        u_warm_start[nu:] = path_timing_input
+        warm_start_traj = self._model_prediction(xs_k, u_warm_start, N + 1)
+
+        chi = warm_start_traj[2, :]
+        chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
+        warm_start_traj[2, :] = chi_unwrapped
+        w = np.concatenate((w, warm_start_traj.T.flatten()))
+        w = np.concatenate((w, np.zeros((self._params.max_num_so_constr + 3 * self._params.max_num_do_constr_per_zone) * (N + 1))))
         warm_start = {"x": w.tolist(), "lam_x": np.zeros(w.shape[0]).tolist(), "lam_g": np.zeros(dim_g).tolist()}
         return warm_start
 
@@ -150,10 +195,10 @@ class CasadiMPC:
 
         if offset == 0:
             inputs_past_N = np.tile(u_mod, (n_shifts, 1)).T
-            states_past_N = self._model.euler_n_step(X_prev[:, -1], u_mod, self._p_mdl_values, self._params.dt, n_shifts)
+            states_past_N = self._model_prediction(X_prev[:, -1], u_mod, n_shifts)
         else:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
-            states_past_N = self._model.euler_n_step(X_prev[:, -offset], u_mod, self._p_mdl_values, self._params.dt, n_shifts + offset)
+            states_past_N = self._model_prediction(X_prev[:, -offset], u_mod, n_shifts + offset)
 
         if offset == 0:
             U_warm_start = np.concatenate((U_prev[:, n_shifts:], inputs_past_N), axis=1)
@@ -183,7 +228,12 @@ class CasadiMPC:
             - dt (float): Time to shift the warm start decision trajectory.
             - enc (senc.ENC): Electronic Navigational Chart object.
         """
-        lbu, ubu, _, _ = self._model.get_input_state_bounds()
+        nx, nu = self._model.dims()
+        nx_p, nu_p = self._path_timing.dims()
+        lbu_ship, ubu_ship, _, _ = self._model.get_input_state_bounds()
+        lbu_p, ubu_p, _, _ = self._path_timing.get_input_state_bounds()
+        lbu = np.concatenate((lbu_ship, lbu_p))
+        ubu = np.concatenate((ubu_ship, ubu_p))
         n_attempts = 3
         n_shifts = int(dt / self._params.dt)
         w_prev = np.array(prev_warm_start["x"])
@@ -192,7 +242,13 @@ class CasadiMPC:
         U_prev = U_prev.full()
         Sigma_prev = Sigma_prev.full()
         offsets = [0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
-        u_attempts = [U_prev[:, -1], np.array([U_prev[0, -offsets[1]], lbu[1]]), np.array([U_prev[0, -offsets[2]], ubu[1]]), np.array([0.0, 0.0])]
+        path_timing_input = 0.001
+        u_attempts = [
+            U_prev[:, -1],
+            np.array([U_prev[0, -offsets[1]], lbu[1], path_timing_input]),
+            np.array([U_prev[0, -offsets[2]], ubu[1], path_timing_input]),
+            np.zeros(nu + nu_p),
+        ]
         success = False
         for i in range(n_attempts):
             w_warm_start, success = self._try_to_create_warm_start_solution(X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, enc)
@@ -206,7 +262,6 @@ class CasadiMPC:
     def plan(
         self,
         t: float,
-        nominal_path: Tuple[CubicSpline, CubicSpline, float],
         xs: np.ndarray,
         do_list: list,
         so_list: list,
@@ -217,7 +272,6 @@ class CasadiMPC:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
-            - nominal_path (Tuple[CubicSpline, CubicSpline, float]): Tuple containing the nominal path splines in x and y, and the nominal speed reference.
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List ofrelevant static obstacle Polygon objects.
@@ -228,8 +282,8 @@ class CasadiMPC:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
         if not self._initialized_v:
-            self._current_warmstart_v = self._create_initial_warm_start(xs, nominal_path, self._lbg_v.shape[0])
-            self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, nominal_path, enc, **kwargs)
+            self._current_warmstart_v = self._create_initial_warm_start(xs, self._lbg_v.shape[0])
+            self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc, **kwargs)
             self._xs_prev = xs
             self._initialized_v = True
 
@@ -243,7 +297,7 @@ class CasadiMPC:
         if dt > 0.0:
             self._current_warmstart_v = self._shift_warm_start(self._current_warmstart_v, xs_unwrapped, dt, enc)
 
-        parameter_values = self.create_parameter_values(xs_unwrapped, action, nominal_path, do_list, so_list, enc, **kwargs)
+        parameter_values = self.create_parameter_values(xs_unwrapped, action, do_list, so_list, enc, **kwargs)
         t_start = time.time()
         soln = self._vsolver(
             x0=self._current_warmstart_v["x"],
@@ -312,7 +366,14 @@ class CasadiMPC:
         X[2, :] = psi
         return X, U, Sigma
 
-    def construct_ocp(self, so_list: list, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0]), min_depth: int = 5) -> None:
+    def construct_ocp(
+        self,
+        nominal_path: Tuple[CubicSpline, CubicSpline, PchipInterpolator, float],
+        so_list: list,
+        enc: senc.ENC,
+        map_origin: np.ndarray = np.array([0.0, 0.0]),
+        min_depth: int = 5,
+    ) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
         Class constructs a "CASADI" (ipopt) tailored OCP on the form (same as for the ACADOS MPC):
@@ -332,11 +393,13 @@ class CasadiMPC:
                     lbg <= g(w, p) <= ubg
 
         Args:
+            - nominal_path (Tuple[CubicSpline, CubicSpline, PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
             - so_list (list): List of compatible static obstacle Polygon objects with the static obstacle constraint type.
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
         """
+        self._set_path_information(nominal_path)
         self._min_depth = min_depth
         self._map_origin = map_origin
         N = int(self._params.T / self._params.dt)
@@ -732,8 +795,6 @@ class CasadiMPC:
         self,
         state: np.ndarray,
         action: Optional[np.ndarray],
-        nominal_trajectory: np.ndarray,
-        nominal_inputs: Optional[np.ndarray],
         do_list: list,
         so_list: list,
         enc: Optional[senc.ENC] = None,
@@ -744,8 +805,6 @@ class CasadiMPC:
         Args:
             - state (np.ndarray): Current state of the system.
             - action (np.ndarray): Current action of the system.
-            - nominal_trajectory (np.ndarray | list): Nominal reference trajectory to track or path to follow.
-            - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - do_list (list): List of dynamic obstacles.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
@@ -765,15 +824,7 @@ class CasadiMPC:
         else:
             fixed_parameter_values.extend([0.0] * nu)
 
-        dim_Q = nx
-        if self._params.path_following:
-            dim_Q = 2
-
-        fixed_parameter_values.extend(nominal_trajectory[0:dim_Q, : N + 1].T.flatten().tolist())
-        if not self._params.path_following and nominal_inputs is not None:
-            fixed_parameter_values.extend(nominal_inputs[:, :N].T.flatten().tolist())
-        else:
-            fixed_parameter_values.extend([0.0] * N * nu)
+        fixed_parameter_values.append(self._U_ref)
         fixed_parameter_values.append(self._params.gamma)
         W = self._params.w_L1 * np.ones(self._params.max_num_so_constr + self._params.max_num_do_constr_per_zone)
         fixed_parameter_values.extend(W.tolist())
@@ -789,17 +840,16 @@ class CasadiMPC:
                 else:
                     fixed_parameter_values.extend([state[0] - 10000.0, state[1] - 10000.0, 0.0, 0.0, 5.0, 2.0])
 
-        so_parameter_values = self._update_so_parameter_values(so_list, state, nominal_trajectory, enc, **kwargs)
+        so_parameter_values = self._update_so_parameter_values(so_list, state, enc, **kwargs)
         fixed_parameter_values.extend(so_parameter_values)
         return np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0)
 
-    def _create_fixed_so_parameter_values(self, so_list: list, state: np.ndarray, nominal_trajectory: np.ndarray, enc: Optional[senc.ENC] = None, **kwargs) -> np.ndarray:
+    def _create_fixed_so_parameter_values(self, so_list: list, state: np.ndarray, enc: Optional[senc.ENC] = None, **kwargs) -> np.ndarray:
         """Creates the fixed parameter values for the static obstacle constraints.
 
         Args:
             - so_list (list): List of static obstacles.
             - state (np.ndarray): Current state of the system.
-            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow.
             - enc (senc.ENC): Electronic Navigation Chart (ENC) object.
 
         Returns:
@@ -814,13 +864,12 @@ class CasadiMPC:
                 fixed_so_parameter_values.extend([c[0], c[1], *A.flatten().tolist()])
         return np.array(fixed_so_parameter_values)
 
-    def _update_so_parameter_values(self, so_list: list, state: np.ndarray, nominal_trajectory: np.ndarray, enc: senc.ENC, **kwargs) -> list:
+    def _update_so_parameter_values(self, so_list: list, state: np.ndarray, enc: senc.ENC, **kwargs) -> list:
         """Updates the parameter values for the static obstacle constraints in case of changing constraints.
 
         Args:
             - so_list (list): List of static obstacles.
             - state (np.ndarray): Current state of the system.
-            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow.
             - enc (senc.ENC): Electronic Navigation Chart (ENC) object.
 
         Returns:

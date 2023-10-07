@@ -81,10 +81,6 @@ class RLMPC(ci.ICOLAV):
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
 
-        self._x_spline: CubicSpline = CubicSpline([], [])
-        self._y_spline: CubicSpline = CubicSpline([], [])
-        self._heading_spline: PchipInterpolator = PchipInterpolator([], [])
-
     def plan(
         self,
         t: float,
@@ -107,12 +103,12 @@ class RLMPC(ci.ICOLAV):
             self._map_origin = ownship_state[:2]
             self._initialized = True
             self._nominal_trajectory, self._nominal_inputs = hf.create_los_based_trajectory(ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt)
-            self._x_spline, self._y_spline, _, _ = self._ktp.compute_splines(waypoints=waypoints, speed_plan=speed_plan)
+            x_spline, y_spline, heading_spline, _ = self._ktp.compute_splines(waypoints=waypoints, speed_plan=speed_plan)
             self._setup_mpc_static_obstacle_input(ownship_state, enc, self._debug, **kwargs)
             self._nominal_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(do_list, self._map_origin[1], self._map_origin[0])
             self._mpc.construct_ocp(
-                nominal_path=[self._x_spline, self._y_spline, U_ref],
+                nominal_path=[x_spline, y_spline, heading_spline, U_ref],
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
@@ -133,8 +129,6 @@ class RLMPC(ci.ICOLAV):
             nominal_trajectory[2, :] = np.unwrap(np.concatenate(([psi_nom[0]], psi_nom)))[1:]
             self._mpc_soln = self._mpc.plan(
                 t,
-                nominal_trajectory=nominal_trajectory,
-                nominal_inputs=nominal_inputs,
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,

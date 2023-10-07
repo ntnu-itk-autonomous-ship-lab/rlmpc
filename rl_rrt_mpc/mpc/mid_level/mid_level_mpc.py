@@ -21,7 +21,7 @@ import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.mpc_interface as mpc_interface
 import rl_rrt_mpc.mpc.parameters as mpc_parameters
 import seacharts.enc as senc
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import CubicSpline, PchipInterpolator
 
 uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
@@ -62,7 +62,7 @@ class Config:
         return config
 
 
-class MidlevelMPC(mpc_interface.IMPC):
+class MidlevelMPC:
     """Class for a mid-level COLAV planner with multiple economic goals. Nonlinear obstacle constraints."""
 
     def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
@@ -106,7 +106,7 @@ class MidlevelMPC(mpc_interface.IMPC):
 
     def construct_ocp(
         self,
-        nominal_path: Tuple[CubicSpline, CubicSpline, float],
+        nominal_path: Tuple[CubicSpline, CubicSpline, PchipInterpolator, float],
         xs: np.ndarray,
         do_list: list,
         so_list: list,
@@ -117,7 +117,7 @@ class MidlevelMPC(mpc_interface.IMPC):
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
         Args:
-            - nominal_path (Tuple[CubicSpline, CubicSpline, float]): Tuple containing the nominal path splines in x and y, and the nominal speed reference.
+            - nominal_path (Tuple[CubicSpline, CubicSpline, PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
             - xs (np.ndarray): Current state of the ownship.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of static obstacle Polygon objects.
@@ -129,12 +129,11 @@ class MidlevelMPC(mpc_interface.IMPC):
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, xs, do_list, so_list, enc, map_origin, min_depth)
 
-    def plan(self, t: float, nominal_path: Tuple[CubicSpline, CubicSpline, float], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, **kwargs) -> dict:
+    def plan(self, t: float, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, **kwargs) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
             - t (float): Current time.
-            - nominal_path (Tuple[CubicSpline, CubicSpline, float]): Tuple containing the nominal path splines in x and y, and the nominal speed reference.
             - xs (np.ndarray): Current state.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - so_list (list): List of ALL static obstacle Polygon objects.
@@ -145,7 +144,7 @@ class MidlevelMPC(mpc_interface.IMPC):
             - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
         if self._acados_enabled:
-            mpc_soln = self._acados_mpc.plan(t, nominal_path, xs, do_list, so_list, enc, **kwargs)
+            mpc_soln = self._acados_mpc.plan(t, xs, do_list, so_list, enc, **kwargs)
         else:
-            mpc_soln = self._casadi_mpc.plan(t, nominal_path, xs, do_list, so_list, enc, **kwargs)
+            mpc_soln = self._casadi_mpc.plan(t, xs, do_list, so_list, enc, **kwargs)
         return mpc_soln
