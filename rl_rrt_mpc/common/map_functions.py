@@ -13,7 +13,6 @@ from typing import Optional, Tuple
 import casadi as csd
 import geopandas as gpd
 import geopy.distance
-import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.gmm_em as gmm_em
@@ -26,10 +25,10 @@ import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
-from matplotlib import cm
 
 # import triangle as tr
 from osgeo import osr
+from scipy.interpolate import interp1d
 from shapely import ops, strtree
 
 plt.rcParams.update(
@@ -910,7 +909,7 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
 
 
 def compute_surface_approximations_from_polygons(
-    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: list = [0.0], map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = True
+    polygons: list, enc: Optional[senc.ENC] = None, safety_margins: list = [0.0], map_origin: np.ndarray = np.array([0.0, 0.0]), show_plots: bool = False
 ) -> list:
     """Computes smooth 2D surface approximations from the input polygon list.
 
@@ -927,7 +926,7 @@ def compute_surface_approximations_from_polygons(
     surfaces_list = []
     cap_style = 2
     join_style = 2
-    code_gen = csd.CodeGenerator("surface_functions")
+    max_num_orig_surface_points = 150
 
     j = 0
     for d_safe in safety_margins:
@@ -944,95 +943,94 @@ def compute_surface_approximations_from_polygons(
                 # Extract the relevant polygon coastline  and safety buffered polygon coastline
                 relevant_coastline = polygon.intersection(original_polygon_boundary)
                 n_relevant_boundary_points = len(relevant_coastline.exterior.coords.xy[0])
+
                 relevant_coastline_safety_buffered = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style).intersection(original_polygon_boundary_d_safe)
                 y_coastline_orig, x_coastline_orig = relevant_coastline_safety_buffered.exterior.coords.xy
-                y_surface_data_points = list(y_coastline_orig).copy()
-                x_surface_data_points = list(x_coastline_orig).copy()
 
+                x_coastline_interp_arc_length, y_coastline_interp_arc_length, arc_length = hf.create_arc_length_spline(x_coastline_orig, y_coastline_orig)
+
+                # Tuning parameter
+                spacing_between_points = max(5.0, arc_length[-1] / max_num_orig_surface_points)
+                print(f"Polygon {j}: Relevant coastline arc length: {arc_length[-1]} | distance spacing: {spacing_between_points}")
+
+                y_surface_data_points = list(y_coastline_interp_arc_length(np.arange(0, arc_length[-1], spacing_between_points)))
+                x_surface_data_points = list(x_coastline_interp_arc_length(np.arange(0, arc_length[-1], spacing_between_points)))
                 if enc is not None and show_plots:
                     translated_coastline = hf.translate_polygons([relevant_coastline_safety_buffered], -map_origin[1], -map_origin[0])[0]
                     enc.draw_polygon(translated_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style), color="orange", fill=False)
 
                     tuple_xy = [(y + map_origin[1], x + map_origin[0]) for (y, x) in zip(y_surface_data_points, x_surface_data_points)]
-                    enc.draw_line(tuple_xy, color="cyan")
-
-                n_coastline_points_orig = len(y_coastline_orig)
-                insert_count = 0
-                for i in range(n_coastline_points_orig - 1):
-                    pi = np.array([x_coastline_orig[i], y_coastline_orig[i]])
-                    pj = np.array([x_coastline_orig[i + 1], y_coastline_orig[i + 1]])
-                    d2next = np.linalg.norm(pi - pj)
-                    if (
-                        d2next > 30.0
-                        or (j == 8 and d2next > 15.0)  # and i > int(0.7 * n_coastline_points_orig))
-                        or (j >= 3 and j < 8 and d2next > 10.0)
-                        or (j > 8 and d2next > 10.0)
-                    ):
-                        # insert a point in between the two points
-                        p_mid = (pi + pj) / 2.0
-                        x_surface_data_points.insert(i + 1 + insert_count, p_mid[0])
-                        y_surface_data_points.insert(i + 1 + insert_count, p_mid[1])
-                        insert_count += 1
+                    # enc.draw_line(tuple_xy, color="cyan", thickness=1.0, width=0.5)
 
                 n_surface_data_points = len(y_surface_data_points)
                 # for i in range(n_surface_data_points - 1):
-                #     if j == 8:
-                #         pi = np.array([x_surface_data_points[i], y_surface_data_points[i]])
-                #         pj = np.array([x_surface_data_points[i + 1], y_surface_data_points[i + 1]])
-                #         d2next = np.linalg.norm(pi - pj)
-                #         print(f"Distance between vertex {i} and {i+1} after: {d2next}")
-                #         enc.draw_circle((pi[1] + map_origin[1], pi[0] + map_origin[0]), radius=5.0, color="purple", fill=True)
+                #     pi = np.array([x_surface_data_points[i], y_surface_data_points[i]])
+                #     pj = np.array([x_surface_data_points[i + 1], y_surface_data_points[i + 1]])
+                #     d2next = np.linalg.norm(pi - pj)
+                #     print(f"Distance between vertex {i} and {i+1} after: {d2next}")
+                #     if enc is not None:
+                #         enc.draw_circle((pi[1] + map_origin[1], pi[0] + map_origin[0]), radius=1.0, color="purple", fill=False)
 
-                polygon_d_safe = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style)
-                x_poly_orig = x_surface_data_points.copy()
-                y_poly_orig = y_surface_data_points.copy()
+                x_surface_points_before_buffering = x_surface_data_points.copy()
+                y_surface_points_before_buffering = y_surface_data_points.copy()
                 mask_surface_data_points = [1.0] * len(y_surface_data_points)
                 n_boundary_points = len(y_surface_data_points)
-                # print(f"n_boundary_points before: {n_relevant_boundary_points} | after: {n_boundary_points}")
+                print(f"n_surface_points before: {len(y_coastline_orig)} | after interpolation: {n_surface_data_points}")
 
                 # Add buffer points just outside the relevant polygon coastline, where the mask is zero or negative (no collision)
-                step_buffer = 1000.0
-                n_levels = 1
-                for level in range(n_levels):
-                    buff_l = 0.1 + level * step_buffer
-                    try:
-                        y_poly, x_poly = polygon.buffer(d_safe + buff_l, cap_style=cap_style, join_style=join_style).exterior.coords.xy
-                        for (xcoord, ycoord) in zip(x_poly, y_poly):
-                            if original_polygon_boundary_d_safe.buffer(buff_l, cap_style=cap_style, join_style=join_style).contains(geometry.Point(ycoord, xcoord)):
-                                x_surface_data_points.append(xcoord)
-                                y_surface_data_points.append(ycoord)
-                                mask_surface_data_points.append(-1.0)
-                    except AttributeError:
-                        break
+                buffer_distance = 0.1
+                y_poly, x_poly = polygon.buffer(d_safe + buffer_distance, cap_style=cap_style, join_style=join_style).exterior.coords.xy
+                y_poly_spline, x_poly_spline, arc_length_poly = hf.create_arc_length_spline(x_poly, y_poly)
+                # Tuning parameter
+                buffer_point_distance_spacing = max(10.0, 0.05 * arc_length_poly[-1])
+                surface_value_at_buffer_points = -1.0
+                y_poly_spaced = list(y_poly_spline(np.arange(0, arc_length_poly[-1], buffer_point_distance_spacing)))
+                x_poly_spaced = list(x_poly_spline(np.arange(0, arc_length_poly[-1], buffer_point_distance_spacing)))
+                try:
+                    for (xcoord, ycoord) in zip(x_poly_spaced, y_poly_spaced):
+                        if original_polygon_boundary_d_safe.buffer(buffer_distance, cap_style=cap_style, join_style=join_style).contains(geometry.Point(ycoord, xcoord)):
+                            x_surface_data_points.append(xcoord)
+                            y_surface_data_points.append(ycoord)
+                            mask_surface_data_points.append(surface_value_at_buffer_points)
+                except AttributeError:
+                    break
+                print(f"buffer_point_distance_spacing: {buffer_point_distance_spacing}")
+                print(f"n_surface_points after buffer points: {len(y_surface_data_points)}")
 
                 ## Add more buffer points further away from the relevant polygon coastline, where the mask is zero or negative (no collision)
-                buff_l = 10.0
-                val_l = -10.0
-                if j > 5:
-                    buff_l = 1000.0
-                    val_l = -1000.0
-                relevant_coastline_extra_buffered = polygon.buffer(d_safe + buff_l).intersection(
-                    geometry.LineString(original_poly.buffer(d_safe + buff_l).exterior.coords).buffer(1.0)
+                # buffer_distance = 10.0
+                # if j > 5:
+                buffer_distance = 10.0
+                surface_value_at_outlier_points = -10.0
+                relevant_coastline_extra_buffered = polygon.buffer(d_safe + buffer_distance).intersection(
+                    geometry.LineString(original_poly.buffer(d_safe + buffer_distance).exterior.coords).buffer(1.0)
                 )
                 y_buffered_boundary, x_buffered_boundary = relevant_coastline_extra_buffered.exterior.coords.xy
 
-                y_poly, x_poly = polygon_d_safe.exterior.coords.xy
-                if len(y_poly) < 10:
-                    n_boundary_points = 10
-                else:
-                    n_boundary_points = 50
+                if enc is not None and show_plots:
+                    translated_extra_buff_coastline = hf.translate_polygons([relevant_coastline_extra_buffered], -map_origin[1], -map_origin[0])[0]
+                    enc.draw_polygon(translated_extra_buff_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style), color="cyan", fill=False)
 
-                if len(y_buffered_boundary) < n_boundary_points:
-                    n_boundary_points = len(y_buffered_boundary)
-                elif len(y_buffered_boundary) > 300:
-                    n_boundary_points = 100
-                step = int(len(y_buffered_boundary) / n_boundary_points)
-                for i in range(0, len(y_buffered_boundary), step):
-                    x_surface_data_points.append(x_buffered_boundary[i])
-                    y_surface_data_points.append(y_buffered_boundary[i])
-                    mask_surface_data_points.append(val_l)
+                    tuple_xy = [(y + map_origin[1], x + map_origin[0]) for (y, x) in zip(y_buffered_boundary, x_buffered_boundary)]
+                    # enc.draw_line(tuple_xy, color="cyan", thickness=1.0, width=0.5)
 
-                smoothing = 1.0
+                polygon_safety_buffered = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style)
+                y_poly, x_poly = polygon_safety_buffered.exterior.coords.xy
+
+                x_extra_boundary_spline, y_extra_boundary_spline, arc_length_extra_boundary = hf.create_arc_length_spline(x_buffered_boundary, y_buffered_boundary)
+                # Tuning parameter
+                extra_buffer_point_distance_spacing = max(10.0, 0.1 * arc_length_extra_boundary[-1])
+                y_extra_boundary = list(y_extra_boundary_spline(np.arange(0, arc_length_extra_boundary[-1], extra_buffer_point_distance_spacing)))
+                x_extra_boundary = list(x_extra_boundary_spline(np.arange(0, arc_length_extra_boundary[-1], extra_buffer_point_distance_spacing)))
+                for (xcoord, ycoord) in zip(x_extra_boundary, y_extra_boundary):
+                    x_surface_data_points.append(xcoord)
+                    y_surface_data_points.append(ycoord)
+                    mask_surface_data_points.append(surface_value_at_outlier_points)
+                    if enc is not None:
+                        enc.draw_circle((ycoord + map_origin[1], xcoord + map_origin[0]), radius=1.0, color="green", fill=False)
+                print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
+                print(f"n_surface_points after extra buffer points: {len(y_surface_data_points)}")
+                smoothing = 7.5
                 if j == 1:
                     smoothing = 1.0
                 if j == 8:
@@ -1058,62 +1056,32 @@ def compute_surface_approximations_from_polygons(
                 x = csd.MX.sym("x", 2)
                 intp = rbf_csd(x.reshape((1, 2)))
                 rbf_surface_func = csd.Function("so_surface_func_" + str(j) + "_" + safety_margin_str, [x.reshape((1, 2))], [intp])
+
+                grad_rbf = csd.gradient(rbf_surface_func(x.reshape((1, 2))), x.reshape((1, 2)))
+                grad_rbf_func = csd.Function("grad_f", [x.reshape((1, 2))], [grad_rbf])
+
                 surfaces.append(rbf_surface_func)
-                code_gen.add(rbf_surface_func)
 
                 if enc is not None and show_plots:
-                    figs, axes = hf.plot_surface_approximation_stuff(
-                        original_polygon,
-                        polygon,
-                        polygon_d_safe,
-                        relevant_coastline_safety_buffered,
-                        rbf,
-                        x_poly_orig,
-                        y_poly_orig,
-                        x_surface_data_points,
-                        y_surface_data_points,
-                        mask_surface_data_points,
-                        j,
-                        d_safe,
-                        map_origin,
+                    hf.plot_surface_approximation_stuff(
+                        radial_basis_function=rbf_surface_func,
+                        radial_basis_function_gradient=grad_rbf_func,
+                        surface_data_points=(x_surface_data_points, y_surface_data_points),
+                        surface_data_point_mask=mask_surface_data_points,
+                        surface_data_points_before_buffering=(x_surface_points_before_buffering, y_surface_points_before_buffering),
+                        original_polygon=original_poly,
+                        polygon=polygon,
+                        polygon_safety_buffered=polygon_safety_buffered,
+                        polygon_index=j,
+                        relevant_coastline_safety_buffered=relevant_coastline_safety_buffered,
+                        d_safe=d_safe,
+                        map_origin=map_origin,
+                        enc=enc,
                     )
 
                 j += 1
         surfaces_list.append(surfaces)
-        code_gen.generate()
     return surfaces_list
-
-
-def compute_splines_from_polygons(polygons: list, enc: Optional[senc.ENC] = None, show_plots: bool = False) -> Tuple[list, list]:
-    """Computes splines from a list of polygons
-
-    Args:
-        polygons (list): List of shapely polygons
-        enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
-
-    Returns:
-        Tuple[list, list]: List of tuples with splines for x and y, and similarly for the derivatives
-    """
-    splines = []
-    spline_derivatives = []
-    for polygon in polygons:
-        east, north = polygon.exterior.xy
-        if len(east) < 3:
-            continue
-
-        linspace = np.linspace(0.0, 1.0, len(east))
-        spline_x = scipyintp.PchipInterpolator(linspace, north, extrapolate=False)
-        spline_y = scipyintp.PchipInterpolator(linspace, east, extrapolate=False)
-        splines.append((spline_x, spline_y))
-        spline_derivatives.append((spline_x.derivative(), spline_y.derivative()))
-        if enc is not None and show_plots:
-            enc.start_display()
-            x_spline_vals = spline_x(linspace)
-            y_spline_vals = spline_y(linspace)
-            pairs = list(zip(y_spline_vals, x_spline_vals))
-            enc.draw_line(pairs, color="black", width=0)
-
-    return splines, spline_derivatives
 
 
 def compute_closest_grounding_dist(vessel_trajectory: np.ndarray, minimum_vessel_depth: int, enc: senc.ENC, show_plots: bool = False) -> Tuple[float, np.ndarray, int]:
@@ -1195,11 +1163,3 @@ def find_intersections_line_polygon(
             x, y = line.coords.xy
             coords.append([list(x), list(y)])
     return np.array(coords, dtype=object)
-
-
-class TestMapFunctions(unittest.TestCase):
-    pass
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -103,10 +103,10 @@ class MidlevelMPCParams(IParams):
     reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
-    Q_p: np.ndarray = np.diag([0.1, 0.1, 1.0, 1.0])  # path following cost matrix, position (x, y) and path timing (s, sdot)
-    alpha_app_chi: np.ndarray = np.array([112.0, 0.0006])
+    Q_p: np.ndarray = np.diag([0.1, 0.1, 1.0])  # path following cost matrix, position (x, y) and path timing (s / path variable)
+    alpha_app_course: np.ndarray = np.array([112.0, 0.0006])
     alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
-    K_app_chi: float = 0.5  # turn rate penalty
+    K_app_course: float = 0.5  # turn rate penalty
     K_app_speed: float = 0.6  # speed deviation penalty
     K_speed: float = 1.0  # speed deviation penalty
     K_fuel: float = 1.0  # fuel penalty
@@ -134,7 +134,7 @@ class MidlevelMPCParams(IParams):
         params = MidlevelMPCParams(**config_dict)
         params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
         params.Q_p = np.diag(params.Q_p)
-        params.alpha_app_chi = np.array(params.alpha_app_chi)
+        params.alpha_app_course = np.array(params.alpha_app_course)
         params.alpha_app_speed = np.array(params.alpha_app_speed)
         params.alpha_gw = np.array(params.alpha_gw)
         params.alpha_ho = np.array(params.alpha_ho)
@@ -146,7 +146,7 @@ class MidlevelMPCParams(IParams):
         config_dict = asdict(self)
         config_dict["so_constr_type"] = self.so_constr_type.name
         config_dict["Q_p"] = self.Q_p.diagonal().tolist()
-        config_dict["alpha_app_chi"] = self.alpha_app_chi.tolist()
+        config_dict["alpha_app_course"] = self.alpha_app_course.tolist()
         config_dict["alpha_app_speed"] = self.alpha_app_speed.tolist()
         config_dict["alpha_gw"] = self.alpha_gw.tolist()
         config_dict["alpha_ho"] = self.alpha_ho.tolist()
@@ -162,12 +162,13 @@ class MidlevelMPCParams(IParams):
         """
         return np.array(
             [
-                *self.Q_p.flatten().tolist(),
-                *self.alpha_app_chi.flatten().tolist(),
+                *self.Q_p.diagonal().flatten().tolist(),
+                *self.alpha_app_course.flatten().tolist(),
                 *self.alpha_app_speed.flatten().tolist(),
-                self.K_app_chi,
+                self.K_app_course,
                 self.K_app_speed,
                 self.K_speed,
+                self.K_fuel,
                 *self.alpha_gw.tolist(),
                 self.y_0_gw,
                 *self.alpha_ho.tolist(),

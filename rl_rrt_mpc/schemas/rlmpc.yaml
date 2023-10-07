@@ -54,8 +54,8 @@ midlevel_mpc:
         Q_p:
           required: True
           type: list
-          maxlength: 4
-          minlength: 4
+          maxlength: 3
+          minlength: 3
           schema:
             type: float
         alpha_app_chi:

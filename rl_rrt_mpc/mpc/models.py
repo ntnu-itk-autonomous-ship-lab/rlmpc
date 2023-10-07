@@ -372,7 +372,7 @@ class DoubleIntegrator(MPCModel):
         return f_impl, f_expl, xdot, x, u, p
 
     def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
-        """Simulate N Euler steps for the Telemetron vessel
+        """Simulate N Euler steps for the double integrator
 
         Args:
             - xs (np.ndarray): State vector

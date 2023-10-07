@@ -254,7 +254,7 @@ def Rpsi(psi) -> np.ndarray:
     return Rmtrx
 
 
-def Rpsi_casadi(psi: float) -> csd.MX:
+def Rpsi_casadi(psi: csd.MX) -> csd.MX:
     """Same as Rpsi but for casadi."""
     return hf.casadi_matrix_from_nested_list([[csd.cos(psi), -csd.sin(psi), 0], [csd.sin(psi), csd.cos(psi), 0], [0, 0, 1]])
 

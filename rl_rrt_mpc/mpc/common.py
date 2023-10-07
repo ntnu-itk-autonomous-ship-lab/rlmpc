@@ -203,18 +203,18 @@ def colregs_cost(
     ot_term = 0.0
     for i in range(n_do_per_zone):
         x_aug_do_gw = X_do_gw[i * nx_do : (i + 1) * nx_do]
-        R_chi_do_gw = mf.Rpsi_casadi(x_aug_do_gw[2])
+        R_chi_do_gw = mf.Rpsi2D_casadi(x_aug_do_gw[2])
 
         p_rel = R_chi_do_gw.T @ (x[:2] - x_aug_do_gw[:2])
         gw_term += gw_potential(p_rel, alpha_gw, x_0_gw)
 
         x_aug_do_ho = X_do_ho[i * nx_do : (i + 1) * nx_do]
-        R_chi_do_ho = mf.Rpsi_casadi(x_aug_do_ho[2])
+        R_chi_do_ho = mf.Rpsi2D_casadi(x_aug_do_ho[2])
         p_rel = R_chi_do_ho.T @ (x[:2] - x_aug_do_ho[:2])
         ho_term += ho_potential(p_rel, alpha_ho, x_0_ho)
 
         x_aug_do_ot = X_do_ot[i * nx_do : (i + 1) * nx_do]
-        R_chi_do_ot = mf.Rpsi_casadi(x_aug_do_ot[2])
+        R_chi_do_ot = mf.Rpsi2D_casadi(x_aug_do_ot[2])
         p_rel = R_chi_do_ot.T @ (x[:2] - x_aug_do_ot[:2])
         ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot)
 
