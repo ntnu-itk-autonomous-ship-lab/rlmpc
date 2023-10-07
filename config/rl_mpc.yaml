@@ -6,7 +6,7 @@ los:
   R_a: 25.0
   K_p: 0.024
   K_i: 0.0
-  e_int_max: 101.0
+  max_cross_track_error_int: 101.0
 
 ktp:
   epsilon: 0.00001
