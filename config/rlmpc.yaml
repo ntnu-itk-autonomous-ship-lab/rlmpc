@@ -50,8 +50,8 @@ midlevel_mpc:
     r_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 11
-    max_num_do_constr_per_zone: 1 # per shooting node in the mpc
+    max_num_so_constr: 0
+    max_num_do_constr_per_zone: 0 # per shooting node in the mpc
   model:
     augmented_csog:
       draft: 3.0

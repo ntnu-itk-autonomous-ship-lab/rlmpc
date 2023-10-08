@@ -366,8 +366,7 @@ class DoubleIntegrator(MPCModel):
 
         p = csd.vertcat([])
 
-        kinematics = csd.vertcat(x[1], u)
-        f_expl = kinematics
+        f_expl = csd.vertcat(x[1], u)
         f_impl = xdot - f_expl
         return f_impl, f_expl, xdot, x, u, p
 

@@ -73,6 +73,7 @@ class CasadiMPC:
         self._decision_trajectories: csd.Function = csd.Function("decision_trajectories", [], [])
         self._decision_variables: csd.Function = csd.Function("decision_variables", [], [])
         self._static_obstacle_constraints: csd.Function = csd.Function("static_obstacle_constraints", [], [])
+        self._dynamic_obstacle_constraints: csd.Function = csd.Function("dynamic_obstacle_constraints", [], [])
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
         self._t_prev: float = 0.0
@@ -619,6 +620,7 @@ class CasadiMPC:
         J = 0.0
 
         so_constr_list = []
+        do_constr_list = []
 
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
         stage_cost = csd.MX.sym("stage_cost", 1)
@@ -646,6 +648,7 @@ class CasadiMPC:
 
             X_do_k = csd.vertcat(X_do_gw[:, k], X_do_ho[:, k], X_do_ot[:, k])
             do_constr_k = self._create_dynamic_obstacle_constraint(x_k, sigma_k, X_do_k, nx_do, r_safe_do)
+            do_constr_list.extend(do_constr_k)
             g_ineq_list.extend(do_constr_k)
 
             # Shooting gap constraints
@@ -667,6 +670,7 @@ class CasadiMPC:
 
         X_do_N = csd.vertcat(X_do_gw[:, N], X_do_ho[:, N], X_do_ot[:, N])
         do_constr_N = self._create_dynamic_obstacle_constraint(x_k, sigma_k, X_do_N, nx_do, r_safe_do)
+        do_constr_list.extend(do_constr_N)
         g_ineq_list.extend(do_constr_N)
 
         # Vectorize and finalize the NLP
@@ -700,6 +704,13 @@ class CasadiMPC:
 
         self._static_obstacle_constraints = csd.Function(
             "static_obstacle_constraints", [self._opt_vars, self._p], [csd.vertcat(*so_constr_list)], ["w", "p"], ["so_constr"]
+        )
+        self._dynamic_obstacle_constraints = csd.Function(
+            "dynamic_obstacle_constraints",
+            [self._opt_vars, self._p],
+            [csd.vertcat(*do_constr_list)],
+            ["w", "p"],
+            ["do_constr"],
         )
         self._equality_constraints = csd.Function("equality_constraints", [self._opt_vars, self._p], [g_eq], ["w", "p"], ["g_eq"])
         self._inequality_constraints = csd.Function("inequality_constraints", [self._opt_vars, self._p], [g_ineq], ["w", "p"], ["g_ineq"])
