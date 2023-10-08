@@ -1000,8 +1000,8 @@ def compute_surface_approximations_from_polygons(
                 ## Add more buffer points further away from the relevant polygon coastline, where the mask is zero or negative (no collision)
                 # buffer_distance = 10.0
                 # if j > 5:
-                buffer_distance = 10.0
-                surface_value_at_outlier_points = -10.0
+                buffer_distance = 100.0
+                surface_value_at_outlier_points = -100.0
                 relevant_coastline_extra_buffered = polygon.buffer(d_safe + buffer_distance).intersection(
                     geometry.LineString(original_poly.buffer(d_safe + buffer_distance).exterior.coords).buffer(1.0)
                 )

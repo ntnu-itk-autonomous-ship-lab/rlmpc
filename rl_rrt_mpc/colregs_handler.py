@@ -8,13 +8,10 @@
 """
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Tuple
 
 import colav_simulator.common.math_functions as mf
-import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
-import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.helper_functions as hf
 
 
 # class syntax
@@ -36,30 +33,43 @@ class COLREGSHandlerParams:
     theta_critical_cr: float = np.deg2rad(-13.0)  # contact and bearing angle threshold for CR situation
     theta_ot_min: float = np.deg2rad(112.5)  # minimum bearing angle for OT situation
     theta_ot_max: float = np.deg2rad(247.5)  # maximum bearing angle for OT situation
+    d_critical_so: float = 100.0  # critical distance threshold where stand-on duties are aborted
 
     d_activation: float = 5000.0  # distance threshold for activation of COLREGS handler
     t_cpa_entry: float = 100.0  # time to CPA threshold for entry into COLREGS situation
-    d_cpa_entry: float = 100.0  # distance to CPA threshold for entry into COLREGS situation
+    d_cpa_entry: float = 900.0  # distance to CPA threshold for entry into COLREGS situation
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         """Creates a parameters object from a dictionary."""
-        return cls(**config_dict)
+        params = cls(**config_dict)
+        params.theta_critical_ot = np.deg2rad(params.theta_critical_ot)
+        params.theta_critical_ho = np.deg2rad(params.theta_critical_ho)
+        params.theta_critical_cr = np.deg2rad(params.theta_critical_cr)
+        params.theta_ot_min = np.deg2rad(params.theta_ot_min)
+        params.theta_ot_max = np.deg2rad(params.theta_ot_max)
+        return params
 
     def to_dict(self) -> dict:
         """Converts the parameters to a dictionary."""
-        return asdict(self)
+        output = asdict(self)
+        output["theta_critical_ot"] = np.rad2deg(output["theta_critical_ot"])
+        output["theta_critical_ho"] = np.rad2deg(output["theta_critical_ho"])
+        output["theta_critical_cr"] = np.rad2deg(output["theta_critical_cr"])
+        output["theta_ot_min"] = np.rad2deg(output["theta_ot_min"])
+        output["theta_ot_max"] = np.rad2deg(output["theta_ot_max"])
+        return output
 
 
 class COLREGSHandler:
     def __init__(self, params: COLREGSHandlerParams = COLREGSHandlerParams()) -> None:
         self._params = params
 
-        self._do_labels = []
-        self._do_situations = []
-        self._do_cr_list = []
-        self._do_ho_list = []
-        self._do_ot_list = []
+        self._do_labels: list = []
+        self._do_situations: list = []
+        self._do_cr_list: list = []
+        self._do_ho_list: list = []
+        self._do_ot_list: list = []
 
     def handle(self, xs: np.ndarray, do_list: list) -> Tuple[list, list, list]:
         """Handles the current situation with own-ship state xs and list of dynamic obstacles in do_list.
@@ -75,46 +85,119 @@ class COLREGSHandler:
             do_list (list): List of dynamic obstacles on the form (ID, state, cov, length, width)
 
         Returns:
-            dict:
+            Tuple[list, list, list]: Tuple of the crossing, head-on and overtaking dynamic obstacle lists.
         """
-        do_cr_list = []
-        do_ho_list = []
-        do_ot_list = []
 
         p_os = np.array([xs[0], xs[1]])
         v_os = np.array([xs[2] * np.cos(xs[3]), xs[2] * np.sin(xs[3])])
-        chi_os = xs[3]
-        for i, (ID, do_state, cov, length, width) in enumerate(do_list):
+        for i, (ID, do_state, do_cov, length, width) in enumerate(do_list):
 
             p_do = do_state[0:2]
             v_do = do_state[2:]
+            dist2do = float(np.linalg.norm(p_do - p_os))
             do_is_relevant = self.check_if_do_is_relevant(p_os, v_os, p_do, v_do)
 
             if ID not in self._do_labels and not do_is_relevant:
                 continue
 
-            if ID in self._do_labels and do_is_relevant:
-                # Update the state of the dynamic obstacle in the list
+            situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
+            print(f"DO{i} | Current situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
+
+            if ID in self._do_labels and (situation == COLREGSSituation.NAR or do_passed_by or os_passed_by):
+                self._remove_do(ID)
                 continue
 
-            situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
-            print(f"DO{i} | Situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
-
-            if situation == COLREGSSituation.NAR or do_passed_by or os_passed_by:
-                # remove the dynamic obstacle from the list
-                self._do_labels.remove(ID)
-                self._do_situations.remove(situation)
+            if ID in self._do_labels and do_is_relevant:
+                self._update_do(ID, (ID, do_state, do_cov, length, width))
+                continue
 
             if situation == COLREGSSituation.HO:
-                do_ho_list.append((ID, do_state, cov, length, width))
+                self._do_ho_list.append((ID, do_state, do_cov, length, width))
             elif situation == COLREGSSituation.CRGW:
-                do_cr_list.append((ID, do_state, cov, length, width))
+                self._do_cr_list.append((ID, do_state, do_cov, length, width))
+            elif situation == COLREGSSituation.CRSO and dist2do < self._params.d_critical_so:
+                self._do_cr_list.append((ID, do_state, do_cov, length, width))
             elif situation == COLREGSSituation.OTGW:
-                do_ot_list.append((ID, do_state, cov, length, width))
-            self._do_situations.append(situation)
-            self._do_labels.append(i)
+                self._do_ot_list.append((ID, do_state, do_cov, length, width))
+            elif situation == COLREGSSituation.OTSO and dist2do < self._params.d_critical_so:
+                self._do_ot_list.append((ID, do_state, do_cov, length, width))
 
-        return do_cr_list, do_ho_list, do_ot_list
+            self._do_situations.append((ID, situation))
+            self._do_labels.append(i)
+            print(f"DO{i} Added | Start situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
+
+        # sort do lists by distance to own-ship
+        self._do_cr_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
+        self._do_ho_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
+        self._do_ot_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
+        print(f"CR DOs: {self._do_cr_list}")
+        print(f"HO DOs: {self._do_ho_list}")
+        print(f"OT DOs: {self._do_ot_list}")
+
+        return self._do_cr_list, self._do_ho_list, self._do_ot_list
+
+    def _update_do(self, ID: int, do_info: Tuple[int, np.ndarray, np.ndarray, float, float]) -> None:
+        """Updates the state of the dynamic obstacle with ID.
+
+        Args:
+            ID (int): ID of the dynamic obstacle to be updated.
+            do_info (Tuple[int, np.ndarray, np.ndarray, float, float]): New information about the dynamic obstacle.
+        """
+        _, situation = self._get_do_situation(ID)
+        if situation == COLREGSSituation.CRGW:
+            for i, (do_ID, _, _, _, _) in enumerate(self._do_cr_list):
+                if ID == do_ID:
+                    self._do_cr_list[i] = do_info
+                    break
+        elif situation == COLREGSSituation.HO:
+            for i, (do_ID, _, _, _, _) in enumerate(self._do_ho_list):
+                if ID == do_ID:
+                    self._do_ho_list[i] = do_info
+                    break
+        elif situation == COLREGSSituation.OTGW:
+            for i, (do_ID, _, _, _, _) in enumerate(self._do_ot_list):
+                if ID == do_ID:
+                    self._do_ot_list[i] = do_info
+                    break
+
+    def _remove_do(self, ID: int) -> None:
+        """Removes a dynamic obstacle from the lists.
+
+        Args:
+            ID (int): ID of the dynamic obstacle to be removed.
+        """
+        sit_idx, situation = self._get_do_situation(ID)
+        if situation == COLREGSSituation.CRGW:
+            for i, (do_ID, _, _, _, _) in enumerate(self._do_cr_list):
+                if ID == do_ID:
+                    self._do_cr_list.pop(i)
+                    break
+        elif situation == COLREGSSituation.HO:
+            for i, (do_ID, _, _, _, _) in enumerate(self._do_ho_list):
+                if ID == do_ID:
+                    self._do_ho_list.pop(i)
+                    break
+        elif situation == COLREGSSituation.OTGW:
+            for i, (do_ID, _, _, _, _) in enumerate(self._do_ot_list):
+                if ID == do_ID:
+                    self._do_ot_list.pop(i)
+                    break
+        self._do_labels.remove(ID)
+        self._do_situations.pop(sit_idx)
+
+    def _get_do_situation(self, ID: int) -> Tuple[int, COLREGSSituation]:
+        """Returns the COLREGS situation of the dynamic obstacle with ID.
+
+        Args:
+            ID (int): ID of the dynamic obstacle.
+
+        Returns:
+            Optional[COLREGSSituation]: The COLREGS situation of the dynamic obstacle.
+        """
+        for i, (do_ID, situation) in self._do_situations:
+            if do_ID == ID:
+                return i, situation
+        raise ValueError(f"Dynamic obstacle with ID {ID} not found in the list of dynamic obstacles.")
 
     def check_if_do_is_relevant(self, p_os: np.ndarray, v_os: np.ndarray, p_do: np.ndarray, v_do: np.ndarray) -> bool:
         """Checks if the dynamic obstacle is relevant to the own-ship.
@@ -173,6 +256,8 @@ class COLREGSHandler:
             situation = COLREGSSituation.CRSO
         elif (0.0 < beta < self._params.theta_ot_min) and (-self._params.theta_ot_min < alpha < self._params.theta_critical_cr):
             situation = COLREGSSituation.CRGW
+
+        print(f"bearing os->do: {180.0 * beta / np.pi}, bearing do->os: {180.0 * alpha / np.pi}")
 
         do_passed_by = False
         os_passed_by = False

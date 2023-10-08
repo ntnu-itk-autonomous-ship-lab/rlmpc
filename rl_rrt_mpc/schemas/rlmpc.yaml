@@ -31,6 +31,40 @@ ktp:
     epsilon:
       required: True
       type: float
+
+colregs_handler:
+  required: True
+  type: dict
+  schema:
+    theta_critical_ot:
+      required: True
+      type: float
+    theta_critical_cr:
+      required: True
+      type: float
+    theta_critical_ho:
+      required: True
+      type: float
+    d_critical_so:
+      required: True
+      type: float
+
+    theta_ot_min:
+      required: True
+      type: float
+    theta_ot_max:
+      required: True
+      type: float
+    d_activation:
+      required: True
+      type: float
+    d_cpa_entry:
+      required: True
+      type: float
+    t_cpa_entry:
+      required: True
+      type: float
+
 midlevel_mpc:
   required: True
   type: dict
@@ -58,7 +92,7 @@ midlevel_mpc:
           minlength: 3
           schema:
             type: float
-        alpha_app_chi:
+        alpha_app_course:
           required: True
           type: list
           maxlength: 2
@@ -72,7 +106,7 @@ midlevel_mpc:
           minlength: 2
           schema:
             type: float
-        K_app_chi:
+        K_app_course:
           required: True
           type: float
         K_app_speed:

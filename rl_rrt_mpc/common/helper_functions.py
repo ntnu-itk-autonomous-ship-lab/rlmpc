@@ -444,21 +444,31 @@ def plot_trajectory(trajectory: np.ndarray, enc: senc.ENC, color: str) -> None:
     enc.draw_line(trajectory_line, color=color, width=0.5, thickness=0.5, marker_type=None)
 
 
-def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC, T: float, dt: float) -> None:
+def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC, T: float, dt: float, color: str, map_origin: Optional[np.ndarray] = None) -> None:
+    """Plots the dynamic obstacles in the ENC.
+
+    Args:
+        dynamic_obstacles (list): List of dynamic obstacle objects on the form (ID, state, cov, length, width)
+        enc (senc.ENC): ENC object
+        T (float): Horizon length
+        dt (float): Time step
+        color (str): Color of the dynamic obstacles
+        map_origin (Optional[np.ndarray]): Map origin. Defaults to None.
+    """
     N = int(T / dt)
     enc.start_display()
     for (ID, state, cov, length, width) in dynamic_obstacles:
+        if map_origin is not None:
+            state = state + map_origin
         ellipse_x, ellipse_y = create_probability_ellipse(cov, 0.99)
         ell_geometry = geometry.Polygon(zip(ellipse_y + state[1], ellipse_x + state[0]))
-        enc.draw_polygon(ell_geometry, color="orange", alpha=0.3)
+        enc.draw_polygon(ell_geometry, color=color, alpha=0.3)
 
         for k in range(0, N, 10):
             do_poly = create_ship_polygon(
                 state[0] + k * dt * state[2], state[1] + k * dt * state[3], np.arctan2(state[3], state[2]), length, width, length_scaling=1.0, width_scaling=1.0
             )
-            enc.draw_polygon(do_poly, color="red")
-        do_poly = create_ship_polygon(state[0], state[1], np.arctan2(state[3], state[2]), length, width, length_scaling=1.0, width_scaling=1.0)
-        enc.draw_polygon(do_poly, color="red")
+            enc.draw_polygon(do_poly, color=color)
 
 
 def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:

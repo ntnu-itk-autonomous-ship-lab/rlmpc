@@ -108,7 +108,6 @@ class MidlevelMPC:
         self,
         nominal_path: Tuple[CubicSpline, CubicSpline, PchipInterpolator, float],
         xs: np.ndarray,
-        do_list: list,
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
@@ -118,8 +117,7 @@ class MidlevelMPC:
 
         Args:
             - nominal_path (Tuple[CubicSpline, CubicSpline, PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
-            - xs (np.ndarray): Current state of the ownship.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
+            - xs (np.ndarray): Current state of the ownship on the form [x, y, chi, U]^T
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
@@ -127,15 +125,17 @@ class MidlevelMPC:
         """
         self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_path, xs, do_list, so_list, enc, map_origin, min_depth)
+            self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
 
-    def plan(self, t: float, xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, **kwargs) -> dict:
+    def plan(self, t: float, xs: np.ndarray, do_cr_list: list, do_ho_list: list, do_ot_list: list, so_list: list, enc: senc.ENC, **kwargs) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
             - t (float): Current time.
-            - xs (np.ndarray): Current state.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
+            - xs (np.ndarray): Current state on the form [x, y, chi, U]^T.
+            - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
+            - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
+            - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): Electronic Navigational Chart object.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
@@ -144,7 +144,7 @@ class MidlevelMPC:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
         if self._acados_enabled:
-            mpc_soln = self._acados_mpc.plan(t, xs, do_list, so_list, enc, **kwargs)
+            mpc_soln = self._acados_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs)
         else:
-            mpc_soln = self._casadi_mpc.plan(t, xs, do_list, so_list, enc, **kwargs)
+            mpc_soln = self._casadi_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs)
         return mpc_soln
