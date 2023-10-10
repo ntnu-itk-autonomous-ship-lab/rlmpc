@@ -10,6 +10,7 @@ import time
 from typing import Optional, Tuple
 
 import casadi as csd
+import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.integrators as integrators
@@ -89,6 +90,19 @@ class CasadiMPC:
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
 
+        # debugging functions
+        self._p_path = csd.MX.sym("p_path", 0)
+
+        self._p_rate = csd.MX.sym("p_rate", 0)
+        self._p_colregs = csd.MX.sym("p_colregs", 0)
+        self._path_dev_cost = csd.Function("path_dev_cost", [], [])
+        self._speed_dev_cost = csd.Function("speed_ref_cost", [], [])
+        self._course_rate_cost = csd.Function("course_rate_cost", [], [])
+        self._speed_rate_cost = csd.Function("speed_rate_cost", [], [])
+        self._crossing_cost = csd.Function("crossing_cost", [], [])
+        self._head_on_cost = csd.Function("head_on_cost", [], [])
+        self._overtaking_cost = csd.Function("overtaking_cost", [], [])
+
     @property
     def params(self):
         return self._params
@@ -120,11 +134,26 @@ class CasadiMPC:
         self._x_path_coeffs_values = x_spline.c
         self._x_path_coeffs = x_path_coeffs
 
+        x_spline_der = x_spline.derivative()
+        x_dot_path_coeffs = csd.MX.sym("x_dot_path_coeffs", x_spline_der.c.shape[0])
+        x_dot_path = csd.bspline(s, x_dot_path_coeffs, [[*x_spline_der.t]], [x_spline_der.k], 1, {})
+        self._x_dot_path = csd.Function("x_dot_path", [s, x_dot_path_coeffs], [x_dot_path])
+        self._x_dot_path_coeffs_values = x_spline_der.c
+        self._x_dot_path_coeffs = x_dot_path_coeffs
+
         y_path_coeffs = csd.MX.sym("y_path_coeffs", y_spline.c.shape[0])
         y_path = csd.bspline(s, y_path_coeffs, [[*y_spline.t]], [y_spline.k], 1, {})
         self._y_path = csd.Function("y_path", [s, y_path_coeffs], [y_path])
         self._y_path_coeffs_values = y_spline.c
         self._y_path_coeffs = y_path_coeffs
+
+        y_spline_der = y_spline.derivative()
+        y_dot_path_coeffs = csd.MX.sym("y_dot_path_coeffs", y_spline_der.c.shape[0])
+        y_dot_path = csd.bspline(s, y_dot_path_coeffs, [[*y_spline_der.t]], [y_spline_der.k], 1, {})
+        self._y_dot_path = csd.Function("y_dot_path", [s, y_dot_path_coeffs], [y_dot_path])
+        self._y_dot_path_coeffs_values = y_spline_der.c
+        self._y_dot_path_coeffs = y_dot_path_coeffs
+
         self._s_final_value = x_spline.t[-1]
         self._U_ref = U_ref
         self._path_timing.set_min_path_variable(0.0)
@@ -146,8 +175,8 @@ class CasadiMPC:
         nx_p, nu_p = self._path_timing.dims()
         u_ship = u[:nu]
         u_path = u[nu:]
-        X_ship = self._model.euler_n_step(xs[:nx], u_ship, self._p_ship_mdl_values, self._params.dt, N)
-        X_path = self._path_timing.euler_n_step(xs[nx:], u_path, np.array([]), self._params.dt, N)
+        X_ship = self._model.erk4_n_step(xs[:nx], u_ship, self._p_ship_mdl_values, self._params.dt, N)
+        X_path = self._path_timing.erk4_n_step(xs[nx:], u_path, np.array([]), self._params.dt, N)
         return np.concatenate((X_ship, X_path))
 
     def _update_path_variables(self, xs: np.ndarray, dt: float) -> None:
@@ -160,7 +189,7 @@ class CasadiMPC:
         nx, nu = self._model.dims()
         dt_mpc = self._params.dt
         shift = int(dt / dt_mpc)
-        _, X, _ = self._decision_trajectories(self._current_warmstart_v["x"])
+        X, U, Sigma = self._extract_trajectories(self._current_warmstart_v)
         self._s = X[nx, shift]
         self._s_dot = X[nx + 1, shift]
 
@@ -185,7 +214,7 @@ class CasadiMPC:
         xs_k = np.zeros(nx + nx_p)
         xs_k[:4] = xs[:4]
         xs_k[4] = xs[2]
-        xs_k[5] = 0.7 * self._U_ref
+        xs_k[5] = self._U_ref
 
         self._s = 0.0
         self._s_dot = 0.0
@@ -357,7 +386,9 @@ class CasadiMPC:
             self._update_path_variables(xs_unwrapped, dt)
             self._current_warmstart_v = self._shift_warm_start(self._current_warmstart_v, xs_unwrapped, dt, enc)
 
-        parameter_values = self.create_parameter_values(xs_unwrapped, action, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs)
+        parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
+            xs_unwrapped, action, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs
+        )
         t_start = time.time()
         soln = self._vsolver(
             x0=self._current_warmstart_v["x"],
@@ -375,7 +406,7 @@ class CasadiMPC:
             # Use solution unless it is infeasible, then use previous solution.
             g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
             g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
-            if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
+            if dt > 0.0 and np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
                 soln = self._current_warmstart_v
         elif stats["return_status"] == "Infeasible_Problem_Detected":
             raise RuntimeError("Infeasible solution found.")
@@ -391,8 +422,21 @@ class CasadiMPC:
         cost_val = soln["f"].full()[0][0]
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
         mpc_common.plot_casadi_solver_stats(stats, show_plots)
+        self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
+        self.plot_solution_trajectory(X, U, Sigma)
+        arg_max_sigma, max_sigma = -1, -1
+        if Sigma.size > 0:
+            arg_max_sigma, max_sigma = np.argmax(Sigma), np.max(Sigma)
+        arg_max_do_constr, max_do_constr = -1, -1
+        if do_constr_vals.size > 0:
+            arg_max_do_constr, max_do_constr = np.argmax(do_constr_vals), np.max(do_constr_vals)
+
+        arg_max_so_constr, max_so_constr = -1, -1
+        if so_constr_vals.size > 0:
+            arg_max_so_constr, max_so_constr = np.argmax(so_constr_vals), np.max(so_constr_vals)
+
         print(
-            f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | sl (max, argmax): ({np.max(Sigma)}, {np.argmax(Sigma)}) | so_constr (max, argmax): ({np.max(so_constr_vals)}, {np.argmax(so_constr_vals)})"
+            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})"
         )
         self._t_prev = t
         output = {
@@ -408,6 +452,193 @@ class CasadiMPC:
             "final_residuals": final_residuals,
         }
         return output
+
+    def plot_cost_function_values(
+        self,
+        X: np.ndarray,
+        U: np.ndarray,
+        Sigma: np.ndarray,
+        do_cr_parameters: np.ndarray,
+        do_ho_parameters: np.ndarray,
+        do_ot_parameters: np.ndarray,
+        show_plots: bool = False,
+    ) -> None:
+        """Plots the cost function values for the solution.
+
+        Args:
+            - X (np.ndarray): State trajectory.
+            - U (np.ndarray): Input trajectory.
+            - Sigma (np.ndarray): Slack trajectory.
+            - do_cr_parameters (np.ndarray): Crossing dynamic obstacle parameters.
+            - do_ho_parameters (np.ndarray): Head-on dynamic obstacle parameters.
+            - do_ot_parameters (np.ndarray): Overtaking dynamic obstacle parameters.
+            - show_plots (bool, optional): Whether to show the plots or not. Defaults to False.
+        """
+        path_dev_cost = np.zeros(X.shape[1])
+        speed_dev_cost = np.zeros(X.shape[1])
+        course_rate_cost = np.zeros(X.shape[1])
+        speed_rate_cost = np.zeros(X.shape[1])
+        crossing_cost = np.zeros(X.shape[1])
+        head_on_cost = np.zeros(X.shape[1])
+        overtaking_cost = np.zeros(X.shape[1])
+        w_colregs = self._params.w_colregs
+        colregs_cost = np.zeros(X.shape[1])
+        X_do_cr = do_cr_parameters.reshape(6, -1)
+        X_do_ho = do_ho_parameters.reshape(6, -1)
+        X_do_ot = do_ot_parameters.reshape(6, -1)
+        p_path_values = np.array(
+            [
+                *self._x_path_coeffs_values.tolist(),
+                *self._y_path_coeffs_values.tolist(),
+                *self._x_dot_path_coeffs_values.tolist(),
+                *self._y_dot_path_coeffs_values.tolist(),
+                *self._params.Q_p.diagonal().flatten().tolist(),
+                self._U_ref,
+            ]
+        )
+        p_rate_values = np.array([*self._params.alpha_app_course.tolist(), *self._params.alpha_app_speed.tolist(), self._params.K_app_course, self._params.K_app_speed])
+        p_colregs_values = np.array(
+            [
+                *self._params.alpha_cr.tolist(),
+                self._params.y_0_cr,
+                *self._params.alpha_ho.tolist(),
+                self._params.x_0_ho,
+                *self._params.alpha_ot.tolist(),
+                self._params.x_0_ot,
+                self._params.y_0_ot,
+                *self._params.w_colregs.tolist(),
+            ]
+        )
+        for k in range(X.shape[1]):
+            x_do_cr_k = np.zeros((0, 1))
+            if X_do_cr.size > 6:
+                x_do_cr_k = X_do_cr[:, k]
+            x_do_ho_k = np.zeros((0, 1))
+            if X_do_ho.size > 6:
+                x_do_ho_k = X_do_ho[:, k]
+            x_do_ot_k = np.zeros((0, 1))
+            if X_do_ot.size > 6:
+                x_do_ot_k = X_do_ot[:, k]
+            path_dev_cost[k] = self._path_dev_cost(X[:, k], p_path_values)
+            speed_dev_cost[k] = self._speed_dev_cost(X[:, k], p_path_values)
+
+            crossing_cost[k] = self._crossing_cost(X[:, k], x_do_cr_k, p_colregs_values)
+            head_on_cost[k] = self._head_on_cost(X[:, k], x_do_ho_k, p_colregs_values)
+            overtaking_cost[k] = self._overtaking_cost(X[:, k], x_do_ot_k, p_colregs_values)
+            colregs_cost[k] = w_colregs[0] * crossing_cost[k] + w_colregs[1] * head_on_cost[k] + w_colregs[2] * overtaking_cost[k]
+
+            if k < U.shape[1]:
+                course_rate_cost[k] = self._course_rate_cost(U[:, k], p_rate_values)
+                speed_rate_cost[k] = self._speed_rate_cost(U[:, k], p_rate_values)
+
+        fig = plt.figure(figsize=(12, 8))
+        axes = fig.subplot_mosaic(
+            [
+                ["p(s_k) - p_k"],
+                ["s_cost"],
+                ["U_ref - U_k"],
+                ["chi_rate_cost"],
+                ["U_rate_cost"],
+                ["colregs_cost"],
+            ]
+        )
+        axes["p(s_k) - p_k"].plot(path_dev_cost, label=r"$p(s_k) - p_k$ cost")
+        axes["p(s_k) - p_k"].set_ylabel("cost")
+        axes["p(s_k) - p_k"].set_xlabel("k")
+        axes["p(s_k) - p_k"].legend()
+
+        axes["s_cost"].plot(speed_dev_cost, label=r"$\dot{s}_{ref} - \dot{s}$ cost")
+        axes["s_cost"].set_ylabel("cost")
+        axes["s_cost"].set_xlabel("k")
+        axes["s_cost"].legend()
+
+        axes["chi_rate_cost"].plot(course_rate_cost, label=r"$\dot{\chi}_d$ cost")
+        axes["chi_rate_cost"].set_ylabel("cost")
+        axes["chi_rate_cost"].set_xlabel("k")
+        axes["chi_rate_cost"].legend()
+
+        axes["U_rate_cost"].plot(speed_rate_cost, label=r"$\dot{U}_d$ cost")
+        axes["U_rate_cost"].set_ylabel("cost")
+        axes["U_rate_cost"].set_xlabel("k")
+        axes["U_rate_cost"].legend()
+
+        axes["colregs_cost"].plot(colregs_cost, color="b", label="colregs cost")
+        axes["colregs_cost"].plot(crossing_cost, color="r", label="crossing cost")
+        axes["colregs_cost"].plot(head_on_cost, color="g", label="head on cost")
+        axes["colregs_cost"].plot(overtaking_cost, color="y", label="overtaking cost")
+        axes["colregs_cost"].set_ylabel("cost")
+        axes["colregs_cost"].set_xlabel("k")
+        axes["colregs_cost"].legend()
+        plt.show(block=False)
+        print("Plotted cost function values")
+
+    def plot_solution_trajectory(self, X: np.ndarray, U: np.ndarray, Sigma: np.ndarray) -> None:
+        """Plots the solution trajectory.
+
+        Args:
+            X (np.ndarray): State trajectory.
+            U (np.ndarray): Input trajectory.
+            Sigma (np.ndarray): Slack trajectory.
+        """
+        fig = plt.figure(figsize=(12, 8))
+        axes = fig.subplot_mosaic(
+            [
+                ["course"],
+                ["course_rate_input"],
+                ["speed"],
+                ["speed_rate_input"],
+                ["path_variable"],
+                ["path_dot_variable"],
+                ["path_input"],
+            ]
+        )
+        axes["course"].plot(np.rad2deg(X[2, :]), color="b", label=r"$\chi$")
+        axes["course"].plot(np.rad2deg(X[4, :]), color="r", label=r"$\chi_d$")
+        axes["course"].set_ylabel("course [deg]")
+        axes["course"].set_xlabel("k")
+        axes["course"].legend()
+
+        axes["course_rate_input"].plot(np.rad2deg(U[0, :]), color="b", label=r"$\dot{\chi}_d$")
+        axes["course_rate_input"].set_ylabel("course rate [deg/s]")
+        axes["course_rate_input"].set_xlabel("k")
+        axes["course_rate_input"].legend()
+
+        axes["speed"].plot(X[3, :], color="b", label=r"$U$")
+        axes["speed"].plot(X[5, :], color="r", label=r"$U_{d}$")
+        axes["speed"].plot(self._U_ref * np.ones(X.shape[1]), color="g", linestyle="--", label=r"$U_{ref}$")
+        axes["speed"].set_ylabel("speed [m/s]")
+        axes["speed"].set_xlabel("k")
+        axes["speed"].legend()
+
+        axes["speed_rate_input"].plot(U[1, :], color="b", label=r"$\dot{U}_d$")
+        axes["speed_rate_input"].set_ylabel("speed rate [m/s2]")
+        axes["speed_rate_input"].set_xlabel("k")
+        axes["speed_rate_input"].legend()
+
+        axes["path_variable"].plot(X[6, :], color="b", label=r"$s$")
+        axes["path_variable"].set_ylabel("")
+        axes["path_variable"].set_xlabel("k")
+        axes["path_variable"].legend()
+
+        x_dot_path = np.zeros(X.shape[1])
+        y_dot_path = np.zeros(X.shape[1])
+        for k in range(X.shape[1]):
+            x_dot_path[k] = self._x_dot_path(X[6, k], self._x_dot_path_coeffs_values)
+            y_dot_path[k] = self._y_dot_path(X[6, k], self._y_dot_path_coeffs_values)
+        s_dot_ref = self._U_ref / np.sqrt(x_dot_path**2 + y_dot_path**2)
+        axes["path_dot_variable"].plot(X[7, :], color="b", label=r"$\dot{s}$")
+        axes["path_dot_variable"].plot(s_dot_ref, color="r", label=r"$\dot{s}_{ref}$")
+        axes["path_dot_variable"].set_ylabel("")
+        axes["path_dot_variable"].set_xlabel("k")
+        axes["path_dot_variable"].legend()
+
+        axes["path_input"].plot(U[2, :], color="b", label="path input")
+        axes["path_input"].set_ylabel("path input")
+        axes["path_input"].set_xlabel("k")
+        axes["path_input"].legend()
+
+        plt.show(block=False)
+        print("Plotted solution trajectory")
 
     def _extract_trajectories(self, soln: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Extracts the optimal trajectory, inputs and slacks from the solution dictionary.
@@ -535,12 +766,12 @@ class CasadiMPC:
         K_app_speed = csd.MX.sym("K_app_speed", 1, 1)
 
         U_ref = csd.MX.sym("U_ref", 1, 1)
-        K_speed = csd.MX.sym("K_speed", 1, 1)
         K_fuel = csd.MX.sym("K_fuel", 1, 1)
 
         p_fixed.append(self._x_path_coeffs)
         p_fixed.append(self._y_path_coeffs)
-        p_fixed.append(s_final)
+        p_fixed.append(self._x_dot_path_coeffs)
+        p_fixed.append(self._y_dot_path_coeffs)
         p_fixed.append(U_ref)
 
         gamma = csd.MX.sym("gamma", 1)
@@ -551,12 +782,11 @@ class CasadiMPC:
         p_adjustable.append(alpha_app_speed)
         p_adjustable.append(K_app_course)
         p_adjustable.append(K_app_speed)
-        p_adjustable.append(K_speed)
         p_adjustable.append(K_fuel)
 
         # COLREGS cost parameters
-        alpha_gw = csd.MX.sym("alpha_gw", 2, 1)
-        y_0_gw = csd.MX.sym("y_0_gw", 1, 1)
+        alpha_cr = csd.MX.sym("alpha_cr", 2, 1)
+        y_0_cr = csd.MX.sym("y_0_cr", 1, 1)
         alpha_ho = csd.MX.sym("alpha_ho", 2, 1)
         x_0_ho = csd.MX.sym("x_0_ho", 1, 1)
         alpha_ot = csd.MX.sym("alpha_ot", 2, 1)
@@ -564,8 +794,8 @@ class CasadiMPC:
         y_0_ot = csd.MX.sym("y_0_ot", 1, 1)
         colregs_weights = csd.MX.sym("w", 3, 1)
 
-        p_adjustable.append(alpha_gw)
-        p_adjustable.append(y_0_gw)
+        p_adjustable.append(alpha_cr)
+        p_adjustable.append(y_0_cr)
         p_adjustable.append(alpha_ho)
         p_adjustable.append(x_0_ho)
         p_adjustable.append(alpha_ot)
@@ -595,6 +825,10 @@ class CasadiMPC:
         p_fixed.append(csd.reshape(X_do_ho, -1, 1))
         p_fixed.append(csd.reshape(X_do_ot, -1, 1))
 
+        self._p_path = csd.vertcat(self._x_path_coeffs, self._y_path_coeffs, self._x_dot_path_coeffs, self._y_dot_path_coeffs, Q_p_vec, U_ref)
+        self._p_rate = csd.vertcat(alpha_app_course, alpha_app_speed, K_app_course, K_app_speed)
+        self._p_colregs = csd.vertcat(alpha_cr, y_0_cr, alpha_ho, x_0_ho, alpha_ot, x_0_ot, y_0_ot, colregs_weights)
+
         # Static obstacle constraint parameters
         so_pars = csd.MX.sym("so_pars", 0)
         A_so_constr = csd.MX.sym("A_so_constr", 0)
@@ -623,24 +857,37 @@ class CasadiMPC:
         do_constr_list = []
 
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
-        stage_cost = csd.MX.sym("stage_cost", 1)
-        erk4 = integrators.ERK4(x=x, p=csd.vertcat(u, self._p_mdl), ode=xdot, quad=stage_cost, h=dt)
+        # stage_cost = csd.MX.sym("stage_cost", 1)
+        epsilon = 0.00000001
+        erk4 = integrators.ERK4(x=x, p=csd.vertcat(u, self._p_mdl), ode=xdot, quad=csd.vertcat([]), h=dt)
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
             U.append(u_k)
 
             s_k = x_k[nx_ship]
-            p_ref_k = csd.vertcat(self._x_path(s_k, self._x_path_coeffs), self._y_path(s_k, self._y_path_coeffs), s_final)
+            p_ref_k = csd.vertcat(self._x_path(s_k, self._x_path_coeffs), self._y_path(s_k, self._y_path_coeffs))
+            s_dot_ref_k = U_ref / csd.sqrt(epsilon + self._x_dot_path(s_k, self._x_dot_path_coeffs) ** 2 + self._y_dot_path(s_k, self._y_dot_path_coeffs) ** 2)
+            path_ref_k = csd.vertcat(p_ref_k, s_dot_ref_k)
 
             # Sum stage costs
-            J += gamma**k * (
-                mpc_common.path_following_cost(x_k, p_ref_k, U_ref, Q_p, K_speed, nx_ship)
-                + mpc_common.rate_cost(u_k, csd.vertcat(alpha_app_course, alpha_app_speed), csd.vertcat(K_app_course, K_app_speed), r_max=ubu[0], U_dot_max=ubu[1])
-                + mpc_common.colregs_cost(
-                    x_k, X_do_gw[:, k], X_do_ho[:, k], X_do_ot[:, k], nx_do, alpha_gw, y_0_gw, alpha_ho, x_0_ho, alpha_ot, x_0_ot, y_0_ot, colregs_weights
-                )
-                + W.T @ sigma_k
+            path_following_cost, path_dev_cost, speed_dev_cost = mpc_common.path_following_cost(x_k, path_ref_k, Q_p, nx_ship)
+            rate_cost, course_rate_cost, speed_rate_cost = mpc_common.rate_cost(
+                u_k, csd.vertcat(alpha_app_course, alpha_app_speed), csd.vertcat(K_app_course, K_app_speed), r_max=ubu[0], U_dot_max=ubu[1]
             )
+            colregs_cost, crossing_cost, head_on_cost, overtaking_cost = mpc_common.colregs_cost(
+                x_k, X_do_gw[:, k], X_do_ho[:, k], X_do_ot[:, k], nx_do, alpha_cr, y_0_cr, alpha_ho, x_0_ho, alpha_ot, x_0_ot, y_0_ot, colregs_weights
+            )
+            slack_penalty_cost = W.T @ sigma_k
+            J += gamma**k * (path_following_cost + rate_cost + colregs_cost + slack_penalty_cost)
+            if k == 0:
+                self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
+                self._speed_dev_cost = csd.Function("speed_ref_cost", [x_k, self._p_path], [speed_dev_cost])
+                self._course_rate_cost = csd.Function("course_rate_cost", [u_k, self._p_rate], [course_rate_cost])
+                self._speed_rate_cost = csd.Function("speed_rate_cost", [u_k, self._p_rate], [speed_rate_cost])
+                self._crossing_cost = csd.Function("crossing_cost", [x_k, X_do_gw[:, k], self._p_colregs], [crossing_cost])
+                self._head_on_cost = csd.Function("head_on_cost", [x_k, X_do_ho[:, k], self._p_colregs], [head_on_cost])
+                self._overtaking_cost = csd.Function("overtaking_cost", [x_k, X_do_ot[:, k], self._p_colregs], [overtaking_cost])
+                self._slack_penalty_cost = csd.Function("slack_penalty_cost", [sigma_k], [slack_penalty_cost])
 
             so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, r_safe_so)
             so_constr_list.extend(so_constr_k)
@@ -652,6 +899,15 @@ class CasadiMPC:
             g_ineq_list.extend(do_constr_k)
 
             # Shooting gap constraints
+            # x_0_test_1 = np.array([0.0, 0.0, -0.78, 5.0, -0.78, 3.0, 0.0, 0.0])
+            # x_0_test_2 = x_0_test_1.copy()
+            # u_0_test = np.array([0.0, 0.0, 1.0])
+            # for l in range(10):
+            #     x_1, _, _, _, _, _, _, _ = erk4(x=x_0_test_1, p=csd.vertcat(u_0_test, self._p_ship_mdl_values))
+            #     x_1_alt = self._model_prediction(x_0_test_2, u_0_test, 2)[:, -1]
+            #     print(f"diff: {x_1 - x_1_alt}")
+            #     x_0_test_1 = x_1
+            #     x_0_test_2 = x_1_alt
             x_k_end, _, _, _, _, _, _, _ = erk4(x_k, csd.vertcat(u_k, self._p_mdl))
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
             X.append(x_k)
@@ -661,8 +917,12 @@ class CasadiMPC:
             Sigma.append(sigma_k)
 
         # Terminal costs and constraints
-        p_ref_N = csd.vertcat(self._x_path(x_k[nx_ship], self._x_path_coeffs), self._y_path(x_k[nx_ship], self._y_path_coeffs), s_final)
-        J += gamma**N * (mpc_common.path_following_cost(x_k, p_ref_N, U_ref, Q_p, K_speed, nx_ship) + W.T @ sigma_k)
+        s_k = x_k[nx_ship]
+        p_ref_N = csd.vertcat(self._x_path(s_k, self._x_path_coeffs), self._y_path(s_k, self._y_path_coeffs))
+        s_dot_ref_N = U_ref / csd.sqrt(epsilon + self._x_dot_path(s_k, self._x_dot_path_coeffs) ** 2 + self._y_dot_path(s_k, self._y_dot_path_coeffs) ** 2)
+        path_ref_N = csd.vertcat(p_ref_N, s_dot_ref_N)
+        path_following_cost, _, _ = mpc_common.path_following_cost(x_k, path_ref_N, Q_p, nx_ship)
+        J += gamma**N * (path_following_cost + W.T @ sigma_k)
 
         so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, r_safe_so)
         so_constr_list.extend(so_constr_N)
@@ -877,7 +1137,7 @@ class CasadiMPC:
         so_list: list,
         enc: Optional[senc.ENC] = None,
         **kwargs,
-    ) -> np.ndarray:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
         Args:
@@ -891,7 +1151,7 @@ class CasadiMPC:
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
-            - np.ndarray: Parameter vector to be used as input to solver
+            - Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Tuple of parameter vector values, and arrays of dynamic obstacle parameter values for each colregs zone.
         """
         n_colregs_zones = 3
         nx, nu = self._model.dims()
@@ -905,7 +1165,7 @@ class CasadiMPC:
         state_aug[0:4] = state.reshape((4, 1))
 
         if action is None:
-            action = np.array([state[2], state[3]])
+            action = np.array([state[2], self._U_ref])
 
         state_aug[4:nx] = action.reshape((2, 1))  # state is augmented with action when using the AugmentedKinematicCSOG model.
         state_aug[nx:] = np.array([self._s, self._s_dot]).reshape((2, 1))  # and path dynamics due to the integrated path timing model.
@@ -913,7 +1173,10 @@ class CasadiMPC:
         fixed_parameter_values.extend([0.0] * (nu + nu_p))  # u0
         fixed_parameter_values.extend(self._x_path_coeffs_values.tolist())
         fixed_parameter_values.extend(self._y_path_coeffs_values.tolist())
-        fixed_parameter_values.append(self._s_final_value)
+        fixed_parameter_values.extend(self._x_dot_path_coeffs_values.tolist())
+        fixed_parameter_values.extend(self._y_dot_path_coeffs_values.tolist())
+
+        # fixed_parameter_values.append(self._s_final_value)
         fixed_parameter_values.append(self._U_ref)
         fixed_parameter_values.append(self._params.gamma)
 
@@ -930,7 +1193,12 @@ class CasadiMPC:
 
         so_parameter_values = self._update_so_parameter_values(so_list, state, enc, **kwargs)
         fixed_parameter_values.extend(so_parameter_values)
-        return np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0)
+        return (
+            np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0),
+            np.array(do_parameter_values_cr),
+            np.array(do_parameter_values_ho),
+            np.array(do_parameter_values_ot),
+        )
 
     def _create_do_parameter_values(self, state: np.ndarray, do_list: list, **kwargs) -> list:
         """Creates the parameter values for the dynamic obstacle constraints.

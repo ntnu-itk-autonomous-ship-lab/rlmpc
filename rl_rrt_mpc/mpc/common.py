@@ -8,6 +8,7 @@
     Author: Trym Tengesdal
 """
 from dataclasses import asdict, dataclass, field
+from typing import Tuple
 
 import casadi as csd
 import matplotlib.pyplot as plt
@@ -103,6 +104,9 @@ class SolverConfig:
         return config
 
 
+# def huber_loss()
+
+
 def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
     """Forms the NMPC stage cost function used by the mid-level COLAV method.
 
@@ -117,28 +121,28 @@ def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
     return (var_ref - var).T @ W @ (var_ref - var)
 
 
-def path_following_cost(x: csd.MX, p_ref: csd.MX, U_ref: csd.MX, Q_p: csd.MX, K_speed: csd.MX, nx_ship: int) -> csd.MX:
+def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX, nx_ship: int) -> Tuple[csd.MX, csd.MX, csd.MX]:
     """Computes the path following cost for an NMPFC COLAV. Assumes the ship model is augmented by the path timing dynamics.
 
     Args:
         - x (csd.MX): Current state.
-        - p_ref (csd.MX): Path reference.
-        - U_ref (csd.MX): Speed reference.
+        - path_ref (csd.MX): Path reference on the form [p_ref_k, s_dot_ref_k]^T.
         - Q_p (csd.MX): Path following cost weight matrix.
-        - K_speed (csd.MX): Speed deviation cost weight.
         - nx_ship (int): Number of states in the ship model.
 
     Returns:
-        csd.MX: Path following cost.
+        Tuple[csd.MX, csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, speed deviation cost.
     """
-    # relevant states for the path following cost term is the position (x, y) and path timing (s)
-    z = csd.vertcat(x[:2], x[nx_ship])
+    # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_sot)
+    z = csd.vertcat(x[:2], x[nx_ship + 1])  # [x, y, s_dot]
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
     assert Q_p.shape[0] == Q_p.shape[1] == p_ref.shape[0], "Path following cost weight matrix must be square and have the same dimension as the path reference."
-    return quadratic_cost(z, p_ref, Q_p) + K_speed * csd.power(x[3] - U_ref, 2)
+    path_dev_cost = quadratic_cost(z[:2], p_ref[:2], Q_p[:2, :2])
+    speed_dev_cost = quadratic_cost(z[2], p_ref[2], Q_p[2, 2])
+    return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
 
 
-def rate_cost(u: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float) -> csd.MX:
+def rate_cost(u: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float) -> Tuple[csd.MX, csd.MX, csd.MX]:
     """Computes the chattering cost associated with the rate of change of the course and speed references,
     and stimulates chosing apparent maneuvers.
 
@@ -150,42 +154,42 @@ def rate_cost(u: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_m
         U_dot_max (float): Maximum rate of change of the speed reference.
 
     Returns:
-        csd.MX: Chattering cost.
+        Tuple[csd.MX, csd.MX, csd.MX]: Total cost, course cost, speed cost.
     """
     q_chi = alpha_app[0] * u[0] ** 2 + (1.0 - csd.exp(-u[0] ** 2 / alpha_app[1]))
     q_chi_max = alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
     q_U = alpha_app[2] * u[1] ** 2 + (1.0 - csd.exp(-u[1] ** 2 / alpha_app[3]))
     q_U_max = alpha_app[2] * U_dot_max**2 + (1.0 - csd.exp(-(U_dot_max**2) / alpha_app[3]))
-
-    cost = K_app[0] * q_chi / q_chi_max + K_app[1] * q_U / q_U_max
-    return cost
+    course_cost = K_app[0] * q_chi / q_chi_max
+    speed_cost = K_app[1] * q_U / q_U_max
+    return course_cost + speed_cost, course_cost, speed_cost
 
 
 def colregs_cost(
     x: csd.MX,
-    X_do_gw: csd.MX,
+    X_do_cr: csd.MX,
     X_do_ho: csd.MX,
     X_do_ot: csd.MX,
     nx_do: int,
-    alpha_gw: csd.MX,
-    x_0_gw: csd.MX,
+    alpha_cr: csd.MX,
+    x_0_cr: csd.MX,
     alpha_ho: csd.MX,
     x_0_ho: csd.MX,
     alpha_ot: csd.MX,
     x_0_ot: csd.MX,
     y_0_ot: csd.MX,
     weights: csd.MX,
-) -> csd.MX:
+) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
     """Computes the COLREGS cost for the COLAV MPC method using the potential function approach.
 
     Args:
         x (csd.MX): Current state.
-        X_do_gw (csd.MX): Dynamic obstacle states in the give-way zone
+        X_do_cr (csd.MX): Dynamic obstacle states in the give-way zone
         X_do_ho (csd.MX): Dynamic obstacle states in the head-on zone
         X_do_ot (csd.MX): Dynamic obstacle states in the overtaking zone
         nx_do (int): Number of states in the dynamic obstacle model.
-        alpha_gw (csd.MX): Attenuation parameters for the give-way situation potential function.
-        x_0_gw (csd.MX): Offset parameter for the give-way situation potential function.
+        alpha_cr (csd.MX): Attenuation parameters for the give-way situation potential function.
+        x_0_cr (csd.MX): Offset parameter for the give-way situation potential function.
         alpha_ho (csd.MX): Attenuation parameters for the head-on situation potential function.
         x_0_ho (csd.MX): Offset parameter for the head-on situation potential function.
         alpha_ot (csd.MX): Attenuation parameters for the overtaking situation potential function.
@@ -194,19 +198,19 @@ def colregs_cost(
         weights (csd.MX): Weights for the COLREGS cost terms.
 
     Returns:
-        csd.MX: COLREGS cost.
+        Tuple[csd.MX, csd.MX, csd.MX, csd.MX]: Total weighted cost, crossing cost, head-on cost, overtaking cost.
     """
-    n_do_per_zone = int(X_do_gw.shape[0] / nx_do)
+    n_do_per_zone = int(X_do_cr.shape[0] / nx_do)
 
-    gw_term = 0.0
+    cr_term = 0.0
     ho_term = 0.0
     ot_term = 0.0
     for i in range(n_do_per_zone):
-        x_aug_do_gw = X_do_gw[i * nx_do : (i + 1) * nx_do]
-        R_chi_do_gw = mf.Rpsi2D_casadi(x_aug_do_gw[2])
+        x_aug_do_cr = X_do_cr[i * nx_do : (i + 1) * nx_do]
+        R_chi_do_cr = mf.Rpsi2D_casadi(x_aug_do_cr[2])
 
-        p_rel = R_chi_do_gw.T @ (x[:2] - x_aug_do_gw[:2])
-        gw_term += gw_potential(p_rel, alpha_gw, x_0_gw)
+        p_rel = R_chi_do_cr.T @ (x[:2] - x_aug_do_cr[:2])
+        cr_term += gw_potential(p_rel, alpha_cr, x_0_cr)
 
         x_aug_do_ho = X_do_ho[i * nx_do : (i + 1) * nx_do]
         R_chi_do_ho = mf.Rpsi2D_casadi(x_aug_do_ho[2])
@@ -218,8 +222,8 @@ def colregs_cost(
         p_rel = R_chi_do_ot.T @ (x[:2] - x_aug_do_ot[:2])
         ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot)
 
-    cost = weights[0] * gw_term + weights[1] * ho_term + weights[2] * ot_term
-    return cost
+    cost = weights[0] * cr_term + weights[1] * ho_term + weights[2] * ot_term
+    return cost, cr_term, ho_term, ot_term
 
 
 def potential_field_base_function(x: csd.MX) -> csd.MX:

@@ -111,13 +111,13 @@ class ERK4(Integrator):
         # Create symbolic M step RK4 integrator
         for j in range(M):
             k1, k1_q = f(X, P)
-            k2, k2_q = f(X + DT / 2 * k1, P)
-            k3, k3_q = f(X + DT / 2 * k2, P)
+            k2, k2_q = f(X + DT * k1 / 2.0, P)
+            k3, k3_q = f(X + DT * k2 / 2.0, P)
             k4, k4_q = f(X + DT * k3, P)
 
-            dX = DT / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+            dX = (DT / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
             X = X + dX
-            Q = Q + DT / 6 * (k1_q + 2 * k2_q + 2 * k3_q + k4_q)
+            Q = Q + (DT / 6.0) * (k1_q + 2.0 * k2_q + 2.0 * k3_q + k4_q)
 
         self.F = csd.Function("F", [X0, P], [X, Q], ["x0", "p"], ["xf", "qf"])
 

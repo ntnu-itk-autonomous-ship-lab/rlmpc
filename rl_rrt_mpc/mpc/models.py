@@ -171,6 +171,32 @@ class AugmentedKinematicCSOG(MPCModel):
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
+    def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+        """Simulate N explicit runge kutta 4 steps for the model
+
+
+        Args:
+            xs (np.ndarray): State vector
+            u (np.ndarray): Input vector
+            p (np.ndarray): Parameter vector
+            dt (float): Time step
+            N (int): Number of time steps
+
+        Returns:
+            np.ndarray: Next state vectors
+        """
+        soln = np.zeros((self.x.shape[0], N))
+        xs_k = xs
+        for k in range(N):
+            soln[:, k] = xs_k
+            k1 = self.dynamics(xs_k, u, p).full().flatten()
+            k2 = self.dynamics(xs_k + 0.5 * dt * k1, u, p).full().flatten()
+            k3 = self.dynamics(xs_k + 0.5 * dt * k2, u, p).full().flatten()
+            k4 = self.dynamics(xs_k + dt * k3, u, p).full().flatten()
+            xs_k = xs_k + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+            xs_k = mf.sat(xs_k, self.lbx, self.ubx)
+        return soln
+
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return self.lbu, self.ubu, self.lbx, self.ubx
 
@@ -273,6 +299,32 @@ class Telemetron(MPCModel):
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
+    def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+        """Simulate N explicit runge kutta 4 steps for the model
+
+
+        Args:
+            xs (np.ndarray): State vector
+            u (np.ndarray): Input vector
+            p (np.ndarray): Parameter vector
+            dt (float): Time step
+            N (int): Number of time steps
+
+        Returns:
+            np.ndarray: Next state vectors
+        """
+        soln = np.zeros((self.x.shape[0], N))
+        xs_k = xs
+        for k in range(N):
+            soln[:, k] = xs_k
+            k1 = self.dynamics(xs_k, u, p).full().flatten()
+            k2 = self.dynamics(xs_k + 0.5 * dt * k1, u, p).full().flatten()
+            k3 = self.dynamics(xs_k + 0.5 * dt * k2, u, p).full().flatten()
+            k4 = self.dynamics(xs_k + dt * k3, u, p).full().flatten()
+            xs_k = xs_k + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+            xs_k = mf.sat(xs_k, self.lbx, self.ubx)
+        return soln
+
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return self.lbu, self.ubu, self.lbx, self.ubx
 
@@ -326,7 +378,7 @@ class DoubleIntegrator(MPCModel):
         self._acados_model = AcadosModel()
         self._params = params
         self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
-        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
+        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x_p", "u_p", "p_p"], ["f_expl_p"])
 
         # Input and state bounds
         approx_inf = 1e10
@@ -360,15 +412,15 @@ class DoubleIntegrator(MPCModel):
         Returns:
             Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state, input and parameter symbolic vectors
         """
-        x = csd.MX.sym("x", 2)
-        u = csd.MX.sym("u", 1)
-        xdot = csd.MX.sym("x_dot", 2)
+        x_s = csd.MX.sym("x_s", 2)
+        u_s = csd.MX.sym("u_s", 1)
+        x_s_dot = csd.MX.sym("x_s_dot", 2)
 
         p = csd.vertcat([])
 
-        f_expl = csd.vertcat(x[1], u)
-        f_impl = xdot - f_expl
-        return f_impl, f_expl, xdot, x, u, p
+        f_expl = csd.vertcat(x_s[1], u_s)
+        f_impl = x_s_dot - f_expl
+        return f_impl, f_expl, x_s_dot, x_s, u_s, p
 
     def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
         """Simulate N Euler steps for the double integrator
@@ -386,10 +438,36 @@ class DoubleIntegrator(MPCModel):
         soln = np.zeros((self.x.shape[0], N))
         xs_k = xs
         for k in range(N):
-            soln[:, k] = xs_k
+            soln[:, k] = xs_k.reshape(-1)
             xdot = self.dynamics(xs_k, u, p).full().flatten()
             dxs = xdot * dt
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
+        return soln
+
+    def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+        """Simulate N explicit runge kutta 4 steps for the model
+
+
+        Args:
+            xs (np.ndarray): State vector
+            u (np.ndarray): Input vector
+            p (np.ndarray): Parameter vector
+            dt (float): Time step
+            N (int): Number of time steps
+
+        Returns:
+            np.ndarray: Next state vectors
+        """
+        soln = np.zeros((self.x.shape[0], N))
+        xs_k = xs
+        for k in range(N):
+            soln[:, k] = xs_k.reshape(-1)
+            k1 = self.dynamics(xs_k, u, p).full().flatten()
+            k2 = self.dynamics(xs_k + 0.5 * dt * k1, u, p).full().flatten()
+            k3 = self.dynamics(xs_k + 0.5 * dt * k2, u, p).full().flatten()
+            k4 = self.dynamics(xs_k + dt * k3, u, p).full().flatten()
+            xs_k = xs_k + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+            xs_k = mf.sat(xs_k, self.lbx, self.ubx)
         return soln
 
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

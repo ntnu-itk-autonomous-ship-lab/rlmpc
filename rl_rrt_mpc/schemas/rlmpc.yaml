@@ -112,21 +112,18 @@ midlevel_mpc:
         K_app_speed:
           required: True
           type: float
-        K_speed:
-          required: True
-          type: float
         K_fuel:
           required: True
           type: float
 
-        alpha_gw:
+        alpha_cr:
           required: True
           type: list
           maxlength: 2
           minlength: 2
           schema:
             type: float
-        y_0_gw:
+        y_0_cr:
           required: True
           type: float
         alpha_ho:

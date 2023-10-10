@@ -96,9 +96,6 @@ class AcadosMPC:
                 - d_safe_do
         """
         mdl_adjustable_params = np.array([])
-        if isinstance(self._model, models.KinematicCSOG):
-            mdl_params = self._model.params()
-            mdl_adjustable_params = np.concatenate((mdl_params.T_chi, mdl_params.T_U))
         mpc_adjustable_params = np.concatenate((self._params.Q.flatten(), self._params.R.flatten(), np.array([self._params.d_safe_so, self._params.d_safe_do])))
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 

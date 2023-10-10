@@ -103,16 +103,15 @@ class MidlevelMPCParams(IParams):
     reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
-    Q_p: np.ndarray = np.diag([0.1, 0.1, 1.0])  # path following cost matrix, position (x, y) and path timing (s / path variable)
+    Q_p: np.ndarray = np.diag([0.1, 0.1, 1.0])  # path following cost matrix, position (x, y) and speed assignment (s_dot / path variable)
     alpha_app_course: np.ndarray = np.array([112.0, 0.0006])
     alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
     K_app_course: float = 0.5  # turn rate penalty
     K_app_speed: float = 0.6  # speed deviation penalty
-    K_speed: float = 1.0  # speed deviation penalty
     K_fuel: float = 1.0  # fuel penalty
 
-    alpha_gw: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
-    y_0_gw: float = 100.0
+    alpha_cr: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
+    y_0_cr: float = 100.0
     alpha_ho: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
     x_0_ho: float = 200.0
     alpha_ot: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
@@ -136,7 +135,7 @@ class MidlevelMPCParams(IParams):
         params.Q_p = np.diag(params.Q_p)
         params.alpha_app_course = np.array(params.alpha_app_course)
         params.alpha_app_speed = np.array(params.alpha_app_speed)
-        params.alpha_gw = np.array(params.alpha_gw)
+        params.alpha_cr = np.array(params.alpha_cr)
         params.alpha_ho = np.array(params.alpha_ho)
         params.alpha_ot = np.array(params.alpha_ot)
         params.w_colregs = np.array(params.w_colregs)
@@ -148,7 +147,7 @@ class MidlevelMPCParams(IParams):
         config_dict["Q_p"] = self.Q_p.diagonal().tolist()
         config_dict["alpha_app_course"] = self.alpha_app_course.tolist()
         config_dict["alpha_app_speed"] = self.alpha_app_speed.tolist()
-        config_dict["alpha_gw"] = self.alpha_gw.tolist()
+        config_dict["alpha_cr"] = self.alpha_cr.tolist()
         config_dict["alpha_ho"] = self.alpha_ho.tolist()
         config_dict["alpha_ot"] = self.alpha_ot.tolist()
         config_dict["w_colregs"] = self.w_colregs.tolist()
@@ -167,10 +166,9 @@ class MidlevelMPCParams(IParams):
                 *self.alpha_app_speed.flatten().tolist(),
                 self.K_app_course,
                 self.K_app_speed,
-                self.K_speed,
                 self.K_fuel,
-                *self.alpha_gw.tolist(),
-                self.y_0_gw,
+                *self.alpha_cr.tolist(),
+                self.y_0_cr,
                 *self.alpha_ho.tolist(),
                 self.x_0_ho,
                 *self.alpha_ot.tolist(),

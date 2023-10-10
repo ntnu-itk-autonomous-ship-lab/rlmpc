@@ -102,31 +102,15 @@ def interpolate_solution(trajectory: np.ndarray, inputs: np.ndarray, t: float, t
         dt_sim = np.max([t - t_prev, 0.5])
         sim_times = np.arange(0.0, T_mpc, dt_sim)
         mpc_times = np.arange(0.0, T_mpc, dt_mpc)
-        for k in range(nx):
-            intp_trajectory[k, :] = interp1d(mpc_times, trajectory[k, :], kind="linear", bounds_error=False)(sim_times)
-        for k in range(nu):
-            intp_inputs[k, :] = interp1d(mpc_times, inputs[k, :], kind="linear", bounds_error=False)(sim_times)
+        n_samples = len(sim_times)
+        intp_trajectory = np.zeros((nx, n_samples))
+        intp_inputs = np.zeros((nu, n_samples))
+        for dim in range(nx):
+            intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", bounds_error=False)(sim_times)
+        for dim in range(nu):
+            intp_inputs[dim, :] = interp1d(mpc_times, inputs[dim, :], kind="linear", bounds_error=False)(sim_times)
 
         return intp_trajectory, intp_inputs
-
-        x_d = interp1d(mpc_times, trajectory[0, :], kind="linear", bounds_error=False)
-        y_d = interp1d(mpc_times, trajectory[1, :], kind="linear", bounds_error=False)
-        psi_d = interp1d(mpc_times, trajectory[2, :], kind="linear", bounds_error=False)
-        u_d = interp1d(mpc_times, trajectory[3, :], kind="linear", bounds_error=False)
-        v_d = interp1d(mpc_times, trajectory[4, :], kind="linear", bounds_error=False)
-        r_d = interp1d(mpc_times, trajectory[5, :], kind="linear", bounds_error=False)
-        intp_trajectory = np.zeros((6, len(sim_times)))
-        intp_trajectory[0, :] = x_d(sim_times)
-        intp_trajectory[1, :] = y_d(sim_times)
-        intp_trajectory[2, :] = psi_d(sim_times)
-        intp_trajectory[3, :] = u_d(sim_times)
-        intp_trajectory[4, :] = v_d(sim_times)
-        intp_trajectory[5, :] = r_d(sim_times)
-        X_d = interp1d(mpc_times, inputs[0, :], kind="linear", bounds_error=False)
-        Y_d = interp1d(mpc_times, inputs[1, :], kind="linear", bounds_error=False)
-        intp_inputs = np.zeros((2, len(sim_times)))
-        intp_inputs[0, :] = X_d(sim_times)
-        intp_inputs[1, :] = Y_d(sim_times)
     return intp_trajectory, intp_inputs
 
 

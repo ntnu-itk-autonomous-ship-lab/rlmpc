@@ -255,11 +255,9 @@ class RLMPC(ci.ICOLAV):
         output = {}
         if self._t_prev_mpc == self._t_prev:
             output = {
-                "nominal_trajectory": self._nominal_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1),
-                "nominal_inputs": self._nominal_inputs,
                 "time_of_last_plan": self._t_prev_mpc,
                 "mpc_soln": self._mpc_soln,
-                "mpc_trajectory": self._mpc_trajectory,
+                "mpc_trajectory": self._mpc_trajectory + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(8, 1),
                 "mpc_inputs": self._mpc_inputs,
                 "params": self._config,
                 "t": self._t_prev,
@@ -267,13 +265,18 @@ class RLMPC(ci.ICOLAV):
         return output
 
     def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
+        """NOTE: Must use the "colav_nominal_trajectory" and "colav_predicted_trajectory" keys in the plt_handles dictionary.
 
-        if self._nominal_trajectory.size > 6:
-            plt_handles["colav_nominal_trajectory"].set_xdata(self._nominal_trajectory[1, 0:-1:10] + self._map_origin[1])
-            plt_handles["colav_nominal_trajectory"].set_ydata(self._nominal_trajectory[0, 0:-1:10] + self._map_origin[0])
+        Args:
+            ax_map (plt.Axes): Matplotlib axes object.
+            enc (senc.ENC): ENC object.
+            plt_handles (dict): Dictionary containing the matplotlib handles.
 
-        if self._mpc_trajectory.size > 6:
-            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:10])
-            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:10])
+        Returns:
+            dict: Updated matplotlib handles.
+        """
+        if self._mpc_trajectory.size > 8:
+            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:2])
+            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:2])
 
         return plt_handles
