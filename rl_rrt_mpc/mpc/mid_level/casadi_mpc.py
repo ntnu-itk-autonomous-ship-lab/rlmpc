@@ -616,7 +616,7 @@ class CasadiMPC:
         axes["speed_rate_input"].legend()
 
         axes["path_variable"].plot(X[6, :], color="b", label=r"$s$")
-        axes["path_variable"].set_ylabel("")
+        axes["path_variable"].set_ylabel("path variable")
         axes["path_variable"].set_xlabel("k")
         axes["path_variable"].legend()
 
@@ -628,7 +628,7 @@ class CasadiMPC:
         s_dot_ref = self._U_ref / np.sqrt(x_dot_path**2 + y_dot_path**2)
         axes["path_dot_variable"].plot(X[7, :], color="b", label=r"$\dot{s}$")
         axes["path_dot_variable"].plot(s_dot_ref, color="r", label=r"$\dot{s}_{ref}$")
-        axes["path_dot_variable"].set_ylabel("")
+        axes["path_dot_variable"].set_ylabel("path der. variable")
         axes["path_dot_variable"].set_xlabel("k")
         axes["path_dot_variable"].legend()
 
