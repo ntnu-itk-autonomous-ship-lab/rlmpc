@@ -128,49 +128,51 @@ if __name__ == "__main__":
             ot_surface[i, j] = ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot)
 
     # Plot the potential functions
+    colormap = cm.inferno
     ax1 = plt.figure().add_subplot(111, projection="3d")
-    ax1.plot_surface(Y, X, gw_surface, cmap=cm.coolwarm)
+    ax1.plot_surface(Y, X, gw_surface, cmap=colormap)
     ax1.set_ylabel("North [m]")
     ax1.set_xlabel("East [m]")
     ax1.set_zlabel(r"$h_{gw}(\bm{p}_{rel})$")
 
     fig2, ax2 = plt.subplots()
-    pc2 = ax2.contourf(Y, X, gw_surface, cmap=cm.coolwarm)
+    pc2 = ax2.contourf(Y, X, gw_surface, cmap=colormap)
     gw_poly = mapf.create_ship_polygon(0, 0, 2.0 * heading_gw, 500, 100)
     x, y = gw_poly.exterior.xy
     cbar2 = fig2.colorbar(pc2)
-    ax2.fill(y, x, alpha=1, fc="b", ec="none")
+    ax2.fill(y, x, alpha=1, fc="g", ec="none")
     ax2.set_xlabel("East [m]")
     ax2.set_ylabel("North [m]")
 
     ax3 = plt.figure().add_subplot(111, projection="3d")
-    ax3.plot_surface(Y, X, ho_surface, cmap=cm.coolwarm)
+    ax3.plot_surface(Y, X, ho_surface, cmap=colormap)
     ax3.set_ylabel("North [m]")
     ax3.set_xlabel("East [m]")
     ax3.set_zlabel(r"$h_{ho}(\bm{p}_{rel})$")
 
     fig4, ax4 = plt.subplots()
-    pc4 = ax4.contourf(Y, X, ho_surface, cmap=cm.coolwarm)
+    pc4 = ax4.contourf(Y, X, ho_surface, cmap=colormap)
     ho_poly = mapf.create_ship_polygon(0, 0, heading_ho + np.pi / 2.0, 500, 100)
     x, y = ho_poly.exterior.xy
     cbar4 = fig4.colorbar(pc4)
-    ax4.fill(y, x, alpha=1, fc="b", ec="none")
+    ax4.fill(y, x, alpha=1, fc="g", ec="none")
     ax4.set_xlabel("East [m]")
     ax4.set_ylabel("North [m]")
 
     ax5 = plt.figure().add_subplot(111, projection="3d")
-    ax5.plot_surface(Y, X, ot_surface, cmap=cm.coolwarm)
+    ax5.plot_surface(Y, X, ot_surface, cmap=colormap)
     ax5.set_ylabel("North [m]")
     ax5.set_xlabel("East [m]")
     ax5.set_zlabel(r"$h_{ot}(\bm{p}_{rel})$")
 
     fig6, ax6 = plt.subplots()
-    pc6 = ax6.contourf(Y, X, ot_surface, cmap=cm.coolwarm)
+    pc6 = ax6.contourf(Y, X, ot_surface, cmap=colormap)
     ot_poly = mapf.create_ship_polygon(0, 0, heading_ot + np.pi / 2.0, 500, 100)
     x, y = ot_poly.exterior.xy
     cbar6 = fig6.colorbar(pc6)
-    ax6.fill(y, x, alpha=1, fc="b", ec="none")
+    ax6.fill(y, x, alpha=1, fc="g", ec="none")
     ax6.set_xlabel("East [m]")
     ax6.set_ylabel("North [m]")
+    plt.tight_layout()
     plt.show(block=False)
     print("done")

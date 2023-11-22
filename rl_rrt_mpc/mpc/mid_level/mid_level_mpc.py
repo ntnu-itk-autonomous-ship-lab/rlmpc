@@ -18,7 +18,6 @@ import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.mpc.common as common
 import rl_rrt_mpc.mpc.mid_level.casadi_mpc as casadi_mpc
 import rl_rrt_mpc.mpc.models as models
-import rl_rrt_mpc.mpc.mpc_interface as mpc_interface
 import rl_rrt_mpc.mpc.parameters as mpc_parameters
 import seacharts.enc as senc
 from scipy.interpolate import CubicSpline, PchipInterpolator
