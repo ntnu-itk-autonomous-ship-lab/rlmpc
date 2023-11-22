@@ -126,7 +126,7 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX, nx_ship: int) -> 
 
     Args:
         - x (csd.MX): Current state.
-        - path_ref (csd.MX): Path reference on the form [p_ref_k, s_dot_ref_k]^T.
+        - path_ref (csd.MX): Path reference on the form [p_ref, s_dot_ref]^T.
         - Q_p (csd.MX): Path following cost weight matrix.
         - nx_ship (int): Number of states in the ship model.
 
@@ -136,13 +136,17 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX, nx_ship: int) -> 
     # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_sot)
     z = csd.vertcat(x[:2], x[nx_ship + 1])  # [x, y, s_dot]
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
-    assert Q_p.shape[0] == Q_p.shape[1] == p_ref.shape[0], "Path following cost weight matrix must be square and have the same dimension as the path reference."
+    assert (
+        Q_p.shape[0] == Q_p.shape[1] == p_ref.shape[0]
+    ), "Path following cost weight matrix must be square and have the same dimension as the path reference."
     path_dev_cost = quadratic_cost(z[:2], p_ref[:2], Q_p[:2, :2])
     speed_dev_cost = quadratic_cost(z[2], p_ref[2], Q_p[2, 2])
     return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
 
 
-def rate_cost(u: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float) -> Tuple[csd.MX, csd.MX, csd.MX]:
+def rate_cost(
+    u: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float
+) -> Tuple[csd.MX, csd.MX, csd.MX]:
     """Computes the chattering cost associated with the rate of change of the course and speed references,
     and stimulates chosing apparent maneuvers.
 
@@ -249,7 +253,11 @@ def gw_potential(p: csd.MX, alpha: csd.MX, y_0: csd.MX) -> csd.MX:
     Returns:
         csd.MX: The potential function value.
     """
-    return 0.5 * potential_field_base_function(alpha[0] * p[0]) * (potential_field_base_function(alpha[1] * (p[1] - y_0)) + 1)
+    return (
+        0.5
+        * potential_field_base_function(alpha[0] * p[0])
+        * (potential_field_base_function(alpha[1] * (p[1] - y_0)) + 1)
+    )
 
 
 def ho_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX) -> csd.MX:
@@ -263,7 +271,11 @@ def ho_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX) -> csd.MX:
     Returns:
         csd.MX: The potential function value.
     """
-    return 0.5 * (potential_field_base_function(alpha[0] * (x_0 - p[0])) + 1) * potential_field_base_function(alpha[1] * p[1])
+    return (
+        0.5
+        * (potential_field_base_function(alpha[0] * (x_0 - p[0])) + 1)
+        * potential_field_base_function(alpha[1] * p[1])
+    )
 
 
 def ot_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX, y_0: csd.MX) -> csd.MX:
@@ -279,7 +291,11 @@ def ot_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX, y_0: csd.MX) -> csd.MX:
     Returns:
         csd.MX: The potential function value.
     """
-    return 0.5 * potential_field_base_function(alpha[0] * (x_0 - p[0])) * potential_field_base_function(alpha[1] * csd.fabs(p[1] - y_0))
+    return (
+        0.5
+        * potential_field_base_function(alpha[0] * (x_0 - p[0]))
+        * potential_field_base_function(alpha[1] * csd.fabs(p[1] - y_0))
+    )
 
 
 def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:

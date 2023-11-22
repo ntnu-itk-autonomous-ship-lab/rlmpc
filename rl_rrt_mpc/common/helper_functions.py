@@ -80,7 +80,9 @@ def create_los_based_trajectory(
     return np.array(trajectory).T, np.array(inputs)[:, :2].T
 
 
-def interpolate_solution(trajectory: np.ndarray, inputs: np.ndarray, t: float, t_prev: float, T_mpc: float, dt_mpc: float) -> Tuple[np.ndarray, np.ndarray]:
+def interpolate_solution(
+    trajectory: np.ndarray, inputs: np.ndarray, t: float, t_prev: float, T_mpc: float, dt_mpc: float
+) -> Tuple[np.ndarray, np.ndarray]:
     """Interpolates the solution from the MPC to the time step in the simulation.
 
     Args:
@@ -106,7 +108,9 @@ def interpolate_solution(trajectory: np.ndarray, inputs: np.ndarray, t: float, t
         intp_trajectory = np.zeros((nx, n_samples))
         intp_inputs = np.zeros((nu, n_samples))
         for dim in range(nx):
-            intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", bounds_error=False)(sim_times)
+            intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", bounds_error=False)(
+                sim_times
+            )
         for dim in range(nu):
             intp_inputs[dim, :] = interp1d(mpc_times, inputs[dim, :], kind="linear", bounds_error=False)(sim_times)
 
@@ -114,7 +118,9 @@ def interpolate_solution(trajectory: np.ndarray, inputs: np.ndarray, t: float, t
     return intp_trajectory, intp_inputs
 
 
-def shift_nominal_plan(nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, ownship_state: np.ndarray, N: int) -> Tuple[np.ndarray, np.ndarray]:
+def shift_nominal_plan(
+    nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, ownship_state: np.ndarray, N: int
+) -> Tuple[np.ndarray, np.ndarray]:
     """Updates the nominal trajectory and inputs to the MPC based on the current ownship state. This is done by
     find closest point on nominal trajectory to the current state and then shifting the nominal trajectory to this point
 
@@ -129,27 +135,41 @@ def shift_nominal_plan(nominal_trajectory: np.ndarray, nominal_inputs: np.ndarra
     """
     nx = ownship_state.size
     nu = nominal_inputs.shape[0]
-    closest_idx = int(np.argmin(np.linalg.norm(nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(nominal_trajectory[0, :]), 1)).T, axis=0)))
+    closest_idx = int(
+        np.argmin(
+            np.linalg.norm(
+                nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(nominal_trajectory[0, :]), 1)).T, axis=0
+            )
+        )
+    )
     shifted_nominal_trajectory = nominal_trajectory[:, closest_idx:]
     shifted_nominal_inputs = nominal_inputs[:, closest_idx:]
     n_samples = shifted_nominal_trajectory.shape[1]
     if n_samples == 0:  # Done with following nominal trajectory, stop
-        shifted_nominal_trajectory = np.tile(np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)).T
+        shifted_nominal_trajectory = np.tile(
+            np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)
+        ).T
         shifted_nominal_inputs = np.zeros((nu, N))
     elif n_samples < N + 1:
         shifted_nominal_trajectory = np.zeros((nx, N + 1))
         shifted_nominal_trajectory[:, :n_samples] = nominal_trajectory[:, closest_idx : closest_idx + n_samples]
-        shifted_nominal_trajectory[:, n_samples:] = np.tile(nominal_trajectory[:, closest_idx + n_samples - 1], (N + 1 - n_samples, 1)).T
+        shifted_nominal_trajectory[:, n_samples:] = np.tile(
+            nominal_trajectory[:, closest_idx + n_samples - 1], (N + 1 - n_samples, 1)
+        ).T
         shifted_nominal_inputs = np.zeros((nu, N))
         shifted_nominal_inputs[:, : n_samples - 1] = nominal_inputs[:, closest_idx : closest_idx + n_samples - 1]
-        shifted_nominal_inputs[:, n_samples - 1 :] = np.tile(nominal_inputs[:, closest_idx + n_samples - 2], (N - n_samples + 1, 1)).T
+        shifted_nominal_inputs[:, n_samples - 1 :] = np.tile(
+            nominal_inputs[:, closest_idx + n_samples - 2], (N - n_samples + 1, 1)
+        ).T
     else:
         shifted_nominal_trajectory = shifted_nominal_trajectory[:, : N + 1]
         shifted_nominal_inputs = shifted_nominal_inputs[:, :N]
     return shifted_nominal_trajectory, shifted_nominal_inputs
 
 
-def decision_trajectories_from_solution(soln: np.ndarray, N: int, nu: int, nx: int, ns: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def decision_trajectories_from_solution(
+    soln: np.ndarray, N: int, nu: int, nx: int, ns: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extracts the input sequence U, state sequence X and the slack variable sequence S from the solution vector soln = w = [U.flattened, X.flattened, Sigma.flattened] from the optimization problem.
 
     Args:
@@ -284,7 +304,7 @@ def translate_dynamic_obstacle_coordinates(dynamic_obstacles: list, x_shift: flo
         list: List of dynamic obstacles with shifted coordinates
     """
     translated_dynamic_obstacles = []
-    for (ID, state, cov, length, width) in dynamic_obstacles:
+    for ID, state, cov, length, width in dynamic_obstacles:
         translated_state = state - np.array([y_shift, x_shift, 0.0, 0.0])
         translated_dynamic_obstacles.append((ID, translated_state, cov, length, width))
     return translated_dynamic_obstacles
@@ -308,7 +328,13 @@ def translate_polygons(polygons: list, x_shift: float, y_shift: float) -> list:
     return translated_polygons
 
 
-def create_ellipse(center: np.ndarray, A: Optional[np.ndarray] = None, a: float | None = 1.0, b: float | None = 1.0, phi: float | None = 0.0) -> Tuple[list, list]:
+def create_ellipse(
+    center: np.ndarray,
+    A: Optional[np.ndarray] = None,
+    a: float | None = 1.0,
+    b: float | None = 1.0,
+    phi: float | None = 0.0,
+) -> Tuple[list, list]:
     """Create standard ellipse at center, with input semi-major axis, semi-minor axis and angle.
 
     Either specified by c, A or c, a, b, phi:
@@ -420,80 +446,6 @@ def create_probability_ellipse(P: np.ndarray, probability: float = 0.99) -> Tupl
     return ellipse_xy[0, :].tolist(), ellipse_xy[1, :].tolist()
 
 
-def plot_trajectory(trajectory: np.ndarray, enc: senc.ENC, color: str) -> None:
-    enc.start_display()
-    trajectory_line = []
-    for k in range(trajectory.shape[1]):
-        trajectory_line.append((trajectory[1, k], trajectory[0, k]))
-    enc.draw_line(trajectory_line, color=color, width=0.5, thickness=0.5, marker_type=None)
-
-
-def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC, T: float, dt: float, color: str, map_origin: Optional[np.ndarray] = None) -> None:
-    """Plots the dynamic obstacles in the ENC.
-
-    Args:
-        dynamic_obstacles (list): List of dynamic obstacle objects on the form (ID, state, cov, length, width)
-        enc (senc.ENC): ENC object
-        T (float): Horizon length
-        dt (float): Time step
-        color (str): Color of the dynamic obstacles
-        map_origin (Optional[np.ndarray]): Map origin. Defaults to None.
-    """
-    N = int(T / dt)
-    enc.start_display()
-    for (ID, state, cov, length, width) in dynamic_obstacles:
-        if map_origin is not None:
-            state = state + map_origin
-        ellipse_x, ellipse_y = create_probability_ellipse(cov, 0.99)
-        ell_geometry = geometry.Polygon(zip(ellipse_y + state[1], ellipse_x + state[0]))
-        enc.draw_polygon(ell_geometry, color=color, alpha=0.3)
-
-        for k in range(0, N, 10):
-            do_poly = create_ship_polygon(
-                state[0] + k * dt * state[2], state[1] + k * dt * state[3], np.arctan2(state[3], state[2]), length, width, length_scaling=1.0, width_scaling=1.0
-            )
-            enc.draw_polygon(do_poly, color=color)
-
-
-def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
-    enc.start_display()
-    for node in node_list:
-        enc.draw_circle((node["state"][1], node["state"][0]), 2.5, color="green", fill=False, thickness=0.8, edge_style=None)
-        for sub_node in node_list:
-            if node["id"] == sub_node["id"] or sub_node["parent_id"] != node["id"]:
-                continue
-            points = [(tt[1], tt[0]) for tt in sub_node["trajectory"]]
-            if len(points) > 1:
-                enc.draw_line(points, color="white", width=0.5, thickness=0.5, marker_type=None)
-
-
-def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, length_scaling: float = 1.0, width_scaling: float = 1.0) -> geometry.Polygon:
-    """Creates a ship polygon from the ship`s position, heading, length and width.
-
-    Args:
-        x (float): The ship`s north position
-        y (float): The ship`s east position
-        heading (float): The ship`s heading
-        length (float): Length of the ship
-        width (float): Width of the ship
-        length_scaling (float, optional): Length scale factor. Defaults to 1.0.
-        width_scaling (float, optional): Length scale factor. Defaults to 1.0.
-
-    Returns:
-        np.ndarray: Ship polygon
-    """
-    eff_length = length * length_scaling
-    eff_width = width * width_scaling
-
-    x_min, x_max = x - eff_length / 2.0, x + eff_length / 2.0 - eff_width
-    y_min, y_max = y - eff_width / 2.0, y + eff_width / 2.0
-    left_aft, right_aft = (y_min, x_min), (y_max, x_min)
-    left_bow, right_bow = (y_min, x_max), (y_max, x_max)
-    coords = [left_aft, left_bow, (y, x + eff_length / 2.0), right_bow, right_aft]
-    poly = geometry.Polygon(coords)
-    return affinity.rotate(poly, -heading, origin=(y, x), use_radians=True)
-
-
 def plot_surface_approximation_stuff(
     radial_basis_function: csd.Function,
     radial_basis_function_gradient: csd.Function,
@@ -509,7 +461,6 @@ def plot_surface_approximation_stuff(
     map_origin: np.ndarray,
     enc: senc.ENC,
 ) -> Tuple[list, list]:
-
     x_surface, y_surface = surface_data_points
     cap_style = 2
     join_style = 2
@@ -518,23 +469,33 @@ def plot_surface_approximation_stuff(
     # ax3 = plt.figure().add_subplot(111, projection="3d")
     # ax3 = plt.figure().add_subplot(111)
     # ax5 = plt.figure().add_subplot(111, projection="3d")
-    poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(d_safe + 10.0, cap_style=cap_style, join_style=join_style).bounds
+    poly_min_east, poly_min_north, poly_max_east, poly_max_north = polygon.buffer(
+        d_safe + 10.0, cap_style=cap_style, join_style=join_style
+    ).bounds
 
-    coastline_min_east, coastline_min_north, coastline_max_east, coastline_max_north = relevant_coastline_safety_buffered.bounds
-    if polygon_index == 1:
-        translated_polygon = translate_polygons([polygon], -map_origin[1], -map_origin[0])[0]
-        enc.draw_polygon(translated_polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style), color="black", fill=False)
+    (
+        coastline_min_east,
+        coastline_min_north,
+        coastline_max_east,
+        coastline_max_north,
+    ) = relevant_coastline_safety_buffered.bounds
+    # if polygon_index == 1:
+    #     translated_polygon = translate_polygons([polygon], -map_origin[1], -map_origin[0])[0]
+    #     enc.draw_polygon(
+    #         translated_polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style), color="black", fill=False
+    #     )
     #    save_path = dp.figures
     #     enc.save_image(name="enc_island_polygon", path=save_path, extension="pdf")
     #     enc.save_image(name="enc_island_polygon", path=save_path, scale=2.0)
 
-    if polygon_index == 8:
-        polygon_diff = ops.split(
-            relevant_coastline_safety_buffered.buffer(10.0, cap_style=cap_style, join_style=join_style), geometry.LineString(original_polygon.exterior.coords)
-        )
-        geom = polygon_diff.geoms[1]
-        translated_geom = translate_polygons([geom], -map_origin[1], -map_origin[0])[0]
-        enc.draw_polygon(translated_geom, color="black", fill=False)
+    # if polygon_index == 8:
+    #     polygon_diff = ops.split(
+    #         relevant_coastline_safety_buffered.buffer(10.0, cap_style=cap_style, join_style=join_style),
+    #         geometry.LineString(original_polygon.exterior.coords),
+    #     )
+    #     geom = polygon_diff.geoms[1]
+    #     translated_geom = translate_polygons([geom], -map_origin[1], -map_origin[0])[0]
+    #     enc.draw_polygon(translated_geom, color="black", fill=False)
 
     y_poly_safety_buffered, x_poly_safety_buffered = polygon_safety_buffered.exterior.coords.xy
 
@@ -569,10 +530,18 @@ def plot_surface_approximation_stuff(
                 if polygon_index == 0 and north_coord < coastline_min_north:
                     continue
 
-                if polygon_index == 0 and north_coord < coastline_min_north + 200.0 and east_coord < coastline_min_east + 200.0:
+                if (
+                    polygon_index == 0
+                    and north_coord < coastline_min_north + 200.0
+                    and east_coord < coastline_min_east + 200.0
+                ):
                     continue
 
-                if polygon_index == 0 and north_coord < coastline_min_north + 20.0 and east_coord > coastline_max_east - 60.0:
+                if (
+                    polygon_index == 0
+                    and north_coord < coastline_min_north + 20.0
+                    and east_coord > coastline_max_east - 60.0
+                ):
                     continue
 
                 if polygon_index == 8 and not geometry.Point(east_coord, north_coord).within(geom):
@@ -584,14 +553,20 @@ def plot_surface_approximation_stuff(
                 if polygon_index == 8 and north_coord < -12.0 and east_coord > 1257.0:
                     continue
 
-                if (mask[i, ii] > 0.0 and radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) <= 0.0 + epsilon) or (
-                    mask[i, ii] <= 0.0 and radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0 + epsilon
+                if (
+                    mask[i, ii] > 0.0
+                    and radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) <= 0.0 + epsilon
+                ) or (
+                    mask[i, ii] <= 0.0
+                    and radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0 + epsilon
                 ):
                     # if mask[i, ii] - radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0:
                     #    print("Error: ", mask[i, ii] - radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))))
                     d2poly = polygon_safety_buffered.distance(geometry.Point(east_coord, north_coord))
                     dist_surface_points[i, ii] = d2poly
-                    diff_surface_points[i, ii] = radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2)))
+                    diff_surface_points[i, ii] = radial_basis_function(
+                        np.array([north_coord, east_coord]).reshape((1, 2))
+                    )
         print("polygon_index = {polygon_index} |Max distance of error: ", np.max(dist_surface_points))
 
         n_points = len(x_surface)
@@ -603,8 +578,12 @@ def plot_surface_approximation_stuff(
         max_error = np.max(dist_surface_points)
         idx_max_error = np.argmax(actual_dataset_error)
         std_error = np.std(dist_surface_points)
-        print(f"polygon_index = {polygon_index} | Num interpolation data points: {len(x_surface)} | Num original poly points: {len(x_poly_safety_buffered)}")
-        print(f"Dataset: Mean 0point crossing error: {mean_error}, Max, idx max error: ({max_error}, {idx_max_error}), Std error: {std_error}")
+        print(
+            f"polygon_index = {polygon_index} | Num interpolation data points: {len(x_surface)} | Num original poly points: {len(x_poly_safety_buffered)}"
+        )
+        print(
+            f"Dataset: Mean 0point crossing error: {mean_error}, Max, idx max error: ({max_error}, {idx_max_error}), Std error: {std_error}"
+        )
 
         Y, X = np.meshgrid(east_coords + map_origin[1], north_coords + map_origin[0], indexing="ij")
         # Y, X = np.meshgrid(east_coords, north_coords, indexing="ij")
