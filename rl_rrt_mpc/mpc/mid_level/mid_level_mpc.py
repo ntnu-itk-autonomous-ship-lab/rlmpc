@@ -19,8 +19,8 @@ import rl_rrt_mpc.mpc.common as common
 import rl_rrt_mpc.mpc.mid_level.casadi_mpc as casadi_mpc
 import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as mpc_parameters
+import scipy.interpolate as interp
 import seacharts.enc as senc
-from scipy.interpolate import CubicSpline, PchipInterpolator
 
 uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
@@ -41,13 +41,14 @@ class Config:
 
     @classmethod
     def from_dict(self, config_dict: dict):
-
         if "csog" in config_dict["model"]:
             model = models.AugmentedKinematicCSOG(cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"]))
         elif "telemetron" in config_dict["model"]:
             model = models.Telemetron()
         else:
-            model = models.AugmentedKinematicCSOG(models.AugmentedKinematicCSOGParams.from_dict(config_dict["model"]["augmented_csog"]))
+            model = models.AugmentedKinematicCSOG(
+                models.AugmentedKinematicCSOGParams.from_dict(config_dict["model"]["augmented_csog"])
+            )
 
         path_timing = models.DoubleIntegrator(models.DoubleIntegratorParams.from_dict(config_dict["path_timing"]))
 
@@ -75,9 +76,13 @@ class MidlevelMPC:
             self._solver_options = default_config.solver_options
             self._acados_enabled = default_config.enable_acados
 
-        self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(config.model, config.path_timing, self._params, self._solver_options.casadi)
+        self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(
+            config.model, config.path_timing, self._params, self._solver_options.casadi
+        )
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(config.model, self._params, self._solver_options.acados)
+            self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(
+                config.model, self._params, self._solver_options.acados
+            )
 
     @property
     def params(self) -> mpc_parameters.MidlevelMPCParams:
@@ -105,7 +110,7 @@ class MidlevelMPC:
 
     def construct_ocp(
         self,
-        nominal_path: Tuple[CubicSpline, CubicSpline, PchipInterpolator, float],
+        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
         xs: np.ndarray,
         so_list: list,
         enc: senc.ENC,
@@ -115,7 +120,7 @@ class MidlevelMPC:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
         Args:
-            - nominal_path (Tuple[CubicSpline, CubicSpline, PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
+            - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]): Tuple containing the nominal path splines in x, y, heading and the speed.
             - xs (np.ndarray): Current state of the ownship on the form [x, y, chi, U]^T
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
@@ -126,7 +131,17 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
 
-    def plan(self, t: float, xs: np.ndarray, do_cr_list: list, do_ho_list: list, do_ot_list: list, so_list: list, enc: senc.ENC, **kwargs) -> dict:
+    def plan(
+        self,
+        t: float,
+        xs: np.ndarray,
+        do_cr_list: list,
+        do_ho_list: list,
+        do_ot_list: list,
+        so_list: list,
+        enc: senc.ENC,
+        **kwargs
+    ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:

@@ -454,13 +454,33 @@ def plot_surface_approximation_stuff(
     surface_data_points_before_buffering: Tuple[list, list],
     original_polygon: geometry.Polygon,
     polygon: geometry.Polygon,
-    polygon_safety_buffered: geometry.Polygon,
+    polygon_safety: geometry.Polygon,
     polygon_index: int,
-    relevant_coastline_safety_buffered: geometry.Polygon,
+    relevant_coastline_safety: geometry.Polygon,
     d_safe: float,
     map_origin: np.ndarray,
     enc: senc.ENC,
 ) -> Tuple[list, list]:
+    """Plots the surface approximation stuff. This is used for debugging purposes, not optimized for readability.
+
+    Args:
+        radial_basis_function (csd.Function): Radial basis function
+        radial_basis_function_gradient (csd.Function): Gradient of radial basis function
+        surface_data_points (Tuple[list, list]): Data points used for interpolation
+        surface_data_point_mask (list): Mask of data points used for interpolation
+        surface_data_points_before_buffering (Tuple[list, list]): Data points used for interpolation before buffering
+        original_polygon (geometry.Polygon): Original polygon
+        polygon (geometry.Polygon): Polygon clipped inside trajectory envelope
+        polygon_safety (geometry.Polygon): Polygon clipped inside trajectory envelope and safety buffered
+        polygon_index (int): Index of polygon
+        relevant_coastline_safety (geometry.Polygon): Relevant coastline of the clipped safety polygon
+        d_safe (float): Safety distance
+        map_origin (np.ndarray): Map origin in NE
+        enc (senc.ENC): ENC object
+
+    Returns:
+        Tuple[list, list]: List of figures and axes
+    """
     x_surface, y_surface = surface_data_points
     cap_style = 2
     join_style = 2
@@ -478,7 +498,7 @@ def plot_surface_approximation_stuff(
         coastline_min_north,
         coastline_max_east,
         coastline_max_north,
-    ) = relevant_coastline_safety_buffered.bounds
+    ) = relevant_coastline_safety.bounds
     # if polygon_index == 1:
     #     translated_polygon = translate_polygons([polygon], -map_origin[1], -map_origin[0])[0]
     #     enc.draw_polygon(
@@ -490,14 +510,14 @@ def plot_surface_approximation_stuff(
 
     # if polygon_index == 8:
     #     polygon_diff = ops.split(
-    #         relevant_coastline_safety_buffered.buffer(10.0, cap_style=cap_style, join_style=join_style),
+    #         relevant_coastline_safety.buffer(10.0, cap_style=cap_style, join_style=join_style),
     #         geometry.LineString(original_polygon.exterior.coords),
     #     )
     #     geom = polygon_diff.geoms[1]
     #     translated_geom = translate_polygons([geom], -map_origin[1], -map_origin[0])[0]
     #     enc.draw_polygon(translated_geom, color="black", fill=False)
 
-    y_poly_safety_buffered, x_poly_safety_buffered = polygon_safety_buffered.exterior.coords.xy
+    y_poly_safety, x_poly_safety = polygon_safety.exterior.coords.xy
 
     # Compute error approximation
     compute_err_approx = False
@@ -514,7 +534,7 @@ def plot_surface_approximation_stuff(
         Y, X = np.meshgrid(east_coords, north_coords, indexing="ij")
         map_coords = np.hstack((Y.reshape(-1, 1), X.reshape(-1, 1)))
 
-        poly_path = mpath.Path(np.array([y_poly_safety_buffered, x_poly_safety_buffered]).T)
+        poly_path = mpath.Path(np.array([y_poly_safety, x_poly_safety]).T)
         mask = poly_path.contains_points(points=map_coords, radius=0.00001)
         mask = mask.astype(float).reshape((npy, npx))
         mask[mask > 0.0] = 1.0
@@ -562,7 +582,7 @@ def plot_surface_approximation_stuff(
                 ):
                     # if mask[i, ii] - radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0:
                     #    print("Error: ", mask[i, ii] - radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))))
-                    d2poly = polygon_safety_buffered.distance(geometry.Point(east_coord, north_coord))
+                    d2poly = polygon_safety.distance(geometry.Point(east_coord, north_coord))
                     dist_surface_points[i, ii] = d2poly
                     diff_surface_points[i, ii] = radial_basis_function(
                         np.array([north_coord, east_coord]).reshape((1, 2))
@@ -579,7 +599,7 @@ def plot_surface_approximation_stuff(
         idx_max_error = np.argmax(actual_dataset_error)
         std_error = np.std(dist_surface_points)
         print(
-            f"polygon_index = {polygon_index} | Num interpolation data points: {len(x_surface)} | Num original poly points: {len(x_poly_safety_buffered)}"
+            f"polygon_index = {polygon_index} | Num interpolation data points: {len(x_surface)} | Num original poly points: {len(x_poly_safety)}"
         )
         print(
             f"Dataset: Mean 0point crossing error: {mean_error}, Max, idx max error: ({max_error}, {idx_max_error}), Std error: {std_error}"

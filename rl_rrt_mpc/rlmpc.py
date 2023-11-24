@@ -109,7 +109,7 @@ class RLMPC(ci.ICOLAV):
             self._map_origin = ownship_csog_state[:2]
             self._initialized = True
             # mapf.plot_trajectory(waypoints, enc, color="green")
-            x_spline, y_spline, heading_spline, _ = self._ktp.compute_splines(
+            x_spline, y_spline, heading_spline, speed_spline = self._ktp.compute_splines(
                 waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
                 speed_plan=speed_plan,
                 arc_length_parameterization=True,
@@ -119,7 +119,7 @@ class RLMPC(ci.ICOLAV):
                 do_list, self._map_origin[1], self._map_origin[0]
             )
             self._mpc.construct_ocp(
-                nominal_path=(x_spline, y_spline, heading_spline, U_ref),
+                nominal_path=(x_spline, y_spline, heading_spline, speed_spline),
                 xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
                 so_list=self._mpc_rel_polygons,
                 enc=enc,

@@ -86,7 +86,8 @@ class CasadiMPC:
         self._x_path_coeffs: np.ndarray = np.array([])
         self._y_path: csd.Function = csd.Function("y_path", [], [])
         self._y_path_coeffs: np.ndarray = np.array([])
-        self._U_ref: float = 0.0
+        self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
+        self._speed_spl_coeffs: np.ndarray = np.array([])
         self._s: float = 0.0
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
@@ -129,7 +130,7 @@ class CasadiMPC:
         Args:
             - nominal_path (Tuple[interp.BSpline, interp.BSpline, inter.PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
         """
-        x_spline, y_spline, _, U_ref = nominal_path
+        x_spline, y_spline, _, speed_spline = nominal_path
         s = csd.MX.sym("s", 1)
         x_path_coeffs = csd.MX.sym("x_path_coeffs", x_spline.c.shape[0])
         x_path = csd.bspline(s, x_path_coeffs, [[*x_spline.t]], [x_spline.k], 1, {})
@@ -157,8 +158,13 @@ class CasadiMPC:
         self._y_dot_path_coeffs_values = y_spline_der.c
         self._y_dot_path_coeffs = y_dot_path_coeffs
 
+        self._speed_spl_coeffs_values = speed_spline.c
+        speed_spl_coeffs = csd.MX.sym("speed_spl_coeffs", speed_spline.c.shape[0])
+        speed_spl = csd.bspline(s, speed_spl_coeffs, [[*speed_spline.t]], [speed_spline.k], 1, {})
+        self._speed_spline = csd.Function("speed_spline", [s, speed_spl_coeffs], [speed_spl])
+        self._speed_spl_coeffs = speed_spl_coeffs
+
         self._s_final_value = x_spline.t[-1]
-        self._U_ref = U_ref
         self._path_timing.set_min_path_variable(0.0)
         self._path_timing.set_max_path_variable(self._s_final_value)
 
@@ -217,7 +223,7 @@ class CasadiMPC:
         xs_k = np.zeros(nx + nx_p)
         xs_k[:4] = xs[:4]
         xs_k[4] = xs[2]
-        xs_k[5] = self._U_ref
+        xs_k[5] = self._speed_spline(self._s, self._speed_spl_coeffs_values)
 
         self._s = 0.0
         self._s_dot = 0.0
@@ -240,13 +246,15 @@ class CasadiMPC:
             positions = np.array(
                 [warm_start_traj[1, :] + self._map_origin[1], warm_start_traj[0, :] + self._map_origin[0]]
             )
-            min_dist, _, _ = mapf.compute_closest_grounding_dist(positions, self._min_depth, enc)
+            distance_vectors = cs_mapf.compute_distance_vectors_to_grounding(positions, self._min_depth, enc)
+            dv_norms = np.linalg.norm(distance_vectors, axis=0)
+
             if enc is not None:
                 shifted_ws_traj = warm_start_traj + np.array(
                     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
                 ).reshape(nx + nx_p, 1)
                 cs_mapf.plot_trajectory(shifted_ws_traj, enc, "orange")
-            if min_dist > self._params.r_safe_so:
+            if np.all(dv_norms >= self._params.r_safe_so):
                 success = True
                 break
 
@@ -318,7 +326,9 @@ class CasadiMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        distance_vectors = cs_mapf.compute_distance_vectors_to_grounding(pos_past_N, self._min_depth, enc)
+        dv_norms = np.linalg.norm(distance_vectors, axis=0)
+        min_dist = np.min(dv_norms)
         if min_dist <= self._params.r_safe_so:
             return w_warm_start, False
 
@@ -347,7 +357,7 @@ class CasadiMPC:
         U_prev = U_prev.full()
         Sigma_prev = Sigma_prev.full()
         offsets = [0, int(2.5 * n_shifts), int(2.5 * n_shifts), int(2.5 * n_shifts)]
-        path_timing_input = 1.0
+        path_timing_input = 0.5
         u_attempts = [
             U_prev[:, -1],
             np.array([U_prev[0, -offsets[1]], lbu[1], path_timing_input]),
@@ -516,7 +526,7 @@ class CasadiMPC:
                 *self._x_dot_path_coeffs_values.tolist(),
                 *self._y_dot_path_coeffs_values.tolist(),
                 *self._params.Q_p.diagonal().flatten().tolist(),
-                self._U_ref,
+                *self._speed_spl_coeffs_values.tolist(),
             ]
         )
         p_rate_values = np.array(
@@ -634,9 +644,12 @@ class CasadiMPC:
         axes["course_rate_input"].set_xlabel("k")
         axes["course_rate_input"].legend()
 
+        speed_refs = np.zeros(X.shape[1])
+        for k in range(X.shape[1]):
+            speed_refs[k] = self._speed_spline(X[6, k], self._speed_spl_coeffs_values)
         axes["speed"].plot(X[3, :], color="b", label=r"$U$")
         axes["speed"].plot(X[5, :], color="r", label=r"$U_{d}$")
-        axes["speed"].plot(self._U_ref * np.ones(X.shape[1]), color="g", linestyle="--", label=r"$U_{ref}$")
+        axes["speed"].plot(speed_refs, color="g", linestyle="--", label=r"$U_{ref}$")
         axes["speed"].set_ylabel("[m/s]")
         axes["speed"].set_xlabel("k")
         axes["speed"].legend()
@@ -657,7 +670,9 @@ class CasadiMPC:
         for k in range(X.shape[1]):
             x_dot_path = self._x_dot_path(s_k_ref, self._x_dot_path_coeffs_values)
             y_dot_path = self._y_dot_path(s_k_ref, self._y_dot_path_coeffs_values)
-            s_dot_ref[k] = self._U_ref / (np.sqrt(x_dot_path**2 + y_dot_path**2) + epsilon)
+            s_dot_ref[k] = self._speed_spline(s_k_ref, self._speed_spl_coeffs_values) / (
+                np.sqrt(x_dot_path**2 + y_dot_path**2) + epsilon
+            )
             s_k_ref += s_dot_ref[k] * self._params.dt
         axes["path_dot_variable"].plot(X[7, :], color="b", label=r"$\dot{s}$")
         axes["path_dot_variable"].plot(s_dot_ref, color="r", label=r"$\dot{s}_{ref}$")
@@ -693,7 +708,7 @@ class CasadiMPC:
 
     def construct_ocp(
         self,
-        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, float],
+        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
@@ -718,7 +733,7 @@ class CasadiMPC:
                     lbg <= g(w, p) <= ubg
 
         Args:
-            - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
+            - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]): Tuple containing the nominal path splines in x, y, heading and speed.
             - so_list (list): List of compatible static obstacle Polygon objects with the static obstacle constraint type.
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
@@ -806,14 +821,13 @@ class CasadiMPC:
         K_app_course = csd.MX.sym("K_app_course", 1, 1)
         K_app_speed = csd.MX.sym("K_app_speed", 1, 1)
 
-        U_ref = csd.MX.sym("U_ref", 1, 1)
         K_fuel = csd.MX.sym("K_fuel", 1, 1)
 
         p_fixed.append(self._x_path_coeffs)
         p_fixed.append(self._y_path_coeffs)
         p_fixed.append(self._x_dot_path_coeffs)
         p_fixed.append(self._y_dot_path_coeffs)
-        p_fixed.append(U_ref)
+        p_fixed.append(self._speed_spl_coeffs)
 
         gamma = csd.MX.sym("gamma", 1)
         p_fixed.append(gamma)
@@ -869,7 +883,12 @@ class CasadiMPC:
         p_fixed.append(csd.reshape(X_do_ot, -1, 1))
 
         self._p_path = csd.vertcat(
-            self._x_path_coeffs, self._y_path_coeffs, self._x_dot_path_coeffs, self._y_dot_path_coeffs, Q_p_vec, U_ref
+            self._x_path_coeffs,
+            self._y_path_coeffs,
+            self._x_dot_path_coeffs,
+            self._y_dot_path_coeffs,
+            Q_p_vec,
+            self._speed_spl_coeffs,
         )
         self._p_rate = csd.vertcat(alpha_app_course, alpha_app_speed, K_app_course, K_app_speed)
         self._p_colregs = csd.vertcat(alpha_cr, y_0_cr, alpha_ho, x_0_ho, alpha_ot, x_0_ot, y_0_ot, colregs_weights)
@@ -919,7 +938,7 @@ class CasadiMPC:
             p_ref_k = csd.vertcat(
                 self._x_path(s_k_ref, self._x_path_coeffs), self._y_path(s_k_ref, self._y_path_coeffs)
             )
-            s_dot_ref_k = U_ref / csd.sqrt(
+            s_dot_ref_k = self._speed_spline(s_k_ref, self._speed_spl_coeffs) / csd.sqrt(
                 epsilon
                 + self._x_dot_path(s_k_ref, self._x_dot_path_coeffs) ** 2
                 + self._y_dot_path(s_k_ref, self._y_dot_path_coeffs) ** 2
@@ -1004,7 +1023,7 @@ class CasadiMPC:
 
         # Terminal costs and constraints
         p_ref_N = csd.vertcat(self._x_path(s_k_ref, self._x_path_coeffs), self._y_path(s_k_ref, self._y_path_coeffs))
-        s_dot_ref_N = U_ref / csd.sqrt(
+        s_dot_ref_N = self._speed_spline(s_k_ref, self._speed_spl_coeffs) / csd.sqrt(
             epsilon
             + self._x_dot_path(s_k_ref, self._x_dot_path_coeffs) ** 2
             + self._y_dot_path(s_k_ref, self._y_dot_path_coeffs) ** 2
@@ -1295,7 +1314,7 @@ class CasadiMPC:
         state_aug[0:4] = state.reshape((4, 1))
 
         if action is None:
-            action = np.array([state[2], self._U_ref])
+            action = np.array([state[2], self._speed_spline(self._s, self._speed_spl_coeffs_values)])
 
         state_aug[4:nx] = action.reshape(
             (2, 1)
@@ -1309,9 +1328,9 @@ class CasadiMPC:
         fixed_parameter_values.extend(self._y_path_coeffs_values.tolist())
         fixed_parameter_values.extend(self._x_dot_path_coeffs_values.tolist())
         fixed_parameter_values.extend(self._y_dot_path_coeffs_values.tolist())
+        fixed_parameter_values.extend(self._speed_spl_coeffs_values.tolist())
 
         # fixed_parameter_values.append(self._s_final_value)
-        fixed_parameter_values.append(self._U_ref)
         fixed_parameter_values.append(self._params.gamma)
 
         W = self._params.w_L1 * np.ones(
