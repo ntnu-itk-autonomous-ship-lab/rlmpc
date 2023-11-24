@@ -36,18 +36,20 @@ class Config:
     enable_acados: bool = False
     mpc: mpc_parameters.MidlevelMPCParams = mpc_parameters.MidlevelMPCParams()
     solver_options: common.SolverConfig = common.SolverConfig()
-    model: Type[models.MPCModel] = models.AugmentedKinematicCSOG()
+    model: Type[models.MPCModel] = models.HalfAugmentedKinematicCSOGParams()
     path_timing: models.DoubleIntegratorParams = models.DoubleIntegratorParams()
 
     @classmethod
     def from_dict(self, config_dict: dict):
         if "csog" in config_dict["model"]:
-            model = models.AugmentedKinematicCSOG(cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"]))
+            model = models.HalfAugmentedKinematicCSOG(
+                cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"])
+            )
         elif "telemetron" in config_dict["model"]:
             model = models.Telemetron()
         else:
-            model = models.AugmentedKinematicCSOG(
-                models.AugmentedKinematicCSOGParams.from_dict(config_dict["model"]["augmented_csog"])
+            model = models.HalfAugmentedKinematicCSOG(
+                models.HalfAugmentedKinematicCSOGParams.from_dict(config_dict["model"]["half_augmented_csog"])
             )
 
         path_timing = models.DoubleIntegrator(models.DoubleIntegratorParams.from_dict(config_dict["path_timing"]))

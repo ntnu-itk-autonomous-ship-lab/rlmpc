@@ -218,10 +218,41 @@ midlevel_mpc:
             U_dot_max:
               required: True
               type: float
+        half_augmented_csog:
+          type: dict
+          excludes: [augmented_csog, telemetron]
+          schema:
+            draft:
+              required: True
+              type: float
+            length:
+              required: True
+              type: float
+            width:
+              required: True
+              type: float
+            ship_vertices:
+              required: False
+              type: list
+            T_chi:
+              required: True
+              type: float
+            T_U:
+              required: True
+              type: float
+            r_max:
+              required: True
+              type: float
+            U_min:
+              required: True
+              type: float
+            U_max:
+              required: True
+              type: float
         telemetron:
           type: string
           empty: True
-          excludes: [augmented_csog]
+          excludes: [augmented_csog, half_augmented_csog]
     path_timing:
       required: True
       type: dict

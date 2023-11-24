@@ -49,10 +49,10 @@ midlevel_mpc:
     r_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 12
+    max_num_so_constr: 0
     max_num_do_constr_per_zone: 0 # per shooting node in the mpc
   model:
-    augmented_csog:
+    half_augmented_csog:
       draft: 2.0
       length: 30.0
       width: 8.0
@@ -61,12 +61,11 @@ midlevel_mpc:
       r_max: 6.0
       U_min: 0.0
       U_max: 10.0
-      U_dot_max: 0.5
   path_timing:
     s_min: 0.0
     s_max: 100000.0
-    s_dot_min: -100.0
-    s_dot_max: 100.0
+    s_dot_min: -1000.0 # represents m/s ^2 here
+    s_dot_max: 1000.0
   enable_acados: False
   solver_options:
     casadi:
