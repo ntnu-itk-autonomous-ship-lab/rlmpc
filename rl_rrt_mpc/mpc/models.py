@@ -38,6 +38,10 @@ class MPCModel(ABC):
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Returns input and state constraint boxes relevant for the model."""
 
+    @abstractmethod
+    def setup_equations_of_motion(self, **kwargs):
+        """Forms the equations of motion for the model"""
+
 
 @dataclass
 class AugmentedKinematicCSOGParams:
@@ -221,8 +225,8 @@ class AugmentedKinematicCSOG(MPCModel):
 
 
 @dataclass
-class HalfAugmentedKinematicCSOGParams:
-    name: str = "HalfAugmentedKinematicCSOG"
+class AugmentedKinematicCSOGWithPathTimingParams:
+    name: str = "AugmentedKinematicCSOGWithPathTiming"
     draft: float = 2.0
     length: float = 15.0
     ship_vertices: np.ndarray = field(default_factory=lambda: np.empty(2))
@@ -232,10 +236,13 @@ class HalfAugmentedKinematicCSOGParams:
     r_max: float = float(np.deg2rad(5))
     U_min: float = 0.0
     U_max: float = 10.0
+    s_min: float = 0.0
+    s_max: float = 1.0
+    s_dot_max: float = 1e10
 
     @classmethod
     def from_dict(self, params_dict: dict):
-        params = HalfAugmentedKinematicCSOGParams(
+        params = AugmentedKinematicCSOGWithPathTimingParams(
             draft=params_dict["draft"],
             length=params_dict["length"],
             width=params_dict["width"],
@@ -245,6 +252,9 @@ class HalfAugmentedKinematicCSOGParams:
             r_max=np.deg2rad(params_dict["r_max"]),
             U_min=params_dict["U_min"],
             U_max=params_dict["U_max"],
+            s_min=params_dict["s_min"],
+            s_max=params_dict["s_max"],
+            s_dot_max=params_dict["s_dot_max"],
         )
         params.ship_vertices = np.array(
             [
@@ -263,49 +273,77 @@ class HalfAugmentedKinematicCSOGParams:
         return output_dict
 
 
-class HalfAugmentedKinematicCSOG(MPCModel):
+class AugmentedKinematicCSOGWithPathTiming(MPCModel):
     """Casadi+Acados model for the kinematic Course and Speed over Ground model, with augmented state:
 
     xdot = U cos(chi)
     ydot = U sin(chi)
     chidot = (chi_d - chi) / T_chi
     Udot = (U_d(s) - U) / T_U
-    chi_d_dot = u1
+    chi_d_dot = chi_d_dot
+    s_dot = s_dot
+    s_ddot = u_p
 
-    i.e. xs = [x, y, chi, U, chi_d], and the input is u = [chi_d_dot], with U_d being the desired speed profile.
+    i.e. xs = [x, y, chi, U, chi_d, s, s_dot], and the input is u = [chi_d_dot, u_p], with U_d being the desired speed profile
+    calculated as
+
+    U_d(s) = s_dot * sqrt(eps + x_dot(s)^2 + y_dot(s)^2)
 
     This, like for the AugmentedKinematicCSOG, allows for constraining the speed and course rate,
     and penalizing high course and speed changes.
     """
 
-    def __init__(self, params: HalfAugmentedKinematicCSOGParams = HalfAugmentedKinematicCSOGParams()):
+    def __init__(
+        self, params: AugmentedKinematicCSOGWithPathTimingParams = AugmentedKinematicCSOGWithPathTimingParams()
+    ):
         self._acados_model = AcadosModel()
         self._params = params
-        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
-        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
+        self.x_dot_spline: csd.Function = csd.Function("x_dot_spline", [], [])
+        self.y_dot_spline: csd.Function = csd.Function("y_dot_spline", [], [])
+        self.x_dot_spline_coeffs: csd.MX = csd.MX.sym("x_dot_spline_coeffs", 1)
+        self.y_dot_spline_coeffs: csd.MX = csd.MX.sym("y_dot_spline_coeffs", 1)
 
         # Input and state bounds
         U_min = self._params.U_min
         U_max = self._params.U_max
         r_max = self._params.r_max
+        s_min = self._params.s_min
+        s_max = self._params.s_max
+        s_dot_max = self._params.s_dot_max
         approx_inf = 1e10
-        self.lbu = np.array([-r_max])
-        self.ubu = np.array([r_max])
-        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, -approx_inf])
-        self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, approx_inf])
+        self.lbu = np.array([-r_max, -approx_inf])
+        self.ubu = np.array([r_max, approx_inf])
+        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, -approx_inf, s_min, 0.0])
+        self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, approx_inf, s_max, s_dot_max])
 
-    def params(self) -> cs_models.KinematicCSOGParams:
+    def params(self) -> AugmentedKinematicCSOGWithPathTimingParams:
         return self._params
 
     def dims(self) -> Tuple[int, int]:
-        return 5, 1
+        return 7, 2
 
-    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
-        """Forms the equations of motion for the kinematic model
+    def set_min_path_variable(self, s_min: float):
+        self._params.s_min = s_min
+        self.lbx[0] = s_min
 
-        Returns:
-            Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state, input and parameter symbolic vectors
-        """
+    def set_max_path_variable(self, s_max: float):
+        self._params.s_max = s_max
+        self.ubx[0] = s_max
+
+    def set_path_derivative_splines(
+        self,
+        x_dot_spline: csd.Function,
+        x_dot_spline_coeffs: csd.MX,
+        y_dot_spline: csd.Function,
+        y_dot_spline_coeffs: csd.MX,
+    ):
+        self.x_dot_spline = x_dot_spline
+        self.x_dot_spline_coeffs = x_dot_spline_coeffs
+        self.y_dot_spline = y_dot_spline
+        self.y_dot_spline_coeffs = y_dot_spline_coeffs
+
+    def setup_equations_of_motion(self):
+        """Forms the equations of motion for the kinematic model"""
         nx, nu = self.dims()
         x = csd.MX.sym("x", nx)
         u = csd.MX.sym("u", nu)
@@ -313,14 +351,27 @@ class HalfAugmentedKinematicCSOG(MPCModel):
 
         T_U = csd.MX.sym("T_U", 1)
         T_chi = csd.MX.sym("T_chi", 1)
-        U_d = csd.MX.sym("U_d", 1)
-        p = csd.vertcat(T_chi, T_U, U_d)
+        p = csd.vertcat(T_chi, T_U, self.x_dot_spline_coeffs, self.y_dot_spline_coeffs)
 
+        eps = 1e-9
+        U_d = x[6] * csd.sqrt(
+            eps
+            + self.x_dot_spline(x[5], self.x_dot_spline_coeffs) ** 2
+            + self.y_dot_spline(x[5], self.y_dot_spline_coeffs) ** 2
+        )
         kinematics = csd.vertcat(
-            x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), (x[4] - x[2]) / T_chi, (U_d - x[3]) / T_U, u[0]
+            x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), (x[4] - x[2]) / T_chi, (U_d - x[3]) / T_U, u[0], x[6], u[1]
         )
         f_expl = kinematics
         f_impl = xdot - f_expl
+
+        self.f_expl = f_expl
+        self.f_impl = f_impl
+        self.xdot = xdot
+        self.x = x
+        self.u = u
+        self.p = p
+        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
         return f_impl, f_expl, xdot, x, u, p
 
     def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:

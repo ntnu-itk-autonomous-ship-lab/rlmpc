@@ -184,7 +184,7 @@ midlevel_mpc:
       required: True
       type: dict
       schema:
-        augmented_csog:
+        augmented_csog_with_path_timing:
           type: dict
           excludes: [telemetron]
           schema:
@@ -215,60 +215,19 @@ midlevel_mpc:
             U_max:
               required: True
               type: float
-            U_dot_max:
+            s_min:
               required: True
               type: float
-        half_augmented_csog:
-          type: dict
-          excludes: [augmented_csog, telemetron]
-          schema:
-            draft:
+            s_max:
               required: True
               type: float
-            length:
-              required: True
-              type: float
-            width:
-              required: True
-              type: float
-            ship_vertices:
-              required: False
-              type: list
-            T_chi:
-              required: True
-              type: float
-            T_U:
-              required: True
-              type: float
-            r_max:
-              required: True
-              type: float
-            U_min:
-              required: True
-              type: float
-            U_max:
+            s_dot_max:
               required: True
               type: float
         telemetron:
           type: string
           empty: True
-          excludes: [augmented_csog, half_augmented_csog]
-    path_timing:
-      required: True
-      type: dict
-      schema:
-        s_min:
-          required: True
-          type: float
-        s_max:
-          required: True
-          type: float
-        s_dot_min:
-          required: True
-          type: float
-        s_dot_max:
-          required: True
-          type: float
+          excludes: [augmented_csog_with_path_timing]
     enable_acados:
       required: True
       type: boolean

@@ -36,30 +36,25 @@ class Config:
     enable_acados: bool = False
     mpc: mpc_parameters.MidlevelMPCParams = mpc_parameters.MidlevelMPCParams()
     solver_options: common.SolverConfig = common.SolverConfig()
-    model: Type[models.MPCModel] = models.HalfAugmentedKinematicCSOGParams()
+    model: Type[models.MPCModel] = models.AugmentedKinematicCSOGWithPathTimingParams()
     path_timing: models.DoubleIntegratorParams = models.DoubleIntegratorParams()
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        if "csog" in config_dict["model"]:
-            model = models.HalfAugmentedKinematicCSOG(
-                cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"])
-            )
-        elif "telemetron" in config_dict["model"]:
+        if "telemetron" in config_dict["model"]:
             model = models.Telemetron()
         else:
-            model = models.HalfAugmentedKinematicCSOG(
-                models.HalfAugmentedKinematicCSOGParams.from_dict(config_dict["model"]["half_augmented_csog"])
+            model = models.AugmentedKinematicCSOGWithPathTiming(
+                models.AugmentedKinematicCSOGWithPathTimingParams.from_dict(
+                    config_dict["model"]["augmented_csog_with_path_timing"]
+                )
             )
-
-        path_timing = models.DoubleIntegrator(models.DoubleIntegratorParams.from_dict(config_dict["path_timing"]))
 
         config = Config(
             enable_acados=config_dict["enable_acados"],
             mpc=mpc_parameters.MidlevelMPCParams.from_dict(config_dict["params"]),
             solver_options=common.SolverConfig.from_dict(config_dict["solver_options"]),
             model=model,
-            path_timing=path_timing,
         )
         return config
 
@@ -79,7 +74,7 @@ class MidlevelMPC:
             self._acados_enabled = default_config.enable_acados
 
         self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(
-            config.model, config.path_timing, self._params, self._solver_options.casadi
+            config.model, self._params, self._solver_options.casadi
         )
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(

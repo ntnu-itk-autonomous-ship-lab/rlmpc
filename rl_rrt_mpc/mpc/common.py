@@ -121,20 +121,19 @@ def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
     return (var_ref - var).T @ W @ (var_ref - var)
 
 
-def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX, nx_ship: int) -> Tuple[csd.MX, csd.MX, csd.MX]:
+def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, csd.MX, csd.MX]:
     """Computes the path following cost for an NMPFC COLAV. Assumes the ship model is augmented by the path timing dynamics.
 
     Args:
         - x (csd.MX): Current state.
         - path_ref (csd.MX): Path reference on the form [p_ref, s_dot_ref]^T.
         - Q_p (csd.MX): Path following cost weight matrix.
-        - nx_ship (int): Number of states in the ship model.
 
     Returns:
         Tuple[csd.MX, csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, speed deviation cost.
     """
-    # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_sot)
-    z = csd.vertcat(x[:2], x[nx_ship + 1])  # [x, y, s_dot]
+    # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_dot)
+    z = csd.vertcat(x[:2], x[-1])  # [x, y, s_dot]
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
     assert (
         Q_p.shape[0] == Q_p.shape[1] == p_ref.shape[0]
