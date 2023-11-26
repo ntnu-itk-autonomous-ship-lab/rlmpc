@@ -152,7 +152,7 @@ class MidlevelMPC:
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
-            - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
+            - dict: Dictionary containing the optimal trajectory, inputs, slacks, course references (X[4, :]), speed references (U_d(s)), solver stats ++
         """
         if self._acados_enabled:
             mpc_soln = self._acados_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs)

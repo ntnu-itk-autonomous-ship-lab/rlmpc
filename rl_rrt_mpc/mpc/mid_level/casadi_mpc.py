@@ -489,9 +489,15 @@ class CasadiMPC:
             f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})"
         )
         self._t_prev = t
+        speed_references = np.zeros(X.shape[1])
+        for k in range(X.shape[1]):
+            s_k = X[5, k]
+            speed_references[k] = self._speed_spline(s_k, self._speed_spl_coeffs_values)
         output = {
             "trajectory": X,
             "inputs": U,
+            "course_references": X[4, :],
+            "speed_references": speed_references,
             "lower_slacks": [],
             "upper_slacks": Sigma,
             "so_constr_vals": so_constr_vals,
@@ -1654,7 +1660,11 @@ class CasadiMPC:
         speed_refs = np.zeros(X.shape[1])
         mpc_speed_refs = np.zeros(X.shape[1])
         U_dot = np.zeros(X.shape[1])
+        x_path = np.zeros(X.shape[1])
+        y_path = np.zeros(X.shape[1])
         for k in range(X.shape[1]):
+            x_path[k] = self._x_path(s_k_ref, self._x_path_coeffs_values)
+            y_path[k] = self._y_path(s_k_ref, self._y_path_coeffs_values)
             x_dot_path = self._x_dot_path(s_k_ref, self._x_dot_path_coeffs_values)
             y_dot_path = self._y_dot_path(s_k_ref, self._y_dot_path_coeffs_values)
             s_dot_ref[k] = self._speed_spline(s_k_ref, self._speed_spl_coeffs_values) / (
@@ -1668,6 +1678,8 @@ class CasadiMPC:
         fig = plt.figure(figsize=(12, 8))
         axes = fig.subplot_mosaic(
             [
+                ["x"],
+                ["y"],
                 ["course"],
                 ["course_rate_input"],
                 ["speed"],
@@ -1677,38 +1689,50 @@ class CasadiMPC:
                 ["path_input"],
             ]
         )
+        axes["x"].plot(X[0, :], color="b", label="x")
+        axes["x"].plot(x_path, color="r", label=r"$p_x(s_{ref})$")
+        axes["x"].set_ylabel("[m]")
+        # axes["x"].set_xlabel("k")
+        axes["x"].legend()
+
+        axes["y"].plot(X[1, :], color="b", label="y")
+        axes["y"].plot(y_path, color="r", label=r"$p_y(s_{ref})$")
+        axes["y"].set_ylabel("[m]")
+        # axes["y"].set_xlabel("k")
+        axes["y"].legend()
+
         axes["course"].plot(np.rad2deg(X[2, :]), color="b", label=r"$\chi$")
         axes["course"].plot(np.rad2deg(X[4, :]), color="r", label=r"$\chi_d$")
         axes["course"].set_ylabel("[deg]")
-        axes["course"].set_xlabel("k")
+        # axes["course"].set_xlabel("k")
         axes["course"].legend()
 
         axes["course_rate_input"].plot(np.rad2deg(U[0, :]), color="b", label=r"$\dot{\chi}_d$")
         axes["course_rate_input"].set_ylabel("[deg/s]")
-        axes["course_rate_input"].set_xlabel("k")
+        # axes["course_rate_input"].set_xlabel("k")
         axes["course_rate_input"].legend()
 
         axes["speed"].plot(X[3, :], color="b", label=r"$U$")
         axes["speed"].plot(mpc_speed_refs, color="r", label=r"$U_{d}(\omega)$")
         axes["speed"].plot(speed_refs, color="g", linestyle="--", label=r"$U_{ref}$")
         axes["speed"].set_ylabel("[m/s]")
-        axes["speed"].set_xlabel("k")
+        # axes["speed"].set_xlabel("k")
         axes["speed"].legend()
 
         axes["speed_rate_input"].plot(U_dot, color="b", label=r"$\dot{U}_d$")
         axes["speed_rate_input"].set_ylabel("[m/s2]")
-        axes["speed_rate_input"].set_xlabel("k")
+        # axes["speed_rate_input"].set_xlabel("k")
         axes["speed_rate_input"].legend()
 
         axes["path_variable"].plot(X[5, :], color="b", label=r"$s$")
         axes["path_variable"].set_ylabel("[m]")
-        axes["path_variable"].set_xlabel("k")
+        # axes["path_variable"].set_xlabel("k")
         axes["path_variable"].legend()
 
         axes["path_dot_variable"].plot(X[6, :], color="b", label=r"$\dot{s}$")
         axes["path_dot_variable"].plot(s_dot_ref, color="r", label=r"$\dot{s}_{ref}$")
         axes["path_dot_variable"].set_ylabel("[m/s]")
-        axes["path_dot_variable"].set_xlabel("k")
+        # axes["path_dot_variable"].set_xlabel("k")
         axes["path_dot_variable"].legend()
 
         axes["path_input"].plot(U[1, :], color="b", label="path input")

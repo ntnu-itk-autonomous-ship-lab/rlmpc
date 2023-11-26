@@ -75,6 +75,7 @@ class RLMPC(ci.ICOLAV):
         self._mpc_soln: dict = {}
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
+        self._mpc_outputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
         self._mpc_rel_polygons: list = []
         self._rel_polygons: list = []
@@ -180,25 +181,27 @@ class RLMPC(ci.ICOLAV):
                 enc=enc,
             )
             self._mpc_trajectory = self._mpc_soln["trajectory"][:, :N]
-            self._mpc_inputs = self._mpc_soln["inputs"]
+            chi_d = self._mpc_soln["course_references"]
+            U_d = self._mpc_soln["speed_references"]
+            self._mpc_outputs = np.vstack((chi_d, U_d))
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if self._debug:
                 mapf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
 
-            self._mpc_trajectory, self._mpc_inputs = hf.interpolate_solution(
-                self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
+            self._mpc_trajectory, self._mpc_outputs = hf.interpolate_solution(
+                self._mpc_trajectory, self._mpc_outputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
             )
             self._t_prev_mpc = t
 
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
-            self._mpc_inputs = self._mpc_inputs[:, 1:]
+            self._mpc_outputs = self._mpc_outputs[:, 1:]
 
         self._t_prev = t
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
-        self._references[2, :] = self._mpc_trajectory[4, :]
-        self._references[3, :] = self._mpc_trajectory[5, :]
+        self._references[2, :] = self._mpc_outputs[0, :]
+        self._references[3, :] = self._mpc_outputs[1, :]
         return self._references
 
     def _setup_mpc_static_obstacle_input(
