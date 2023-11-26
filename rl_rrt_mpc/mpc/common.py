@@ -144,13 +144,14 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
 
 
 def rate_cost(
-    u: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float
+    chi_d_dot: csd.MX, U_d_dot: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float
 ) -> Tuple[csd.MX, csd.MX, csd.MX]:
     """Computes the chattering cost associated with the rate of change of the course and speed references,
     and stimulates chosing apparent maneuvers.
 
     Args:
-        u (csd.MX): Current inputs (chi_d_dot, U_d_dot)
+        chi_d_dot (csd.MX): Rate of change of the course reference.
+        U_d_dot (csd.MX): Rate of change of the speed reference.
         alpha_app (csd.MX): Apparent maneuver cost parameters.
         K_app (csd.MX): Apparent maneuver cost weight.
         r_max (float): Maximum rate of change of the course reference.
@@ -159,9 +160,9 @@ def rate_cost(
     Returns:
         Tuple[csd.MX, csd.MX, csd.MX]: Total cost, course cost, speed cost.
     """
-    q_chi = alpha_app[0] * u[0] ** 2 + (1.0 - csd.exp(-u[0] ** 2 / alpha_app[1]))
+    q_chi = alpha_app[0] * chi_d_dot**2 + (1.0 - csd.exp(-(chi_d_dot**2) / alpha_app[1]))
     q_chi_max = alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
-    q_U = alpha_app[2] * u[1] ** 2 + (1.0 - csd.exp(-u[1] ** 2 / alpha_app[3]))
+    q_U = alpha_app[2] * U_d_dot**2 + (1.0 - csd.exp(-(U_d_dot**2) / alpha_app[3]))
     q_U_max = alpha_app[2] * U_dot_max**2 + (1.0 - csd.exp(-(U_dot_max**2) / alpha_app[3]))
     course_cost = K_app[0] * q_chi / q_chi_max
     speed_cost = K_app[1] * q_U / q_U_max

@@ -83,9 +83,23 @@ class CasadiMPC:
         self._x_path: csd.Function = csd.Function("x_path", [], [])
         self._x_path_coeffs: csd.MX = csd.MX.sym("x_path_coeffs", 0)
         self._x_path_coeffs_values: np.ndarray = np.array([])
+        self._x_dot_path: csd.Function = csd.Function("x_dot_path", [], [])
+        self._x_dot_path_coeffs: csd.MX = csd.MX.sym("x_dot_path_coeffs", 0)
+        self._x_dot_path_coeffs_values: np.ndarray = np.array([])
+        self._x_ddot_path: csd.Function = csd.Function("x_ddot_path", [], [])
+        self._x_ddot_path_coeffs: csd.MX = csd.MX.sym("x_ddot_path_coeffs", 0)
+        self._x_ddot_path_coeffs_values: np.ndarray = np.array([])
+
         self._y_path: csd.Function = csd.Function("y_path", [], [])
         self._y_path_coeffs: csd.MX = csd.MX.sym("y_path_coeffs", 0)
         self._y_path_coeffs_values: np.ndarray = np.array([])
+        self._y_dot_path: csd.Function = csd.Function("y_dot_path", [], [])
+        self._y_dot_path_coeffs: csd.MX = csd.MX.sym("y_dot_path_coeffs", 0)
+        self._y_dot_path_coeffs_values: np.ndarray = np.array([])
+        self._y_ddot_path: csd.Function = csd.Function("y_ddot_path", [], [])
+        self._y_ddot_path_coeffs: csd.MX = csd.MX.sym("y_ddot_path_coeffs", 0)
+        self._y_ddot_path_coeffs_values: np.ndarray = np.array([])
+
         self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
         self._speed_spl_coeffs: csd.MX = csd.MX.sym("speed_spl_coeffs", 0)
         self._speed_spl_coeffs_values: np.ndarray = np.array([])
@@ -95,7 +109,6 @@ class CasadiMPC:
 
         # debugging functions
         self._p_path = csd.MX.sym("p_path", 0)
-
         self._p_rate = csd.MX.sym("p_rate", 0)
         self._p_colregs = csd.MX.sym("p_colregs", 0)
         self._path_dev_cost = csd.Function("path_dev_cost", [], [])
@@ -122,12 +135,12 @@ class CasadiMPC:
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
     def _set_path_information(
-        self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, float]
+        self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]
     ) -> None:
         """Sets the path information for the MPC.
 
         Args:
-            - nominal_path (Tuple[interp.BSpline, interp.BSpline, inter.PchipInterpolator, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
+            - nominal_path (Tuple[interp.BSpline, interp.BSpline, inter.PchipInterpolator, interp.BSpline]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
         """
         x_spline, y_spline, _, speed_spline = nominal_path
         s = csd.MX.sym("s", 1)
@@ -144,6 +157,13 @@ class CasadiMPC:
         self._x_dot_path_coeffs_values = x_spline_der.c
         self._x_dot_path_coeffs = x_dot_path_coeffs
 
+        x_spline_dder = x_spline_der.derivative()
+        x_ddot_path_coeffs = csd.MX.sym("x_ddot_path_coeffs", x_spline_dder.c.shape[0])
+        x_ddot_path = csd.bspline(s, x_ddot_path_coeffs, [[*x_spline_dder.t]], [x_spline_dder.k], 1, {})
+        self._x_ddot_path = csd.Function("x_ddot_path", [s, x_ddot_path_coeffs], [x_ddot_path])
+        self._x_ddot_path_coeffs_values = x_spline_dder.c
+        self._x_ddot_path_coeffs = x_ddot_path_coeffs
+
         y_path_coeffs = csd.MX.sym("y_path_coeffs", y_spline.c.shape[0])
         y_path = csd.bspline(s, y_path_coeffs, [[*y_spline.t]], [y_spline.k], 1, {})
         self._y_path = csd.Function("y_path", [s, y_path_coeffs], [y_path])
@@ -156,6 +176,13 @@ class CasadiMPC:
         self._y_dot_path = csd.Function("y_dot_path", [s, y_dot_path_coeffs], [y_dot_path])
         self._y_dot_path_coeffs_values = y_spline_der.c
         self._y_dot_path_coeffs = y_dot_path_coeffs
+
+        y_spline_dder = y_spline_der.derivative()
+        y_ddot_path_coeffs = csd.MX.sym("y_ddot_path_coeffs", y_spline_dder.c.shape[0])
+        y_ddot_path = csd.bspline(s, y_ddot_path_coeffs, [[*y_spline_dder.t]], [y_spline_dder.k], 1, {})
+        self._y_ddot_path = csd.Function("y_ddot_path", [s, y_ddot_path_coeffs], [y_ddot_path])
+        self._y_ddot_path_coeffs_values = y_spline_dder.c
+        self._y_ddot_path_coeffs = y_ddot_path_coeffs
 
         self._speed_spl_coeffs_values = speed_spline.c
         speed_spl_coeffs = csd.MX.sym("speed_spl_coeffs", speed_spline.c.shape[0])
@@ -521,6 +548,39 @@ class CasadiMPC:
                 + self._y_dot_path(s, self._y_dot_path_coeffs) ** 2
             )
 
+    def compute_actual_speed_derivative(
+        self, s: float | csd.MX, s_dot: float | csd.MX, s_ddot: float | csd.MX
+    ) -> float | csd.MX:
+        """Computes the actual speed derivative.
+
+        Args:
+            s (float | csd.MX): Path variable.
+            s_dot (float | csd.MX): Path variable derivative.
+            s_ddot (float | csd.MX): Path variable second derivative.
+
+        Returns:
+            float | csd.MX: Actual speed derivative.
+        """
+        epsilon = 1e-9
+        if isinstance(s, float):
+            x_dot = self._x_dot_path(s, self._x_dot_path_coeffs_values)
+            y_dot = self._y_dot_path(s, self._y_dot_path_coeffs_values)
+            x_ddot = self._x_ddot_path(s, self._x_ddot_path_coeffs_values)
+            y_ddot = self._y_ddot_path(s, self._y_ddot_path_coeffs_values)
+            U_ddot = s_ddot * np.sqrt(x_dot**2 + y_dot**2 + epsilon) + s_dot**2 * (
+                x_dot * x_ddot + y_dot * y_ddot
+            ) / np.power(x_dot**2 + y_dot**2 + epsilon, 1.5)
+            return U_ddot.full()[0][0]
+        else:
+            x_dot = self._x_dot_path(s, self._x_dot_path_coeffs)
+            y_dot = self._y_dot_path(s, self._y_dot_path_coeffs)
+            x_ddot = self._x_ddot_path(s, self._x_ddot_path_coeffs)
+            y_ddot = self._y_ddot_path(s, self._y_ddot_path_coeffs)
+            U_ddot = s_ddot * csd.sqrt(x_dot**2 + y_dot**2 + epsilon) + s_dot**2 * (
+                x_dot * x_ddot + y_dot * y_ddot
+            ) / csd.power(x_dot**2 + y_dot**2 + epsilon, 1.5)
+            return U_ddot
+
     def construct_ocp(
         self,
         nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
@@ -628,6 +688,8 @@ class CasadiMPC:
         p_fixed.append(self._y_path_coeffs)
         p_fixed.append(self._x_dot_path_coeffs)
         p_fixed.append(self._y_dot_path_coeffs)
+        p_fixed.append(self._x_ddot_path_coeffs)
+        p_fixed.append(self._y_ddot_path_coeffs)
         p_fixed.append(self._speed_spl_coeffs)
 
         gamma = csd.MX.sym("gamma", 1)
@@ -691,7 +753,17 @@ class CasadiMPC:
             self._speed_spl_coeffs,
             Q_p_vec,
         )
-        self._p_rate = csd.vertcat(alpha_app_course, alpha_app_speed, K_app_course, K_app_speed)
+        self._p_rate = csd.vertcat(
+            x_0,
+            alpha_app_course,
+            alpha_app_speed,
+            K_app_course,
+            K_app_speed,
+            self._x_dot_path_coeffs,
+            self._y_dot_path_coeffs,
+            self._x_ddot_path_coeffs,
+            self._y_ddot_path_coeffs,
+        )
         self._p_colregs = csd.vertcat(alpha_cr, y_0_cr, alpha_ho, x_0_ho, alpha_ot, x_0_ot, y_0_ot, colregs_weights)
 
         # Static obstacle constraint parameters
@@ -741,16 +813,17 @@ class CasadiMPC:
                 self._x_path(s_k_ref, self._x_path_coeffs), self._y_path(s_k_ref, self._y_path_coeffs)
             )
             s_dot_ref_k = self.compute_path_variable_derivative(s_k_ref)
+
             path_ref_k = csd.vertcat(p_ref_k, s_dot_ref_k)
             s_k_ref = s_dot_ref_k * dt + s_k_ref
-            # Sum stage costs
-            U_d_k = x_k[6] * csd.sqrt(
-                + self._x_dot_path(x_k[5], self._x_dot_path_coeffs) ** 2
-                + self._y_dot_path(x_k[5], self._y_dot_path_coeffs) ** 2
-            )
+
+            U_d_dot_k = self.compute_actual_speed_derivative(x_k[5], x_k[6], u_k[0])
+
+            # Sum stage cost
             path_following_cost, path_dev_cost, speed_dev_cost = mpc_common.path_following_cost(x_k, path_ref_k, Q_p)
             rate_cost, course_rate_cost, speed_rate_cost = mpc_common.rate_cost(
-                u_k,
+                u_k[0],
+                U_d_dot_k,
                 csd.vertcat(alpha_app_course, alpha_app_speed),
                 csd.vertcat(K_app_course, K_app_speed),
                 r_max=ubu[0],
@@ -777,7 +850,7 @@ class CasadiMPC:
                 self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
                 self._speed_dev_cost = csd.Function("speed_ref_cost", [x_k, self._p_path], [speed_dev_cost])
                 self._course_rate_cost = csd.Function("course_rate_cost", [u_k, self._p_rate], [course_rate_cost])
-                self._speed_rate_cost = csd.Function("speed_rate_cost", [u_k, self._p_rate], [speed_rate_cost])
+                self._speed_rate_cost = csd.Function("speed_rate_cost", [x_k, u_k, self._p_rate], [speed_rate_cost])
                 self._crossing_cost = csd.Function(
                     "crossing_cost", [x_k, X_do_gw[:, k], self._p_colregs], [crossing_cost]
                 )
@@ -1120,6 +1193,8 @@ class CasadiMPC:
         fixed_parameter_values.extend(self._y_path_coeffs_values.tolist())
         fixed_parameter_values.extend(self._x_dot_path_coeffs_values.tolist())
         fixed_parameter_values.extend(self._y_dot_path_coeffs_values.tolist())
+        fixed_parameter_values.extend(self._x_ddot_path_coeffs_values.tolist())
+        fixed_parameter_values.extend(self._y_ddot_path_coeffs_values.tolist())
         fixed_parameter_values.extend(self._speed_spl_coeffs_values.tolist())
 
         # fixed_parameter_values.append(self._s_final_value)
@@ -1477,10 +1552,15 @@ class CasadiMPC:
         )
         p_rate_values = np.array(
             [
+                *X[:, 0].tolist(),
                 *self._params.alpha_app_course.tolist(),
                 *self._params.alpha_app_speed.tolist(),
                 self._params.K_app_course,
                 self._params.K_app_speed,
+                *self._x_dot_path_coeffs_values.tolist(),
+                *self._y_dot_path_coeffs_values.tolist(),
+                *self._x_ddot_path_coeffs_values.tolist(),
+                *self._y_ddot_path_coeffs_values.tolist(),
             ]
         )
         p_colregs_values = np.array(
@@ -1516,8 +1596,9 @@ class CasadiMPC:
             )
 
             if k < U.shape[1]:
+                U_d_dot_k = self.compute_actual_speed_derivative(X[5, k], X[6, k], U[1, :])
                 course_rate_cost[k] = self._course_rate_cost(U[:, k], p_rate_values)
-                speed_rate_cost[k] = self._speed_rate_cost(U[:, k], p_rate_values)
+                speed_rate_cost[k] = self._speed_rate_cost(X[:, k], U[:, k], p_rate_values)
 
         fig = plt.figure(figsize=(12, 8))
         axes = fig.subplot_mosaic(
@@ -1572,6 +1653,7 @@ class CasadiMPC:
         epsilon = 1e-9
         speed_refs = np.zeros(X.shape[1])
         mpc_speed_refs = np.zeros(X.shape[1])
+        U_dot = np.zeros(X.shape[1])
         for k in range(X.shape[1]):
             x_dot_path = self._x_dot_path(s_k_ref, self._x_dot_path_coeffs_values)
             y_dot_path = self._y_dot_path(s_k_ref, self._y_dot_path_coeffs_values)
@@ -1580,6 +1662,7 @@ class CasadiMPC:
             )
             speed_refs[k] = self._speed_spline(s_k_ref, self._speed_spl_coeffs_values)
             mpc_speed_refs[k] = X[6, k] * np.sqrt(x_dot_path**2 + y_dot_path**2 + epsilon)
+            U_dot[k] = self.compute_actual_speed_derivative(X[5, k], X[6, k], U[1, :])
             s_k_ref += s_dot_ref[k] * self._params.dt
 
         fig = plt.figure(figsize=(12, 8))
@@ -1612,7 +1695,7 @@ class CasadiMPC:
         axes["speed"].set_xlabel("k")
         axes["speed"].legend()
 
-        axes["speed_rate_input"].plot(U[1, :], color="b", label=r"$\dot{U}_d$")
+        axes["speed_rate_input"].plot(U_dot, color="b", label=r"$\dot{U}_d$")
         axes["speed_rate_input"].set_ylabel("[m/s2]")
         axes["speed_rate_input"].set_xlabel("k")
         axes["speed_rate_input"].legend()
