@@ -108,11 +108,13 @@ def interpolate_solution(
         intp_trajectory = np.zeros((nx, n_samples))
         intp_inputs = np.zeros((nu, n_samples))
         for dim in range(nx):
-            intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", bounds_error=False)(
+            intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", fill_value="extrapolate")(
                 sim_times
             )
         for dim in range(nu):
-            intp_inputs[dim, :] = interp1d(mpc_times, inputs[dim, :], kind="linear", bounds_error=False)(sim_times)
+            intp_inputs[dim, :] = interp1d(mpc_times, inputs[dim, :], kind="linear", fill_value="extrapolate")(
+                sim_times
+            )
 
         return intp_trajectory, intp_inputs
     return intp_trajectory, intp_inputs

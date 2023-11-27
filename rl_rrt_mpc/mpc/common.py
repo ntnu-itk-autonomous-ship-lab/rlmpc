@@ -126,7 +126,7 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
 
     Args:
         - x (csd.MX): Current state.
-        - path_ref (csd.MX): Path reference on the form [p_ref, s_dot_ref]^T.
+        - path_ref (csd.MX): Path reference on the form [p_x_ref, p_y_ref, s_dot_ref]^T.
         - Q_p (csd.MX): Path following cost weight matrix.
 
     Returns:

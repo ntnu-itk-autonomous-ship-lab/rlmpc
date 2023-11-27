@@ -91,7 +91,6 @@ class COLREGSHandler:
         p_os = np.array([xs[0], xs[1]])
         v_os = np.array([xs[2] * np.cos(xs[3]), xs[2] * np.sin(xs[3])])
         for i, (ID, do_state, do_cov, length, width) in enumerate(do_list):
-
             p_do = do_state[0:2]
             v_do = do_state[2:]
             dist2do = float(np.linalg.norm(p_do - p_os))
@@ -101,7 +100,9 @@ class COLREGSHandler:
                 continue
 
             situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
-            print(f"DO{i} | Current situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
+            print(
+                f"DO{i} | Current situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
+            )
 
             if ID in self._do_labels and (situation == COLREGSSituation.NAR or do_passed_by or os_passed_by):
                 self._remove_do(ID)
@@ -124,15 +125,20 @@ class COLREGSHandler:
 
             self._do_situations.append((ID, situation))
             self._do_labels.append(i)
-            print(f"DO{i} Added | Start situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
+            print(
+                f"DO{i} Added | Start situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
+            )
 
         # sort do lists by distance to own-ship
         self._do_cr_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
         self._do_ho_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
         self._do_ot_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
-        print(f"CR DOs: {self._do_cr_list}")
-        print(f"HO DOs: {self._do_ho_list}")
-        print(f"OT DOs: {self._do_ot_list}")
+        if len(self._do_cr_list) > 0:
+            print(f"CR DOs: {self._do_cr_list}")
+        if len(self._do_ho_list) > 0:
+            print(f"HO DOs: {self._do_ho_list}")
+        if len(self._do_ot_list) > 0:
+            print(f"OT DOs: {self._do_ot_list}")
 
         return self._do_cr_list, self._do_ho_list, self._do_ot_list
 
@@ -212,7 +218,11 @@ class COLREGSHandler:
             bool: True if the dynamic obstacle is relevant, False otherwise.
         """
         t_cpa, d_cpa = mf.cpa(p_os, v_os, p_do, v_do)
-        return (t_cpa < self._params.t_cpa_entry) and (d_cpa < self._params.d_cpa_entry) and (np.linalg.norm(p_do - p_os) < self._params.d_activation)
+        return (
+            (t_cpa < self._params.t_cpa_entry)
+            and (d_cpa < self._params.d_cpa_entry)
+            and (np.linalg.norm(p_do - p_os) < self._params.d_activation)
+        )
 
     def determine_applicable_rules(self, xs: np.ndarray, do_state: np.ndarray) -> Tuple[COLREGSSituation, int, int]:
         """Determine applicable COLREGS rule for vessel with regards to obstacle at sample index i.
@@ -243,18 +253,32 @@ class COLREGSHandler:
 
         situation = COLREGSSituation.NAR
         # OTSO if theta_ot_min < beta < theta_ot_max and abs(alpha) < theta_critical_ot and U_os < U_do
-        if (beta > self._params.theta_ot_min) and (beta < self._params.theta_ot_max) and (abs(alpha) < self._params.theta_critical_ot) and (U_os < U_do):
+        if (
+            (beta > self._params.theta_ot_min)
+            and (beta < self._params.theta_ot_max)
+            and (abs(alpha) < self._params.theta_critical_ot)
+            and (U_os < U_do)
+        ):
             situation = COLREGSSituation.OTSO
         # OTGW if theta_ot_min < alpha < theta_ot_max and abs(beta) < theta_critical_ot and U_os > U_do
-        elif (alpha_360 > self._params.theta_ot_min) and (alpha_360 < self._params.theta_ot_max) and (abs(beta_180) < self._params.theta_critical_ot) and (U_os > U_do):
+        elif (
+            (alpha_360 > self._params.theta_ot_min)
+            and (alpha_360 < self._params.theta_ot_max)
+            and (abs(beta_180) < self._params.theta_critical_ot)
+            and (U_os > U_do)
+        ):
             situation = COLREGSSituation.OTGW
         # HO if abs(beta) < theta_critical_ho and abs(alpha) < theta_critical_ho
         elif (abs(beta_180) < self._params.theta_critical_ho) and (abs(alpha) < self._params.theta_critical_ho):
             situation = COLREGSSituation.HO
         # CRSO if -theta_ot_min < alpha < theta_critical_ot and -theta_ot_min < beta < theta_critical_cr
-        elif (0.0 < alpha_360 < self._params.theta_ot_min) and (-self._params.theta_ot_min < beta_180 < self._params.theta_critical_cr):
+        elif (0.0 < alpha_360 < self._params.theta_ot_min) and (
+            -self._params.theta_ot_min < beta_180 < self._params.theta_critical_cr
+        ):
             situation = COLREGSSituation.CRSO
-        elif (0.0 < beta < self._params.theta_ot_min) and (-self._params.theta_ot_min < alpha < self._params.theta_critical_cr):
+        elif (0.0 < beta < self._params.theta_ot_min) and (
+            -self._params.theta_ot_min < alpha < self._params.theta_critical_cr
+        ):
             situation = COLREGSSituation.CRGW
 
         print(f"bearing os->do: {180.0 * beta / np.pi}, bearing do->os: {180.0 * alpha / np.pi}")

@@ -324,11 +324,11 @@ class AugmentedKinematicCSOGWithPathTiming(MPCModel):
 
     def set_min_path_variable(self, s_min: float):
         self._params.s_min = s_min
-        self.lbx[0] = s_min
+        self.lbx[5] = s_min
 
     def set_max_path_variable(self, s_max: float):
         self._params.s_max = s_max
-        self.ubx[0] = s_max
+        self.ubx[5] = s_max
 
     def set_path_derivative_splines(
         self,

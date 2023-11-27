@@ -101,7 +101,6 @@ class RLMPC(ci.ICOLAV):
         assert enc is not None, "ENC must be provided to the RL-MPC"
         assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
         N = int(self._mpc.params.T / self._mpc.params.dt)
-        U_ref = np.mean(speed_plan)
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
@@ -181,8 +180,8 @@ class RLMPC(ci.ICOLAV):
                 enc=enc,
             )
             self._mpc_trajectory = self._mpc_soln["trajectory"][:, :N]
-            chi_d = self._mpc_soln["course_references"]
-            U_d = self._mpc_soln["speed_references"]
+            chi_d = self._mpc_soln["course_references"][:N]
+            U_d = self._mpc_soln["speed_references"][:N]
             self._mpc_outputs = np.vstack((chi_d, U_d))
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
@@ -311,8 +310,9 @@ class RLMPC(ci.ICOLAV):
                 "time_of_last_plan": self._t_prev_mpc,
                 "mpc_soln": self._mpc_soln,
                 "mpc_trajectory": self._mpc_trajectory
-                + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(8, 1),
+                + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(7, 1),
                 "mpc_inputs": self._mpc_inputs,
+                "mpc_outputs": self._mpc_outputs,
                 "params": self._config,
                 "t": self._t_prev,
             }
