@@ -198,6 +198,7 @@ class CasadiMPC:
             self._x_dot_path, self._x_dot_path_coeffs, self._y_dot_path, self._y_dot_path_coeffs
         )
         self._model.setup_equations_of_motion()
+        print("Path information set. | s_final: ", self._s_final_value)
 
     def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int) -> np.ndarray:
         """Euler prediction of the ship model and path timing model, concatenated.
@@ -233,17 +234,17 @@ class CasadiMPC:
 
         xs_k = np.zeros(nx)
         xs_k[:4] = xs[:4]
-        xs_k[4] = 0.0
+        xs_k[4] = xs[2]
         xs_k[5:] = np.array([self._s, self._s_dot])
 
         n_attempts = 7
         success = False
         u_attempts = [
             np.array([0.0, 0.0]),
-            np.array([0.01, 0.0]),
-            np.array([-0.01, 0.0]),
-            np.array([0.01, -0.05]),
-            np.array([-0.01, -0.05]),
+            np.array([-0.02, 0.0]),
+            np.array([0.02, 0.0]),
+            np.array([-0.02, -0.05]),
+            np.array([0.02, -0.05]),
             np.array([0.0, -0.05]),
             np.zeros(nu),
         ]
@@ -254,7 +255,9 @@ class CasadiMPC:
             positions = np.array(
                 [warm_start_traj[1, :] + self._map_origin[1], warm_start_traj[0, :] + self._map_origin[0]]
             )
-            distance_vectors = cs_mapf.compute_distance_vectors_to_grounding(positions, self._min_depth, enc)
+            distance_vectors = cs_mapf.compute_distance_vectors_to_grounding(
+                positions, self._min_depth, enc, disable_bbox_check=True
+            )
             dv_norms = np.linalg.norm(distance_vectors, axis=0)
             min_dist = np.min(dv_norms)
             if min_dist > self._params.r_safe_so:
@@ -335,11 +338,6 @@ class CasadiMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        cs_mapf.plot_trajectory(
-            states_past_N + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(7, 1),
-            enc,
-            "blue",
-        )
         distance_vectors = cs_mapf.compute_distance_vectors_to_grounding(
             pos_past_N, self._min_depth, enc, disable_bbox_check=True
         )
@@ -359,8 +357,6 @@ class CasadiMPC:
             - dt (float): Time to shift the warm start decision trajectory.
             - enc (senc.ENC): Electronic Navigational Chart object.
         """
-        nx, nu = self._model.dims()
-        lbu, ubu, _, _ = self._model.get_input_state_bounds()
         n_attempts = 6
         n_shifts = int(dt / self._params.dt)
         w_prev = np.array(prev_warm_start["x"])
@@ -1217,10 +1213,10 @@ class CasadiMPC:
         state_aug[0:4] = state.reshape((4, 1))
 
         if action is None:
-            action = np.array([0.0, 0.0])
+            action = np.array([state[2], 0.0])
 
         # state is augmented with the desired course derivative when using the AugmentedKinematicCSOGWithPathTiming model.
-        state_aug[4] = X[4, 0].full()[0][0]  # chi_dot_d
+        state_aug[4] = action[0]
         # and path dynamics due to the integrated path timing model with velocity assignment
         state_aug[5:] = np.array([self._s, self._s_dot]).reshape((2, 1))
         fixed_parameter_values.extend(state_aug.flatten().tolist())  # x0
