@@ -105,6 +105,7 @@ class RLMPC(ci.ICOLAV):
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
         ownship_csog_state[3] = state_copy[2]
+        speed_plan[-1] = 0.0
         if not self._initialized:
             self._map_origin = ownship_csog_state[:2]
             self._initialized = True
@@ -131,6 +132,16 @@ class RLMPC(ci.ICOLAV):
                 nominal_trajectory = nominal_trajectory + np.array(
                     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
                 ).reshape(9, 1)
+                mapf.plot_waypoints(
+                    waypoints[:2, :],
+                    draft=1.0,
+                    enc=enc,
+                    color="orange",
+                    point_buffer=3.0,
+                    disk_buffer=6.0,
+                    hole_buffer=3.0,
+                    alpha=0.4,
+                )
                 mapf.plot_trajectory(
                     nominal_trajectory[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
                     enc,
@@ -180,16 +191,14 @@ class RLMPC(ci.ICOLAV):
                 enc=enc,
             )
             self._mpc_trajectory = self._mpc_soln["trajectory"][:, :N]
-            chi_d = self._mpc_soln["course_references"][:N]
-            U_d = self._mpc_soln["speed_references"][:N]
-            self._mpc_outputs = np.vstack((chi_d, U_d))
+            self._mpc_inputs = self._mpc_soln["inputs"][:, :N]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if self._debug:
                 mapf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
 
-            self._mpc_trajectory, self._mpc_outputs = hf.interpolate_solution(
-                self._mpc_trajectory, self._mpc_outputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
+            self._mpc_trajectory, self._mpc_inputs = hf.interpolate_solution(
+                self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
             )
             self._t_prev_mpc = t
 
@@ -199,8 +208,8 @@ class RLMPC(ci.ICOLAV):
 
         self._t_prev = t
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
-        self._references[2, :] = self._mpc_outputs[0, :]
-        self._references[3, :] = self._mpc_outputs[1, :]
+        self._references[2, :] = self._mpc_trajectory[2, :]
+        self._references[3, :] = self._mpc_trajectory[3, :]
         return self._references
 
     def _setup_mpc_static_obstacle_input(

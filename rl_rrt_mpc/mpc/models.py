@@ -225,8 +225,8 @@ class AugmentedKinematicCSOG(MPCModel):
 
 
 @dataclass
-class AugmentedKinematicCSOGWithPathTimingParams:
-    name: str = "AugmentedKinematicCSOGWithPathTiming"
+class KinematicCSOGWithAccelerationAndPathtimingParams:
+    name: str = "KinematicCSOGModelWithPathtimingAndAcceleration"
     draft: float = 2.0
     length: float = 15.0
     ship_vertices: np.ndarray = field(default_factory=lambda: np.empty(2))
@@ -236,13 +236,14 @@ class AugmentedKinematicCSOGWithPathTimingParams:
     r_max: float = float(np.deg2rad(5))
     U_min: float = 0.0
     U_max: float = 10.0
+    a_max: float = 0.5
     s_min: float = 0.0
     s_max: float = 1.0
     s_dot_max: float = 1e10
 
     @classmethod
     def from_dict(self, params_dict: dict):
-        params = AugmentedKinematicCSOGWithPathTimingParams(
+        params = KinematicCSOGWithAccelerationAndPathtimingParams(
             draft=params_dict["draft"],
             length=params_dict["length"],
             width=params_dict["width"],
@@ -252,6 +253,7 @@ class AugmentedKinematicCSOGWithPathTimingParams:
             r_max=np.deg2rad(params_dict["r_max"]),
             U_min=params_dict["U_min"],
             U_max=params_dict["U_max"],
+            a_max=params_dict["a_max"],
             s_min=params_dict["s_min"],
             s_max=params_dict["s_max"],
             s_dot_max=params_dict["s_dot_max"],
@@ -273,54 +275,50 @@ class AugmentedKinematicCSOGWithPathTimingParams:
         return output_dict
 
 
-class AugmentedKinematicCSOGWithPathTiming(MPCModel):
-    """Casadi+Acados model for the kinematic Course and Speed over Ground model, with augmented state:
+class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
+    """Casadi+Acados model for the kinematic Course and Speed over Ground model with turn rate and acceleration as input, with augmented state:
 
     xdot = U cos(chi)
     ydot = U sin(chi)
-    chidot = (chi_d - chi) / T_chi
-    Udot = (U_d(s) - U) / T_U
-    chi_d_dot = chi_d_dot
+    chidot = r
+    Udot = a
     s_dot = s_dot
     s_ddot = u_p
 
-    i.e. xs = [x, y, chi, U, chi_d, s, s_dot], and the input is u = [chi_d_dot, u_p], with U_d being the desired speed profile
+    i.e. xs = [x, y, chi, U, s, s_dot], and the input is u = [r, a, u_p]
     calculated as
 
-    U_d(s) = s_dot * sqrt(eps + x_dot(s)^2 + y_dot(s)^2)
-
-    This, like for the AugmentedKinematicCSOG, allows for constraining the speed and course rate,
+    This, like for the AugmentedKinematicCSOG, allows for constraining the acceleration and course rate,
     and penalizing high course and speed changes.
     """
 
     def __init__(
-        self, params: AugmentedKinematicCSOGWithPathTimingParams = AugmentedKinematicCSOGWithPathTimingParams()
+        self,
+        params: KinematicCSOGWithAccelerationAndPathtimingParams = KinematicCSOGWithAccelerationAndPathtimingParams(),
     ):
         self._acados_model = AcadosModel()
         self._params = params
-        self.x_dot_spline: csd.Function = csd.Function("x_dot_spline", [], [])
-        self.y_dot_spline: csd.Function = csd.Function("y_dot_spline", [], [])
-        self.x_dot_spline_coeffs: csd.MX = csd.MX.sym("x_dot_spline_coeffs", 1)
-        self.y_dot_spline_coeffs: csd.MX = csd.MX.sym("y_dot_spline_coeffs", 1)
+        self.setup_equations_of_motion()
 
         # Input and state bounds
         U_min = self._params.U_min
         U_max = self._params.U_max
+        a_max = self._params.a_max
         r_max = self._params.r_max
         s_min = self._params.s_min
         s_max = self._params.s_max
         s_dot_max = self._params.s_dot_max
         approx_inf = 1e10
-        self.lbu = np.array([-r_max, -approx_inf])
-        self.ubu = np.array([r_max, approx_inf])
-        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, -approx_inf, s_min, 0.0])
-        self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, approx_inf, s_max, s_dot_max])
+        self.lbu = np.array([-r_max, -a_max, -approx_inf])
+        self.ubu = np.array([r_max, a_max, approx_inf])
+        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, s_min, 0.0])
+        self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, s_max, s_dot_max])
 
-    def params(self) -> AugmentedKinematicCSOGWithPathTimingParams:
+    def params(self) -> KinematicCSOGWithAccelerationAndPathtimingParams:
         return self._params
 
     def dims(self) -> Tuple[int, int]:
-        return 7, 2
+        return 6, 3
 
     def set_min_path_variable(self, s_min: float):
         self._params.s_min = s_min
@@ -329,18 +327,6 @@ class AugmentedKinematicCSOGWithPathTiming(MPCModel):
     def set_max_path_variable(self, s_max: float):
         self._params.s_max = s_max
         self.ubx[5] = s_max
-
-    def set_path_derivative_splines(
-        self,
-        x_dot_spline: csd.Function,
-        x_dot_spline_coeffs: csd.MX,
-        y_dot_spline: csd.Function,
-        y_dot_spline_coeffs: csd.MX,
-    ):
-        self.x_dot_spline = x_dot_spline
-        self.x_dot_spline_coeffs = x_dot_spline_coeffs
-        self.y_dot_spline = y_dot_spline
-        self.y_dot_spline_coeffs = y_dot_spline_coeffs
 
     def setup_equations_of_motion(self):
         """Forms the equations of motion for the kinematic model"""
@@ -351,17 +337,9 @@ class AugmentedKinematicCSOGWithPathTiming(MPCModel):
 
         T_U = csd.MX.sym("T_U", 1)
         T_chi = csd.MX.sym("T_chi", 1)
-        p = csd.vertcat(T_chi, T_U, self.x_dot_spline_coeffs, self.y_dot_spline_coeffs)
+        p = csd.vertcat(T_chi, T_U)
 
-        eps = 1e-9
-        U_d = x[6] * csd.sqrt(
-            eps
-            + self.x_dot_spline(x[5], self.x_dot_spline_coeffs) ** 2
-            + self.y_dot_spline(x[5], self.y_dot_spline_coeffs) ** 2
-        )
-        kinematics = csd.vertcat(
-            x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), (x[4] - x[2]) / T_chi, (U_d - x[3]) / T_U, u[0], x[6], u[1]
-        )
+        kinematics = csd.vertcat(x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), u[0], u[1], x[5], u[2])
         f_expl = kinematics
         f_impl = xdot - f_expl
 
@@ -399,7 +377,6 @@ class AugmentedKinematicCSOGWithPathTiming(MPCModel):
     def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
         """Simulate N explicit runge kutta 4 steps for the model
 
-
         Args:
             xs (np.ndarray): State vector
             u (np.ndarray): Input vector
@@ -435,7 +412,7 @@ class AugmentedKinematicCSOGWithPathTiming(MPCModel):
         self._acados_model.xdot = self.xdot
         self._acados_model.u = self.u
         self._acados_model.p = self.p
-        self._acados_model.name = "half_augmented_kinematic_csog"
+        self._acados_model.name = "kinematic_csog_with_acceleration_and_path_timing"
         return self._acados_model
 
     @property

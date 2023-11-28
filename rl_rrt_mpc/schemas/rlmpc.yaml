@@ -184,7 +184,7 @@ midlevel_mpc:
       required: True
       type: dict
       schema:
-        augmented_csog_with_path_timing:
+        kinematic_csog_with_acceleration_and_path_timing:
           type: dict
           excludes: [telemetron]
           schema:
@@ -213,6 +213,9 @@ midlevel_mpc:
               required: True
               type: float
             U_max:
+              required: True
+              type: float
+            a_max:
               required: True
               type: float
             s_min:

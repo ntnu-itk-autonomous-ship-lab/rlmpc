@@ -133,7 +133,7 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
         Tuple[csd.MX, csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, speed deviation cost.
     """
     # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_dot)
-    z = csd.vertcat(x[:2], x[-1])  # [x, y, s_dot]
+    z = csd.vertcat(x[:2], x[5])  # [x, y, s_dot]
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
     assert (
         Q_p.shape[0] == Q_p.shape[1] == p_ref.shape[0]
@@ -144,26 +144,26 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
 
 
 def rate_cost(
-    chi_d_dot: csd.MX, U_d_dot: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, U_dot_max: float
+    r: csd.MX, a: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, a_max: float
 ) -> Tuple[csd.MX, csd.MX, csd.MX]:
     """Computes the chattering cost associated with the rate of change of the course and speed references,
     and stimulates chosing apparent maneuvers.
 
     Args:
-        chi_d_dot (csd.MX): Rate of change of the course reference.
-        U_d_dot (csd.MX): Rate of change of the speed reference.
+        r (csd.MX): Turn rate input.
+        a (csd.MX): Acceleration input.
         alpha_app (csd.MX): Apparent maneuver cost parameters.
         K_app (csd.MX): Apparent maneuver cost weight.
         r_max (float): Maximum rate of change of the course reference.
-        U_dot_max (float): Maximum rate of change of the speed reference.
+        a_max (float): Maximum rate of change of the speed reference.
 
     Returns:
         Tuple[csd.MX, csd.MX, csd.MX]: Total cost, course cost, speed cost.
     """
-    q_chi = alpha_app[0] * chi_d_dot**2 + (1.0 - csd.exp(-(chi_d_dot**2) / alpha_app[1]))
+    q_chi = alpha_app[0] * r**2 + (1.0 - csd.exp(-(r**2) / alpha_app[1]))
     q_chi_max = alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
-    q_U = alpha_app[2] * U_d_dot**2 + (1.0 - csd.exp(-(U_d_dot**2) / alpha_app[3]))
-    q_U_max = alpha_app[2] * U_dot_max**2 + (1.0 - csd.exp(-(U_dot_max**2) / alpha_app[3]))
+    q_U = alpha_app[2] * a**2 + (1.0 - csd.exp(-(a**2) / alpha_app[3]))
+    q_U_max = alpha_app[2] * a_max**2 + (1.0 - csd.exp(-(a_max**2) / alpha_app[3]))
     course_cost = K_app[0] * q_chi / q_chi_max
     speed_cost = K_app[1] * q_U / q_U_max
     return course_cost + speed_cost, course_cost, speed_cost

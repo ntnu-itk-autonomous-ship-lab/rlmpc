@@ -36,7 +36,7 @@ class Config:
     enable_acados: bool = False
     mpc: mpc_parameters.MidlevelMPCParams = mpc_parameters.MidlevelMPCParams()
     solver_options: common.SolverConfig = common.SolverConfig()
-    model: Type[models.MPCModel] = models.AugmentedKinematicCSOGWithPathTimingParams()
+    model: Type[models.MPCModel] = models.KinematicCSOGWithAccelerationAndPathtimingParams()
     path_timing: models.DoubleIntegratorParams = models.DoubleIntegratorParams()
 
     @classmethod
@@ -44,9 +44,9 @@ class Config:
         if "telemetron" in config_dict["model"]:
             model = models.Telemetron()
         else:
-            model = models.AugmentedKinematicCSOGWithPathTiming(
-                models.AugmentedKinematicCSOGWithPathTimingParams.from_dict(
-                    config_dict["model"]["augmented_csog_with_path_timing"]
+            model = models.KinematicCSOGWithAccelerationAndPathtiming(
+                models.KinematicCSOGWithAccelerationAndPathtimingParams.from_dict(
+                    config_dict["model"]["kinematic_csog_with_acceleration_and_path_timing"]
                 )
             )
 
