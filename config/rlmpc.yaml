@@ -50,7 +50,7 @@ midlevel_mpc:
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
     max_num_so_constr: 12
-    max_num_do_constr_per_zone: 0 # per shooting node in the mpc
+    max_num_do_constr_per_zone: 4 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
       draft: 2.0

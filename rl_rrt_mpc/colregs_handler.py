@@ -81,7 +81,7 @@ class COLREGSHandler:
             -
 
         Args:
-            xs (np.ndarray): State of the own-ship on the form [x, y, U, chi]^T
+            xs (np.ndarray): State of the own-ship on the form [x, y, chi, U]^T
             do_list (list): List of dynamic obstacles on the form (ID, state, cov, length, width)
 
         Returns:
@@ -122,6 +122,8 @@ class COLREGSHandler:
                 self._do_ot_list.append((ID, do_state, do_cov, length, width))
             elif situation == COLREGSSituation.OTSO and dist2do < self._params.d_critical_so:
                 self._do_ot_list.append((ID, do_state, do_cov, length, width))
+            else:
+                continue
 
             self._do_situations.append((ID, situation))
             self._do_labels.append(i)
@@ -228,27 +230,27 @@ class COLREGSHandler:
         """Determine applicable COLREGS rule for vessel with regards to obstacle at sample index i.
 
         Args:
-            xs (np.ndarray): State of the own-ship on the form [x, y, U, chi]^T
-            do_state (np.ndarray): State of the obstacle on the form [x, y, U, chi]^T
+            xs (np.ndarray): State of the own-ship on the form [x, y, chi, U]^T
+            do_state (np.ndarray): State of the obstacle on the form [x, y, Vx, Vy]^T
 
         Returns:
             Tuple[COLREGSSituation, int, int]: Tuple of the applicable rule, whether the obstacle is passed and whether the ownship is passed.
         """
-        U_os = xs[2]
-        chi_os = xs[3]
-        U_do = do_state[2]
-        chi_do = do_state[3]
-        v_do = np.array([U_do * np.sin(chi_do), U_do * np.cos(chi_do)])
-        v_os = np.array([U_os * np.sin(chi_os), U_os * np.cos(chi_os)])
+        U_os = xs[3]
+        chi_os = xs[2]
+        U_do = np.linalg.norm(do_state[2:])
+        chi_do = mf.wrap_angle_to_pmpi(np.arctan2(do_state[3], do_state[2]))
+        v_do = np.array([U_do * np.cos(chi_do), U_do * np.sin(chi_do)])
+        v_os = np.array([U_os * np.cos(chi_os), U_os * np.sin(chi_os)])
         dist2do = do_state[0:2] - xs[0:2]
         los = dist2do / np.linalg.norm(dist2do)
 
         # Relative bearing (obstacle as seen from own-ship)
-        beta_180 = mf.wrap_angle_diff_to_pmpi(np.arctan2(dist2do[0], dist2do[1]), chi_os)
+        beta_180 = mf.wrap_angle_diff_to_pmpi(np.arctan2(dist2do[1], dist2do[0]), chi_os)
         beta = mf.wrap_angle_to_02pi(beta_180)
 
         # Contact angle (own-ship as seen from obstacle)
-        alpha = mf.wrap_angle_diff_to_pmpi(np.arctan2(-dist2do[0], -dist2do[1]), chi_do)
+        alpha = mf.wrap_angle_diff_to_pmpi(np.arctan2(-dist2do[1], -dist2do[0]), chi_do)
         alpha_360 = mf.wrap_angle_to_02pi(alpha)
 
         situation = COLREGSSituation.NAR
@@ -276,12 +278,14 @@ class COLREGSHandler:
             -self._params.theta_ot_min < beta_180 < self._params.theta_critical_cr
         ):
             situation = COLREGSSituation.CRSO
-        elif (0.0 < beta < self._params.theta_ot_min) and (
-            -self._params.theta_ot_min < alpha < self._params.theta_critical_cr
+        elif (0.0 <= beta <= self._params.theta_ot_min) and (
+            -self._params.theta_ot_min <= alpha <= self._params.theta_critical_cr
         ):
             situation = COLREGSSituation.CRGW
 
-        print(f"bearing os->do: {180.0 * beta / np.pi}, bearing do->os: {180.0 * alpha / np.pi}")
+        print(
+            f"distance os<->do: {np.linalg.norm(dist2do)}, bearing os->do: {180.0 * beta / np.pi}, bearing do->os: {180.0 * alpha / np.pi}"
+        )
 
         do_passed_by = False
         os_passed_by = False

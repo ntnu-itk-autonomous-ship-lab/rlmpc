@@ -383,7 +383,7 @@ class CasadiMPC:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
-            - xs (np.ndarray): Current state.
+            - xs (np.ndarray): Current state [x, y, chi, U]^T of the ownship.
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
