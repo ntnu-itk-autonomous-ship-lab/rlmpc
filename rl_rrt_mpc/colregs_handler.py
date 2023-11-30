@@ -126,7 +126,7 @@ class COLREGSHandler:
                 continue
 
             self._do_situations.append((ID, situation))
-            self._do_labels.append(i)
+            self._do_labels.append(ID)
             print(
                 f"DO{i} Added | Start situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
             )
@@ -135,12 +135,12 @@ class COLREGSHandler:
         self._do_cr_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
         self._do_ho_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
         self._do_ot_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))
-        if len(self._do_cr_list) > 0:
-            print(f"CR DOs: {self._do_cr_list}")
-        if len(self._do_ho_list) > 0:
-            print(f"HO DOs: {self._do_ho_list}")
-        if len(self._do_ot_list) > 0:
-            print(f"OT DOs: {self._do_ot_list}")
+        # if len(self._do_cr_list) > 0:
+        #     print(f"CR DOs: {self._do_cr_list}")
+        # if len(self._do_ho_list) > 0:
+        #     print(f"HO DOs: {self._do_ho_list}")
+        # if len(self._do_ot_list) > 0:
+        #     print(f"OT DOs: {self._do_ot_list}")
 
         return self._do_cr_list, self._do_ho_list, self._do_ot_list
 
@@ -202,7 +202,7 @@ class COLREGSHandler:
         Returns:
             Optional[COLREGSSituation]: The COLREGS situation of the dynamic obstacle.
         """
-        for i, (do_ID, situation) in self._do_situations:
+        for i, (do_ID, situation) in enumerate(self._do_situations):
             if do_ID == ID:
                 return i, situation
         raise ValueError(f"Dynamic obstacle with ID {ID} not found in the list of dynamic obstacles.")

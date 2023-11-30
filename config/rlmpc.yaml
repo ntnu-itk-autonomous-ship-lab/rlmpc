@@ -18,39 +18,40 @@ colregs_handler:
   theta_ot_max: 247.5  # maximum bearing angle for OT situation
   d_critical_so: 100.0 # critical distance threshold where stand-on duties are aborted
   d_activation: 5000.0  # distance threshold for activation of COLREGS handler
-  t_cpa_entry: 100.0  # time to CPA threshold for entry into COLREGS situation
-  d_cpa_entry: 900.0  # distance to CPA threshold for entry into COLREGS situation
+  t_cpa_entry: 400.0  # time to CPA threshold for entry into COLREGS situation
+  d_cpa_entry: 400.0  # distance to CPA threshold for entry into COLREGS situation
 
 midlevel_mpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
-    T: 100.0
+    T: 80.0
     dt: 2.5
-    Q_p: [1.0, 1.0, 10.0]
+    Q_p: [0.1, 1.0, 5.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.00025]
-    K_app_course: 0.05
-    K_app_speed: 0.05
+    K_app_course: 10.0
+    K_app_speed: 10.0
     K_fuel: 1.0
 
-    alpha_cr: [0.002, 0.002]
-    y_0_cr: 100.0
-    alpha_ho: [0.002, 0.002]
-    x_0_ho: 200.0
+    alpha_cr: [0.005, 0.002]
+    y_0_cr: 500.0
+    alpha_ho: [0.001, 0.03]
+    x_0_ho: 500.0
     alpha_ot: [0.002, 0.002]
-    x_0_ot: 200.0
-    y_0_ot: 100.0
-    w_colregs: [0.0, 0.0, 0.0]
+    x_0_ot: 500.0
+    y_0_ot: 50.0
+    d_attenuation: 500.0
+    w_colregs: [100.0, 100.0, 100.0]
 
     w_L2: 0.0
     w_L1: 12000.0
     r_safe_so: 5.0
-    r_safe_do: 10.0
+    r_safe_do: 15.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
     max_num_so_constr: 12
-    max_num_do_constr_per_zone: 4 # per shooting node in the mpc
+    max_num_do_constr_per_zone: 1 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
       draft: 2.0

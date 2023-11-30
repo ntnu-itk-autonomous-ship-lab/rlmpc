@@ -143,6 +143,39 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
     return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
 
 
+def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, csd.MX, csd.MX]:
+    """Computes the path following cost for an NMPFC COLAV using the Huber loss for position errors. Assumes the ship model is augmented by the path timing dynamics.
+
+    Args:
+        x (csd.MX): State vector.
+        p_ref (csd.MX): Reference path.
+        Q_p (csd.MX): Path following cost weight vector.
+        delta (csd.MX): Shape parameter for the Huber loss function.
+
+    Returns:
+        Tuple[csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, speed deviation cost.
+    """
+    z = csd.vertcat(x[:2], x[5])  # [x, y, s_dot]
+    assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
+    path_dev = csd.norm_2(z[:2] - p_ref[:2])
+    path_dev_cost = 0.5 * Q_p[0] * huber_loss(path_dev, Q_p[1])
+    speed_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2
+    return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
+
+
+def huber_loss(x: csd.MX, delta: csd.MX) -> csd.MX:
+    """Huber loss function.
+
+    Args:
+        x (csd.MX): Position input.
+        delta (csd.MX): Shape parameter.
+
+    Returns:
+        csd.MX: Loss function value.
+    """
+    return 2.0 * (csd.sqrt(1.0 + (x / delta) ** 2) - 1.0) * delta**2
+
+
 def rate_cost(
     r: csd.MX, a: csd.MX, alpha_app: csd.MX, K_app: csd.MX, r_max: float, a_max: float
 ) -> Tuple[csd.MX, csd.MX, csd.MX]:
@@ -176,29 +209,31 @@ def colregs_cost(
     X_do_ot: csd.MX,
     nx_do: int,
     alpha_cr: csd.MX,
-    x_0_cr: csd.MX,
+    y_0_cr: csd.MX,
     alpha_ho: csd.MX,
     x_0_ho: csd.MX,
     alpha_ot: csd.MX,
     x_0_ot: csd.MX,
     y_0_ot: csd.MX,
+    d_attenuation: csd.MX,
     weights: csd.MX,
 ) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
     """Computes the COLREGS cost for the COLAV MPC method using the potential function approach.
 
     Args:
         x (csd.MX): Current state.
-        X_do_cr (csd.MX): Dynamic obstacle states in the give-way zone
+        X_do_cr (csd.MX): Dynamic obstacle states in the crossing zone
         X_do_ho (csd.MX): Dynamic obstacle states in the head-on zone
         X_do_ot (csd.MX): Dynamic obstacle states in the overtaking zone
         nx_do (int): Number of states in the dynamic obstacle model.
         alpha_cr (csd.MX): Attenuation parameters for the give-way situation potential function.
-        x_0_cr (csd.MX): Offset parameter for the give-way situation potential function.
+        y_0_cr (csd.MX): Offset parameter for the give-way situation potential function.
         alpha_ho (csd.MX): Attenuation parameters for the head-on situation potential function.
         x_0_ho (csd.MX): Offset parameter for the head-on situation potential function.
         alpha_ot (csd.MX): Attenuation parameters for the overtaking situation potential function.
         x_0_ot (csd.MX): Offset parameter for the overtaking situation potential function.
         y_0_ot (csd.MX): Offset parameter for the overtaking situation potential function.
+        d_attenuation (csd.MX): Attenuation parameter for the potential functions.
         weights (csd.MX): Weights for the COLREGS cost terms.
 
     Returns:
@@ -212,19 +247,21 @@ def colregs_cost(
     for i in range(n_do_per_zone):
         x_aug_do_cr = X_do_cr[i * nx_do : (i + 1) * nx_do]
         R_chi_do_cr = mf.Rpsi2D_casadi(x_aug_do_cr[2])
-
         p_rel = R_chi_do_cr.T @ (x[:2] - x_aug_do_cr[:2])
-        cr_term += gw_potential(p_rel, alpha_cr, x_0_cr)
+        d_rel = csd.norm_2(p_rel)
+        cr_term += cr_potential(p_rel, alpha_cr, y_0_cr) * csd.exp(-d_rel / d_attenuation)
 
         x_aug_do_ho = X_do_ho[i * nx_do : (i + 1) * nx_do]
         R_chi_do_ho = mf.Rpsi2D_casadi(x_aug_do_ho[2])
         p_rel = R_chi_do_ho.T @ (x[:2] - x_aug_do_ho[:2])
-        ho_term += ho_potential(p_rel, alpha_ho, x_0_ho)
+        d_rel = csd.norm_2(p_rel)
+        ho_term += ho_potential(p_rel, alpha_ho, x_0_ho) * csd.exp(-d_rel / d_attenuation)
 
         x_aug_do_ot = X_do_ot[i * nx_do : (i + 1) * nx_do]
         R_chi_do_ot = mf.Rpsi2D_casadi(x_aug_do_ot[2])
         p_rel = R_chi_do_ot.T @ (x[:2] - x_aug_do_ot[:2])
-        ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot)
+        d_rel = csd.norm_2(p_rel)
+        ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * csd.exp(-d_rel / d_attenuation)
 
     cost = weights[0] * cr_term + weights[1] * ho_term + weights[2] * ot_term
     return cost, cr_term, ho_term, ot_term
@@ -239,11 +276,11 @@ def potential_field_base_function(x: csd.MX) -> csd.MX:
     Returns:
         csd.MX: The base function value.
     """
-    return x / csd.sqrt(x**2 + 1)
+    return x / csd.sqrt(x**2 + 1) + 1
 
 
-def gw_potential(p: csd.MX, alpha: csd.MX, y_0: csd.MX) -> csd.MX:
-    """Calculates the potential function for the give-way situation.
+def cr_potential(p: csd.MX, alpha: csd.MX, y_0: csd.MX) -> csd.MX:
+    """Calculates the potential function for the crossing situation.
 
     Args:
         p (csd.MX): Position relative to the TS body-fixed frame.
@@ -254,7 +291,7 @@ def gw_potential(p: csd.MX, alpha: csd.MX, y_0: csd.MX) -> csd.MX:
         csd.MX: The potential function value.
     """
     return (
-        0.5
+        0.25
         * potential_field_base_function(alpha[0] * p[0])
         * (potential_field_base_function(alpha[1] * (p[1] - y_0)) + 1)
     )
@@ -272,7 +309,7 @@ def ho_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX) -> csd.MX:
         csd.MX: The potential function value.
     """
     return (
-        0.5
+        0.25
         * (potential_field_base_function(alpha[0] * (x_0 - p[0])) + 1)
         * potential_field_base_function(alpha[1] * p[1])
     )
@@ -292,8 +329,8 @@ def ot_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX, y_0: csd.MX) -> csd.MX:
         csd.MX: The potential function value.
     """
     return (
-        0.5
-        * potential_field_base_function(alpha[0] * (x_0 - p[0]))
+        0.25
+        * potential_field_base_function(-alpha[0] * (x_0 - p[0]))
         * potential_field_base_function(alpha[1] * csd.fabs(p[1] - y_0))
     )
 
@@ -334,7 +371,6 @@ def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:
 
 
 def construct_acados_ocp(
-    self,
     model: models.MPCModel,
     cost_function: csd.MX,
     l1_slack_penalty: float,

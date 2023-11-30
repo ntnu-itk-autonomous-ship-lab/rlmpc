@@ -149,6 +149,9 @@ midlevel_mpc:
         y_0_ot:
           required: True
           type: float
+        d_attenuation:
+          required: True
+          type: float
         w_colregs:
           required: True
           type: list

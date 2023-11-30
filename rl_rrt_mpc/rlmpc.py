@@ -75,7 +75,6 @@ class RLMPC(ci.ICOLAV):
         self._mpc_soln: dict = {}
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
-        self._mpc_outputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
         self._mpc_rel_polygons: list = []
         self._rel_polygons: list = []
@@ -116,9 +115,6 @@ class RLMPC(ci.ICOLAV):
                 arc_length_parameterization=True,
             )
             self._setup_mpc_static_obstacle_input(ownship_csog_state, enc, self._debug, **kwargs)
-            translated_do_list = hf.translate_dynamic_obstacle_coordinates(
-                do_list, self._map_origin[1], self._map_origin[0]
-            )
             self._mpc.construct_ocp(
                 nominal_path=(x_spline, y_spline, heading_spline, speed_spline),
                 xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
@@ -153,7 +149,7 @@ class RLMPC(ci.ICOLAV):
         self._update_mpc_so_polygon_input(ownship_csog_state, enc, self._debug)
 
         if self._debug:
-            mapf.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.T, self._mpc.params.dt)
+            mapf.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
             ship_poly = mapf.create_ship_polygon(
                 ownship_csog_state[0],
                 ownship_csog_state[1],
@@ -169,16 +165,16 @@ class RLMPC(ci.ICOLAV):
             ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
         )
 
-        if self._debug:
-            mapf.plot_dynamic_obstacles(
-                do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-            )
-            mapf.plot_dynamic_obstacles(
-                do_ho_list, "orange", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-            )
-            mapf.plot_dynamic_obstacles(
-                do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-            )
+        # if self._debug:
+        #     mapf.plot_dynamic_obstacles(
+        #         do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
+        #     )
+        #     mapf.plot_dynamic_obstacles(
+        #         do_ho_list, "orange", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
+        #     )
+        #     mapf.plot_dynamic_obstacles(
+        #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
+        #     )
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             self._mpc_soln = self._mpc.plan(
@@ -204,7 +200,7 @@ class RLMPC(ci.ICOLAV):
 
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
-            self._mpc_outputs = self._mpc_outputs[:, 1:]
+            self._mpc_inputs = self._mpc_inputs[:, 1:]
 
         self._t_prev = t
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
@@ -319,9 +315,8 @@ class RLMPC(ci.ICOLAV):
                 "time_of_last_plan": self._t_prev_mpc,
                 "mpc_soln": self._mpc_soln,
                 "mpc_trajectory": self._mpc_trajectory
-                + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(7, 1),
+                + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1),
                 "mpc_inputs": self._mpc_inputs,
-                "mpc_outputs": self._mpc_outputs,
                 "params": self._config,
                 "t": self._t_prev,
             }

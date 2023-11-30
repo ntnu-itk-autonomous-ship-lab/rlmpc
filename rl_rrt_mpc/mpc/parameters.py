@@ -103,7 +103,10 @@ class MidlevelMPCParams(IParams):
     reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
-    Q_p: np.ndarray = np.diag([0.1, 0.1, 1.0])  # path following cost matrix, position (x, y) and speed assignment (s_dot / path variable)
+    Q_p: np.ndarray = np.diag(
+        [0.1, 0.1, 1.0]
+    )  # path following cost matrix, position (x, y) and speed assignment (s_dot / path variable).
+    # If huber loss is used for position loss, the first two diagonal elements are the huber loss cost parameter and delta parameter.
     alpha_app_course: np.ndarray = np.array([112.0, 0.0006])
     alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
     K_app_course: float = 0.5  # turn rate penalty
@@ -117,6 +120,7 @@ class MidlevelMPCParams(IParams):
     alpha_ot: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
     x_0_ot: float = 200.0
     y_0_ot: float = 100.0
+    d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
     w_colregs: np.ndarray = np.array([1.0, 1.0, 1.0])  # weights for the COLREGS potential functions
 
     w_L2: float = 1e4  # slack variable weight L2 norm
@@ -174,6 +178,7 @@ class MidlevelMPCParams(IParams):
                 *self.alpha_ot.tolist(),
                 self.x_0_ot,
                 self.y_0_ot,
+                self.d_attenuation,
                 *self.w_colregs.tolist(),
                 self.r_safe_do,
             ]
