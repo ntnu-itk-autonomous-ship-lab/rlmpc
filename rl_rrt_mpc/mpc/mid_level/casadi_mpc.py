@@ -66,7 +66,7 @@ class CasadiMPC:
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
         self._set_generator: Optional[sg.SetGenerator] = None
-        self._p_ship_mdl_values: np.ndarray = np.array([])
+        self._p_ship_mdl_values: np.ndarray = np.array([self._model.params().T_chi, self._model.params().T_U])
         self._p_fixed_so_values: np.ndarray = np.array([])
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -125,7 +125,7 @@ class CasadiMPC:
             np.ndarray: Array of parameters.
         """
         mdl_params = self._model.params()
-        mdl_adjustable_params = np.array([])
+        mdl_adjustable_params = np.array([mdl_params.T_chi, mdl_params.T_U])
         mpc_adjustable_params = self.params.adjustable()
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 

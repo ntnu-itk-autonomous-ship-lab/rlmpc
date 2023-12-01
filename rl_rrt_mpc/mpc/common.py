@@ -264,7 +264,7 @@ def colregs_cost(
         ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * csd.exp(-d_rel / d_attenuation)
 
     cost = weights[0] * cr_term + weights[1] * ho_term + weights[2] * ot_term
-    return cost, cr_term, ho_term, ot_term
+    return cost, weights[0] * cr_term, weights[1] * ho_term, weights[2] * ot_term
 
 
 def potential_field_base_function(x: csd.MX) -> csd.MX:
