@@ -203,12 +203,6 @@ midlevel_mpc:
             ship_vertices:
               required: False
               type: list
-            T_chi:
-              required: True
-              type: float
-            T_U:
-              required: True
-              type: float
             r_max:
               required: True
               type: float

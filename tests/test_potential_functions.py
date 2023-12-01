@@ -43,13 +43,13 @@ if __name__ == "__main__":
     x = np.linspace(-1000, 1000, npx)
     Y, X = np.meshgrid(y, x, indexing="ij")
 
-    alpha_cr = [0.003, 0.002]
-    y_0_cr = 500.0
-    alpha_ho = [0.001, 0.005]
-    x_0_ho = 500.0
-    alpha_ot = [0.001, 0.001]
-    x_0_ot = 500.0
-    y_0_ot = 200.0
+    alpha_cr = [0.03, 0.002]
+    y_0_cr = 400.0
+    alpha_ho = [0.002, 0.03]
+    x_0_ho = 400.0
+    alpha_ot = [0.005, 0.01]
+    x_0_ot = 300.0
+    y_0_ot = 100.0
 
     # alpha_cr = np.array([1 / 500, 1 / 500])
     # y_0_cr = -500.0
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     heading_ho = np.pi  # 1.3417258721756462  # np.pi
     heading_ot = 0.0  # 0.0
 
-    d_factor = 300.0
+    d_factor = 400.0
 
     p_ts = np.array([0.0, 0.0])
     # p_ts = np.array([6574223.5983, -30497.9815])
@@ -96,10 +96,11 @@ if __name__ == "__main__":
     # ax1.set_ylabel("North [m]")
     # ax1.set_xlabel("East [m]")
     # ax1.set_zlabel(r"$h_{gw}(\bm{p}_{rel})$")
-
+    ship_length = 250
+    ship_width = 50
     fig2, ax2 = plt.subplots()
     pc2 = ax2.contourf(Y, X, cr_surface, cmap=colormap)
-    gw_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_cr, 500, 100)
+    gw_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_cr, ship_length, ship_width)
     y, x = gw_poly.exterior.xy
     cbar2 = fig2.colorbar(pc2)
     ax2.fill(y, x, alpha=1, fc="g", ec="none")
@@ -114,7 +115,7 @@ if __name__ == "__main__":
 
     fig4, ax4 = plt.subplots()
     pc4 = ax4.contourf(Y, X, ho_surface, cmap=colormap)
-    ho_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_ho, 500, 100)
+    ho_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_ho, ship_length, ship_width)
     y, x = ho_poly.exterior.xy
     cbar4 = fig4.colorbar(pc4)
     ax4.fill(y, x, alpha=1, fc="g", ec="none")
@@ -129,7 +130,7 @@ if __name__ == "__main__":
 
     fig6, ax6 = plt.subplots()
     pc6 = ax6.contourf(Y, X, ot_surface, cmap=colormap)
-    ot_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_ot, 500, 100)
+    ot_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_ot, ship_length, ship_width)
     y, x = ot_poly.exterior.xy
     cbar6 = fig6.colorbar(pc6)
     ax6.fill(y, x, alpha=1, fc="g", ec="none")

@@ -66,7 +66,7 @@ class CasadiMPC:
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
         self._set_generator: Optional[sg.SetGenerator] = None
-        self._p_ship_mdl_values: np.ndarray = np.array([self._model.params().T_chi, self._model.params().T_U])
+        self._p_ship_mdl_values: np.ndarray = np.array([])
         self._p_fixed_so_values: np.ndarray = np.array([])
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -125,7 +125,7 @@ class CasadiMPC:
             np.ndarray: Array of parameters.
         """
         mdl_params = self._model.params()
-        mdl_adjustable_params = np.array([mdl_params.T_chi, mdl_params.T_U])
+        mdl_adjustable_params = np.array([])
         mpc_adjustable_params = self.params.adjustable()
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
@@ -598,7 +598,7 @@ class CasadiMPC:
         X = []
         Sigma = []
 
-        p_adjustable.append(self._p_mdl)  # T_chi, T_U
+        p_adjustable.append(self._p_mdl)
 
         # Initial state constraint
         x_0 = csd.MX.sym("x_0_constr", nx, 1)
@@ -1548,13 +1548,14 @@ class CasadiMPC:
             ]
         )
 
-        X_do_cr = np.zeros((nx_do * self._params.max_num_do_constr_per_zone, X.shape[1]))
-        X_do_ho = np.zeros((nx_do * self._params.max_num_do_constr_per_zone, X.shape[1]))
-        X_do_ot = np.zeros((nx_do * self._params.max_num_do_constr_per_zone, X.shape[1]))
+        nx_do_total = nx_do * self._params.max_num_do_constr_per_zone
+        X_do_cr = np.zeros((nx_do_total, X.shape[1]))
+        X_do_ho = np.zeros((nx_do_total, X.shape[1]))
+        X_do_ot = np.zeros((nx_do_total, X.shape[1]))
         for k in range(X.shape[1]):
-            X_do_cr_k = do_cr_parameters[k * nx_do : (k + 1) * nx_do]
-            X_do_ho_k = do_ho_parameters[k * nx_do : (k + 1) * nx_do]
-            X_do_ot_k = do_ot_parameters[k * nx_do : (k + 1) * nx_do]
+            X_do_cr_k = do_cr_parameters[k * nx_do_total : (k + 1) * nx_do_total]
+            X_do_ho_k = do_ho_parameters[k * nx_do_total : (k + 1) * nx_do_total]
+            X_do_ot_k = do_ot_parameters[k * nx_do_total : (k + 1) * nx_do_total]
             X_do_cr[:, k] = X_do_cr_k
             X_do_ho[:, k] = X_do_ho_k
             X_do_ot[:, k] = X_do_ot_k

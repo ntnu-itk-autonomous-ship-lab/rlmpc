@@ -25,8 +25,8 @@ midlevel_mpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
-    T: 80.0
-    dt: 2.5
+    T: 120.0
+    dt: 5.0
     Q_p: [0.1, 1.0, 5.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.00025]
@@ -34,15 +34,15 @@ midlevel_mpc:
     K_app_speed: 10.0
     K_fuel: 1.0
 
-    alpha_cr: [0.005, 0.002]
-    y_0_cr: 500.0
-    alpha_ho: [0.001, 0.03]
-    x_0_ho: 500.0
-    alpha_ot: [0.002, 0.002]
-    x_0_ot: 500.0
-    y_0_ot: 50.0
+    alpha_cr: [0.03, 0.002]
+    y_0_cr: 400.0
+    alpha_ho: [0.002, 0.03]
+    x_0_ho: 400.0
+    alpha_ot: [0.005, 0.01]
+    x_0_ot: 300.0
+    y_0_ot: 100.0
     d_attenuation: 500.0
-    w_colregs: [100.0, 100.0, 100.0]
+    w_colregs: [100.0, 100.0, 50.0]
 
     w_L2: 0.0
     w_L1: 12000.0
@@ -51,18 +51,16 @@ midlevel_mpc:
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
     max_num_so_constr: 12
-    max_num_do_constr_per_zone: 1 # per shooting node in the mpc
+    max_num_do_constr_per_zone: 2 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
       draft: 2.0
       length: 30.0
       width: 8.0
-      T_chi: 6.0
-      T_U: 6.0
       r_max: 6.0
       U_min: 0.0
       U_max: 10.0
-      a_max: 0.3
+      a_max: 0.2
       s_min: 0.0
       s_max: 100000.0
       s_dot_max: 10000.0
