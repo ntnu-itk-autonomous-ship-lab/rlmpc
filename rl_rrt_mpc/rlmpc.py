@@ -104,6 +104,7 @@ class RLMPC(ci.ICOLAV):
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
         ownship_csog_state[3] = state_copy[2]
+        ownship_csog_state[3] = ownship_state[3]
         speed_plan[-1] = 0.0
         if not self._initialized:
             self._map_origin = ownship_csog_state[:2]
@@ -197,7 +198,6 @@ class RLMPC(ci.ICOLAV):
                 self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
             )
             self._t_prev_mpc = t
-
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
@@ -206,6 +206,7 @@ class RLMPC(ci.ICOLAV):
         self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
         self._references[2, :] = self._mpc_trajectory[2, :]
         self._references[3, :] = self._mpc_trajectory[3, :]
+        self._references[5, :] = self._mpc_inputs[0, :]
         return self._references
 
     def _setup_mpc_static_obstacle_input(

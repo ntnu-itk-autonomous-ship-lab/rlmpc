@@ -25,13 +25,13 @@ midlevel_mpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
-    T: 120.0
+    T: 100.0
     dt: 5.0
-    Q_p: [0.1, 1.0, 5.0]
+    Q_p: [0.2, 1.0, 10.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.00025]
-    K_app_course: 10.0
-    K_app_speed: 10.0
+    K_app_course: 2.0
+    K_app_speed: 1.0
     K_fuel: 1.0
 
     alpha_cr: [0.03, 0.002]
@@ -42,7 +42,7 @@ midlevel_mpc:
     x_0_ot: 300.0
     y_0_ot: 100.0
     d_attenuation: 500.0
-    w_colregs: [100.0, 100.0, 50.0]
+    w_colregs: [70.0, 70.0, 25.0]
 
     w_L2: 0.0
     w_L1: 12000.0
@@ -57,8 +57,6 @@ midlevel_mpc:
       draft: 2.0
       length: 30.0
       width: 8.0
-      T_chi: 6.0
-      T_U: 6.0
       r_max: 6.0
       U_min: 0.0
       U_max: 10.0

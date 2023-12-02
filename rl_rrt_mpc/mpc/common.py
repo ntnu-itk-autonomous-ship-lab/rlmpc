@@ -159,7 +159,7 @@ def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[cs
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
     path_dev = csd.norm_2(z[:2] - p_ref[:2])
     path_dev_cost = 0.5 * Q_p[0] * huber_loss(path_dev, Q_p[1])
-    speed_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2
+    speed_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2 + Q_p[2] * (z[2] - x[3]) ** 2
     return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
 
 

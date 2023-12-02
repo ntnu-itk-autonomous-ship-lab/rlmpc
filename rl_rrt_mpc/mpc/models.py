@@ -231,8 +231,6 @@ class KinematicCSOGWithAccelerationAndPathtimingParams:
     length: float = 15.0
     ship_vertices: np.ndarray = field(default_factory=lambda: np.empty(2))
     width: float = 3.0
-    T_chi: float = 6.0
-    T_U: float = 6.0
     r_max: float = float(np.deg2rad(5))
     U_min: float = 0.0
     U_max: float = 10.0
@@ -248,8 +246,6 @@ class KinematicCSOGWithAccelerationAndPathtimingParams:
             length=params_dict["length"],
             width=params_dict["width"],
             ship_vertices=np.empty(2),
-            T_chi=params_dict["T_chi"],
-            T_U=params_dict["T_U"],
             r_max=np.deg2rad(params_dict["r_max"]),
             U_min=params_dict["U_min"],
             U_max=params_dict["U_max"],
@@ -335,13 +331,9 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         u = csd.MX.sym("u", nu)
         xdot = csd.MX.sym("x_dot", nx)
 
-        T_chi = csd.MX.sym("T_chi", 1)
-        T_U = csd.MX.sym("T_U", 1)
-        p = csd.vertcat(T_chi, T_U)
+        p = csd.vertcat([])
 
-        kinematics = csd.vertcat(
-            x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), -x[2] / T_chi + u[0], -x[3] / T_U + u[1], x[5], u[2]
-        )
+        kinematics = csd.vertcat(x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), u[0], u[1], x[5], u[2])
         f_expl = kinematics
         f_impl = xdot - f_expl
 

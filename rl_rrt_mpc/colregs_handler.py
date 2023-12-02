@@ -104,7 +104,7 @@ class COLREGSHandler:
                 f"DO{i} | Current situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
             )
 
-            if ID in self._do_labels and (situation == COLREGSSituation.NAR or do_passed_by or os_passed_by):
+            if ID in self._do_labels and (do_passed_by or os_passed_by):
                 self._remove_do(ID)
                 continue
 

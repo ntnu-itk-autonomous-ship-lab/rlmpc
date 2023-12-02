@@ -41,6 +41,8 @@ class CasadiMPC:
         self._initialized_q: bool = False
         self._map_origin: np.ndarray = np.array([])
         self._prev_cost: float = np.inf
+        self._prev_opt_course: float = 0.0
+        self._prev_opt_speed: float = 0.0
 
         self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)
         self._lbw: np.ndarray = np.array([])
@@ -66,7 +68,7 @@ class CasadiMPC:
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
         self._set_generator: Optional[sg.SetGenerator] = None
-        self._p_ship_mdl_values: np.ndarray = np.array([self._model.params().T_chi, self._model.params().T_U])
+        self._p_ship_mdl_values: np.ndarray = np.array([])
         self._p_fixed_so_values: np.ndarray = np.array([])
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -124,8 +126,7 @@ class CasadiMPC:
         Returns:
             np.ndarray: Array of parameters.
         """
-        mdl_params = self._model.params()
-        mdl_adjustable_params = np.array([mdl_params.T_chi, mdl_params.T_U])
+        mdl_adjustable_params = np.array([])
         mpc_adjustable_params = self.params.adjustable()
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
@@ -200,8 +201,8 @@ class CasadiMPC:
             - dim_g (int): Dimension/length of the constraints.
             - enc (senc.ENC): ENC object containing the map info.
         """
-        self._s = 0.00001
-        self._s_dot = self.compute_path_variable_derivative(self._s)
+        self._s = 0.0
+        self._s_dot = xs[3]  # self.compute_path_variable_derivative(self._s)
 
         n_colregs_zones = 3
         nx, nu = self._model.dims()
@@ -257,7 +258,7 @@ class CasadiMPC:
         shifted_ws_traj = warm_start_traj + np.array(
             [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
         ).reshape(nx, 1)
-        cs_mapf.plot_trajectory(shifted_ws_traj, enc, "orange")
+        # cs_mapf.plot_trajectory(shifted_ws_traj, enc, "orange")
         return warm_start
 
     def _try_to_create_warm_start_solution(
@@ -320,7 +321,7 @@ class CasadiMPC:
         if min_dist <= self._params.r_safe_so:
             return w_warm_start, X_warm_start, U_warm_start, False
         shifted_pos_traj = X_warm_start[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1)
-        cs_mapf.plot_trajectory(shifted_pos_traj, enc, "pink")
+        # cs_mapf.plot_trajectory(shifted_pos_traj, enc, "pink")
         return w_warm_start, X_warm_start, U_warm_start, True
 
     def _shift_warm_start(self, prev_warm_start: dict, dt: float, enc: senc.ENC) -> dict:
@@ -453,8 +454,8 @@ class CasadiMPC:
         self._current_warmstart_v["lam_g"] = lam_g
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
         mpc_common.plot_casadi_solver_stats(stats, show_plots)
-        self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
-        self.plot_solution_trajectory(X, U, Sigma)
+        # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
+        # self.plot_solution_trajectory(X, U, Sigma)
         arg_max_sigma, max_sigma = -1, -1
         if Sigma.size > 0:
             arg_max_sigma, max_sigma = np.argmax(Sigma), np.max(Sigma)
@@ -470,6 +471,7 @@ class CasadiMPC:
             f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})"
         )
         self._t_prev = t
+        self._prev_inputs = U[:, 0]
         output = {
             "trajectory": X,
             "inputs": U,
@@ -1622,10 +1624,8 @@ class CasadiMPC:
             U (np.ndarray): Input trajectory.
             Sigma (np.ndarray): Slack trajectory.
         """
-        s_ref_k = self._s
         speed_refs = np.zeros(X.shape[1])
         mpc_speed_refs = np.zeros(X.shape[1])
-        s_refs = np.zeros(X.shape[1])
         x_path = np.zeros(X.shape[1])
         y_path = np.zeros(X.shape[1])
         _, path_var_derivative_refs, path_var_refs = self._create_path_parameter_values()
