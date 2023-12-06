@@ -65,13 +65,13 @@ if __name__ == "__main__":
     xs_ts = np.array([xs_target[0], xs_target[1], chi_target, U_target, 10.0, 2.0, 1.0])
 
     xs_ts_inactive = np.array([0.0 - 10000.0, 0.0 - 10000.0, 0.0, 0.0, 10.0, 2.0, 0.0])
-
+    d_attenuation = 400.0
     colregs_cost, cr_cost, ho_cost, ot_cost = mpc_common.colregs_cost(
         xs_rel,
         xs_ts_inactive,
         xs_ts,
         xs_ts_inactive,
-        7,
+        6,
         alpha_cr,
         y_0_cr,
         alpha_ho,
@@ -79,6 +79,7 @@ if __name__ == "__main__":
         alpha_ot,
         x_0_ot,
         y_0_ot,
+        d_attenuation,
         colregs_weights,
     )
 

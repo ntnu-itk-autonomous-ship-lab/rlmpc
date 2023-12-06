@@ -78,16 +78,18 @@ if __name__ == "__main__":
             p = np.array([x[j], y[i]])
             # p = np.array([6574298.6177, -30398.2644])
             p_rel = mf.Rmtrx2D(heading_cr).T @ (p - p_ts)
-            d_rel = np.linalg.norm(p_rel)
-            cr_surface[i, j] = mpc_common.cr_potential(p_rel, alpha_cr, y_0_cr) * np.exp(-d_rel / d_factor)
+            d_rel_squared = p_rel.T @ p_rel
+            cr_surface[i, j] = mpc_common.cr_potential(p_rel, alpha_cr, y_0_cr) * np.exp(-d_rel_squared / d_factor**2)
 
             p_rel = mf.Rmtrx2D(heading_ho).T @ (p - p_ts)
-            d_rel = np.linalg.norm(p_rel)
-            ho_surface[i, j] = mpc_common.ho_potential(p_rel, alpha_ho, x_0_ho) * np.exp(-d_rel / d_factor)
+            d_rel_squared = p_rel.T @ p_rel
+            ho_surface[i, j] = mpc_common.ho_potential(p_rel, alpha_ho, x_0_ho) * np.exp(-d_rel_squared / d_factor**2)
 
             p_rel = mf.Rmtrx2D(heading_ot).T @ (p - p_ts)
-            d_rel = np.linalg.norm(p_rel)
-            ot_surface[i, j] = mpc_common.ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * np.exp(-d_rel / d_factor)
+            d_rel_squared = p_rel.T @ p_rel
+            ot_surface[i, j] = mpc_common.ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * np.exp(
+                -d_rel_squared / d_factor**2
+            )
 
     # Plot the potential functions
     colormap = cm.inferno

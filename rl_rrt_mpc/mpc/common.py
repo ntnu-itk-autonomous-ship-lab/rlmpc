@@ -104,9 +104,6 @@ class SolverConfig:
         return config
 
 
-# def huber_loss()
-
-
 def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
     """Forms the NMPC stage cost function used by the mid-level COLAV method.
 
@@ -157,23 +154,23 @@ def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[cs
     """
     z = csd.vertcat(x[:2], x[5])  # [x, y, s_dot]
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
-    path_dev = csd.norm_2(z[:2] - p_ref[:2])
-    path_dev_cost = 0.5 * Q_p[0] * huber_loss(path_dev, Q_p[1])
+    path_dev_squared = (z[:2] - p_ref[:2]).T @ (z[:2] - p_ref[:2])
+    path_dev_cost = 0.5 * Q_p[0] * huber_loss(path_dev_squared, Q_p[1])
     speed_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2 + Q_p[2] * (z[2] - x[3]) ** 2
     return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
 
 
-def huber_loss(x: csd.MX, delta: csd.MX) -> csd.MX:
+def huber_loss(x_squared: csd.MX, delta: csd.MX) -> csd.MX:
     """Huber loss function.
 
     Args:
-        x (csd.MX): Position input.
+        x (csd.MX): distance input squared.
         delta (csd.MX): Shape parameter.
 
     Returns:
         csd.MX: Loss function value.
     """
-    return 2.0 * (csd.sqrt(1.0 + (x / delta) ** 2) - 1.0) * delta**2
+    return 2.0 * (csd.sqrt(1.0 + x_squared / (delta**2)) - 1.0) * delta**2
 
 
 def rate_cost(
@@ -248,20 +245,20 @@ def colregs_cost(
         x_aug_do_cr = X_do_cr[i * nx_do : (i + 1) * nx_do]
         R_chi_do_cr = mf.Rpsi2D_casadi(x_aug_do_cr[2])
         p_rel = R_chi_do_cr.T @ (x[:2] - x_aug_do_cr[:2])
-        d_rel = csd.norm_2(p_rel)
-        cr_term += cr_potential(p_rel, alpha_cr, y_0_cr) * csd.exp(-d_rel / d_attenuation)
+        d_rel_squared = p_rel.T @ p_rel
+        cr_term += cr_potential(p_rel, alpha_cr, y_0_cr) * csd.exp(-d_rel_squared / d_attenuation**2)
 
         x_aug_do_ho = X_do_ho[i * nx_do : (i + 1) * nx_do]
         R_chi_do_ho = mf.Rpsi2D_casadi(x_aug_do_ho[2])
         p_rel = R_chi_do_ho.T @ (x[:2] - x_aug_do_ho[:2])
-        d_rel = csd.norm_2(p_rel)
-        ho_term += ho_potential(p_rel, alpha_ho, x_0_ho) * csd.exp(-d_rel / d_attenuation)
+        d_rel_squared = p_rel.T @ p_rel
+        ho_term += ho_potential(p_rel, alpha_ho, x_0_ho) * csd.exp(-d_rel_squared / d_attenuation**2)
 
         x_aug_do_ot = X_do_ot[i * nx_do : (i + 1) * nx_do]
         R_chi_do_ot = mf.Rpsi2D_casadi(x_aug_do_ot[2])
         p_rel = R_chi_do_ot.T @ (x[:2] - x_aug_do_ot[:2])
-        d_rel = csd.norm_2(p_rel)
-        ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * csd.exp(-d_rel / d_attenuation)
+        d_rel_squared = p_rel.T @ p_rel
+        ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * csd.exp(-d_rel_squared / d_attenuation**2)
 
     cost = weights[0] * cr_term + weights[1] * ho_term + weights[2] * ot_term
     return cost, weights[0] * cr_term, weights[1] * ho_term, weights[2] * ot_term

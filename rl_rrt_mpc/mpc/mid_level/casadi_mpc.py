@@ -202,7 +202,7 @@ class CasadiMPC:
             - enc (senc.ENC): ENC object containing the map info.
         """
         self._s = 0.0
-        self._s_dot = xs[3]  # self.compute_path_variable_derivative(self._s)
+        self._s_dot = self.compute_path_variable_derivative(self._s)
 
         n_colregs_zones = 3
         nx, nu = self._model.dims()
@@ -255,9 +255,9 @@ class CasadiMPC:
             )
         )
         warm_start = {"x": w.tolist(), "lam_x": np.zeros(w.shape[0]).tolist(), "lam_g": np.zeros(dim_g).tolist()}
-        shifted_ws_traj = warm_start_traj + np.array(
-            [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
-        ).reshape(nx, 1)
+        # shifted_ws_traj = warm_start_traj + np.array(
+        #     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+        # ).reshape(nx, 1)
         # cs_mapf.plot_trajectory(shifted_ws_traj, enc, "orange")
         return warm_start
 
@@ -513,7 +513,7 @@ class CasadiMPC:
         Returns:
             float | csd.MX: Path variable derivative.
         """
-        epsilon = 1e-9
+        epsilon = 1e-8
         if isinstance(s, float):
             s_dot = self._speed_spline(s, self._speed_spl_coeffs_values) / np.sqrt(
                 epsilon
