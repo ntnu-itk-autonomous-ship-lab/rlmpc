@@ -198,15 +198,19 @@ class RLMPC(ci.ICOLAV):
                 self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
             )
             self._t_prev_mpc = t
+
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
         self._t_prev = t
-        self._references = np.zeros((9, len(self._mpc_trajectory[0, :])))
-        self._references[2, :] = self._mpc_trajectory[2, :]
-        self._references[3, :] = self._mpc_trajectory[3, :]
-        self._references[5, :] = self._mpc_inputs[0, :]
+        lookahead_samples = 10
+        self._references = np.zeros((9, len(self._mpc_trajectory[0, lookahead_samples:])))
+        self._references[2, :] = self._mpc_trajectory[2, lookahead_samples:]
+        self._references[3, :] = self._mpc_trajectory[3, lookahead_samples:]
+        print(
+            f"t: {t} | U_mpc: {self._references[3, 0]} | U: {ownship_csog_state[3]} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * ownship_csog_state[2] / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
+        )
         return self._references
 
     def _setup_mpc_static_obstacle_input(

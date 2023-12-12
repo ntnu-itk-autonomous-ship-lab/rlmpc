@@ -351,9 +351,9 @@ class CasadiMPC:
             U_prev[:, -1],
             np.array([U_prev[0, -offsets[1]], 0.0, 0.0]),
             np.array([U_prev[0, -offsets[2]], -0.05, 0.0]),
-            np.array([-0.01, -0.1, 0.0]),
-            np.array([0.01, -0.1, -0.05]),
-            np.array([0.0, -0.1, -0.05]),
+            np.array([-0.1, -0.1, 0.0]),
+            np.array([0.1, -0.1, -0.05]),
+            np.array([0.0, -0.2, -0.05]),
         ]
         success = False
         for i in range(n_attempts):
@@ -1227,7 +1227,7 @@ class CasadiMPC:
                         ]
                     )
                 else:
-                    do_parameter_values.extend([state[0] - 100000.0, state[1] - 100000.0, 0.0, 0.0, 10.0, 2.0])
+                    do_parameter_values.extend([state[0] - 1e10, state[1] - 1e10, 0.0, 0.0, 10.0, 2.0])
         return do_parameter_values
 
     def _create_fixed_so_parameter_values(
@@ -1568,9 +1568,7 @@ class CasadiMPC:
             crossing_cost[k] = self._crossing_cost(X[:, k], X_do_cr, p_colregs_values)
             head_on_cost[k] = self._head_on_cost(X[:, k], X_do_ho, p_colregs_values)
             overtaking_cost[k] = self._overtaking_cost(X[:, k], X_do_ot, p_colregs_values)
-            colregs_cost[k] = (
-                w_colregs[0] * crossing_cost[k] + w_colregs[1] * head_on_cost[k] + w_colregs[2] * overtaking_cost[k]
-            )
+            colregs_cost[k] = crossing_cost[k] + head_on_cost[k] + overtaking_cost[k]
 
         for k in range(U.shape[1]):
             course_rate_cost[k] = self._course_rate_cost(U[:, k], p_rate_values)

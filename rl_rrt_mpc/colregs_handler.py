@@ -100,11 +100,9 @@ class COLREGSHandler:
                 continue
 
             situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
-            print(
-                f"DO{i} | Current situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
-            )
 
             if ID in self._do_labels and (do_passed_by or os_passed_by):
+                print(f"Removed DO{i} | do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
                 self._remove_do(ID)
                 continue
 
@@ -283,9 +281,9 @@ class COLREGSHandler:
         ):
             situation = COLREGSSituation.CRGW
 
-        print(
-            f"distance os<->do: {np.linalg.norm(dist2do)}, bearing os->do: {180.0 * beta / np.pi}, bearing do->os: {180.0 * alpha / np.pi}"
-        )
+        # print(
+        #     f"distance os <-> do: {np.linalg.norm(dist2do)}, bearing os -> do: {180.0 * beta / np.pi}, bearing do -> os: {180.0 * alpha / np.pi}"
+        # )
 
         do_passed_by = False
         os_passed_by = False

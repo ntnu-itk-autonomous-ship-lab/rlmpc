@@ -43,9 +43,9 @@ if __name__ == "__main__":
     x = np.linspace(-1000, 1000, npx)
     Y, X = np.meshgrid(y, x, indexing="ij")
 
-    alpha_cr = [0.03, 0.002]
+    alpha_cr = [0.01, 0.002]
     y_0_cr = 400.0
-    alpha_ho = [0.002, 0.03]
+    alpha_ho = [0.002, 0.01]
     x_0_ho = 400.0
     alpha_ot = [0.005, 0.01]
     x_0_ot = 300.0
