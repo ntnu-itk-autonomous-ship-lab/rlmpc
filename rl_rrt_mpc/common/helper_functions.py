@@ -6,8 +6,12 @@
 
     Author: Trym Tengesdal
 """
-from pathlib import Path
-from typing import Optional, Tuple
+import inspect
+import io
+import pathlib
+import pickle
+from contextlib import contextmanager
+from typing import Any, Optional, Tuple, Union
 
 import casadi as csd
 import colav_simulator.core.controllers as controllers
@@ -23,11 +27,78 @@ import rl_rrt_mpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
-import shapely.ops as ops
+import tqdm
 import yaml
 from matplotlib import cm
 from scipy.interpolate import interp1d
 from scipy.stats import chi2
+
+
+@contextmanager
+def redirect_stdout__to_tqdm():
+    # Store builtin print
+    old_print = print
+
+    def new_print(*args, **kwargs):
+        to_print = "".join(map(repr, args))
+        tqdm.tqdm.write(to_print, **kwargs)
+
+    try:
+        # Globally replace print with new_print
+        inspect.builtins.print = new_print
+        yield
+    finally:
+        inspect.builtins.print = old_print
+
+
+def tqdm_context(*args, **kwargs):
+    with redirect_stdout__to_tqdm():
+        postfix_dict = kwargs.pop("postfix_dict", {})
+        additional_info_flag = kwargs.pop("additional_info_flag", False)
+        position = kwargs.pop("pos", 0)
+        kwargs.update({"position": position})
+        kwargs.update({"leave": False})
+
+        t_main = tqdm.tqdm(*args, **kwargs)
+        t_main.postfix_dict = postfix_dict
+        if additional_info_flag:
+            yield t_main
+        for x in t_main:
+            t_main.set_postfix(**t_main.postfix_dict)
+            t_main.refresh()
+            yield x
+
+
+def save_to_pkl(path: Union[str, pathlib.Path, io.BufferedIOBase], obj: Any, verbose: int = 0) -> None:
+    """
+    Save an object to path creating the necessary folders along the way.
+    If the path exists and is a directory, it will raise a warning and rename the path.
+    If a suffix is provided in the path, it will use that suffix, otherwise, it will use '.pkl'.
+
+    :param path: the path to open.
+        if save_path is a str or pathlib.Path and mode is "w", single dispatch ensures that the
+        path actually exists. If path is a io.BufferedIOBase the path exists.
+    :param obj: The object to save.
+    :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
+    """
+    with open_path(path, "w", verbose=verbose, suffix="pkl") as file_handler:
+        # Use protocol>=4 to support saving replay buffers >= 4Gb
+        # See https://docs.python.org/3/library/pickle.html
+        pickle.dump(obj, file_handler, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def load_from_pkl(path: Union[str, pathlib.Path, io.BufferedIOBase], verbose: int = 0) -> Any:
+    """
+    Load an object from the path. If a suffix is provided in the path, it will use that suffix.
+    If the path does not exist, it will attempt to load using the .pkl suffix.
+
+    :param path: the path to open.
+        if save_path is a str or pathlib.Path and mode is "w", single dispatch ensures that the
+        path actually exists. If path is a io.BufferedIOBase the path exists.
+    :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
+    """
+    with open_path(path, "r", verbose=verbose, suffix="pkl") as file_handler:
+        return pickle.load(file_handler)
 
 
 def create_los_based_trajectory(
