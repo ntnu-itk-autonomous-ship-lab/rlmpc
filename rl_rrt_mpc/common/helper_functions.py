@@ -69,38 +69,6 @@ def tqdm_context(*args, **kwargs):
             yield x
 
 
-def save_to_pkl(path: Union[str, pathlib.Path, io.BufferedIOBase], obj: Any, verbose: int = 0) -> None:
-    """
-    Save an object to path creating the necessary folders along the way.
-    If the path exists and is a directory, it will raise a warning and rename the path.
-    If a suffix is provided in the path, it will use that suffix, otherwise, it will use '.pkl'.
-
-    :param path: the path to open.
-        if save_path is a str or pathlib.Path and mode is "w", single dispatch ensures that the
-        path actually exists. If path is a io.BufferedIOBase the path exists.
-    :param obj: The object to save.
-    :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
-    """
-    with open_path(path, "w", verbose=verbose, suffix="pkl") as file_handler:
-        # Use protocol>=4 to support saving replay buffers >= 4Gb
-        # See https://docs.python.org/3/library/pickle.html
-        pickle.dump(obj, file_handler, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def load_from_pkl(path: Union[str, pathlib.Path, io.BufferedIOBase], verbose: int = 0) -> Any:
-    """
-    Load an object from the path. If a suffix is provided in the path, it will use that suffix.
-    If the path does not exist, it will attempt to load using the .pkl suffix.
-
-    :param path: the path to open.
-        if save_path is a str or pathlib.Path and mode is "w", single dispatch ensures that the
-        path actually exists. If path is a io.BufferedIOBase the path exists.
-    :param verbose: Verbosity level: 0 for no output, 1 for info messages, 2 for debug messages
-    """
-    with open_path(path, "r", verbose=verbose, suffix="pkl") as file_handler:
-        return pickle.load(file_handler)
-
-
 def create_los_based_trajectory(
     xs: np.ndarray,
     waypoints: np.ndarray,
