@@ -7,9 +7,7 @@
     Author: Trym Tengesdal
 """
 import inspect
-import io
 import pathlib
-import pickle
 from contextlib import contextmanager
 from typing import Any, Optional, Tuple, Union
 
@@ -323,11 +321,11 @@ def casadi_matrix_from_vector(v: csd.MX, n_rows: int, n_cols: int) -> csd.MX:
     return casadi_matrix_from_nested_list(llist)
 
 
-def load_rrt_solution(save_file: Path = dp.rrt_solution) -> dict:
+def load_rrt_solution(save_file: pathlib.Path = dp.rrt_solution) -> dict:
     return fu.read_yaml_into_dict(save_file)
 
 
-def save_rrt_solution(rrt_solution: dict, save_file: Path = dp.rrt_solution) -> None:
+def save_rrt_solution(rrt_solution: dict, save_file: pathlib.Path = dp.rrt_solution) -> None:
     save_file.touch(exist_ok=True)
     with save_file.open(mode="w") as file:
         yaml.dump(rrt_solution, file)

@@ -24,14 +24,12 @@ import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.set_generator as sg
 import rl_rrt_mpc.mpc.mid_level.mid_level_mpc as mlmpc
 import rl_rrt_mpc.mpc.parameters as mpc_params
-import rl_rrt_mpc.rl as rl
 import seacharts.enc as senc
 from shapely import strtree
 
 
 @dataclass
 class RLMPCParams:
-    rl: rl.RLParams
     los: guidances.LOSGuidanceParams
     ktp: guidances.KTPGuidanceParams
     mpc: mlmpc.Config
@@ -40,7 +38,6 @@ class RLMPCParams:
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLMPCParams(
-            rl=rl.RLParams.from_dict(config_dict["rl"]),
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
             ktp=guidances.KTPGuidanceParams.from_dict(config_dict["ktp"]),
             mpc=mlmpc.Config.from_dict(config_dict["midlevel_mpc"]),
@@ -54,13 +51,12 @@ class RLMPC(ci.ICOLAV):
     RL is used to update parameters online. Path-following/trajectory tracking can both be used. LOS-guidance is used to generate the nominal trajectory.
     """
 
-    def __init__(self, config: Optional[RLMPCParams] = None, config_file: Optional[Path] = dp.rlmpc_config) -> None:
-        if config:
+    def __init__(self, config: RLMPCParams | Path = dp.rlmpc_config) -> None:
+        if isinstance(config, RLMPCParams):
             self._config: RLMPCParams = config
-        else:
-            self._config = cp.extract(RLMPCParams, config_file, dp.rlmpc_schema)
+        elif isinstance(config, Path):
+            self._config = cp.extract(RLMPCParams, config, dp.rlmpc_schema)
 
-        self._rl = rl.RL(self._config.rl)
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
@@ -82,6 +78,66 @@ class RLMPC(ci.ICOLAV):
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
 
+    def initialize(
+        self,
+        t: float,
+        waypoints: np.ndarray,
+        speed_plan: np.ndarray,
+        ownship_state: np.ndarray,
+        do_list: list,
+        enc: Optional[senc.ENC] = None,
+        goal_state: Optional[np.ndarray] = None,
+        w: Optional[stochasticity.DisturbanceData] = None,
+        **kwargs,
+    ) -> None:
+        """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
+        the OCP"""
+        self._waypoints = waypoints
+        self._speed_plan = speed_plan
+        self._enc = enc
+        ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
+        state_copy = ownship_csog_state.copy()
+        ownship_csog_state[2] = state_copy[3]
+        ownship_csog_state[3] = state_copy[2]
+        ownship_csog_state[3] = ownship_state[3]
+        speed_plan[-1] = 0.0
+        self._map_origin = ownship_csog_state[:2]
+        self._nominal_path = self._ktp.compute_splines(
+            waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
+            speed_plan=speed_plan,
+            arc_length_parameterization=True,
+        )
+        self._setup_mpc_static_obstacle_input(ownship_csog_state, enc, self._debug, **kwargs)
+        self._mpc.construct_ocp(
+            nominal_path=self._nominal_path,
+            xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
+            so_list=self._mpc_rel_polygons,
+            enc=self._enc,
+            map_origin=self._map_origin,
+            min_depth=self._min_depth,
+        )
+        if self._debug:
+            nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
+            nominal_trajectory = nominal_trajectory + np.array(
+                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            ).reshape(9, 1)
+            mapf.plot_waypoints(
+                waypoints[:2, :],
+                draft=1.0,
+                enc=enc,
+                color="orange",
+                point_buffer=3.0,
+                disk_buffer=6.0,
+                hole_buffer=3.0,
+                alpha=0.4,
+            )
+            mapf.plot_trajectory(
+                nominal_trajectory[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
+                enc,
+                "yellow",
+            )
+        self._initialized = True
+
     def plan(
         self,
         t: float,
@@ -99,51 +155,15 @@ class RLMPC(ci.ICOLAV):
         """
         assert enc is not None, "ENC must be provided to the RL-MPC"
         assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
+
         N = int(self._mpc.params.T / self._mpc.params.dt)
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
         ownship_csog_state[3] = state_copy[2]
         ownship_csog_state[3] = ownship_state[3]
-        speed_plan[-1] = 0.0
         if not self._initialized:
-            self._map_origin = ownship_csog_state[:2]
-            self._initialized = True
-            # mapf.plot_trajectory(waypoints, enc, color="green")
-            x_spline, y_spline, heading_spline, speed_spline = self._ktp.compute_splines(
-                waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
-                speed_plan=speed_plan,
-                arc_length_parameterization=True,
-            )
-            self._setup_mpc_static_obstacle_input(ownship_csog_state, enc, self._debug, **kwargs)
-            self._mpc.construct_ocp(
-                nominal_path=(x_spline, y_spline, heading_spline, speed_spline),
-                xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
-                so_list=self._mpc_rel_polygons,
-                enc=enc,
-                map_origin=self._map_origin,
-                min_depth=self._min_depth,
-            )
-            if self._debug:
-                nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-                nominal_trajectory = nominal_trajectory + np.array(
-                    [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-                ).reshape(9, 1)
-                mapf.plot_waypoints(
-                    waypoints[:2, :],
-                    draft=1.0,
-                    enc=enc,
-                    color="orange",
-                    point_buffer=3.0,
-                    disk_buffer=6.0,
-                    hole_buffer=3.0,
-                    alpha=0.4,
-                )
-                mapf.plot_trajectory(
-                    nominal_trajectory[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
-                    enc,
-                    "yellow",
-                )
+            self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, kwargs)
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
         )

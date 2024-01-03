@@ -7,11 +7,14 @@
 
     Author: Trym Tengesdal
 """
+import pathlib
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
+import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
-import rl_rrt_mpc.mpc.mid_level.mid_level_mpc as ml_mpc
+import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.off_policy_algorithm as opa
+import rl_rrt_mpc.rlmpc as rlmpc
 import scipy.interpolate as interp
 import seacharts.enc as senc
 import stable_baselines3.common.buffers as sb3_buffers
@@ -22,24 +25,16 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution, StateDependentNoiseDistribution
 from stable_baselines3.common.preprocessing import get_action_dim
-from stable_baselines3.common.torch_layers import (
-    BaseFeaturesExtractor,
-    CombinedExtractor,
-    FlattenExtractor,
-    NatureCNN,
-    create_mlp,
-)
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, CombinedExtractor, FlattenExtractor, create_mlp
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import get_parameters_by_name, polyak_update
-from stable_baselines3.sac.policies import (
-    Actor,
-    BasePolicy,
-    CnnPolicy,
-    ContinuousCritic,
-    MlpPolicy,
-    MultiInputPolicy,
-    SACPolicy,
+from stable_baselines3.common.utils import (
+    get_parameters_by_name,
+    get_schedule_fn,
+    polyak_update,
+    set_random_seed,
+    update_learning_rate,
 )
+from stable_baselines3.sac.policies import Actor, BasePolicy, CnnPolicy, ContinuousCritic, MlpPolicy, MultiInputPolicy
 from torch.nn import functional as F
 
 SelfSAC = TypeVar("SelfSAC", bound="SAC")
@@ -57,7 +52,7 @@ class SACMPCActor(BasePolicy):
     Args:
         - observation_space (spaces.Space): Observation space
         - action_space (spaces.Box): Action space
-        - mpc_config (ml_mpc.Config): MPC configuration
+        - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
         - features_extractor (th.nn.Module): Network to extract features
         - features_dim (int): Dimension of the features extracted by ``features_extractor``
         - activation_fn (Type[th.nn.Module], optional): Activation function. Defaults to nn.ReLU.
@@ -76,9 +71,9 @@ class SACMPCActor(BasePolicy):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Box,
-        mpc_config: ml_mpc.Config,
         features_extractor: th.nn.Module,
         features_dim: int,
+        mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
         use_sde: bool = False,
         log_std_init: float = -3.0,
@@ -133,7 +128,8 @@ class SACMPCActor(BasePolicy):
             self.mu = th.nn.Linear(last_layer_dim, action_dim)
             self.log_std = th.nn.Linear(last_layer_dim, action_dim)  # type: ignore[assignment]
 
-        self.mu_mpc = ml_mpc.MidlevelMPC(mpc_config)
+        self.mu_mpc = rlmpc.RLMPC(mpc_config)
+        # Consider using a stochastic Mpc with a gaussian random variable in the cost function
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -187,42 +183,59 @@ class SACMPCActor(BasePolicy):
         Returns:
             - Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]: Mean, standard deviation and optional keyword arguments.
         """
-        features = self.extract_features(obs, self.features_extractor)
+        assert isinstance(self.observation_space, spaces.Dict)
+        #        features = self.extract_features(obs, self.features_extractor)
 
         # Call mpc
-        mean_actions = self.mu
+        mean_actions = self.mu_mpc()
 
         log_std = self.log_std_dev
         log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
         return mean_actions, log_std, {}
 
-    def construct_ocp(
+    def initialize(
         self,
-        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
-        xs: np.ndarray,
-        so_list: list,
-        enc: senc.ENC,
-        map_origin: np.ndarray = np.array([0.0, 0.0]),
-        min_depth: int = 5,
+        t: float,
+        waypoints: np.ndarray,
+        speed_plan: np.ndarray,
+        ownship_state: np.ndarray,
+        do_list: list,
+        enc: Optional[senc.ENC] = None,
+        goal_state: Optional[np.ndarray] = None,
+        w: Optional[stochasticity.DisturbanceData] = None,
+        **kwargs,
     ) -> None:
-        """Builds the actor MPC.
-
-        Args:
-            nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]): Nominal path.
-            xs (np.ndarray): State vector.
-            so_list (list): List of static obstacles.
-            enc (senc.ENC): Electronic navigational chart object.
-            map_origin (np.ndarray, optional): Map origin in ENC. Defaults to np.array([0.0, 0.0]).
-            min_depth (int, optional): Minimum depth required for the vessel. Defaults to 5.
-        """
-        self.mu.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
+        """Initializes the actor MPC"""
+        self.mu_mpc.initialize(
+            t,
+            waypoints,
+            speed_plan,
+            ownship_state,
+            do_list,
+            enc,
+            goal_state,
+            w,
+            **kwargs,
+        )
 
     def forward(self, obs: th.Tensor, deterministic: bool = False) -> th.Tensor:
+        """Computes the mean policy action (output of MPC), and samples from its stochastic
+        distribution.
+
+        Args:
+            - obs (th.Tensor): Consists of the current time, own-ship state, dynamic obstacles and potentially
+                disturbance data
+            - deterministic (bool): Whether or not to
+
+        Returns:
+            - th.Tensor: A sampled action from the policy distribution.
+        """
         mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
         # Note: the action is squashed
         return self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **kwargs)
 
     def action_log_prob(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+        # Compute mpc solution for the observation(s)
         mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
         # return action and associated log prob
         return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
@@ -238,9 +251,9 @@ class SACPolicyWithMPC(BasePolicy):
     Args:
         - observation_space (spaces.Space): Observation space
         - action_space (spaces.Box): Action space
-        - lr_schedule (Schedule): Learning rate schedule (could be constant)
-        - mpc_config (ml_mpc.Config): MPC configuration
+        - learning_rate: Union[float, Schedule] = 3e-4,
         - critic_arch (Optional[List[int]], optional): Architecture of the critic network. Defaults to [256, 256].
+        - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
         - activation_fn (Type[nn.Module], optional): Activation function. Defaults to nn.ReLU.
         - use_sde (bool, optional): Whether to use State Dependent Exploration or not. Defaults to False.
         - log_std_init (float, optional): Initial value for the log standard deviation. Defaults to -3.
@@ -269,8 +282,8 @@ class SACPolicyWithMPC(BasePolicy):
         observation_space: spaces.Space,
         action_space: spaces.Box,
         lr_schedule: Schedule,
-        mpc_config: ml_mpc.Config,
         critic_arch: Optional[List[int]] = [256, 256],
+        mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
         use_sde: bool = False,
         log_std_init: float = -3.0,
@@ -293,16 +306,25 @@ class SACPolicyWithMPC(BasePolicy):
             squash_output=True,
             normalize_images=normalize_images,
         )
-        self.net_arch = critic_arch
         self.activation_fn = activation_fn
-        self.net_args = {
+        self.critic_kwargs = {
             "observation_space": self.observation_space,
             "action_space": self.action_space,
-            "net_arch": [],
+            "net_arch": critic_arch,
             "activation_fn": self.activation_fn,
             "normalize_images": normalize_images,
+            "n_critics": n_critics,
+            "net_arch": critic_arch,
+            "share_features_extractor": False,
         }
-        self.actor_kwargs = self.net_args.copy()
+
+        self.actor_kwargs = {
+            "observation_space": self.observation_space,
+            "action_space": self.action_space,
+            "mpc_config": mpc_config,
+            "features_extractor": 0,
+            "features_dim": 1,
+        }
         sde_kwargs = {
             "use_sde": use_sde,
             "log_std_init": log_std_init,
@@ -310,28 +332,13 @@ class SACPolicyWithMPC(BasePolicy):
             "clip_mean": clip_mean,
         }
         self.actor_kwargs.update(sde_kwargs)
+        # fix features_dim=0 og action_dim=1
         self.actor = SACMPCActor(
-            observation_space=observation_space,
-            action_space=action_space,
-            mpc_config=mpc_config,
-            features_extractor=0,
-            features_dim=0,
+            **self.actor_kwargs,
             activation_fn=activation_fn,
-            use_sde=use_sde,
-            log_std_init=log_std_init,
             full_std=True,
-            use_expln=use_expln,
-            clip_mean=clip_mean,
         )
 
-        self.critic_kwargs = self.net_args.copy()
-        self.critic_kwargs.update(
-            {
-                "n_critics": n_critics,
-                "net_arch": critic_arch,
-                "share_features_extractor": False,
-            }
-        )
         self._build_critic(lr_schedule)
 
     def _build_critic(self, lr_schedule: Schedule) -> None:
@@ -355,24 +362,18 @@ class SACPolicyWithMPC(BasePolicy):
 
     def _build_actor(
         self,
-        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
-        xs: np.ndarray,
-        so_list: list,
-        enc: senc.ENC,
-        map_origin: np.ndarray = np.array([0.0, 0.0]),
-        min_depth: int = 5,
+        t: float,
+        waypoints: np.ndarray,
+        speed_plan: np.ndarray,
+        ownship_state: np.ndarray,
+        do_list: list,
+        enc: Optional[senc.ENC] = None,
+        goal_state: Optional[np.ndarray] = None,
+        w: Optional[stochasticity.DisturbanceData] = None,
     ) -> None:
-        """Builds the actor MPC.
-
-        Args:
-            nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]): Nominal path.
-            xs (np.ndarray): State vector.
-            so_list (list): List of static obstacles.
-            enc (senc.ENC): Electronic navigational chart object.
-            map_origin (np.ndarray, optional): Map origin in ENC. Defaults to np.array([0.0, 0.0]).
-            min_depth (int, optional): Minimum depth required for the vessel. Defaults to 5.
-        """
-        self.actor.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
+        """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
+        the OCP"""
+        self.actor.mu_mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -399,11 +400,31 @@ class SACPolicyWithMPC(BasePolicy):
         critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
         return ContinuousCritic(**critic_kwargs).to(self.device)
 
-    def forward(self, obs: th.Tensor, deterministic: bool = False) -> th.Tensor:
-        return self._predict(obs, deterministic=deterministic)
-
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
         return self.actor(observation, deterministic)
+
+    def predict_with_mpc(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: Optional[Tuple[np.ndarray, ...]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+        """
+        Get the policy action from an observation (and optional hidden state).
+        Includes sugar-coating to handle different observations (e.g. normalizing images).
+
+        :param observation: the input observation
+        :param state: The last hidden states (can be None, used in recurrent policies)
+        :param episode_start: The last masks (can be None, used in recurrent policies)
+            this correspond to beginning of episodes,
+            where the hidden states of the RNN must be reset.
+        :param deterministic: Whether or not to return deterministic actions.
+        :return: the model's action and the next hidden state
+            (used in recurrent policies)
+        """
+        # convert observation to mpc plan inputs ()
+        return self.actor.mu_mpc.plan()
 
     def set_training_mode(self, mode: bool) -> None:
         """
@@ -480,11 +501,11 @@ class SAC(opa.OffPolicyAlgorithm):
         - _init_setup_model (bool): Whether or not to build the network at the creation of the instance
     """
 
-    policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
-        "MlpPolicy": MlpPolicy,
-        "CnnPolicy": CnnPolicy,
-        "MultiInputPolicy": MultiInputPolicy,
-    }
+    # policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
+    #     "MlpPolicy": MlpPolicy,
+    #     "CnnPolicy": CnnPolicy,
+    #     "MultiInputPolicy": MultiInputPolicy,
+    # }
     policy: SACPolicyWithMPC
     actor: Actor
     critic: ContinuousCritic
@@ -492,7 +513,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
     def __init__(
         self,
-        policy: SACPolicyWithMPC,
+        policy: Type[SACPolicyWithMPC],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         buffer_size: int = 1_000_000,  # 1e6
@@ -505,7 +526,6 @@ class SAC(opa.OffPolicyAlgorithm):
         action_noise: Optional[sb3_noise.ActionNoise] = None,
         replay_buffer_class: Optional[Type[sb3_buffers.ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
-        optimize_memory_usage: bool = False,
         ent_coef: Union[str, float] = "auto",
         target_update_interval: int = 1,
         target_entropy: Union[str, float] = "auto",
@@ -543,7 +563,6 @@ class SAC(opa.OffPolicyAlgorithm):
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
             use_sde_at_warmup=use_sde_at_warmup,
-            optimize_memory_usage=optimize_memory_usage,
             supported_action_spaces=(spaces.Box,),
             support_multi_env=True,
         )
@@ -595,7 +614,7 @@ class SAC(opa.OffPolicyAlgorithm):
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
     def _create_aliases(self) -> None:
-        self.actor = self.policy.actor
+        self.actor: SACMPCActor = self.policy.actor
         self.critic = self.policy.critic
         self.critic_target = self.policy.critic_target
 
@@ -603,7 +622,7 @@ class SAC(opa.OffPolicyAlgorithm):
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
         # Update optimizers learning rate
-        optimizers = [self.actor.optimizer, self.critic.optimizer]
+        optimizers = [self.critic.optimizer]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
 
@@ -717,7 +736,7 @@ class SAC(opa.OffPolicyAlgorithm):
         return super()._excluded_save_params() + ["actor", "critic", "critic_target"]  # noqa: RUF005
 
     def _get_torch_save_params(self) -> Tuple[List[str], List[str]]:
-        state_dicts = ["policy", "actor.optimizer", "critic.optimizer"]
+        state_dicts = ["policy", "critic.optimizer"]
         if self.ent_coef_optimizer is not None:
             saved_pytorch_variables = ["log_ent_coef"]
             state_dicts.append("ent_coef_optimizer")

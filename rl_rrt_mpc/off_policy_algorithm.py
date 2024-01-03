@@ -9,10 +9,11 @@
 """
 import sys
 import time
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
 import stable_baselines3.common.buffers as sb3_buffers
@@ -24,10 +25,8 @@ import stable_baselines3.common.policies as sb3_policies
 import stable_baselines3.common.save_util as sb3_sutils
 import stable_baselines3.common.type_aliases as sb3_types
 import stable_baselines3.common.utils as sb3_utils
-import torch
 import torch as th
 import torch.nn.functional as F
-import torch.optim as optim
 from gymnasium import spaces
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecEnv
@@ -68,7 +67,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
     def __init__(
         self,
-        policy: sb3_policies.BasePolicy,
+        policy: Any,
         env: VecEnv,
         learning_rate: float,
         buffer_size: int = 1e6,
@@ -76,46 +75,63 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         batch_size: int = 256,
         tau: float = 0.005,
         gamma: float = 0.99,
-        tensorboard_log: Optional[str] = None,
         train_freq: Union[int, Tuple[int, str]] = (1, "step"),
         gradient_steps: int = 1,
         action_noise: Optional[sb3_noise.ActionNoise] = None,
+        replay_buffer_class: Optional[Type[sb3_buffers.ReplayBuffer]] = None,
+        replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
+        policy_kwargs: Optional[Dict[str, Any]] = None,
+        stats_window_size: int = 100,
+        tensorboard_log: Optional[str] = None,
         verbose: int = 0,
         device: Union[th.device, str] = "auto",
         support_multi_env: bool = False,
         monitor_wrapper: bool = True,
         seed: Optional[int] = None,
+        use_sde: bool = False,
+        sde_sample_freq: int = -1,
+        use_sde_at_warmup: bool = False,
+        sde_support: bool = True,
+        supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ) -> None:
         super().__init__(
             policy=policy,
             env=env,
             learning_rate=learning_rate,
-            policy_kwargs={},
-            stats_window_size=None,
+            policy_kwargs=policy_kwargs,
+            stats_window_size=stats_window_size,
             tensorboard_log=tensorboard_log,
             verbose=verbose,
             device=device,
             support_multi_env=support_multi_env,
             monitor_wrapper=monitor_wrapper,
             seed=seed,
-            use_sde=False,
-            sde_sample_freq=None,
-            supported_action_spaces=None,
+            use_sde=use_sde,
+            sde_sample_freq=sde_sample_freq,
+            supported_action_spaces=supported_action_spaces,
         )
-        self.learning_rate: float = learning_rate
+        self.learning_rate = learning_rate
         self.buffer_size: int = buffer_size
         self.batch_size: int = batch_size
         self.learning_starts: int = learning_starts
         self.tau: float = tau
         self.gamma: float = gamma
         self.gradient_steps: int = gradient_steps
-        self.action_noise: np.ndarray = action_noise
+        self.action_noise = action_noise
         self.verbose: int = verbose
         self.replay_buffer: Optional[sb3_buffers.ReplayBuffer] = None
+        self.replay_buffer_class = replay_buffer_class
+        self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
         self._convert_train_freq()
         self._num_timesteps: int = 0
         self._episode_num: int = 0
+
+        # Update policy keyword arguments
+        if sde_support:
+            self.policy_kwargs["use_sde"] = self.use_sde
+        # For gSDE only
+        self.use_sde_at_warmup = use_sde_at_warmup
 
     @abstractmethod
     def train(self, gradient_steps: int, batch_size: int) -> None:
@@ -128,13 +144,27 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - batch_size (int): size of the batch to sample from the replay buffer
         """
 
-    @abstractmethod
-    def _on_step(self) -> None:
+    def predict_with_mpc(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: Optional[Tuple[np.ndarray, ...]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
         """
-        Method called after each step in the environment.
-        It is meant to trigger DQN target network update
-        but can be used for other purposes
+        Get the policy action from an observation (and optional hidden state).
+        Includes sugar-coating to handle different observations (e.g. normalizing images).
+
+        :param observation: the input observation
+        :param state: The last hidden states (can be None, used in recurrent policies)
+        :param episode_start: The last masks (can be None, used in recurrent policies)
+            this correspond to beginning of episodes,
+            where the hidden states of the RNN must be reset.
+        :param deterministic: Whether or not to return deterministic actions.
+        :return: the model's action and the next hidden state
+            (used in recurrent policies)
         """
+        return self.policy.predict_with_mpc(observation, state, episode_start, deterministic)
 
     def _sample_action(
         self,
@@ -162,7 +192,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         # Note: when using continuous actions,
         # we assume that the policy uses tanh to scale the action
         # We use non-deterministic action in the case of SAC, for TD3, it does not matter
-        unscaled_action, _ = self.predict(self._last_obs, deterministic=False)
+        unscaled_action, _ = self.predict_with_mpc(self._last_obs, deterministic=False)
 
         # Rescale the action from [low, high] to [-1, 1]
         assert isinstance(
@@ -214,19 +244,14 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 self.replay_buffer_class = sb3_buffers.ReplayBuffer
 
         if self.replay_buffer is None:
-            # Make a local copy as we should not pickle
-            # the environment when using HerReplayBuffer
             replay_buffer_kwargs = self.replay_buffer_kwargs.copy()
-            if issubclass(self.replay_buffer_class, sb3_buffers.HerReplayBuffer):
-                assert self.env is not None, "You must pass an environment when using `HerReplayBuffer`"
-                replay_buffer_kwargs["env"] = self.env
             self.replay_buffer = self.replay_buffer_class(
                 self.buffer_size,
                 self.observation_space,
                 self.action_space,
                 device=self.device,
                 n_envs=self.n_envs,
-                optimize_memory_usage=self.optimize_memory_usage,
+                optimize_memory_usage=False,
                 **replay_buffer_kwargs,  # pytype:disable=wrong-keyword-args
             )
 
@@ -272,7 +297,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         reset_num_timesteps: bool = True,
         tb_log_name: str = "run",
         progress_bar: bool = False,
-    ) -> Tuple[int]:
+    ) -> Tuple[int, sb3_callbacks.BaseCallback]:
         """
         Sets the self.start_time attribute and updates self._total_timesteps
 
@@ -282,8 +307,33 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - reset_num_timesteps (bool): Whether to reset or not the num timesteps attribute
             - tb_log_name (str): the name of the run for tensorboard log
             - progress_bar (bool): Whether to show or not a progress bar
+
+        Returns:
+            - Tuple[int, BaseCallback]: The updated total number of timesteps and the callback
         """
         replay_buffer = self.replay_buffer
+        truncate_last_traj = (
+            reset_num_timesteps and replay_buffer is not None and (replay_buffer.full or replay_buffer.pos > 0)
+        )
+
+        if truncate_last_traj:
+            warnings.warn(
+                "The last trajectory in the replay buffer will be truncated, "
+                "see https://github.com/DLR-RM/stable-baselines3/issues/46."
+                "You should use `reset_num_timesteps=False` or `optimize_memory_usage=False`"
+                "to avoid that issue."
+            )
+            # Go to the previous index
+            pos = (replay_buffer.pos - 1) % replay_buffer.buffer_size
+            replay_buffer.dones[pos] = True
+
+        return super()._setup_learn(
+            total_timesteps,
+            callback,
+            reset_num_timesteps,
+            tb_log_name,
+            progress_bar,
+        )
 
     def learn(
         self,
@@ -361,7 +411,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         num_collected_steps, num_collected_episodes = 0, 0
 
         assert isinstance(env, VecEnv), "You must pass a VecEnv. "
-        assert self.train_freq > 0, "Should at least collect one step or episode."
+        assert self.train_freq.frequency > 0, "Should at least collect one step or episode."
 
         # Vectorize action noise if needed
         if (
@@ -398,10 +448,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self._store_transition(replay_buffer, buffer_actions, new_obs, rewards, dones, infos)
 
             self._update_current_progress_remaining(self._num_timesteps, self._total_timesteps)
-
-            # For SAC/TD3, the update is dones as the same time as the gradient update
-            # see https://github.com/hill-a/stable-baselines/issues/900
-            self._on_step()
 
             for idx, done in enumerate(dones):
                 if done:
