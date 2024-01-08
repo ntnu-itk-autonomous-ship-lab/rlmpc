@@ -8,7 +8,7 @@
     Author: Trym Tengesdal
 """
 from dataclasses import asdict, dataclass, field
-from typing import Tuple
+from typing import List, Tuple
 
 import casadi as csd
 import matplotlib.pyplot as plt
@@ -29,7 +29,7 @@ class CasadiSolverOptions:
     mu_target: float = 1e-6
     mu_init: float = 1e-6
     acceptable_tol: float = 1e-6
-    acceptable_obj_change_tol: float = 1e-6
+    acceptable_obj_change_tol: float = 1e15
     max_iter: int = 1000
     warm_start_init_point: str = "no"
     verbose: bool = True
@@ -102,6 +102,42 @@ class SolverConfig:
     def from_dict(self, config_dict: dict):
         config = SolverConfig(acados=config_dict["acados"], casadi=CasadiSolverOptions.from_dict(config_dict["casadi"]))
         return config
+
+
+@dataclass
+class NLPSensitivities:
+    dr_dz: csd.Function  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers)
+    dr_dp: csd.Function  # Partial derivative of the KKT matrix wrt the adjustable parameters
+    dr_dp_f: csd.Function  # Partial derivative of the KKT matrix wrt the fixed parameters
+
+    # See Gros and Zanon "Reinforcement Learning based on MPC and the Stochastic Policy Gradient Method" for info on the below sensitivity functions
+    dr_dz_bar: csd.Function  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers) with first input replaced by stochastic perturbation vector d
+    dr_dp_bar: csd.Function  # Partial derivative of the KKT matrix wrt the adjustable parameters with first input replaced by stochastic perturbation vector d
+    dr_dp_f_bar: csd.Function  # Partial derivative of the KKT matrix wrt the fixed parameters with first fixed parameter replaced by first input vector
+    d2r_dp_da: list[
+        csd.Function
+    ]  # List of second order partial derivatives of the KKT matrix wrt the adjustable parameters and the action (first input vector). Length of list is equal to the number of adjustable parameters.
+    d2r_dp_dz_bar: list[
+        csd.Function
+    ]  # List of second order partial derivatives of the KKT matrix wrt the adjustable parameters and the NLP solution (decision variables, multipliers) with first input replaced by stochastic perturbation vector d. Length of list is equal to the number of adjustable parameters.
+    d2r_dzdz_j_bar: list[
+        csd.Function
+    ]  # List of second order partial derivatives of the KKT matrix wrt the NLP solution (decision variables, multipliers) with first and second input replaced by stochastic perturbation vector d. Length of list is equal to the number of decision variables
+
+    @classmethod
+    def from_dict(cls, input_dict: dict):
+        output = NLPSensitivities(
+            dr_dz=input_dict["dr_dz"],
+            dr_dp=input_dict["dr_dp"],
+            dr_dp_f=input_dict["dr_dp_f"],
+            dr_dz_bar=input_dict["dr_dz_bar"],
+            dr_dp_bar=input_dict["dr_dp_bar"],
+            dr_dp_f_bar=input_dict["dr_dp_f_bar"],
+            d2r_dp_da=input_dict["d2r_dp_da"],
+            d2r_dp_dz_bar=input_dict["d2r_dp_dz_bar"],
+            d2r_dzdz_j_bar=input_dict["d2r_dzdz_j_bar"],
+        )
+        return output
 
 
 def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:

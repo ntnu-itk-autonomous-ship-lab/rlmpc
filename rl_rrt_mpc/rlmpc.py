@@ -22,6 +22,7 @@ import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.helper_functions as hf
 import rl_rrt_mpc.common.paths as dp
 import rl_rrt_mpc.common.set_generator as sg
+import rl_rrt_mpc.mpc.common as mpc_common
 import rl_rrt_mpc.mpc.mid_level.mid_level_mpc as mlmpc
 import rl_rrt_mpc.mpc.parameters as mpc_params
 import seacharts.enc as senc
@@ -164,6 +165,7 @@ class RLMPC(ci.ICOLAV):
         ownship_csog_state[3] = ownship_state[3]
         if not self._initialized:
             self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, kwargs)
+
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
         )
@@ -232,6 +234,17 @@ class RLMPC(ci.ICOLAV):
             f"t: {t} | U_mpc: {self._references[3, 0]} | U: {ownship_csog_state[3]} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * ownship_csog_state[2] / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
         )
         return self._references
+
+    def build_sensitivities(self, tau: float = 0.01) -> mpc_common.NLPSensitivities:
+        """Builds the sensitivity of the KKT matrix function underlying the MPC NLP with respect to the decision variables and parameters.
+
+        Args:
+            tau (float, optional): Barrier parameter used in the primal-dual formulation. Defaults to 0.01.
+
+        Returns:
+            mpc_common.NLPSensitivities: Class containing the sensitivity functions necessary for computing the score function gradient in RL context.
+        """
+        return self._mpc.build_sensitivities(tau)
 
     def _setup_mpc_static_obstacle_input(
         self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs

@@ -68,14 +68,14 @@ midlevel_mpc:
   solver_options:
     casadi:
       solver_type: "ipopt"
-      solver_tol: 0.01
+      solver_tol: 0.0001
       print_level: 5
       print_time: 0
-      mu_target: 0.0001
-      mu_init: 0.0001
-      acceptable_tol: 0.01
-      acceptable_obj_change_tol: 0.01
-      max_iter: 200
+      mu_target: 0.0000001
+      mu_init: 0.1
+      acceptable_tol: 0.0001
+      acceptable_obj_change_tol: 1000_000_000_000.0
+      max_iter: 1000
       warm_start_init_point: "yes"
       verbose: False
       jit: False

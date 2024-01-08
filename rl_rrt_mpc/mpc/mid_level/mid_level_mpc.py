@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, Type
 
-import colav_simulator.core.models as cs_models
 import numpy as np
 import rl_rrt_mpc.common.config_parsing as cp
 import rl_rrt_mpc.common.paths as dp
@@ -85,26 +84,6 @@ class MidlevelMPC:
     def params(self) -> mpc_parameters.MidlevelMPCParams:
         return self._params
 
-    def action_value(self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray) -> Tuple[float, dict]:
-        """Returns the Q(s, a) action-value function value for the given state and action.
-
-        Args:
-            state (np.ndarray): Current state of the ownship.
-            action (np.ndarray): Current action of the ownship.
-            parameters (np.ndarray): Current adjustable RL-agent parameters.
-
-        Returns:
-            Tuple[float, dict]: The Q(s, a) action-value function value and the corresponding mpc solution dictionary.
-        """
-        return self._casadi_mpc.action_value(state, action, parameters)
-
-    def value(self, state: np.ndarray) -> np.ndarray:
-        """Returns the V(s) value function value for the given state."""
-        return self._casadi_mpc.value(state)
-
-    def train(self, data) -> None:
-        """Trains the RL-MPC using data (s, a, s+, a+, r+)"""
-
     def construct_ocp(
         self,
         nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
@@ -128,6 +107,18 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
 
+    def build_sensitivities(self, tau: float = 0.01) -> common.NLPSensitivities:
+        """Builds the sensitivity of the KKT matrix function with respect to the decision variables and parameters.
+
+        Args:
+            - tau (float): Barrier parameter for the primal-dual interior point method formulation.
+
+        Returns:
+            - common.NLPSensitivities: Class container of the sensitivity functions necessary for
+                computing the score function  gradient in RL context.
+        """
+        return self._casadi_mpc.build_sensitivities(tau)
+
     def plan(
         self,
         t: float,
@@ -137,6 +128,8 @@ class MidlevelMPC:
         do_ot_list: list,
         so_list: list,
         enc: senc.ENC,
+        perturb_nlp: bool = False,
+        perturb_sigma: float = 0.001,
         **kwargs
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
@@ -149,6 +142,8 @@ class MidlevelMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): Electronic Navigational Chart object.
+            - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
+            - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
@@ -157,5 +152,16 @@ class MidlevelMPC:
         if self._acados_enabled:
             mpc_soln = self._acados_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs)
         else:
-            mpc_soln = self._casadi_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs)
+            mpc_soln = self._casadi_mpc.plan(
+                t,
+                xs,
+                do_cr_list,
+                do_ho_list,
+                do_ot_list,
+                so_list,
+                enc,
+                perturb_nlp=perturb_nlp,
+                perturb_sigma=perturb_sigma,
+                **kwargs
+            )
         return mpc_soln
