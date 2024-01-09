@@ -380,8 +380,8 @@ class SACPolicyWithMPC(BasePolicy):
 
         data.update(
             dict(
-                net_arch=self.net_arch,
-                activation_fn=self.net_args["activation_fn"],
+                net_arch=self.critic_kwargs["net_arch"],
+                activation_fn=self.critic_kwargs["activation_fn"],
                 use_sde=self.actor_kwargs["use_sde"],
                 log_std_init=self.actor_kwargs["log_std_init"],
                 use_expln=self.actor_kwargs["use_expln"],
@@ -424,7 +424,7 @@ class SACPolicyWithMPC(BasePolicy):
             (used in recurrent policies)
         """
         # convert observation to mpc plan inputs ()
-        return self.actor.mu_mpc.plan()
+        return self.actor.mu_mpc.plan(t, waypoints, speed_plan, ownship_state, do_list, enc)
 
     def set_training_mode(self, mode: bool) -> None:
         """

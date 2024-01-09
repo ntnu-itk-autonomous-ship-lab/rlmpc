@@ -6,7 +6,7 @@
 
     Author: Trym Tengesdal
 """
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +26,7 @@ import rl_rrt_mpc.mpc.common as mpc_common
 import rl_rrt_mpc.mpc.mid_level.mid_level_mpc as mlmpc
 import rl_rrt_mpc.mpc.parameters as mpc_params
 import seacharts.enc as senc
+import yaml
 from shapely import strtree
 
 
@@ -45,6 +46,29 @@ class RLMPCParams:
             colregs_handler=ch.COLREGSHandlerParams.from_dict(config_dict["colregs_handler"]),
         )
         return config
+
+    def save(self, filename: Path) -> None:
+        """Saves the parameters to a YAML file.
+
+        Args:
+            filename (Path): Path to the YAML file.
+        """
+        param_dict = asdict(self)
+        yaml.dump(param_dict, filename)
+
+    @classmethod
+    def from_file(cls, filename: Path):
+        """Loads the parameters from a YAML file.
+
+        Args:
+            filename (Path): Path to the YAML file.
+
+        Returns:
+            RLMPCParams: The parameters.
+        """
+        with open(filename, "r") as f:
+            config_dict = yaml.safe_load(f)
+        return cls.from_dict(config_dict)
 
 
 class RLMPC(ci.ICOLAV):
@@ -138,6 +162,40 @@ class RLMPC(ci.ICOLAV):
                 "yellow",
             )
         self._initialized = True
+
+    def act(self, t: float, ownship_state: np.ndarray, do_list: list, **kwargs) -> np.ndarray:
+        """Act function for the RL-MPC. Calls the plan function and returns the reference trajectory.
+
+        Args:
+            t (float): Current time.
+            ownship_state (np.ndarray): Current ownship state on the form [x, y, chi, U]^T.
+            do_list (list): List of dynamic obstacles.
+            enc (Optional[senc.ENC], optional): Electronic Navigational Chart object. Defaults to None.
+
+        Returns:
+            np.ndarray: 9x1 reference trajectory
+        """
+        return self.plan(
+            t, self._waypoints, self._speed_plan, ownship_state, do_list, self._enc, goal_state=None, **kwargs
+        )
+
+    def save_params(self, filename: Path) -> None:
+        """Saves the parameters to a YAML file.
+
+        Args:
+            filename (Path): Path to the YAML file.
+        """
+        self._config.save(filename)
+
+    def load_params(self, filename: Path) -> None:
+        """Loads the parameters from a YAML file. Overwrites the current parameters.
+
+        NOTE: You should now re-initialize the planner.
+
+        Args:
+            filename (Path): Path to the YAML file.
+        """
+        self._config = RLMPCParams.from_file(filename)
 
     def plan(
         self,
