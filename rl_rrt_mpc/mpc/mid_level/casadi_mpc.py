@@ -49,6 +49,8 @@ class CasadiMPC:
         self._cost_function: csd.MX = csd.MX.sym("cost_function", 0)
         self._g_eq: csd.MX = csd.MX.sym("g_eq", 0)
         self._g_ineq: csd.MX = csd.MX.sym("g_ineq", 0)
+        self._nlp_eq: csd.MX = csd.MX.sym("nlp_eq", 0)
+        self._nlp_ineq: csd.MX = csd.MX.sym("nlp_ineq", 0)
 
         self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)
         self._opt_vars_list: list[csd.MX] = []
@@ -58,7 +60,6 @@ class CasadiMPC:
         self._current_warmstart: dict = {"x": [], "lam_x0": [], "lam_g": []}
         self._lbg: np.ndarray = np.array([])
         self._ubg: np.ndarray = np.array([])
-        self._dlag: csd.Function = csd.Function("dlag_v", [], [])
 
         self._num_ocp_params: int = 0
         self._num_fixed_ocp_params: int = 0
@@ -476,6 +477,7 @@ class CasadiMPC:
         g_ineq_jac_rank = np.linalg.matrix_rank(
             self._inequality_constraints_jacobian(soln["x"], parameter_values).full()
         )
+        nlp_hess = self._d2lag_d2w(soln["x"], parameter_values, lam_x, lam_g).full()
 
         self._current_warmstart["x"] = self._decision_variables(X, U, Sigma)
         self._current_warmstart["lam_x"] = lam_x
@@ -620,6 +622,10 @@ class CasadiMPC:
         self._lbw = np.concatenate((lbu, lbx, lbsigma))
         self._ubw = np.concatenate((ubu, ubx, ubsigma))
 
+        hu = []  # Box constraints on inputs
+        hx = []  # Box constraints on states
+        hs = []  # Box constraints on sigma
+
         g_eq_list = []  # NLP equality constraints
         g_ineq_list = []  # NLP inequality constraints
         p_fixed, p_adjustable = [], []  # NLP parameters
@@ -687,7 +693,7 @@ class CasadiMPC:
         x_0_ot = csd.MX.sym("x_0_ot", 1, 1)
         y_0_ot = csd.MX.sym("y_0_ot", 1, 1)
         d_attenuation = csd.MX.sym("d_attenuation", 1, 1)
-        colregs_weights = csd.MX.sym("w", 3, 1)
+        colregs_weights = csd.MX.sym("colregs_weights", 3, 1)
 
         p_adjustable.append(alpha_cr)
         p_adjustable.append(y_0_cr)
@@ -778,6 +784,8 @@ class CasadiMPC:
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
             U.append(u_k)
+            hu.append(lbu_k - u_k)  # lbu <= u_k
+            hu.append(u_k - ubu_k)  # u_k <= ubu
 
             x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
             y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
@@ -864,6 +872,8 @@ class CasadiMPC:
             x_k_end, _, _, _, _, _, _, _ = erk4(x_k, csd.vertcat(u_k, self._p_mdl))
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
             X.append(x_k)
+            hx.append(lbx_k - x_k)  # lbx <= x_k
+            hx.append(x_k - ubx_k)  # x_k <= ubx
             g_eq_list.append(x_k_end - x_k)
 
             sigma_k = csd.MX.sym(
@@ -872,6 +882,7 @@ class CasadiMPC:
                 1,
             )
             Sigma.append(sigma_k)
+            hs.append(-sigma_k)  # 0 <= sigma_k
 
         # Terminal costs and constraints
         x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
@@ -886,6 +897,10 @@ class CasadiMPC:
         )
         so_constr_list.extend(so_constr_N)
         g_ineq_list.extend(so_constr_N)
+
+        hx.append(lbx_k - x_k)  # lbx <= x_k
+        hx.append(x_k - ubx_k)  # x_k <= ubx
+        hs.append(-sigma_k)  # 0 <= sigma_k
 
         X_do_N = csd.vertcat(X_do_cr[:, N], X_do_ho[:, N], X_do_ot[:, N])
         do_constr_N = self._create_dynamic_obstacle_constraint(x_k, sigma_k, X_do_N, nx_do, r_safe_do)
@@ -919,13 +934,14 @@ class CasadiMPC:
         self._cost_function = J
         self._g_eq = g_eq
         self._g_ineq = g_ineq
+        g = csd.vertcat(g_eq, g_ineq)
 
         # Create IPOPT solver object
         nlp_prob = {
             "f": J,
             "x": self._opt_vars,
             "p": self._p,
-            "g": csd.vertcat(g_eq, g_ineq),
+            "g": g,
         }
         self._solver = csd.nlpsol("vsolver", "ipopt", nlp_prob, self._solver_options.to_opt_settings())
 
@@ -1019,7 +1035,24 @@ class CasadiMPC:
                 ["w"],
             )
 
-        self.build_sensitivities(tau=self._solver_options.mu_target)
+        Hu = csd.vertcat(*hu)
+        Hx = csd.vertcat(*hx)
+        Hs = csd.vertcat(*hs)
+        G = g_eq
+        H = csd.vertcat(Hu, Hx, Hs, g_ineq)
+        hw = csd.vertcat(Hu, Hx, Hs)
+        self._nlp_eq = G
+        self._nlp_ineq = H
+
+        # Used for SOSC checking
+        lam_x = csd.MX.sym("lam_x", hw.shape[0])
+        lam_g = csd.MX.sym("lam_g", g.shape[0])
+        lag = J + lam_x.T @ hw + lam_g.T @ g
+        Hww, _ = csd.hessian(lag, self._opt_vars)
+        self._d2lag_d2w: csd.Function = csd.Function(
+            "lag_hessian_w", [self._opt_vars, self._p, lam_x, lam_g], [Hww], ["w", "p", "lam_x", "lam_g"], ["d2lag_d2w"]
+        )
+        # self.build_sensitivities(tau=self._solver_options.mu_target)
 
     def _create_static_obstacle_constraint(
         self,
@@ -1338,11 +1371,13 @@ class CasadiMPC:
                 computing the score function  gradient in RL context, and more.
         """
         output_dict = {}
-        lamb = csd.MX.sym("lambda", self._g_eq.shape[0])
-        mu = csd.MX.sym("mu", self._g_ineq.shape[0])
+        G = self._nlp_eq
+        H = self._nlp_ineq
+        lamb = csd.MX.sym("lambda", G.shape[0])
+        mu = csd.MX.sym("mu", H.shape[0])
         multipliers = csd.vertcat(lamb, mu)
 
-        lag = self._cost_function + csd.transpose(lamb) @ self._g_eq + csd.transpose(mu) @ self._g_ineq
+        lag = self._cost_function + csd.transpose(lamb) @ G + csd.transpose(mu) @ H
         lag_func = csd.Function(
             "lagrangian",
             [self._opt_vars, multipliers, self._p_fixed, self._p_adjustable],
@@ -1355,7 +1390,7 @@ class CasadiMPC:
         )
 
         # z contains all variables contained in a solution, i.e. decision variables and multipliers
-        nx, nu = self._model.dims()
+        _, nu = self._model.dims()
         z = csd.vertcat(self._opt_vars, lamb, mu)
 
         d2lag_d2w_func = self._solver.get_function("nlp_hess_l")
@@ -1391,8 +1426,8 @@ class CasadiMPC:
         # Build KKT matrix
         R_kkt = csd.vertcat(
             csd.transpose(dlag_dw),
-            self._g_eq,
-            mu * self._g_ineq + tau,
+            G,
+            csd.diag(mu) * H + tau,
         )
 
         # # Generate sensitivity of the KKT matrix
