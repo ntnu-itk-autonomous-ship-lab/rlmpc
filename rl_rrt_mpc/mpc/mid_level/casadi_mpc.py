@@ -51,6 +51,7 @@ class CasadiMPC:
         self._g_ineq: csd.MX = csd.MX.sym("g_ineq", 0)
 
         self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)
+        self._opt_vars_list: list[csd.MX] = []
         self._lbw: np.ndarray = np.array([])
         self._ubw: np.ndarray = np.array([])
         self._solver: csd.Function = csd.Function("vsolver", [], [])
@@ -64,8 +65,11 @@ class CasadiMPC:
         self._num_adjustable_ocp_params: int = 0
         self._p_mdl = csd.MX.sym("p_mdl", 0)
         self._p_fixed: csd.MX = csd.MX.sym("p_fixed", 0)
+        self._p_fixed_list: list[csd.MX] = []
         self._p_adjustable: csd.MX = csd.MX.sym("p_adjustable", 0)
-        self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
+        self._p_adjustable_list: list[csd.MX] = []
+        self._p: csd.MX = csd.MX.sym("p", 0)
+        self._p_list: list[csd.MX] = []
 
         self._set_generator: Optional[sg.SetGenerator] = None
         self._p_ship_mdl_values: np.ndarray = np.array([])
@@ -114,7 +118,9 @@ class CasadiMPC:
         self._static_obstacle_constraints: csd.Function = csd.Function("static_obstacle_constraints", [], [])
         self._dynamic_obstacle_constraints: csd.Function = csd.Function("dynamic_obstacle_constraints", [], [])
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
+        self._equality_constraints_jacobian: csd.Function = csd.Function("equality_constraints_jacobian", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
+        self._inequality_constraints_jacobian: csd.Function = csd.Function("inequality_constraints_jacobian", [], [])
 
     @property
     def params(self):
@@ -335,7 +341,7 @@ class CasadiMPC:
         n_attempts = 6
         n_shifts = int(dt / self._params.dt)
         w_prev = np.array(prev_warm_start["x"])
-        X_prev, U_prev, Sigma_prev = self._decision_trajectories(w_prev)
+        U_prev, X_prev, Sigma_prev = self._decision_trajectories(w_prev)
         X_prev = X_prev.full()
         U_prev = U_prev.full()
         Sigma_prev = Sigma_prev.full()
@@ -457,13 +463,20 @@ class CasadiMPC:
                 lam_x = self._current_warmstart["lam_x"]
                 lam_g = self._current_warmstart["lam_g"]
         elif stats["return_status"] == "Infeasible_Problem_Detected":
+            # should not happen when using slack variables
             raise RuntimeError("Infeasible solution found.")
 
+        U, X, Sigma = self._extract_trajectories(soln)
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full()
-        g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
+        w_sub = np.concatenate((U.flatten(), X.flatten()))
+        g_eq_vals = self._equality_constraints(w_sub, parameter_values).full()
+        g_eq_jac_rank = np.linalg.matrix_rank(self._equality_constraints_jacobian(w_sub, parameter_values).full())
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
-        X, U, Sigma = self._extract_trajectories(soln)
+        g_ineq_jac_rank = np.linalg.matrix_rank(
+            self._inequality_constraints_jacobian(soln["x"], parameter_values).full()
+        )
+
         self._current_warmstart["x"] = self._decision_variables(X, U, Sigma)
         self._current_warmstart["lam_x"] = lam_x
         self._current_warmstart["lam_g"] = lam_g
@@ -483,11 +496,12 @@ class CasadiMPC:
             arg_max_so_constr, max_so_constr = np.argmax(so_constr_vals), np.max(so_constr_vals)
 
         print(
-            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})"
+            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (n_cols, rank): {len(g_eq_vals), g_eq_jac_rank}) \n\t- Inequality constraints jac (n_cols, rank): {len(g_ineq_vals), g_ineq_jac_rank}\n\t - Hessian (n_cols, rank): {len(w_sub), np.linalg.matrix_rank(self._dlag(w_sub, parameter_values).full())}"
         )
         self._t_prev = t
         self._prev_inputs = U[:, 0]
         output = {
+            "soln": soln,
             "trajectory": X,
             "inputs": U,
             "lower_slacks": [],
@@ -502,22 +516,22 @@ class CasadiMPC:
         return output
 
     def _extract_trajectories(self, soln: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Extracts the optimal trajectory, inputs and slacks from the solution dictionary.
+        """Extracts the optimal inputs, trajectory and slacks from the solution dictionary.
 
         Args:
             soln (dict): Solution dictionary.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray]: Optimal trajectory, inputs and slacks.
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: Optimal inputs, trajectory and slacks.
         """
-        X, U, Sigma = self._decision_trajectories(soln["x"])
+        U, X, Sigma = self._decision_trajectories(soln["x"])
         X = X.full()
         U = U.full()
         Sigma = Sigma.full()
         chi = X[2, :]
         chi = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
         X[2, :] = chi
-        return X, U, Sigma
+        return U, X, Sigma
 
     def compute_path_variable_derivative(self, s: float | csd.MX) -> float | csd.MX:
         """Computes the path variable derivative.
@@ -615,7 +629,8 @@ class CasadiMPC:
         X = []
         Sigma = []
 
-        p_adjustable.append(self._p_mdl)
+        if self._p_mdl.shape[0] > 0:
+            p_adjustable.append(self._p_mdl)
 
         # NLP perturbation (may be zero or randomly generated if the MPC is used as a stochastic policy)
         self._nlp_perturbation = csd.MX.sym("nlp_perturbation", nu, 1)
@@ -752,7 +767,7 @@ class CasadiMPC:
             raise ValueError("Unknown static obstacle constraint type.")
 
         # Cost function
-        J = self._nlp_perturbation @ u_0
+        J = self._nlp_perturbation.T @ u_0
 
         so_constr_list = []
         do_constr_list = []
@@ -891,11 +906,15 @@ class CasadiMPC:
         self._p_fixed = csd.vertcat(*p_fixed)
         self._p_adjustable = csd.vertcat(*p_adjustable)
         self._p = csd.vertcat(*p_adjustable, *p_fixed)
+        self._p_fixed_list = p_fixed
+        self._p_adjustable_list = p_adjustable
+        self._p_list = p_adjustable + p_fixed
 
         self._p_fixed_values = np.zeros((self._p_fixed.shape[0], 1))
         self._p_adjustable_values = self.get_adjustable_params()
 
         self._opt_vars = csd.vertcat(*U, *X, *Sigma)
+        self._opt_vars_list = U + X + Sigma
 
         self._cost_function = J
         self._g_eq = g_eq
@@ -924,23 +943,38 @@ class CasadiMPC:
             ["w", "p"],
             ["do_constr"],
         )
+        w_sub = csd.vertcat(*U, *X)
         self._equality_constraints = csd.Function(
-            "equality_constraints", [self._opt_vars, self._p], [g_eq], ["w", "p"], ["g_eq"]
+            "equality_constraints", [w_sub, self._p], [g_eq], ["w_sub", "p"], ["g_eq"]
+        )
+        self._equality_constraints_jacobian = csd.Function(
+            "equality_constraints_jacobian",
+            [w_sub, self._p],
+            [csd.jacobian(g_eq, w_sub)],
+            ["w_sub", "p"],
+            ["dg_dw_sub"],
         )
         self._inequality_constraints = csd.Function(
             "inequality_constraints", [self._opt_vars, self._p], [g_ineq], ["w", "p"], ["g_ineq"]
+        )
+        self._inequality_constraints_jacobian = csd.Function(
+            "inequality_constraints_jacobian",
+            [self._opt_vars, self._p],
+            [csd.jacobian(g_ineq, self._opt_vars)],
+            ["w", "p"],
+            ["dg_dw"],
         )
         if self._params.max_num_so_constr + self._params.max_num_do_constr_per_zone == 0.0:
             self._decision_trajectories = csd.Function(
                 "decision_trajectories",
                 [self._opt_vars],
                 [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.vertcat(*Sigma),
                 ],
                 ["w"],
-                ["X", "U", "Sigma"],
+                ["U", "X", "Sigma"],
             )
             self._decision_variables = csd.Function(
                 "decision_variables",
@@ -958,8 +992,8 @@ class CasadiMPC:
                 "decision_trajectories",
                 [self._opt_vars],
                 [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.reshape(
                         csd.vertcat(*Sigma),
                         self._params.max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone,
@@ -967,13 +1001,13 @@ class CasadiMPC:
                     ),
                 ],
                 ["w"],
-                ["X", "U", "Sigma"],
+                ["U", "X", "Sigma"],
             )
             self._decision_variables = csd.Function(
                 "decision_variables",
                 [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.reshape(
                         csd.vertcat(*Sigma),
                         self._params.max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone,
@@ -981,11 +1015,11 @@ class CasadiMPC:
                     ),
                 ],
                 [self._opt_vars],
-                ["X", "U", "Sigma"],
+                ["U", "X", "Sigma"],
                 ["w"],
             )
 
-        # self._dlag_q = self.build_sensitivity(J, g_eq, g_ineq)
+        self.build_sensitivities(tau=self._solver_options.mu_target)
 
     def _create_static_obstacle_constraint(
         self,
@@ -1130,6 +1164,7 @@ class CasadiMPC:
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
             - perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
+            - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
 
         Returns:
@@ -1300,7 +1335,7 @@ class CasadiMPC:
 
         Returns:
             - mpc_common.NLPSensitivities: Class containing the sensitivity functions necessary for
-                computing the score function  gradient in RL context.
+                computing the score function  gradient in RL context, and more.
         """
         output_dict = {}
         lamb = csd.MX.sym("lambda", self._g_eq.shape[0])
@@ -1308,16 +1343,49 @@ class CasadiMPC:
         multipliers = csd.vertcat(lamb, mu)
 
         lag = self._cost_function + csd.transpose(lamb) @ self._g_eq + csd.transpose(mu) @ self._g_ineq
-        lag_func = csd.Function("lagrangian", [self._opt_vars, multipliers, self._p_fixed, self._p_adjustable], [lag])
+        lag_func = csd.Function(
+            "lagrangian",
+            [self._opt_vars, multipliers, self._p_fixed, self._p_adjustable],
+            [lag],
+        )
         dlag_func = lag_func.factory(
             "lagrangian_derivative_func",
             ["i0", "i1", "i2", "i3"],
             ["jac:o0:i0", "jac:o0:i2", "jac:o0:i3"],
         )
 
+        # z contains all variables contained in a solution, i.e. decision variables and multipliers
+        nx, nu = self._model.dims()
+        z = csd.vertcat(self._opt_vars, lamb, mu)
+
+        d2lag_d2w_func = self._solver.get_function("nlp_hess_l")
+
         # Compute the lagrangian sensitivities wrt decision variables and parameters
-        dlag_dw, dlag_dp_fixed, dlag_dp_adjustable = dlag_func(
-            self._opt_vars, multipliers, self._p_fixed, self._p_adjustable
+        dlag_dw, dlag_dp_f, dlag_dp = dlag_func(self._opt_vars, multipliers, self._p_fixed, self._p_adjustable)
+        dlag_dw_func = csd.Function(
+            "dlag_dw_func",
+            [self._opt_vars, multipliers, self._p_fixed, self._p_adjustable],
+            [dlag_dw],
+            ["w", "multipliers", "p_fixed", "p_adjustable"],
+            ["dlag_dw"],
+        )
+        dlag_dp_f_func = csd.Function(
+            "dlag_dp_f_func",
+            [self._opt_vars, multipliers, self._p_fixed, self._p_adjustable],
+            [dlag_dp_f],
+            ["w", "multipliers", "p_fixed", "p_adjustable"],
+            ["dlag_dp_f"],
+        )
+        dlag_dp_func = csd.Function(
+            "dlag_dp_func",
+            [self._opt_vars, multipliers, self._p_fixed, self._p_adjustable],
+            [dlag_dp],
+            ["w", "multipliers", "p_fixed", "p_adjustable"],
+            ["dlag_dp"],
+        )
+
+        output_dict.update(
+            {"dlag_dw": dlag_dw_func, "dlag_dp_f": dlag_dp_f_func, "dlag_dp": dlag_dp_func, "d2lag_d2w": d2lag_d2w_func}
         )
 
         # Build KKT matrix
@@ -1326,11 +1394,6 @@ class CasadiMPC:
             self._g_eq,
             mu * self._g_ineq + tau,
         )
-
-        # z contains all variables contained in a solution, i.e. decision variables and multipliers
-        nx, nu = self._model.dims()
-        z = csd.vertcat(self._opt_vars, lamb, mu)
-        z_bar = z
 
         # # Generate sensitivity of the KKT matrix
         r_func = csd.Function("kkt_matrix_func", [z, self._p_fixed, self._p_adjustable], [R_kkt])
@@ -1352,9 +1415,11 @@ class CasadiMPC:
 
         # Generate sensitivity of z_bar (contains perturbation as first element, with u0 as a fixed parameter)
         # with respect to the parameters and the perturbation (if using stochastic policies)
-        z_bar[:nu] = self._nlp_perturbation
-        p_fixed_bar = self._p_fixed
-        p_fixed_bar[:nu] = z[:nu]
+
+        z_bar_list = [self._nlp_perturbation] + self._opt_vars_list[1:] + [lamb, mu]
+        z_bar = csd.vertcat(*z_bar_list)
+        p_fixed_bar_list = [self._opt_vars_list[0]] + self._p_fixed_list[1:]
+        p_fixed_bar = csd.vertcat(*p_fixed_bar_list)
         r_bar_func = csd.Function("kkt_matrix_bar_func", [z_bar, p_fixed_bar, self._p_adjustable], [R_kkt])
         dr_bar_func: csd.Function = r_bar_func.factory(
             "kkt_matrix_bar_derivative_func", ["i0", "i1", "i2"], ["jac:o0:i0", "jac:o0:i1", "jac:o0:i2"]
@@ -1384,7 +1449,7 @@ class CasadiMPC:
 
         output_dict.update({"dr_dz_bar": dr_dz_bar_func, "dr_dp_bar": dr_dp_bar_func, "dr_dp_f_bar": dr_dp_f_bar_func})
 
-        # unngå bruk av casadi inv
+        # avoid usage of casadi inv
         # dr_dz_bar_inv = csd.inv(dr_dz_bar)
         # dz_bar_dp = -dr_dz_bar_inv @ dr_dp_bar
         # dz_bar_dp_f = -dr_dz_bar_inv @ dr_dp_f_bar
@@ -1393,47 +1458,62 @@ class CasadiMPC:
         # dz_bar_da_func = csd.Function("dz_bar_da_func", [z_bar, p_fixed_bar, self._p_adjustable], [dz_bar_da])
 
         # Create second order sensitivity functions necessary for the constrained (MPC-based) stochastic policy
-        n_p = self._p_adjustable.shape[0]
+        n_p = len(self._p_adjustable_list)
         d2r_dp_da_list = []
         d2r_dp_dz_bar_list = []
         dr_da = dr_dp_f[0:nu]  # a is action
         for idx_p in range(n_p):
-            d2r_dpi_da = csd.jacobian(dr_da, self._p_adjustable[idx_p])
-            d2r_dpi_da_func = csd.Function(
-                "d2R_dp" + str(idx_p) + "_da_func",
-                [z_bar, p_fixed_bar, self._p_adjustable],
-                [d2r_dpi_da],
-                ["z", "p_fixed_bar", "p_adjustable"],
-                ["d2R_dp" + str(idx_p) + "_da"],
-            )
-            d2r_dp_da_list.append(d2r_dpi_da_func)
-
-            d2r_dpi_dz_bar = csd.jacobian(dr_dz_bar, self._p_adjustable[idx_p])
+            d2r_dpi_dz_bar = csd.jacobian(dr_dz_bar, self._p_adjustable_list[idx_p])
             d2r_dpi_dz_bar_func = csd.Function(
                 "d2R_dp" + str(idx_p) + "_dz_bar_func",
                 [z_bar, p_fixed_bar, self._p_adjustable],
                 [d2r_dpi_dz_bar],
-                ["p_i", "z_bar", "p_fixed_bar", "p_adjustable"],
+                ["z_bar", "p_fixed_bar", "p_adjustable"],
                 ["d2R_dp" + str(idx_p) + "_dz_bar"],
             )
             d2r_dp_dz_bar_list.append(d2r_dpi_dz_bar_func)
 
-        n_z_bar = z_bar.shape[0]
+            d2r_dpi_da = csd.jacobian(dr_da, self._p_adjustable_list[idx_p])
+            d2r_dpi_da_func = csd.Function(
+                "d2R_dp" + str(idx_p) + "_da_func",
+                [z_bar, p_fixed_bar, self._p_adjustable],
+                [d2r_dpi_da],
+                ["z_bar", "p_fixed_bar", "p_adjustable"],
+                ["d2R_dp" + str(idx_p) + "_da"],
+            )
+            d2r_dp_da_list.append(d2r_dpi_da_func)
+
+        n_z_bar = len(z_bar_list)
         d2r_dzdz_j_bar_list = []
+        d2r_dadz_j_bar_list = []
         for j in range(n_z_bar):
-            z_bar_j = z_bar[j]
-            d2r_dzdz_j = csd.jacobian(dr_dz_bar, z_bar_j)
+            d2r_dzdz_j = csd.jacobian(dr_dz_bar, z_bar_list[j])
             d2r_dzdz_j_func = csd.Function(
-                "d2r_dzdz_j_func",
+                "d2r_dzdz_" + str(j) + "_func",
                 [z_bar, p_fixed_bar, self._p_adjustable],
                 [d2r_dzdz_j],
-                ["z_bar_j", "z_bar", "p_fixed_bar", "p_adjustable"],
-                ["d2r_dzdz_j"],
+                ["z_bar", "p_fixed_bar", "p_adjustable"],
+                ["d2r_dzdz_" + str(j)],
             )
             d2r_dzdz_j_bar_list.append(d2r_dzdz_j_func)
 
+            d2r_dadz_j = csd.jacobian(dr_da, z_bar_list[j])
+            d2r_dadz_j_func = csd.Function(
+                "d2r_dadz_" + str(j) + "_func",
+                [z_bar, p_fixed_bar, self._p_adjustable],
+                [d2r_dadz_j],
+                ["z_bar", "p_fixed_bar", "p_adjustable"],
+                ["d2r_dadz_" + str(j)],
+            )
+            d2r_dadz_j_bar_list.append(d2r_dadz_j_func)
+
         output_dict.update(
-            {"d2r_dp_da": d2r_dp_da_list, "d2r_dp_dz_bar": d2r_dp_dz_bar_list, "d2r_dzdz_j_bar": d2r_dzdz_j_bar_list}
+            {
+                "d2r_dp_da": d2r_dp_da_list,
+                "d2r_dp_dz_bar": d2r_dp_dz_bar_list,
+                "d2r_dzdz_j_bar": d2r_dzdz_j_bar_list,
+                "d2r_dadz_j_bar": d2r_dadz_j_bar_list,
+            }
         )
 
         # for idx_p in range(n_p):
@@ -1459,7 +1539,10 @@ class CasadiMPC:
         #     "dz_bar_dpi_da_func", [z_bar, p_fixed_bar, self._p_adjustable], [dz_bar_dpi_da]
         # )
         # dz_bar_dp_da.append(dz_bar_dpi_da_func)
-        return mpc_common.NLPSensitivities.from_dict(output_dict)
+        sensitivities = mpc_common.NLPSensitivities.from_dict(output_dict)
+        if tau == self._solver_options.mu_target:
+            self._sensitivities = sensitivities
+        return sensitivities
 
     def plot_cost_function_values(
         self,

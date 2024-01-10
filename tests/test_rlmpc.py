@@ -10,5 +10,5 @@ if __name__ == "__main__":
     scenario_data = scenario_generator.generate(config_file=scenario_file, new_load_of_map_data=False)
     simulator = Simulator()
     simulator.toggle_liveplot_visibility(True)
-    output = simulator.run([scenario_data], ownship_colav_system=rlmpc_obj)
+    output = simulator.run([scenario_data], colav_systems=[(0, rlmpc_obj)])
     print("done")

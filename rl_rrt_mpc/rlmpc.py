@@ -222,7 +222,7 @@ class RLMPC(ci.ICOLAV):
         ownship_csog_state[3] = state_copy[2]
         ownship_csog_state[3] = ownship_state[3]
         if not self._initialized:
-            self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, kwargs)
+            self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
 
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
