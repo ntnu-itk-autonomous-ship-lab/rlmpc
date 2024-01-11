@@ -50,7 +50,7 @@ midlevel_mpc:
     r_safe_do: 15.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 12
+    max_num_so_constr: 0
     max_num_do_constr_per_zone: 1 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
@@ -75,13 +75,14 @@ midlevel_mpc:
       mu_init: 0.1
       acceptable_tol: 0.0001
       acceptable_obj_change_tol: 1000_000_000_000.0
-      max_iter: 1000
+      max_iter: 800
       warm_start_init_point: "yes"
       verbose: False
       jit: False
       jit_flags: ["-O3"]
       compiler: "shell"
       expand_mx_funcs_to_sx: False
+      derivative_test: "none"
     acados:
       nlp_solver_type: "SQP"
       nlp_solver_max_iter: 65

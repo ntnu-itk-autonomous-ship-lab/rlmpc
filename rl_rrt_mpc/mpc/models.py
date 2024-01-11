@@ -127,7 +127,7 @@ class AugmentedKinematicCSOG(MPCModel):
         self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, -approx_inf, U_min])
         self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, approx_inf, U_max])
 
-    def params(self) -> cs_models.KinematicCSOGParams:
+    def params(self) -> AugmentedKinematicCSOGParams:
         return self._params
 
     def dims(self) -> Tuple[int, int]:
@@ -365,7 +365,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
             soln[:, k] = xs_k
             xdot = self.dynamics(xs_k, u, p).full().flatten()
             dxs = xdot * dt
-            xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
+            # xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
     def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:

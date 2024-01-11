@@ -286,6 +286,9 @@ midlevel_mpc:
               expand_mx_funcs_to_sx:
                 required: True
                 type: boolean
+              derivative_test:
+                required: True
+                type: string
 
           acados:
             required: True

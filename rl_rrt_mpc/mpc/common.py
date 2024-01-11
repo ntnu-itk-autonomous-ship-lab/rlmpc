@@ -37,6 +37,7 @@ class CasadiSolverOptions:
     jit_flags: list = field(default_factory=lambda: ["-O0"])
     compiler: str = "clang"
     expand_mx_funcs_to_sx: bool = True
+    derivative_test: str = "none"
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -61,6 +62,7 @@ class CasadiSolverOptions:
             "jit_options": {"flags": self.jit_flags},
             "compiler": self.compiler,
             "expand": self.expand_mx_funcs_to_sx,
+            self.solver_type + ".derivative_test": self.derivative_test,
         }
         return opts
 

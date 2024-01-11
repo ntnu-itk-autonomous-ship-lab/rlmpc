@@ -250,17 +250,17 @@ class CasadiMPC:
         chi = warm_start_traj[2, :]
         chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
         warm_start_traj[2, :] = chi_unwrapped
-        w = inputs.T.flatten()
-        w = np.concatenate((w, warm_start_traj.T.flatten()))
         w = np.concatenate(
             (
-                w,
+                inputs.T.flatten(),
+                warm_start_traj.T.flatten(),
                 np.zeros(
                     (self._params.max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone)
                     * (N + 1)
                 ),
             )
         )
+
         warm_start = {"x": w.tolist(), "lam_x": np.zeros(w.shape[0]).tolist(), "lam_g": np.zeros(dim_g).tolist()}
         # shifted_ws_traj = warm_start_traj + np.array(
         #     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
@@ -341,8 +341,7 @@ class CasadiMPC:
         """
         n_attempts = 6
         n_shifts = int(dt / self._params.dt)
-        w_prev = np.array(prev_warm_start["x"])
-        U_prev, X_prev, Sigma_prev = self._decision_trajectories(w_prev)
+        U_prev, X_prev, Sigma_prev = self._decision_trajectories(prev_warm_start["x"])
         X_prev = X_prev.full()
         U_prev = U_prev.full()
         Sigma_prev = Sigma_prev.full()
@@ -362,6 +361,7 @@ class CasadiMPC:
             np.array([0.1, -0.1, -0.05]),
             np.array([0.0, -0.2, -0.05]),
         ]
+        # FIXXdwadwadwadwa
         success = False
         for i in range(n_attempts):
             w_warm_start, X_warm_start, U_warm_start, success = self._try_to_create_warm_start_solution(
@@ -414,8 +414,6 @@ class CasadiMPC:
             self._initialized_v = True
             self._prev_cost = np.inf
 
-        action = None
-
         chi = xs[2]
         xs_unwrapped = xs.copy()
         xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
@@ -427,7 +425,7 @@ class CasadiMPC:
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
             self._current_warmstart,
             xs_unwrapped,
-            action,
+            None,
             do_cr_list,
             do_ho_list,
             do_ot_list,
@@ -437,6 +435,19 @@ class CasadiMPC:
             perturb_sigma=perturb_sigma,
             **kwargs,
         )
+
+        # Check initial start feasibility wrt equality and inequality constraints:
+        U_ws, X_ws, Sigma_ws = self._decision_trajectories(self._current_warmstart["x"])
+        w_sub_ws = np.concatenate((U_ws.full().T.flatten(), X_ws.full().T.flatten()))
+        g_eq_vals = self._equality_constraints(w_sub_ws, parameter_values).full().flatten()
+        g_ineq_vals = self._inequality_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
+        if np.any(np.abs(g_eq_vals) > 1e-6):
+            print(
+                f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6)}!"
+            )
+        if np.any(g_ineq_vals > 1e-6):
+            print(f"Warm start is infeasible wrt inequality constraints at row: {np.argwhere(g_ineq_vals > 1e-6)}!")
+
         t_start = time.time()
         soln = self._solver(
             x0=self._current_warmstart["x"],
@@ -453,11 +464,13 @@ class CasadiMPC:
         cost_val = soln["f"].full()[0][0]
         lam_x = soln["lam_x"].full()
         lam_g = soln["lam_g"].full()
+        U, X, Sigma = self._extract_trajectories(soln)
+        w_sub = np.concatenate((U.T.flatten(), X.T.flatten()))
         if stats["return_status"] == "Maximum_Iterations_Exceeded":
             # Use solution unless it is infeasible, then use previous solution.
-            g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
-            g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
-            if dt > 0.0 and np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
+            g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
+            g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full().flatten()
+            if dt > 0.0 and np.any(np.abs(g_eq_vals) > 1e-6) or np.any(g_ineq_vals > 1e-6):
                 soln = self._current_warmstart
                 soln["f"] = self._prev_cost
                 cost_val = self._prev_cost
@@ -465,21 +478,33 @@ class CasadiMPC:
                 lam_g = self._current_warmstart["lam_g"]
         elif stats["return_status"] == "Infeasible_Problem_Detected":
             # should not happen when using slack variables
+            g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
+            g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full().flatten()
+            if np.any(np.abs(g_eq_vals) > 1e-6):
+                print(
+                    f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6)}!"
+                )
+            if np.any(g_ineq_vals > 1e-6):
+                print(
+                    f"Warm start is infeasible wrt inequality constraints at rows: {np.argwhere(g_ineq_vals > 1e-6)}!"
+                )
+
             raise RuntimeError("Infeasible solution found.")
 
-        U, X, Sigma = self._extract_trajectories(soln)
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full()
-        w_sub = np.concatenate((U.flatten(), X.flatten()))
         g_eq_vals = self._equality_constraints(w_sub, parameter_values).full()
         g_eq_jac_rank = np.linalg.matrix_rank(self._equality_constraints_jacobian(w_sub, parameter_values).full())
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
-        g_ineq_jac_rank = np.linalg.matrix_rank(
-            self._inequality_constraints_jacobian(soln["x"], parameter_values).full()
-        )
-        nlp_hess = self._d2lag_d2w(soln["x"], parameter_values, lam_x, lam_g).full()
+        g_ineq_jac_rank = 0
+        if g_ineq_vals.size > 0:
+            g_ineq_jac_rank = np.linalg.matrix_rank(
+                self._inequality_constraints_jacobian(soln["x"], parameter_values).full()
+            )
+        nlp_hess = self._nlp_hess_lag(soln["x"], parameter_values, 1.0, lam_g).full()
+        nlp_hess_rank = np.linalg.matrix_rank(nlp_hess)
 
-        self._current_warmstart["x"] = self._decision_variables(X, U, Sigma)
+        self._current_warmstart["x"] = self._decision_variables(U, X, Sigma)
         self._current_warmstart["lam_x"] = lam_x
         self._current_warmstart["lam_g"] = lam_g
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
@@ -498,7 +523,7 @@ class CasadiMPC:
             arg_max_so_constr, max_so_constr = np.argmax(so_constr_vals), np.max(so_constr_vals)
 
         print(
-            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (n_cols, rank): {len(g_eq_vals), g_eq_jac_rank}) \n\t- Inequality constraints jac (n_cols, rank): {len(g_ineq_vals), g_ineq_jac_rank}\n\t - Hessian (n_cols, rank): {len(w_sub), np.linalg.matrix_rank(self._dlag(w_sub, parameter_values).full())}"
+            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): {max_do_constr}, {arg_max_do_constr}\n\t- Equality constraints jac (n_cols, rank): {len(g_eq_vals), g_eq_jac_rank} \n\t- Inequality constraints jac (n_cols, rank): {len(g_ineq_vals), g_ineq_jac_rank}\n\t- Hessian (n_cols, rank): {nlp_hess.shape[0], nlp_hess_rank}"
         )
         self._t_prev = t
         self._prev_inputs = U[:, 0]
@@ -911,8 +936,8 @@ class CasadiMPC:
         g_eq = csd.vertcat(*g_eq_list)
         g_ineq = csd.vertcat(*g_ineq_list)
 
-        lbg_eq = [0.0] * g_eq.shape[0]
-        ubg_eq = [0.0] * g_eq.shape[0]
+        lbg_eq = [-1e-9] * g_eq.shape[0]
+        ubg_eq = [1e-9] * g_eq.shape[0]
         lbg_ineq = [-np.inf] * g_ineq.shape[0]
         ubg_ineq = [0.0] * g_ineq.shape[0]
         self._lbg = np.concatenate((lbg_eq, lbg_ineq), axis=0)
@@ -968,7 +993,7 @@ class CasadiMPC:
             [w_sub, self._p],
             [csd.jacobian(g_eq, w_sub)],
             ["w_sub", "p"],
-            ["dg_dw_sub"],
+            ["dg_dw"],
         )
         self._inequality_constraints = csd.Function(
             "inequality_constraints", [self._opt_vars, self._p], [g_ineq], ["w", "p"], ["g_ineq"]
@@ -995,12 +1020,12 @@ class CasadiMPC:
             self._decision_variables = csd.Function(
                 "decision_variables",
                 [
-                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.reshape(csd.vertcat(*U), nu, -1),
+                    csd.reshape(csd.vertcat(*X), nx, -1),
                     csd.vertcat(*Sigma),
                 ],
                 [self._opt_vars],
-                ["X", "U", "Sigma"],
+                ["U", "X", "Sigma"],
                 ["w"],
             )
         else:
@@ -1040,18 +1065,9 @@ class CasadiMPC:
         Hs = csd.vertcat(*hs)
         G = g_eq
         H = csd.vertcat(Hu, Hx, Hs, g_ineq)
-        hw = csd.vertcat(Hu, Hx, Hs)
         self._nlp_eq = G
         self._nlp_ineq = H
-
-        # Used for SOSC checking
-        lam_x = csd.MX.sym("lam_x", hw.shape[0])
-        lam_g = csd.MX.sym("lam_g", g.shape[0])
-        lag = J + lam_x.T @ hw + lam_g.T @ g
-        Hww, _ = csd.hessian(lag, self._opt_vars)
-        self._d2lag_d2w: csd.Function = csd.Function(
-            "lag_hessian_w", [self._opt_vars, self._p, lam_x, lam_g], [Hww], ["w", "p", "lam_x", "lam_g"], ["d2lag_d2w"]
-        )
+        self._nlp_hess_lag = self._solver.get_function("nlp_hess_l")
         # self.build_sensitivities(tau=self._solver_options.mu_target)
 
     def _create_static_obstacle_constraint(
@@ -1166,9 +1182,12 @@ class CasadiMPC:
                 [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * w_do_i + r_safe_do) ** 2]]
             )
             do_constr_list.append(
-                csd.log(1 - sigma_k[self._params.max_num_so_constr + i] + epsilon)
-                - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+                1.0 - sigma_k[self._params.max_num_so_constr + i] - p_diff_do_frame.T @ weights @ p_diff_do_frame
             )
+            # do_constr_list.append(
+            #     csd.log(1 - sigma_k[self._params.max_num_so_constr + i] + epsilon)
+            #     - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+            # )
         return do_constr_list
 
     def create_parameter_values(
