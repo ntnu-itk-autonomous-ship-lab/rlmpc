@@ -50,7 +50,7 @@ midlevel_mpc:
     r_safe_do: 15.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 0
+    max_num_so_constr: 12
     max_num_do_constr_per_zone: 1 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
@@ -58,7 +58,7 @@ midlevel_mpc:
       length: 30.0
       width: 8.0
       r_max: 6.0
-      U_min: 0.0
+      U_min: -10.0
       U_max: 10.0
       a_max: 0.2
       s_min: 0.0

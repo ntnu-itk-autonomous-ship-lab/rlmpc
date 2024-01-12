@@ -136,7 +136,7 @@ class MidlevelMPC:
 
         Args:
             - t (float): Current time.
-            - xs (np.ndarray): Current state on the form [x, y, chi, U]^T.
+            - xs (np.ndarray): Current state on the form [x, y, psi, u, v, r]^T.
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.

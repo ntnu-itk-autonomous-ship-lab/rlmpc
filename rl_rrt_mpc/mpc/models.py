@@ -347,25 +347,30 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         return f_impl, f_expl, xdot, x, u, p
 
     def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
-        """Simulate N Euler steps for the Telemetron vessel
+        """Simulate N Euler steps for the model
 
         Args:
             - xs (np.ndarray): State vector
-            - u (np.ndarray): Input vector (chi_d_dot, U_d_dot)
+            - u (np.ndarray): Input vector (chi_d_dot, U_d_dot), either nu x N or nu x 1
             - p (np.ndarray): Parameter vector
             - dt (float): Time step
-            - N (int): Number of steps to simulate
+            - N (int): Number of steps to simulate, typically equal to N_mpc + 1
 
         Returns:
             np.ndarray: Next state vector
         """
+        nu, N_u = u.shape
+        assert N_u == 1 or N_u == N - 1, "u must be either nu x 1 or nu x N - 1"
         soln = np.zeros((self.x.shape[0], N))
         xs_k = xs
+        u_k = u[:, 0]
         for k in range(N):
             soln[:, k] = xs_k
-            xdot = self.dynamics(xs_k, u, p).full().flatten()
+            if N_u > 1 and k < N_u:
+                u_k = u[:, k]
+            xdot = self.dynamics(xs_k, u_k, p).full().flatten()
             dxs = xdot * dt
-            # xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
+            xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
     def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
@@ -373,22 +378,27 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
 
         Args:
             xs (np.ndarray): State vector
-            u (np.ndarray): Input vector
+            u (np.ndarray): Input vectors, either nu x N or nu x 1
             p (np.ndarray): Parameter vector
             dt (float): Time step
-            N (int): Number of time steps
+            N (int): Number of time steps, typically equal to N_mpc + 1
 
         Returns:
             np.ndarray: Next state vectors
         """
+        nu, N_u = u.shape
+        assert N_u == 1 or N_u == N - 1, "u must be either nu x 1 or nu x N - 1"
         soln = np.zeros((self.x.shape[0], N))
         xs_k = xs
+        u_k = u[:, 0]
         for k in range(N):
             soln[:, k] = xs_k
-            k1 = self.dynamics(xs_k, u, p).full().flatten()
-            k2 = self.dynamics(xs_k + 0.5 * dt * k1, u, p).full().flatten()
-            k3 = self.dynamics(xs_k + 0.5 * dt * k2, u, p).full().flatten()
-            k4 = self.dynamics(xs_k + dt * k3, u, p).full().flatten()
+            if N_u > 1 and k < N_u:
+                u_k = u[:, k]
+            k1 = self.dynamics(xs_k, u_k, p).full().flatten()
+            k2 = self.dynamics(xs_k + 0.5 * dt * k1, u_k, p).full().flatten()
+            k3 = self.dynamics(xs_k + 0.5 * dt * k2, u_k, p).full().flatten()
+            k4 = self.dynamics(xs_k + dt * k3, u_k, p).full().flatten()
             xs_k = xs_k + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
             xs_k = mf.sat(xs_k, self.lbx, self.ubx)
         return soln

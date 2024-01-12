@@ -260,7 +260,7 @@ class RLMPC(ci.ICOLAV):
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             self._mpc_soln = self._mpc.plan(
                 t,
-                xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
+                xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
                 do_cr_list=do_cr_list,
                 do_ho_list=do_ho_list,
                 do_ot_list=do_ot_list,
