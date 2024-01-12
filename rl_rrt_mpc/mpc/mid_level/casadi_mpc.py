@@ -355,7 +355,7 @@ class CasadiMPC:
         if min_dist_so <= self._params.r_safe_so or min_dist_do <= self._params.r_safe_do:
             # cs_mapf.plot_trajectory(shifted_pos_traj, enc, "black")
             return w_warm_start, X_warm_start, U_warm_start, False
-        # cs_mapf.plot_trajectory(shifted_pos_traj, enc, "pink")
+        cs_mapf.plot_trajectory(shifted_pos_traj, enc, "pink")
         return w_warm_start, X_warm_start, U_warm_start, True
 
     def _shift_warm_start(self, xs: np.ndarray, prev_warm_start: dict, dt: float, do_list: list, enc: senc.ENC) -> dict:
@@ -386,11 +386,11 @@ class CasadiMPC:
         ]
         u_attempts = [
             U_prev[:, -1],
-            np.array([0.05, -0.05, U_prev[nu - 1, -offsets[1]]]),
-            np.array([-0.05, -0.05, U_prev[nu - 1, -offsets[1]]]),
-            np.array([0.05, -0.1, U_prev[nu - 1, -offsets[1]]]),
-            np.array([-0.05, -0.1, U_prev[nu - 1, -offsets[1]]]),
-            np.array([0.0, -0.1, U_prev[nu - 1, -offsets[1]]]),
+            np.array([0.05, -0.05, 0.0]),
+            np.array([-0.05, -0.05, 0.0]),
+            np.array([0.05, -0.1, 0.0]),
+            np.array([-0.05, -0.1, 0.0]),
+            np.array([0.0, -0.1, 0.0]),
         ]
 
         do_list_shifted = []
@@ -1227,13 +1227,13 @@ class CasadiMPC:
             weights = hf.casadi_matrix_from_nested_list(
                 [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * w_do_i + r_safe_do) ** 2]]
             )
-            do_constr_list.append(
-                1.0 - sigma_k[self._params.max_num_so_constr + i] - p_diff_do_frame.T @ weights @ p_diff_do_frame
-            )
             # do_constr_list.append(
-            #     csd.log(1 - sigma_k[self._params.max_num_so_constr + i] + epsilon)
-            #     - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+            #     1.0 - sigma_k[self._params.max_num_so_constr + i] - p_diff_do_frame.T @ weights @ p_diff_do_frame
             # )
+            do_constr_list.append(
+                csd.log(1 - sigma_k[self._params.max_num_so_constr + i] + epsilon)
+                - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+            )
         return do_constr_list
 
     def create_parameter_values(

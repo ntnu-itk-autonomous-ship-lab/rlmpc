@@ -58,9 +58,9 @@ midlevel_mpc:
       length: 30.0
       width: 8.0
       r_max: 6.0
-      U_min: -10.0
-      U_max: 10.0
-      a_max: 0.2
+      U_min: 0.0
+      U_max: 5.0
+      a_max: 0.11
       s_min: 0.0
       s_max: 100000.0
       s_dot_max: 10000.0
