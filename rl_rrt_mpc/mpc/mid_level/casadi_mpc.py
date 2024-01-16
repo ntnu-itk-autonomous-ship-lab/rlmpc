@@ -43,6 +43,7 @@ class CasadiMPC:
         self._prev_cost: float = np.inf
         self._prev_opt_course: float = 0.0
         self._prev_opt_speed: float = 0.0
+        self._so_surfaces: list = []
 
         self._nlp_perturbation: csd.MX = csd.MX.sym("nlp_perturbation", 0)
 
@@ -99,7 +100,7 @@ class CasadiMPC:
         self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
         self._speed_spl_coeffs: csd.MX = csd.MX.sym("speed_spl_coeffs", 0)
         self._speed_spl_coeffs_values: np.ndarray = np.array([])
-        self._s: float = 0.001
+        self._s: float = 0.0
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
 
@@ -266,13 +267,15 @@ class CasadiMPC:
         chi = warm_start_traj[2, :]
         chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
         warm_start_traj[2, :] = chi_unwrapped
+        max_num_so_constr = self._params.max_num_so_constr
+        if self._so_surfaces:
+            max_num_so_constr = len(self._so_surfaces)
         w = np.concatenate(
             (
                 inputs.T.flatten(),
                 warm_start_traj.T.flatten(),
                 np.zeros(
-                    (nx + self._params.max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone)
-                    * (N + 1)
+                    (nx + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone) * (N + 1)
                 ),
             )
         )
@@ -494,6 +497,8 @@ class CasadiMPC:
         if np.any(g_ineq_vals > 1e-6):
             print(f"Warm start is infeasible wrt inequality constraints at row: {np.argwhere(g_ineq_vals > 1e-6)}!")
 
+        if t > 49.0:
+            print("")
         t_start = time.time()
         soln = self._solver(
             x0=self._current_warmstart["x"],
@@ -538,13 +543,19 @@ class CasadiMPC:
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full()
         g_eq_vals = self._equality_constraints(w_sub, parameter_values).full()
-        g_eq_jac_rank = np.linalg.matrix_rank(self._equality_constraints_jacobian(w_sub, parameter_values).full())
+        g_eq_jac = self._equality_constraints_jacobian(w_sub, parameter_values).full()
+        g_eq_jac_rank = np.linalg.matrix_rank(g_eq_jac)
+        max_g_eq_jac_rank = g_eq_jac.shape[1] if g_eq_jac.shape[1] < g_eq_jac.shape[0] else g_eq_jac.shape[0]
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
         g_ineq_jac_rank = 0
+        max_ineq_jac_rank = 0
         if g_ineq_vals.size > 0:
-            g_ineq_jac_rank = np.linalg.matrix_rank(
-                self._inequality_constraints_jacobian(soln["x"], parameter_values).full()
+            g_ineq_jac = self._inequality_constraints_jacobian(soln["x"], parameter_values).full()
+            g_ineq_jac_rank = np.linalg.matrix_rank(g_ineq_jac)
+            max_ineq_jac_rank = (
+                g_ineq_jac.shape[1] if g_ineq_jac.shape[1] < g_ineq_jac.shape[0] else g_ineq_jac.shape[0]
             )
+
         nlp_hess = self._nlp_hess_lag(soln["x"], parameter_values, 1.0, lam_g).full()
         nlp_hess_rank = np.linalg.matrix_rank(nlp_hess)
 
@@ -567,7 +578,7 @@ class CasadiMPC:
             arg_max_so_constr, max_so_constr = np.argmax(so_constr_vals), np.max(so_constr_vals)
 
         print(
-            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): {max_do_constr}, {arg_max_do_constr}\n\t- Equality constraints jac (n_cols, rank): {len(g_eq_vals), g_eq_jac_rank} \n\t- Inequality constraints jac (n_cols, rank): {len(g_ineq_vals), g_ineq_jac_rank}\n\t- Hessian (n_cols, rank): {nlp_hess.shape[0], nlp_hess_rank}"
+            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Upper slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank}"
         )
         self._t_prev = t
         self._prev_inputs = U[:, 0]
@@ -667,6 +678,7 @@ class CasadiMPC:
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
         n_colregs_zones = 3
+        approx_inf = 1e10
 
         # Ship model and path timing dynamics
         nx, nu = self._model.dims()
@@ -677,7 +689,7 @@ class CasadiMPC:
 
         hu = []  # Box constraints on inputs
         hx = []  # Box constraints on states
-        hs, hs_bx, hs_obst = [], [], []  # Box constraints on sigma
+        hs, hs_bx, hs_so, hs_do = [], [], [], []  # Box constraints on sigma
 
         g_eq_list = []  # NLP equality constraints
         g_ineq_list = []  # NLP inequality constraints
@@ -686,7 +698,7 @@ class CasadiMPC:
         # NLP decision variables
         U = []
         X = []
-        Sigma, Sigma_bx, Sigma_obst = [], [], []
+        Sigma, Sigma_bx, Sigma_do, Sigma_so = [], [], [], []
 
         if self._p_mdl.shape[0] > 0:
             p_adjustable.append(self._p_mdl)
@@ -701,6 +713,13 @@ class CasadiMPC:
         X.append(x_k)
         g_eq_list.append(x_0 - x_k)
         p_fixed.append(x_0)
+
+        sigma_bx_k = csd.MX.sym(
+            "sigma_bx_0",
+            ubx_k.shape[0],
+            1,
+        )
+        Sigma_bx.append(sigma_bx_k)
 
         # Add the initial action u_0 as parameter, relevant for the Q-function approximator
         u_0 = csd.MX.sym("u_0_constr", nu, 1)
@@ -765,6 +784,7 @@ class CasadiMPC:
                 so_list, enc, safety_margins=[self._params.r_safe_so], map_origin=self._map_origin
             )[0]
             max_num_so_constr = len(so_surfaces)
+            self._so_surfaces = so_surfaces
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
             so_pars = csd.MX.sym(
                 "so_pars", 3, self._params.max_num_so_constr
@@ -784,8 +804,12 @@ class CasadiMPC:
             raise ValueError("Unknown static obstacle constraint type.")
 
         # Slack weighting matrix W (dim = 1 x (max_num_so_constr + 3 * self._params.max_num_do_constr_per_zone))
-        W = csd.MX.sym("W", nx + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone, 1)
-        p_fixed.append(W)
+        W_bx = csd.MX.sym("W_bx", nx, 1)
+        W_so = csd.MX.sym("W_so", max_num_so_constr, 1)
+        W_do = csd.MX.sym("W_do", n_colregs_zones * self._params.max_num_do_constr_per_zone, 1)
+        p_fixed.append(W_bx)
+        p_fixed.append(W_so)
+        p_fixed.append(W_do)
 
         # Safety zone parameters
         r_safe_so = csd.MX.sym("r_safe_so", 1)
@@ -835,23 +859,34 @@ class CasadiMPC:
             U.append(u_k)
             hu.append(lbu_k - u_k)  # lbu <= u_k
             hu.append(u_k - ubu_k)  # u_k <= ubu
-
-            sigma_bx_k = csd.MX.sym(
-                "sigma_bx_" + str(k),
-                ubx_k.shape[0],
-                1,
-            )
-            sigma_obst_k = csd.MX.sym(
-                "sigma_obst_" + str(k),
-                max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone,
-                1,
-            )
-            Sigma_bx.append(sigma_bx_k)
-            Sigma_obst.append(sigma_obst_k)
             hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
-            hs_bx.append(sigma_bx_k - 1e10)  # sigma_bx_k <= 1e12 = inf
-            hs_obst.append(-sigma_obst_k)  # 0 <= sigma_obst_k
-            hs_obst.append(sigma_obst_k - 1e10)  # sigma_obst_k <= 1e12 = inf
+            hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= inf
+            hx.append(lbx_k - x_k - sigma_bx_k)  # lbx - sigma_bx <= x_k
+            hx.append(x_k - sigma_bx_k - ubx_k)  # x_k <= ubx + sigma_bx
+
+            slack_penalty_cost = W_bx.T @ sigma_bx_k
+
+            sigma_so_k = csd.MX.sym(
+                "sigma_so_" + str(k),
+                max_num_so_constr,
+                1,
+            )
+            sigma_do_k = csd.MX.sym(
+                "sigma_do_" + str(k),
+                n_colregs_zones * self._params.max_num_do_constr_per_zone,
+                1,
+            )
+
+            if max_num_so_constr > 0:
+                Sigma_so.append(sigma_so_k)
+                hs_so.append(-sigma_so_k)  # 0 <= sigma_so_k
+                hs_so.append(sigma_so_k - 1e10)  # sigma_so_k <= 1e12 = inf
+                slack_penalty_cost += W_so.T @ sigma_so_k
+            if self._params.max_num_do_constr_per_zone > 0:
+                Sigma_do.append(sigma_do_k)
+                hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
+                hs_do.append(sigma_do_k - 1e10)  # sigma_do_k <= 1e12 = inf
+                slack_penalty_cost += W_do.T @ sigma_do_k
 
             x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
             y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
@@ -886,7 +921,7 @@ class CasadiMPC:
                 d_attenuation,
                 colregs_weights,
             )
-            slack_penalty_cost = W.T @ csd.vertcat(sigma_bx_k, sigma_obst_k)
+
             J += gamma**k * (path_following_cost + rate_cost + colregs_cost + slack_penalty_cost)
             if k == 0:
                 self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
@@ -899,72 +934,84 @@ class CasadiMPC:
                     "overtaking_cost", [x_k, X_do_ot, self._p_colregs], [overtaking_cost]
                 )
                 self._slack_penalty_cost = csd.Function(
-                    "slack_penalty_cost", [sigma_bx_k, sigma_obst_k], [slack_penalty_cost]
+                    "slack_penalty_cost", [sigma_bx_k, sigma_so_k, sigma_do_k], [slack_penalty_cost]
                 )
 
             so_constr_k = self._create_static_obstacle_constraint(
-                x_k, sigma_obst_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, r_safe_so
+                x_k, sigma_so_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, r_safe_so
             )
             so_constr_list.extend(so_constr_k)
             g_ineq_list.extend(so_constr_k)
 
             X_do_k = csd.vertcat(X_do_cr[:, k], X_do_ho[:, k], X_do_ot[:, k])
-            do_constr_k = self._create_dynamic_obstacle_constraint(x_k, sigma_obst_k, X_do_k, nx_do, r_safe_do)
+            do_constr_k = self._create_dynamic_obstacle_constraint(x_k, sigma_do_k, X_do_k, nx_do, r_safe_do)
             do_constr_list.extend(do_constr_k)
             g_ineq_list.extend(do_constr_k)
 
             x_k_end, _, _, _, _, _, _, _ = erk4(x_k, csd.vertcat(u_k, self._p_mdl))
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
+            sigma_bx_k = csd.MX.sym(
+                "sigma_bx_" + str(k + 1),
+                ubx_k.shape[0],
+                1,
+            )
+            Sigma_bx.append(sigma_bx_k)
             X.append(x_k)
-            hx.append(lbx_k - x_k - sigma_bx_k)  # lbx - sigma_bx <= x_k
-            hx.append(x_k - sigma_bx_k - ubx_k)  # x_k <= ubx + sigma_bx
             g_eq_list.append(x_k_end - x_k)
 
         # Terminal costs and constraints
-        sigma_bx_k = csd.MX.sym(
-            "sigma_bx_" + str(N),
-            ubx_k.shape[0],
-            1,
-        )
-        sigma_obst_k = csd.MX.sym(
-            "sigma_obst_" + str(N),
-            max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone,
-            1,
-        )
-        Sigma_bx.append(sigma_bx_k)
-        Sigma_obst.append(sigma_obst_k)
+        hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
+        hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= 1e12 = inf
+        hx.append(lbx_k - x_k - sigma_bx_k)  # lbx - sigma_bx <= x_k
+        hx.append(x_k - sigma_bx_k - ubx_k)  # x_k <= ubx + sigma_bx
+        slack_penalty_cost = W_bx.T @ sigma_bx_k
+        if max_num_so_constr > 0:
+            sigma_so_k = csd.MX.sym(
+                "sigma_so_" + str(N),
+                max_num_so_constr,
+                1,
+            )
+            Sigma_so.append(sigma_so_k)
+            hs_so.append(-sigma_so_k)  # 0 <= sigma_so_k
+            hs_so.append(sigma_so_k - approx_inf)  # sigma_so_k <= inf
+            slack_penalty_cost += W_so.T @ sigma_so_k
+        if self._params.max_num_do_constr_per_zone > 0:
+            sigma_do_k = csd.MX.sym(
+                "sigma_do_" + str(N),
+                n_colregs_zones * self._params.max_num_do_constr_per_zone,
+                1,
+            )
+            Sigma_do.append(sigma_do_k)
+            hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
+            hs_do.append(sigma_do_k - approx_inf)  # sigma_do_k <= inf
+            slack_penalty_cost += W_do.T @ sigma_do_k
 
         x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
         y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
         s_ref_k = path_derivative_refs[-1]
         path_ref_k = csd.vertcat(x_path_k, y_path_k, s_ref_k)
         path_following_cost, _, _ = mpc_common.path_following_cost_huber(x_k, path_ref_k, Q_p_vec)
-        J += gamma**N * (path_following_cost + W.T @ csd.vertcat(sigma_bx_k, sigma_obst_k))
+        J += gamma**N * (path_following_cost + slack_penalty_cost)
 
         so_constr_N = self._create_static_obstacle_constraint(
-            x_k, sigma_obst_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, r_safe_so
+            x_k, sigma_so_k, so_pars, A_so_constr, b_so_constr, so_surfaces, ship_vertices, r_safe_so
         )
         so_constr_list.extend(so_constr_N)
         g_ineq_list.extend(so_constr_N)
 
-        hx.append(lbx_k - x_k - sigma_bx_k)  # lbx - sigma_bx_k <= x_k
-        hx.append(x_k - ubx_k - sigma_bx_k)  # x_k <= ubx + sigma_bx_k
-        hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
-        hs_bx.append(sigma_bx_k - 1e10)  # sigma_bx_k <= 1e12 = inf
-        hs_obst.append(-sigma_obst_k)  # 0 <= sigma_obst_k
-        hs_obst.append(sigma_obst_k - 1e10)  # sigma_obst_k <= 1e12 = inf
-        hs = hs_bx + hs_obst
-
         X_do_N = csd.vertcat(X_do_cr[:, N], X_do_ho[:, N], X_do_ot[:, N])
-        do_constr_N = self._create_dynamic_obstacle_constraint(x_k, sigma_obst_k, X_do_N, nx_do, r_safe_do)
+        do_constr_N = self._create_dynamic_obstacle_constraint(x_k, sigma_do_k, X_do_N, nx_do, r_safe_do)
         do_constr_list.extend(do_constr_N)
         g_ineq_list.extend(do_constr_N)
+
+        hs = hs_bx + hs_so + hs_do
+
         g_ineq_list = [*hu, *hx, *hs, *g_ineq_list]
 
         # Vectorize and finalize the NLP
         g_eq = csd.vertcat(*g_eq_list)
         g_ineq = csd.vertcat(*g_ineq_list)
-        Sigma = Sigma_bx + Sigma_obst
+        Sigma = Sigma_bx + Sigma_so + Sigma_do
 
         lbg_eq = [-1e-09] * g_eq.shape[0]
         ubg_eq = [1e-09] * g_eq.shape[0]
@@ -1187,7 +1234,7 @@ class CasadiMPC:
 
         Args:
             x_k (csd.MX): State vector at the current stage in the OCP.
-            sigma_k (csd.MX): Sigma vector at the current stage in the OCP.
+            sigma_k (csd.MX): Sigma vector at the current stage in the OCP for dynamic obstacle constraints.
             X_do_k (csd.MX): Decision variables of the dynamic obstacles (in all colregs zones) at the current stage in the OCP.
             nx_do (int): Dimension of fixed parameter vector for a dynamic obstacle.
             r_safe_do (csd.MX): Safety distance to dynamic obstacles.
@@ -1209,11 +1256,10 @@ class CasadiMPC:
                 [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * w_do_i + r_safe_do) ** 2]]
             )
             # do_constr_list.append(
-            #     1.0 - sigma_k[self._params.max_num_so_constr + i] - p_diff_do_frame.T @ weights @ p_diff_do_frame
+            #     1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame
             # )
             do_constr_list.append(
-                csd.log(1 - sigma_k[self._params.max_num_so_constr + i] + epsilon)
-                - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+                csd.log(1 - sigma_k[i] + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
             )
         return do_constr_list
 
@@ -1283,9 +1329,9 @@ class CasadiMPC:
         so_parameter_values = self._update_so_parameter_values(so_list, state, enc, **kwargs)
         fixed_parameter_values.extend(so_parameter_values)
 
-        W = self._params.w_L1 * np.ones(
-            nx + self._params.max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
-        )
+        max_num_so_constr = len(self._so_surfaces) if self._so_surfaces else self._params.max_num_so_constr
+        slack_size = nx + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        W = self._params.w_L1 * np.ones(slack_size)
         fixed_parameter_values.extend(W.tolist())
         fixed_parameter_values.append(self._params.r_safe_so)
 
