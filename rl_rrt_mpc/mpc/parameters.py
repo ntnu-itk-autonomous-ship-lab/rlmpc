@@ -107,6 +107,7 @@ class MidlevelMPCParams(IParams):
         [0.1, 0.1, 1.0]
     )  # path following cost matrix, position (x, y) and speed assignment (s_dot / path variable).
     # If huber loss is used for position loss, the first two diagonal elements are the huber loss cost parameter and delta parameter.
+    # R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
     alpha_app_course: np.ndarray = np.array([112.0, 0.0006])
     alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
     K_app_course: float = 0.5  # turn rate penalty

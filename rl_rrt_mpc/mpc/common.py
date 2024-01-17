@@ -175,20 +175,17 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
     Args:
         - x (csd.MX): Current state.
         - path_ref (csd.MX): Path reference on the form [p_x_ref, p_y_ref, s_dot_ref]^T.
-        - Q_p (csd.MX): Path following cost weight matrix.
+        - Q_p (csd.MX): Path following cost weight vector.
 
     Returns:
-        Tuple[csd.MX, csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, speed deviation cost.
+        Tuple[csd.MX, csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, path dot deviation cost.
     """
     # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_dot)
     z = csd.vertcat(x[:2], x[5])  # [x, y, s_dot]
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
-    assert (
-        Q_p.shape[0] == Q_p.shape[1] == p_ref.shape[0]
-    ), "Path following cost weight matrix must be square and have the same dimension as the path reference."
-    path_dev_cost = quadratic_cost(z[:2], p_ref[:2], Q_p[:2, :2])
-    speed_dev_cost = quadratic_cost(z[2], p_ref[2], Q_p[2, 2])
-    return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
+    path_dev_cost = quadratic_cost(z[:2], p_ref[:2], csd.diag(Q_p[:2]))
+    path_dot_dev_cost = quadratic_cost(z[2], p_ref[2], Q_p[2])
+    return path_dev_cost + path_dot_dev_cost, path_dev_cost, path_dot_dev_cost
 
 
 def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, csd.MX, csd.MX]:
@@ -207,8 +204,8 @@ def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[cs
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
     path_dev_squared = (z[:2] - p_ref[:2]).T @ (z[:2] - p_ref[:2])
     path_dev_cost = 0.5 * Q_p[0] * huber_loss(path_dev_squared, Q_p[1])
-    speed_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2 + Q_p[2] * (z[2] - x[3]) ** 2
-    return path_dev_cost + speed_dev_cost, path_dev_cost, speed_dev_cost
+    path_dot_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2
+    return path_dev_cost + path_dot_dev_cost, path_dev_cost, path_dot_dev_cost
 
 
 def huber_loss(x_squared: csd.MX, delta: csd.MX) -> csd.MX:
@@ -396,6 +393,7 @@ def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:
             [
                 ["cost"],
                 ["inf"],
+                ["barrier_parameter"],
                 ["step_lengths"],
             ]
         )
@@ -408,6 +406,11 @@ def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:
         axs["inf"].plot(np.array(stats["iterations"]["inf_du"]), "r--")
         axs["inf"].legend(["Primal Infeasibility", "Dual Infeasibility"])
         axs["inf"].set_xlabel("Iteration number")
+        axs["inf"].set_ylabel("Inf norm")
+
+        axs["barrier_parameter"].plot(np.array(stats["iterations"]["mu"]), "b--")
+        axs["barrier_parameter"].set_xlabel("Iteration number")
+        axs["barrier_parameter"].set_ylabel("tau")
 
         axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_pr"]), "b--")
         axs["step_lengths"].plot(np.array(stats["iterations"]["alpha_du"]), "r--")
