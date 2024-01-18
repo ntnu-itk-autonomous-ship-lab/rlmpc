@@ -995,7 +995,7 @@ class CasadiMPC:
         lbg_eq = [-1e-09] * g_eq.shape[0]
         ubg_eq = [1e-09] * g_eq.shape[0]
         lbg_ineq = [-np.inf] * g_ineq.shape[0]
-        ubg_ineq = [1e-09] * g_ineq.shape[0]
+        ubg_ineq = [1e-12] * g_ineq.shape[0]
         self._lbg = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg = np.concatenate((ubg_eq, ubg_ineq), axis=0)
 
@@ -1194,7 +1194,7 @@ class CasadiMPC:
             list: List of dynamic obstacle constraints at the current stage in the OCP.
         """
         do_constr_list = []
-        epsilon = 1e-9
+        epsilon = 1e-12
         n_do = int(X_do_k.shape[0] / nx_do)
         for i in range(n_do):
             x_aug_do_i = X_do_k[nx_do * i : nx_do * (i + 1)]
@@ -1204,14 +1204,12 @@ class CasadiMPC:
             Rchi_do_i = mf.Rpsi2D_casadi(x_do_i[2])
             p_diff_do_frame = Rchi_do_i.T @ (x_k[0:2] - x_do_i[0:2])
             weights = hf.casadi_matrix_from_nested_list(
-                [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * w_do_i + r_safe_do) ** 2]]
+                [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * l_do_i + r_safe_do) ** 2]]
             )
+            do_constr_list.append(1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame)
             # do_constr_list.append(
-            #     1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame
+            #     csd.log(1.0 - sigma_k[i] + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
             # )
-            do_constr_list.append(
-                csd.log(1 - sigma_k[i] + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
-            )
         return do_constr_list
 
     def create_parameter_values(
@@ -1761,13 +1759,24 @@ class CasadiMPC:
         axes["colregs_cost"].legend()
         plt.show(block=False)
 
-    def plot_solution_trajectory(self, X: np.ndarray, U: np.ndarray, Sigma: np.ndarray) -> None:
+    def plot_solution_trajectory(
+        self,
+        X: np.ndarray,
+        U: np.ndarray,
+        Sigma: np.ndarray,
+        do_cr_parameters: np.ndarray,
+        do_ho_parameters: np.ndarray,
+        do_ot_parameters: np.ndarray,
+    ) -> None:
         """Plots the solution trajectory.
 
         Args:
-            X (np.ndarray): State trajectory.
-            U (np.ndarray): Input trajectory.
-            Sigma (np.ndarray): Slack trajectory.
+            - X (np.ndarray): State trajectory.
+            - U (np.ndarray): Input trajectory.
+            - Sigma (np.ndarray): Slack trajectory.
+            - do_cr_parameters (np.ndarray): Crossing dynamic obstacle parameters.
+            - do_ho_parameters (np.ndarray): Head-on dynamic obstacle parameters.
+            - do_ot_parameters (np.ndarray): Overtaking dynamic obstacle parameters.
         """
         speed_refs = np.zeros(X.shape[1])
         mpc_speed_refs = np.zeros(X.shape[1])
