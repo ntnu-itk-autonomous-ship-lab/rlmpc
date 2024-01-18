@@ -508,8 +508,8 @@ class CasadiMPC:
         U, X, Sigma = self._extract_trajectories(soln)
         w_sub = np.concatenate((U.T.flatten(), X.T.flatten()))
         self.print_solution_info(soln, parameter_values, stats, t_solve)
-        self.plot_solution_trajectory(X, U, Sigma)
-        self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
+        # self.plot_solution_trajectory(X, U, Sigma)
+        # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
 
         if not stats["success"]:
             mpc_common.plot_casadi_solver_stats(stats, True)
@@ -1658,13 +1658,14 @@ class CasadiMPC:
         colregs_cost = np.zeros(X.shape[1])
         nx_do = 6
         _, path_var_derivative_refs, _ = self._create_path_parameter_values()
+        Q_p_vec = self._params.Q_p.diagonal().flatten()
         p_path_values = np.array(
             [
                 *self._x_path_coeffs_values.tolist(),
                 *self._y_path_coeffs_values.tolist(),
                 *self._speed_spl_coeffs_values.tolist(),
                 *path_var_derivative_refs.tolist(),
-                *self._params.Q_p.diagonal().flatten().tolist(),
+                *Q_p_vec.tolist(),
             ]
         )
         p_rate_values = np.array(
@@ -1703,7 +1704,7 @@ class CasadiMPC:
 
         for k in range(X.shape[1]):
             path_dev_cost[k] = self._path_dev_cost(X[:, k], p_path_values)
-            path_dot_dev_cost[k] = self._path_dot_dev_cost(X[:, k], p_path_values)
+            path_dot_dev_cost[k] = Q_p_vec[2] * (X[5, k] - path_var_derivative_refs[k]) ** 2
             speed_dev_cost[k] = self._speed_dev_cost(X[:, k], p_path_values)
             if nx_do_total > 0:
                 crossing_cost[k] = self._crossing_cost(X[:, k], X_do_cr, p_colregs_values)
@@ -1770,6 +1771,7 @@ class CasadiMPC:
         """
         speed_refs = np.zeros(X.shape[1])
         mpc_speed_refs = np.zeros(X.shape[1])
+        mpc_speed_refs2 = np.zeros(X.shape[1])
         x_path = np.zeros(X.shape[1])
         y_path = np.zeros(X.shape[1])
         _, path_var_derivative_refs, path_var_refs = self._create_path_parameter_values()
@@ -1780,6 +1782,7 @@ class CasadiMPC:
             y_dot_path = self._y_dot_path(X[4, k], self._y_dot_path_coeffs_values)
             speed_refs[k] = self._speed_spline(path_var_refs[k], self._speed_spl_coeffs_values)
             mpc_speed_refs[k] = self._speed_spline(X[4, k], self._speed_spl_coeffs_values)
+            # mpc_speed_refs[k] = X[5, k] * np.sqrt(x_dot_path**2 + y_dot_path**2)
 
         fig = plt.figure(figsize=(12, 8))
         axes = fig.subplot_mosaic(
