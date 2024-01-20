@@ -86,7 +86,7 @@ class MidlevelMPC:
 
     def construct_ocp(
         self,
-        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
+        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
         xs: np.ndarray,
         so_list: list,
         enc: senc.ENC,
@@ -96,7 +96,7 @@ class MidlevelMPC:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
         Args:
-            - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]): Tuple containing the nominal path splines in x, y, heading and the speed.
+            - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float]): Tuple containing the nominal path splines in x, y, heading and the speed. The last element is the path length.
             - xs (np.ndarray): Current state of the ownship on the form [x, y, chi, U]^T
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.

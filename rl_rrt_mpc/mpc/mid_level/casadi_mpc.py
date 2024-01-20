@@ -92,7 +92,7 @@ class CasadiMPC:
         self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
         self._speed_spl_coeffs: csd.MX = csd.MX.sym("speed_spl_coeffs", 0)
         self._speed_spl_coeffs_values: np.ndarray = np.array([])
-        self._s: float = 0.0
+        self._s: float = 0.01
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
 
@@ -133,14 +133,14 @@ class CasadiMPC:
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
     def _set_path_information(
-        self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]
+        self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float]
     ) -> None:
         """Sets the path information for the MPC.
 
         Args:
-            - nominal_path (Tuple[interp.BSpline, interp.BSpline, inter.PchipInterpolator, interp.BSpline]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference.
+            - nominal_path (Tuple[interp.BSpline, interp.BSpline, inter.PchipInterpolator, interp.BSpline, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference. The last element is the path length.
         """
-        x_spline, y_spline, _, speed_spline = nominal_path
+        x_spline, y_spline, _, speed_spline, s_final = nominal_path
         s = csd.MX.sym("s", 1)
         x_path_coeffs = csd.MX.sym("x_path_coeffs", x_spline.c.shape[0])
         x_path = csd.bspline(s, x_path_coeffs, [[*x_spline.t]], [x_spline.k], 1, {})
@@ -174,10 +174,10 @@ class CasadiMPC:
         self._speed_spline = csd.Function("speed_spline", [s, speed_spl_coeffs], [speed_spl])
         self._speed_spl_coeffs = speed_spl_coeffs
 
-        self._s_final_value = x_spline.t[-1]
+        self._s_final_value = s_final
         self._model.set_min_path_variable(self._s)
-        self._model.set_max_path_variable(self._s_final_value)
-        print("Path information set. | s_final: ", self._s_final_value)
+        self._model.set_max_path_variable(s_final)  # margin
+        print("Path information set. | s_final: ", s_final)
 
     def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int) -> np.ndarray:
         """Euler prediction of the ship model and path timing model, concatenated.
@@ -204,7 +204,7 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): ENC object containing the map info.
         """
-        self._s = 0.0
+        self._s = 0.01
         self._s_dot = self.compute_path_variable_derivative(self._s)
 
         n_colregs_zones = 3
@@ -217,15 +217,18 @@ class CasadiMPC:
         xs_k[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
         xs_k[4:] = np.array([self._s, self._s_dot])
 
-        n_attempts = 7
+        n_attempts = 9
         success = False
         u_attempts = [
-            np.zeros(nu),
+            np.array([0.0, 0.0, 0.0]),
             np.array([-0.02, 0.0, 0.0]),
             np.array([0.02, 0.0, 0.0]),
             np.array([-0.02, -0.05, 0.0]),
             np.array([0.02, -0.05, 0.0]),
             np.array([0.0, -0.05, 0.0]),
+            np.array([-0.02, -0.1, -0.1]),
+            np.array([0.02, -0.1, -0.1]),
+            np.array([0.0, -0.1, -0.1]),
         ]
         do_list_shifted = []
         for do in do_list:
@@ -238,9 +241,21 @@ class CasadiMPC:
             do_shifted = (do[0], do_state_shifted, do[2], do[3], do[4])
             do_list_shifted.append(do_shifted)
 
+        max_num_so_constr = self._params.max_num_so_constr
+        if self._so_surfaces:
+            max_num_so_constr = len(self._so_surfaces) if self._params.max_num_so_constr > 0 else 0
+
+        n_bx_slacks = len(self._idx_bx_constr)
+        slacks = np.zeros(
+            (n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone) * (N + 1)
+        )
+
         for i in range(n_attempts):
             inputs = np.tile(u_attempts[i], (N, 1)).T
             warm_start_traj = self._model_prediction(xs_k, inputs, N + 1)
+            chi = warm_start_traj[2, :]
+            chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
+            warm_start_traj[2, :] = chi_unwrapped
             positions = np.array(
                 [warm_start_traj[1, :] + self._map_origin[1], warm_start_traj[0, :] + self._map_origin[0]]
             )
@@ -253,27 +268,20 @@ class CasadiMPC:
                 self._min_depth,
                 disable_bbox_check=True,
             )
-            if min_dist_so > self._params.r_safe_so and min_dist_do > self._params.r_safe_do:
+
+            if min_dist_so > self._params.r_safe_so and min_dist_do > 0.8 * self._params.r_safe_do:
                 success = True
                 break
 
         assert success, "Could not create initial warm start solution"
-        chi = warm_start_traj[2, :]
-        chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
-        warm_start_traj[2, :] = chi_unwrapped
-        max_num_so_constr = self._params.max_num_so_constr
-        if self._so_surfaces:
-            max_num_so_constr = len(self._so_surfaces) if self._params.max_num_so_constr > 0 else 0
+
         w = np.concatenate(
             (
                 inputs.T.flatten(),
                 warm_start_traj.T.flatten(),
-                np.zeros(
-                    (nx + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone) * (N + 1)
-                ),
+                slacks.T.flatten(),
             )
         )
-
         warm_start = {"x": w.tolist(), "lam_x": np.zeros(w.shape[0]).tolist(), "lam_g": np.zeros(dim_g).tolist()}
         # shifted_ws_traj = warm_start_traj + np.array(
         #     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
@@ -480,7 +488,7 @@ class CasadiMPC:
         )
 
         # Check initial start feasibility wrt equality and inequality constraints:
-        U_ws, X_ws, Sigma_ws = self._decision_trajectories(self._current_warmstart["x"])
+        U_ws, X_ws, _ = self._decision_trajectories(self._current_warmstart["x"])
         w_sub_ws = np.concatenate((U_ws.full().T.flatten(), X_ws.full().T.flatten()))
         g_eq_vals = self._equality_constraints(w_sub_ws, parameter_values).full().flatten()
         g_ineq_vals = self._inequality_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
@@ -508,13 +516,13 @@ class CasadiMPC:
         U, X, Sigma = self._extract_trajectories(soln)
         w_sub = np.concatenate((U.T.flatten(), X.T.flatten()))
         self.print_solution_info(soln, parameter_values, stats, t_solve)
-        # self.plot_solution_trajectory(X, U, Sigma)
+        # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
         # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
 
         if not stats["success"]:
             mpc_common.plot_casadi_solver_stats(stats, True)
             self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
-            self.plot_solution_trajectory(X, U, Sigma)
+            self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
             if stats["return_status"] == "Maximum_Iterations_Exceeded":
                 # Use solution unless it is infeasible, then use previous solution.
                 g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
@@ -605,7 +613,7 @@ class CasadiMPC:
 
     def construct_ocp(
         self,
-        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline],
+        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
@@ -630,7 +638,7 @@ class CasadiMPC:
                     lbg <= g(w, p) <= ubg
 
         Args:
-            - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]): Tuple containing the nominal path splines in x, y, heading and speed.
+            - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline]): Tuple containing the nominal path splines in x, y, heading and speed. The last element is the path length.
             - so_list (list): List of compatible static obstacle Polygon objects with the static obstacle constraint type.
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
@@ -678,9 +686,11 @@ class CasadiMPC:
         g_eq_list.append(x_0 - x_k)
         p_fixed.append(x_0)
 
+        self._idx_bx_constr = np.array([0, 1, 2, 3])
+        n_bx_slacks = self._idx_bx_constr.shape[0]
         sigma_bx_k = csd.MX.sym(
             "sigma_bx_0",
-            ubx_k.shape[0],
+            n_bx_slacks,
             1,
         )
         Sigma_bx.append(sigma_bx_k)
@@ -771,7 +781,7 @@ class CasadiMPC:
             raise ValueError("Unknown static obstacle constraint type.")
 
         # Slack weighting matrix W (dim = 1 x (max_num_so_constr + 3 * self._params.max_num_do_constr_per_zone))
-        W_bx = csd.MX.sym("W_bx", nx, 1)
+        W_bx = csd.MX.sym("W_bx", n_bx_slacks, 1)
         W_so = csd.MX.sym("W_so", max_num_so_constr, 1)
         W_do = csd.MX.sym("W_do", n_colregs_zones * self._params.max_num_do_constr_per_zone, 1)
         p_fixed.append(W_bx)
@@ -829,8 +839,8 @@ class CasadiMPC:
             hu.append(u_k - ubu_k)  # u_k <= ubu
             hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
             hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= inf
-            hx.append(lbx_k - x_k - sigma_bx_k)  # lbx - sigma_bx <= x_k
-            hx.append(x_k - sigma_bx_k - ubx_k)  # x_k <= ubx + sigma_bx
+            hx.append(lbx_k[self._idx_bx_constr] - x_k[self._idx_bx_constr] - sigma_bx_k)  # lbx - sigma_bx <= x_k
+            hx.append(x_k[self._idx_bx_constr] - sigma_bx_k - ubx_k[self._idx_bx_constr])  # x_k <= ubx + sigma_bx
 
             slack_penalty_cost = W_bx.T @ sigma_bx_k
 
@@ -896,6 +906,7 @@ class CasadiMPC:
                 path_following_cost
                 + speed_dev_cost
                 + rate_cost
+                + colregs_cost
                 + slack_penalty_cost
                 + u_k.T @ np.diag([0.0001, 0.0001, 0.0001]) @ u_k
             )
@@ -929,7 +940,7 @@ class CasadiMPC:
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
             sigma_bx_k = csd.MX.sym(
                 "sigma_bx_" + str(k + 1),
-                ubx_k.shape[0],
+                n_bx_slacks,
                 1,
             )
             Sigma_bx.append(sigma_bx_k)
@@ -939,8 +950,8 @@ class CasadiMPC:
         # Terminal costs and constraints
         hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
         hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= 1e12 = inf
-        hx.append(lbx_k - x_k - sigma_bx_k)  # lbx - sigma_bx <= x_k
-        hx.append(x_k - sigma_bx_k - ubx_k)  # x_k <= ubx + sigma_bx
+        hx.append(lbx_k[self._idx_bx_constr] - x_k[self._idx_bx_constr] - sigma_bx_k)  # lbx - sigma_bx <= x_k
+        hx.append(x_k[self._idx_bx_constr] - sigma_bx_k - ubx_k[self._idx_bx_constr])  # x_k <= ubx + sigma_bx
         slack_penalty_cost = W_bx.T @ sigma_bx_k
         if max_num_so_constr > 0:
             sigma_so_k = csd.MX.sym(
@@ -992,10 +1003,10 @@ class CasadiMPC:
         g_ineq = csd.vertcat(*g_ineq_list)
         Sigma = Sigma_bx + Sigma_so + Sigma_do
 
-        lbg_eq = [-1e-09] * g_eq.shape[0]
-        ubg_eq = [1e-09] * g_eq.shape[0]
+        lbg_eq = [0.0] * g_eq.shape[0]
+        ubg_eq = [0.0] * g_eq.shape[0]
         lbg_ineq = [-np.inf] * g_ineq.shape[0]
-        ubg_ineq = [1e-12] * g_ineq.shape[0]
+        ubg_ineq = [0.0] * g_ineq.shape[0]
         self._lbg = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg = np.concatenate((ubg_eq, ubg_ineq), axis=0)
 
@@ -1011,7 +1022,7 @@ class CasadiMPC:
 
         self._opt_vars = csd.vertcat(*U, *X, *Sigma)
         self._opt_vars_list = U + X + Sigma
-        ns = nx + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        ns = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
 
         self._cost_function = J
         self._g_eq = g_eq
@@ -1063,7 +1074,7 @@ class CasadiMPC:
             ["dg_dw"],
         )
         self._box_inequality_constraints = csd.Function(
-            "box_inequality_constraints", [self._opt_vars, self._p], [csd.vertcat(*hu, *hx, *hs)], ["w", "p"], ["g"]
+            "box_inequality_constraints", [self._opt_vars, self._p], [csd.vertcat(*hu, *hx, *hs)], ["w", "p"], ["g_bx"]
         )
         self._decision_trajectories = csd.Function(
             "decision_trajectories",
@@ -1206,10 +1217,10 @@ class CasadiMPC:
             weights = hf.casadi_matrix_from_nested_list(
                 [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * l_do_i + r_safe_do) ** 2]]
             )
-            do_constr_list.append(1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame)
-            # do_constr_list.append(
-            #     csd.log(1.0 - sigma_k[i] + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
-            # )
+            # do_constr_list.append(1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame)
+            do_constr_list.append(
+                csd.log(1.0 - sigma_k[i] + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+            )
         return do_constr_list
 
     def create_parameter_values(
@@ -1279,7 +1290,8 @@ class CasadiMPC:
         fixed_parameter_values.extend(so_parameter_values)
 
         max_num_so_constr = min(len(self._so_surfaces), self._params.max_num_so_constr)
-        slack_size = nx + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        n_bx_slacks = len(self._idx_bx_constr)
+        slack_size = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
         W = self._params.w_L1 * np.ones(slack_size)
         fixed_parameter_values.extend(W.tolist())
         fixed_parameter_values.append(self._params.r_safe_so)
@@ -1793,6 +1805,26 @@ class CasadiMPC:
             mpc_speed_refs[k] = self._speed_spline(X[4, k], self._speed_spl_coeffs_values)
             # mpc_speed_refs[k] = X[5, k] * np.sqrt(x_dot_path**2 + y_dot_path**2)
 
+        nx_do = 6
+        nx_do_total = nx_do * self._params.max_num_do_constr_per_zone
+        X_do_cr = np.zeros((nx_do_total, X.shape[1]))
+        X_do_ho = np.zeros((nx_do_total, X.shape[1]))
+        X_do_ot = np.zeros((nx_do_total, X.shape[1]))
+        for k in range(X.shape[1]):
+            X_do_cr_k = do_cr_parameters[k * nx_do_total : (k + 1) * nx_do_total]
+            X_do_ho_k = do_ho_parameters[k * nx_do_total : (k + 1) * nx_do_total]
+            X_do_ot_k = do_ot_parameters[k * nx_do_total : (k + 1) * nx_do_total]
+            X_do_cr[:, k] = X_do_cr_k
+            X_do_ho[:, k] = X_do_ho_k
+            X_do_ot[:, k] = X_do_ot_k
+
+        min_do_dist = np.zeros(X.shape[1])
+        for k in range(X.shape[1]):
+            d_0i_cr = np.linalg.norm(X[0:2, k] - X_do_cr[0:2, k])
+            d_0i_ho = np.linalg.norm(X[0:2, k] - X_do_ho[0:2, k])
+            d_0i_ot = np.linalg.norm(X[0:2, k] - X_do_ot[0:2, k])
+            min_do_dist[k] = np.min([d_0i_cr, d_0i_ho, d_0i_ot])
+
         fig = plt.figure(figsize=(12, 8))
         axes = fig.subplot_mosaic(
             [
@@ -1800,7 +1832,7 @@ class CasadiMPC:
                 ["path_dot_variable", "path_variable"],
                 ["course", "speed"],
                 ["turn_rate", "acceleration"],
-                ["path_input", ""],
+                ["path_input", "min_do_dist"],
             ]
         )
         axes["x"].plot(x_path - X[0, :], color="b", label=r"$p_x(s) - x$")
@@ -1859,6 +1891,13 @@ class CasadiMPC:
         axes["path_input"].set_ylabel("[m/s2]")
         axes["path_input"].set_xlabel("k")
         axes["path_input"].legend()
+
+        axes["min_do_dist"].semilogy(min_do_dist, color="b", label="min do dist")
+        axes["min_do_dist"].semilogy(self._params.r_safe_do * np.ones(X.shape[1]), color="r", label="r_safe_do")
+        axes["min_do_dist"].set_ylabel("[m]")
+        axes["min_do_dist"].set_xlabel("k")
+        axes["min_do_dist"].legend()
+
         fig.tight_layout()
         plt.show(block=False)
 

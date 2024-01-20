@@ -27,11 +27,11 @@ midlevel_mpc:
     reference_traj_bbox_buffer: 200.0
     T: 100.0
     dt: 5.0
-    Q_p: [0.3, 1.0, 20.0] # [0.3, 1.0, 15.0]
+    Q_p: [0.3, 1.0, 15.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.00025]
     K_app_course: 15.0
-    K_app_speed: 5.0
+    K_app_speed: 10.0
     K_fuel: 1.0
 
     alpha_cr: [0.03, 0.003]
@@ -46,12 +46,12 @@ midlevel_mpc:
 
     w_L2: 0.0
     w_L1: 12000.0
-    r_safe_so: 5.0
-    r_safe_do: 15.0
+    r_safe_so: 15.0
+    r_safe_do: 30.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 0
-    max_num_do_constr_per_zone: 1 # per shooting node in the mpc
+    max_num_so_constr: 12
+    max_num_do_constr_per_zone: 3 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
       draft: 2.0
@@ -59,11 +59,11 @@ midlevel_mpc:
       width: 8.0
       r_max: 6.0
       U_min: 0.0
-      U_max: 5.0
+      U_max: 10.0
       a_max: 0.11
       s_min: 0.0
-      s_max: 100000.0
-      s_dot_max: 1000.0
+      s_max: 10000.0
+      s_dot_max: 10.0
   enable_acados: False
   solver_options:
     casadi:

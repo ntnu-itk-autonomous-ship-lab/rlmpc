@@ -318,11 +318,11 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
 
     def set_min_path_variable(self, s_min: float):
         self._params.s_min = s_min
-        self.lbx[5] = s_min
+        self.lbx[4] = s_min
 
     def set_max_path_variable(self, s_max: float):
         self._params.s_max = s_max
-        self.ubx[5] = s_max
+        self.ubx[4] = s_max
 
     def setup_equations_of_motion(self):
         """Forms the equations of motion for the kinematic model"""
@@ -391,16 +391,26 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         soln = np.zeros((self.x.shape[0], N))
         xs_k = xs
         u_k = u[:, 0]
+        # K_p_s = 0.001
+        # K_d_s = 0.1
         for k in range(N):
             soln[:, k] = xs_k
             if N_u > 1 and k < N_u:
                 u_k = u[:, k]
+
+            U_k = xs_k[3]
+            if U_k < 1.0:
+                u_k[1] = 0.0
+            s_dot_k = xs_k[5]
+            if s_dot_k < 1.0:
+                u_k[2] = 0.0
+            # u_k[2] = K_p_s * (0.95 * self.ubx[4] - s_k) - K_d_s * s_dot_k
             k1 = self.dynamics(xs_k, u_k, p).full().flatten()
             k2 = self.dynamics(xs_k + 0.5 * dt * k1, u_k, p).full().flatten()
             k3 = self.dynamics(xs_k + 0.5 * dt * k2, u_k, p).full().flatten()
             k4 = self.dynamics(xs_k + dt * k3, u_k, p).full().flatten()
             xs_k = xs_k + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-            xs_k = mf.sat(xs_k, self.lbx, self.ubx)
+            # xs_k = mf.sat(xs_k, self.lbx, self.ubx)
         return soln
 
     def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
