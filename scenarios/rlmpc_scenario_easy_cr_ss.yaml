@@ -10,10 +10,10 @@ map_data_files: ["Rogaland_utm33.gdb"]
 map_tolerance: 1
 map_buffer: 0
 new_load_of_map_data: True
-type: HO
+type: CR_GW
 n_random_ships: 1
 #n_random_ships_range: [1, 2]
-n_episodes: 1
+n_episodes: 10
 rl_action_type: "continuous_autopilot_reference_action"
 rl_observation_type:
   dict_observation:

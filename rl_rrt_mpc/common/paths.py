@@ -14,6 +14,7 @@ package = root / "rl_rrt_mpc"
 data = root / "data"
 figures = root / "figures"
 acados_code_gen = root / "acados_code_gen"
+scenarios = root / "scenarios"
 
 schemas = package / "schemas"
 rl_rrt_mpc_schema = schemas / "rl_rrt_mpc.yaml"

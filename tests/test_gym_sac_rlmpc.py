@@ -1,19 +1,17 @@
 from pathlib import Path
 
 import colav_simulator.behavior_generator as cs_bg
-import colav_simulator.common.paths as dp
 import colav_simulator.scenario_management as cs_sm
 import gymnasium as gym
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.paths as rrm_dp
+import rl_rrt_mpc.common.paths as rl_dp
 import rl_rrt_mpc.sac as sac_rlmpc
 import stable_baselines3.common.vec_env as sb3_vec_env
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.evaluation import evaluate_policy
 
 # Depending on your OS, you might need to change these paths
@@ -49,26 +47,29 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
 if __name__ == "__main__":
     scenario_choice = 0
     if scenario_choice == 0:
-        config_file = dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
         sg_config = cs_sm.Config()
         sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
         sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
     elif scenario_choice == 1:
-        config_file = dp.scenarios / "rlmpc_scenario_easy.yaml"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_easy.yaml"
         sg_config = cs_sm.Config()
         sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
         sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
-    config_file = dp.scenarios / "rlmpc_scenario_easy.yaml"
+    config_file = rl_dp.scenarios / "rlmpc_scenario_easy.yaml"
     sg_config = cs_sm.Config()
     sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
     sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
 
     # for a given scenario:
     # 1: generate n_os_init_perturbations where the first episode uniformly samples a random start and goal state for the own-ship, and the rest of the episodes perturbs/randomizes these states from the first episode.
-    # 2: If target ships are present, generate a random start and goal state for each target ship which is used in all n_os_init_perturbations episodes. When ep_nr > n_os_init_perturbations, the target ships are perturbed/randomized from the first episode.
+    # 2: If target ships are present, generate a random start and goal state for each target ship which is used in all n_os_init_perturbations episodes. When ep_nr > n_os_init_perturbations, the target ships are perturbed/randomized from the first episode. Thus n_os_init_perturbations^2 episodes are generated sofar, including randomization of OS initial states/goal states + randomization for all target ships.
     # 3: If disturbances are present, generate a random disturbance for each disturbance which is used in all n_os_init_perturbations episodes. When ep_nr > n_os_init_perturbations, the disturbances are perturbed/randomized from the first episode.
     # 4: If tracking is considered: generate a random measurement error seed for each target ship which is used in all n_os_init_perturbations episodes. When ep_nr > n_os_init_perturbations, the measurement error seeds are incremented from the first episode.
     # 5:
+
+    # FIRST: Test training for a single scenario
+
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_config_file": config_file,
