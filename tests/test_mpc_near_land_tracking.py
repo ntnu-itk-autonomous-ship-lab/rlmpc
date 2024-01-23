@@ -7,7 +7,7 @@ if __name__ == "__main__":
     planning_scenario = dp.scenarios / "simple_planning_example.yaml"
     rlmpc = agents.RLMPC()
     scenario_generator = ScenarioGenerator()
-    scenario_data = scenario_generator.generate(config_file=planning_scenario)
     simulator = Simulator()
-    output = simulator.run([scenario_data], ownship_colav_system=rlmpc)
+    scenario_data = scenario_generator.generate(config_file=planning_scenario, new_load_of_map_data=False)
+    output = simulator.run([scenario_data], colav_systems=[(0, rlmpc)])
     print("done")
