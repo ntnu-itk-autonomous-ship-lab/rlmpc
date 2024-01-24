@@ -21,7 +21,9 @@ import yaml
 from scipy.stats import chi2
 
 
-def decision_trajectories_from_solution(soln: np.ndarray, N: int, nu: int, nx: int, ns: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def decision_trajectories_from_solution(
+    soln: np.ndarray, N: int, nu: int, nx: int, ns: int
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extracts the input sequence U, state sequence X and the slack variable sequence S from the solution vector soln = w = [U.flattened, X.flattened, Sigma.flattened] from the optimization problem.
 
     Args:
@@ -120,7 +122,7 @@ def translate_dynamic_obstacle_coordinates(dynamic_obstacles: list, x_shift: flo
         list: List of dynamic obstacles with shifted coordinates
     """
     translated_dynamic_obstacles = []
-    for (ID, state, cov, length, width) in dynamic_obstacles:
+    for ID, state, cov, length, width in dynamic_obstacles:
         translated_state = state - np.array([y_shift, x_shift, 0.0, 0.0])
         translated_dynamic_obstacles.append((ID, translated_state, cov, length, width))
     return translated_dynamic_obstacles
@@ -144,7 +146,13 @@ def translate_polygons(polygons: list, x_shift: float, y_shift: float) -> list:
     return translated_polygons
 
 
-def create_ellipse(center: np.ndarray, A: Optional[np.ndarray] = None, a: float | None = 1.0, b: float | None = 1.0, phi: float | None = 0.0) -> Tuple[list, list]:
+def create_ellipse(
+    center: np.ndarray,
+    A: Optional[np.ndarray] = None,
+    a: float | None = 1.0,
+    b: float | None = 1.0,
+    phi: float | None = 0.0,
+) -> Tuple[list, list]:
     """Create standard ellipse at center, with input semi-major axis, semi-minor axis and angle.
 
     Either specified by c, A or c, a, b, phi:
@@ -261,30 +269,40 @@ def plot_trajectory(trajectory: np.ndarray, enc: senc.ENC, color: str) -> None:
     trajectory_line = []
     for k in range(trajectory.shape[1]):
         trajectory_line.append((trajectory[1, k], trajectory[0, k]))
-    enc.draw_line(trajectory_line, color=color, width=0.5, thickness=0.5, marker_type=None)
+    enc.draw_line(trajectory_line, color=color, linewidth=0.5, marker_type=None)
 
 
 def plot_dynamic_obstacles(dynamic_obstacles: list, enc: senc.ENC, T: float, dt: float) -> None:
     N = int(T / dt)
     enc.start_display()
-    for (ID, state, cov, length, width) in dynamic_obstacles:
+    for ID, state, cov, length, width in dynamic_obstacles:
         ellipse_x, ellipse_y = create_probability_ellipse(cov, 0.99)
         ell_geometry = geometry.Polygon(zip(ellipse_y + state[1], ellipse_x + state[0]))
         enc.draw_polygon(ell_geometry, color="orange", alpha=0.3)
 
         for k in range(0, N, 10):
             do_poly = create_ship_polygon(
-                state[0] + k * dt * state[2], state[1] + k * dt * state[3], np.arctan2(state[3], state[2]), length, width, length_scaling=1.0, width_scaling=1.0
+                state[0] + k * dt * state[2],
+                state[1] + k * dt * state[3],
+                np.arctan2(state[3], state[2]),
+                length,
+                width,
+                length_scaling=1.0,
+                width_scaling=1.0,
             )
             enc.draw_polygon(do_poly, color="red")
-        do_poly = create_ship_polygon(state[0], state[1], np.arctan2(state[3], state[2]), length, width, length_scaling=1.0, width_scaling=1.0)
+        do_poly = create_ship_polygon(
+            state[0], state[1], np.arctan2(state[3], state[2]), length, width, length_scaling=1.0, width_scaling=1.0
+        )
         enc.draw_polygon(do_poly, color="red")
 
 
 def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
     enc.start_display()
     for node in node_list:
-        enc.draw_circle((node["state"][1], node["state"][0]), 2.5, color="green", fill=False, thickness=0.8, edge_style=None)
+        enc.draw_circle(
+            (node["state"][1], node["state"][0]), 2.5, color="green", fill=False, thickness=0.8, edge_style=None
+        )
         for sub_node in node_list:
             if node["id"] == sub_node["id"] or sub_node["parent_id"] != node["id"]:
                 continue
@@ -293,7 +311,15 @@ def plot_rrt_tree(node_list: list, enc: senc.ENC) -> None:
                 enc.draw_line(points, color="white", width=0.5, thickness=0.5, marker_type=None)
 
 
-def create_ship_polygon(x: float, y: float, heading: float, length: float, width: float, length_scaling: float = 1.0, width_scaling: float = 1.0) -> geometry.Polygon:
+def create_ship_polygon(
+    x: float,
+    y: float,
+    heading: float,
+    length: float,
+    width: float,
+    length_scaling: float = 1.0,
+    width_scaling: float = 1.0,
+) -> geometry.Polygon:
     """Creates a ship polygon from the ship`s position, heading, length and width.
 
     Args:
