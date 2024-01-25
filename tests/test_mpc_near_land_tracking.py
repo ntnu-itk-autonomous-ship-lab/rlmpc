@@ -1,6 +1,6 @@
 import colav_simulator.common.paths as dp
 import rl_rrt_mpc.trajectory_tracking_mpc as trajectory_tracking_mpc
-from colav_simulator.scenario_management import ScenarioGenerator
+from colav_simulator.scenario_generator import ScenarioGenerator
 from colav_simulator.simulator import Simulator
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import colav_simulator.behavior_generator as cs_bg
-import colav_simulator.scenario_management as cs_sm
+import colav_simulator.scenario_generator as cs_sm
 import rl_rrt_mpc.common.paths as rl_dp
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import colav_simulator.behavior_generator as cs_bg
-import colav_simulator.scenario_management as cs_sm
+import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -48,16 +48,16 @@ if __name__ == "__main__":
     scenario_choice = 0
     if scenario_choice == 0:
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
-        sg_config = cs_sm.Config()
+        sg_config = cs_sg.Config()
         sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
         sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
     elif scenario_choice == 1:
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy.yaml"
-        sg_config = cs_sm.Config()
+        sg_config = cs_sg.Config()
         sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
         sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
     config_file = rl_dp.scenarios / "rlmpc_scenario_easy.yaml"
-    sg_config = cs_sm.Config()
+    sg_config = cs_sg.Config()
     sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
     sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
 
