@@ -16,7 +16,7 @@ if __name__ == "__main__":
     scenario_generator = cs_sm.ScenarioGenerator(seed=0)
 
     scen = scenario_generator.load_scenario_from_folder(
-        rl_dp.scenarios / "training_data" / scenario_name, scenario_name
+        rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     )
 
     scenario_data = scenario_generator.generate(
@@ -25,5 +25,4 @@ if __name__ == "__main__":
         save_scenario=True,
         save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
     )
-    print(f"Length of scenario: {len(scenario_data)}")
     print("done")
