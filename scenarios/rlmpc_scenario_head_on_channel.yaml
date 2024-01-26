@@ -1,4 +1,4 @@
-name: "rlmpc_scenario"
+name: "rlmpc_scenario_head_on_channel"
 save_scenario: False
 t_start: 0.0
 t_end: 150.0
