@@ -12,6 +12,7 @@ root = pathlib.Path(__file__).parents[2]
 config = root / "config"
 package = root / "rl_rrt_mpc"
 data = root / "data"
+animations = root / "animations"
 figures = root / "figures"
 acados_code_gen = root / "acados_code_gen"
 scenarios = root / "scenarios"

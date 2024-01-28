@@ -14,8 +14,8 @@ type: CR_GW
 n_random_ships: 1
 #n_random_ships_range: [1, 2]
 episode_generation:
-  n_episodes: 30
-  n_constant_os_plan_episodes: 10
+  n_episodes: 10
+  n_constant_os_plan_episodes: 5
   n_constant_do_state_episodes: 2
   n_plans_per_do_state: 2
   n_constant_disturbance_episodes: 10

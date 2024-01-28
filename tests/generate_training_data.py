@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import colav_simulator.behavior_generator as cs_bg
-import colav_simulator.scenario_generator as cs_sm
+import colav_simulator.scenario_generator as cs_sg
 import rl_rrt_mpc.common.paths as rl_dp
 
 if __name__ == "__main__":
@@ -13,16 +13,16 @@ if __name__ == "__main__":
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
 
-    scenario_generator = cs_sm.ScenarioGenerator(seed=0)
+    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
 
     scen = scenario_generator.load_scenario_from_folder(
         rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     )
 
-    scenario_data = scenario_generator.generate(
-        config_file=config_file,
-        new_load_of_map_data=False,
-        save_scenario=True,
-        save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
-    )
+    # scenario_data = scenario_generator.generate(
+    #     config_file=config_file,
+    #     new_load_of_map_data=False,
+    #     save_scenario=True,
+    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
+    # )
     print("done")

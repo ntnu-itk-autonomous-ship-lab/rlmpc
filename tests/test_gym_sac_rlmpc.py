@@ -47,40 +47,27 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
 if __name__ == "__main__":
     scenario_choice = 0
     if scenario_choice == 0:
-        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
-        sg_config = cs_sg.Config()
-        sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
-        sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
+        scenario_name = "rlmpc_scenario_cr_ss"
+        config_file = rl_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 1:
-        config_file = rl_dp.scenarios / "rlmpc_scenario_easy.yaml"
-        sg_config = cs_sg.Config()
-        sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
-        sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
-    config_file = rl_dp.scenarios / "rlmpc_scenario_easy.yaml"
+        scenario_name = "rlmpc_scenario_head_on_channel"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
+
     sg_config = cs_sg.Config()
     sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
     sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
 
-    # for a given scenario:
-    # 1: generate n_os_init_perturbations where the first episode uniformly samples a random start and goal state for the own-ship, and the rest of the episodes perturbs/randomizes these states from the first episode.
-    # 2: If target ships are present, generate a random start and goal state for each target ship which is used in all n_os_init_perturbations episodes. When ep_nr > n_os_init_perturbations, the target ships are perturbed/randomized from the first episode. Thus n_os_init_perturbations^2 episodes are generated sofar, including randomization of OS initial states/goal states + randomization for all target ships.
-    # 3: If disturbances are present, generate a random disturbance for each disturbance which is used in all n_os_init_perturbations episodes. When ep_nr > n_os_init_perturbations, the disturbances are perturbed/randomized from the first episode.
-    # 4: If tracking is considered: generate a random measurement error seed for each target ship which is used in all n_os_init_perturbations episodes. When ep_nr > n_os_init_perturbations, the measurement error seeds are incremented from the first episode.
-    # 5:
-
-    # FIRST: Test training for a single scenario
-
     env_id = "COLAVEnvironment-v0"
     env_config = {
-        "scenario_config_file": config_file,
+        "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "scenario_generator_config": sg_config,
-        "test_mode": True,
-        "reload_map": False,
-        "seed": 3,
+        "test_mode": False,
+        "reload_map": True,
+        "seed": 0,
     }
     env = gym.make(id=env_id, **env_config)
 
-    mpc_config_file = rrm_dp.config / "rlmpc.yaml"
+    mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
     policy_kwargs = {
         "critic_arch": [256, 256],
@@ -92,13 +79,14 @@ if __name__ == "__main__":
         "clip_mean": 2.0,
     }
     model = sac_rlmpc.SAC(policy, env, verbose=1, policy_kwargs=policy_kwargs)
+
     model.learn(total_timesteps=10_000, progress_bar=True)
     mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
     print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 
     record = True
     if record:
-        video_path = dp.animation_output / "demo.mp4"
+        video_path = rl_dp.animations / "demo.mp4"
         env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
 
     env.reset(seed=1)
