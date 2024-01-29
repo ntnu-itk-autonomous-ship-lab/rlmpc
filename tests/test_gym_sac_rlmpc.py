@@ -57,12 +57,15 @@ if __name__ == "__main__":
     sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
     sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
 
+    observation_type = {"dict_observation": ["navigation_3dof_state_observation", "time_observation"]}
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "scenario_generator_config": sg_config,
         "test_mode": False,
-        "reload_map": True,
+        "observation_type": observation_type,
+        "reload_map": False,
+        "show_loaded_scenario_data": False,
         "seed": 0,
     }
     env = gym.make(id=env_id, **env_config)
@@ -103,7 +106,7 @@ if __name__ == "__main__":
 
     save_gif = True
     if save_gif:
-        save_frames_as_gif(frames, dp.animation_output / "demo2.gif")
+        save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
 
     print("done")
 

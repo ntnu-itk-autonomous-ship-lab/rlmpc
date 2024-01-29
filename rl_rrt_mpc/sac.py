@@ -314,7 +314,6 @@ class SACPolicyWithMPC(BasePolicy):
             "activation_fn": self.activation_fn,
             "normalize_images": normalize_images,
             "n_critics": n_critics,
-            "net_arch": critic_arch,
             "share_features_extractor": False,
         }
 
@@ -424,7 +423,9 @@ class SACPolicyWithMPC(BasePolicy):
             (used in recurrent policies)
         """
         # convert observation to mpc plan inputs ()
-        return self.actor.mu_mpc.plan(t, waypoints, speed_plan, ownship_state, do_list, enc)
+        ownship_state = observation["Navigation3DOFStateObservation"].flatten()
+        t = observation["TimeObservation"].flatten()[0]
+        return self.actor.mu_mpc.act(t, ownship_state, do_list)
 
     def set_training_mode(self, mode: bool) -> None:
         """

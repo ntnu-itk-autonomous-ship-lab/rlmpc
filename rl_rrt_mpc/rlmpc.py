@@ -103,6 +103,11 @@ class RLMPC(ci.ICOLAV):
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
 
+        self._waypoints: np.ndarray = np.array([])
+        self._speed_plan: np.ndarray = np.array([])
+        self._enc: Optional[senc.ENC] = None
+        self._nominal_path = None
+
     def initialize(
         self,
         t: float,
