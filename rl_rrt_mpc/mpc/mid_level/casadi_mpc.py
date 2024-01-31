@@ -23,6 +23,7 @@ import rl_rrt_mpc.mpc.models as models
 import rl_rrt_mpc.mpc.parameters as parameters
 import scipy.interpolate as interp
 import seacharts.enc as senc
+import shapely.geometry as geo
 
 
 class CasadiMPC:
@@ -95,6 +96,7 @@ class CasadiMPC:
         self._s: float = 0.01
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
+        self._path_linestring: geo.LineString = geo.LineString()
 
         # debugging functions
         self._p_path = csd.MX.sym("p_path", 0)
@@ -174,6 +176,10 @@ class CasadiMPC:
         self._speed_spline = csd.Function("speed_spline", [s, speed_spl_coeffs], [speed_spl])
         self._speed_spl_coeffs = speed_spl_coeffs
 
+        self._path_linestring = mapf.create_path_linestring_from_splines(
+            [x_spline, y_spline], [x_spline.c, y_spline.c], s_final
+        )
+
         self._s_final_value = s_final
         self._model.set_min_path_variable(self._s)
         self._model.set_max_path_variable(s_final)  # margin
@@ -204,7 +210,7 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): ENC object containing the map info.
         """
-        self._s = 0.01
+        self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
         self._s_dot = self.compute_path_variable_derivative(self._s)
 
         n_colregs_zones = 3
@@ -334,7 +340,10 @@ class CasadiMPC:
         xs_init_mpc = np.zeros(nx)
         xs_init_mpc[:3] = xs[:3]
         xs_init_mpc[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
-        s_shifted = X_prev[4, n_shifts]
+        s_shifted = X_prev[
+            4, n_shifts
+        ]  #         self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
+
         s_dot_shifted = X_prev[5, n_shifts]
         xs_init_mpc[4:] = np.array([s_shifted, s_dot_shifted])
         X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1)
@@ -357,9 +366,9 @@ class CasadiMPC:
             disable_bbox_check=True,
         )
         shifted_pos_traj = X_warm_start[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1)
-        # if min_dist_so <= self._params.r_safe_so or min_dist_do <= self._params.r_safe_do:
-        # cs_mapf.plot_trajectory(shifted_pos_traj, enc, "black")
-        # return w_warm_start, X_warm_start, U_warm_start, False
+        if min_dist_so <= self._params.r_safe_so or min_dist_do <= self._params.r_safe_do:
+            cs_mapf.plot_trajectory(shifted_pos_traj, enc, "black")
+            return w_warm_start, X_warm_start, U_warm_start, False
         cs_mapf.plot_trajectory(shifted_pos_traj, enc, "pink")
         return w_warm_start, X_warm_start, U_warm_start, True
 
@@ -419,6 +428,7 @@ class CasadiMPC:
         assert success, "Could not create warm start solution"
         new_warm_start = prev_warm_start
         new_warm_start["x"] = w_warm_start.tolist()
+
         self._s = X_warm_start[4, 0]
         self._s_dot = X_warm_start[5, 0]
         return new_warm_start

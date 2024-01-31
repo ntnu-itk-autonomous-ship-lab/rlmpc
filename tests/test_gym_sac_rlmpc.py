@@ -12,6 +12,7 @@ import stable_baselines3.common.vec_env as sb3_vec_env
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
+from rl_rrt_mpc.common.nn_utils import PerceptionImageNavigationExtractor
 from stable_baselines3.common.evaluation import evaluate_policy
 
 # Depending on your OS, you might need to change these paths
@@ -73,7 +74,9 @@ if __name__ == "__main__":
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
     policy_kwargs = {
-        "critic_arch": [256, 256],
+        "features_extractor_class": PerceptionImageNavigationExtractor,
+        "features_extractor_kwargs": dict(features_dim=12),
+        "critic_arch": [128, 64, 32],
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "use_sde": False,

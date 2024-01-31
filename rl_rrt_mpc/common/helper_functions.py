@@ -28,7 +28,7 @@ import shapely.geometry as geometry
 import tqdm
 import yaml
 from matplotlib import cm
-from scipy.interpolate import interp1d
+from scipy.interpolate import BSpline, interp1d
 from scipy.stats import chi2
 
 

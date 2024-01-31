@@ -1320,3 +1320,40 @@ def find_intersections_line_polygon(
             x, y = line.coords.xy
             coords.append([list(x), list(y)])
     return np.array(coords, dtype=object)
+
+
+def create_path_linestring_from_splines(
+    splines: list, spline_coeffs: list, final_path_variable_value: float
+) -> geometry.LineString:
+    """Creates a path linestring from a list of splines.
+
+    Args:
+        splines (list): List of (xy) splines
+        spline_coeffs (list): List of spline coefficients
+        final_path_variable_value (float): Path variable end value
+
+    Returns:
+        geometry.LineString: Path linestring
+    """
+    path_points = []
+    path_values = np.linspace(0.0, final_path_variable_value, 100)
+    for s in path_values:
+        x = splines[0](s, spline_coeffs[0])
+        y = splines[1](s, spline_coeffs[1])
+        path_points.append([x, y])
+    path_linestring = geometry.LineString(path_points)
+    return path_linestring
+
+
+def find_closest_arclength_to_point(p: np.ndarray, path_linestring: geometry.LineString) -> float:
+    """Finds the closest arclength to a point on a path linestring.
+
+    Args:
+        p (np.ndarray): Point
+        path_linestring (geometry.LineString): Path linestring
+
+    Returns:
+        float: Closest arclength
+    """
+    closest_arclength = path_linestring.project(geometry.Point(p))
+    return closest_arclength

@@ -1,6 +1,4 @@
-from pathlib import Path
-
-import colav_simulator.behavior_generator as cs_bg
+import colav_simulator.common.paths as cs_dp
 import colav_simulator.scenario_generator as cs_sg
 import rl_rrt_mpc.common.paths as rl_dp
 
@@ -12,6 +10,15 @@ if __name__ == "__main__":
     elif scenario_choice == 1:
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
+    elif scenario_choice == 2:
+        scenario_name = "rogaland_random_rl"
+        config_file = cs_dp.scenarios / "rogaland_random_rl.yaml"
+    elif scenario_choice == 3:
+        scenario_name = "rogaland_random_rl_2"
+        config_file = rl_dp.scenarios / "rogaland_random_rl_2.yaml"
+    elif scenario_choice == 4:
+        scenario_name = "rl_scenario"
+        config_file = rl_dp.scenarios / "rl_scenario.yaml"
 
     scenario_generator = cs_sg.ScenarioGenerator(seed=0)
 
@@ -25,5 +32,6 @@ if __name__ == "__main__":
         save_scenario=True,
         save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
         show_plots=True,
+        reset_episode_counter=False,
     )
     print("done")
