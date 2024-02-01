@@ -1,9 +1,8 @@
 """
-    nn_utils.py
+    feature_extractors.py
 
     Summary:
-        Contains utility classes (feature extractors, etc.) for neural networks (NNs) used in RL. Feature extractor inspired by stable-baselines3 (SB3) implementation
-        and https://github.com/ThomasNLarsen/gym-auv-SB3/blob/main/gym_auv/utils/radarCNN.py.
+        Contains feature extractors for neural networks (NNs) used in DRL. Feature extractor inspired by stable-baselines3 (SB3) implementation, the CNN-work of Thomas Larsen, and variational autoencoders (VAEs).
 
     Author: Trym Tengesdal
 """
@@ -37,6 +36,16 @@ class PerceptionImageCNN(BaseFeaturesExtractor):
         self.kernel_size = 8
         self.padding = 0
         self.stride = 4
+
+        # Formula for output image/tensor size after conv2d:
+        # ((n - f + 2p) / s) + 1, where
+        # n = input number of pixels (assume square image)
+        # f = number of kernels (assume square kernel)
+        # p = padding
+        # s = stride
+        # => for 5x5 kernel, 0 padding, stride 1, input 32x32 image:
+        # ((32 - 5 + 2*0) / 1) + 1 = 28x28
+        # Number of output channels are random/tuning parameter.
 
         print("PerceptionImageCNN CONFIG")
         print("\tIN_CHANNELS =", self.n_input_channels)
@@ -76,14 +85,12 @@ class PerceptionImageCNN(BaseFeaturesExtractor):
         self.linear = nn.Sequential(nn.Linear(self.n_flatten, features_dim), nn.ReLU())
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        return self.cnn(observations)
-        # return self.linear(self.cnn(observations))
-        # return self.cnn(observations)
+        return self.perception_image_cnn(observations)
 
     def get_features(self, observations: th.Tensor) -> list:
         feat = []
         out = observations
-        for layer in self.cnn:
+        for layer in self.perception_image_cnn:
             out = layer(out)
             if not isinstance(layer, nn.ReLU):
                 feat.append(out.cpu().detach().numpy())
@@ -92,7 +99,7 @@ class PerceptionImageCNN(BaseFeaturesExtractor):
     def get_activations(self, observations: th.Tensor) -> list:
         feat = []
         out = observations
-        for layer in self.cnn:
+        for layer in self.perception_image_cnn:
             out = layer(out)
             if isinstance(layer, nn.ReLU):
                 feat.append(out)
@@ -101,11 +108,10 @@ class PerceptionImageCNN(BaseFeaturesExtractor):
             out = layer(out)
             if isinstance(layer, nn.ReLU):
                 feat.append(out.detach().numpy())
-
         return feat
 
 
-class NavigatioNN(BaseFeaturesExtractor):
+class NavigationNN(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 6):
         """Feature extractor for the navigation state. This is a simple passthrough layer.
 
@@ -113,7 +119,24 @@ class NavigatioNN(BaseFeaturesExtractor):
             observation_space (gym.spaces.Box): Navigation state observation space.
             features_dim (int, optional): State vector length. Defaults to 6, i.e. [x, y, psi, u, v, r]. Could be other choices as well ([psi, u, v, r, y_e, chi_e, etc..])
         """
-        super(NavigatioNN, self).__init__(observation_space, features_dim=features_dim)
+        super(NavigationNN, self).__init__(observation_space, features_dim=features_dim)
+        self.passthrough = nn.Identity()
+
+    def forward(self, observations: th.Tensor) -> th.Tensor:
+        shape = observations.shape
+        observations = observations[:, 0, :].reshape(shape[0], shape[-1])
+        return self.passthrough(observations)
+
+
+class DisturbanceNN(BaseFeaturesExtractor):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 6):
+        """Feature extractor for the navigation state. This is a simple passthrough layer.
+
+        Args:
+            observation_space (gym.spaces.Box): Navigation state observation space.
+            features_dim (int, optional): Disturbance vector length. Defaults to 6, i.e. [V_c, beta_c, V_w, beta_w].
+        """
+        super(DisturbanceNN, self).__init__(observation_space, features_dim=features_dim)
 
         self.passthrough = nn.Identity()
 
@@ -121,6 +144,9 @@ class NavigatioNN(BaseFeaturesExtractor):
         shape = observations.shape
         observations = observations[:, 0, :].reshape(shape[0], shape[-1])
         return self.passthrough(observations)
+
+
+class PerceptionImageEncoder
 
 
 class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
@@ -150,7 +176,11 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
                 total_concat_size += features_dim  # extractors[key].n_flatten
             elif key == "navigation":
                 # Pass navigation features straight through to the MlpPolicy.
-                extractors[key] = NavigatioNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
+                extractors[key] = NavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
+                total_concat_size += subspace.shape[-1]
+            elif key == "disturbance":
+                # Pass disturbance features straight through to the MlpPolicy.
+                extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
                 total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)
@@ -160,3 +190,32 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         return self.linear(self.cnn(observations))
+
+if __name__ == "__main__":
+    import colav_simulator.common.paths as cs_dp
+    import colav_simulator.scenario_generator as cs_sg
+    import rl_rrt_mpc.common.paths as rl_dp
+
+    scenario_choice = 0
+    if scenario_choice == 0:
+        scenario_name = "rlmpc_scenario_cr_ss"
+        config_file = rl_dp.scenarios / (scenario_name + ".yaml")
+    elif scenario_choice == 1:
+        scenario_name = "rlmpc_scenario_head_on_channel"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
+    elif scenario_choice == 2:
+        scenario_name = "rogaland_random_rl"
+        config_file = cs_dp.scenarios / "rogaland_random_rl.yaml"
+    elif scenario_choice == 3:
+        scenario_name = "rogaland_random_rl_2"
+        config_file = rl_dp.scenarios / "rogaland_random_rl_2.yaml"
+    elif scenario_choice == 4:
+        scenario_name = "rl_scenario"
+        config_file = rl_dp.scenarios / "rl_scenario.yaml"
+
+    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
+
+    scenario_episode_list, scenario_enc = scenario_generator.load_scenario_from_folder(
+        rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
+    )
+

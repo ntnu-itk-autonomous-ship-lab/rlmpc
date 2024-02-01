@@ -4,9 +4,9 @@ t_start: 0.0
 t_end: 150.0
 dt_sim: 0.5
 utm_zone: 33
-# map_size: [1500.0, 1500.0]
-# map_origin_enu: [-31824.0, 6573700.0]
-# map_data_files: ["Rogaland_utm33.gdb"]
+map_size: [1500.0, 1500.0]
+map_origin_enu: [-31824.0, 6573700.0]
+map_data_files: ["Rogaland_utm33.gdb"]
 map_tolerance: 1
 map_buffer: 0
 new_load_of_map_data: True
@@ -14,13 +14,13 @@ type: CR_GW
 n_random_ships: 1
 #n_random_ships_range: [1, 2]
 episode_generation:
-  n_episodes: 20
+  n_episodes: 500
   n_constant_os_state_episodes: 1
   n_constant_os_plan_episodes: 20
-  n_constant_do_state_episodes: 2
-  n_plans_per_do_state: 2
+  n_constant_do_state_episodes: 1
+  n_plans_per_do_state: 5
   n_constant_disturbance_episodes: 10
-  delta_uniform_position_sample: 7
+  delta_uniform_position_sample: 20
 rl_action_type: "continuous_autopilot_reference_action"
 rl_observation_type:
   dict_observation:
@@ -30,8 +30,8 @@ rl_observation_type:
 stochasticity:
   currents:
     constant: True
-    initial_speed: 0.0
-    initial_direction: 180.0
+    initial_speed: 2.0
+    initial_direction: 10.0
     speed_range: [0.0, 1.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001
@@ -41,7 +41,7 @@ stochasticity:
   wind:
     constant: True
     initial_speed: 0.0
-    initial_direction: 180.0
+    initial_direction: 90.0
     speed_range: [0.0, 1.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001

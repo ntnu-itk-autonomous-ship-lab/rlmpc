@@ -22,16 +22,6 @@ if __name__ == "__main__":
 
     scenario_generator = cs_sg.ScenarioGenerator(seed=0)
 
-    scen = scenario_generator.load_scenario_from_folder(
+    scenario_episode_list, scenario_enc = scenario_generator.load_scenario_from_folder(
         rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     )
-
-    scenario_data = scenario_generator.generate(
-        config_file=config_file,
-        new_load_of_map_data=False,
-        save_scenario=True,
-        save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
-        show_plots=True,
-        reset_episode_counter=False,
-    )
-    print("done")
