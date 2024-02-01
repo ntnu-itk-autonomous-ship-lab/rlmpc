@@ -12,7 +12,7 @@ import stable_baselines3.common.vec_env as sb3_vec_env
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rl_rrt_mpc.common.nn_utils import PerceptionImageNavigationExtractor
+from rl_rrt_mpc.networks.feature_extractors import PerceptionImageNavigationExtractor
 from stable_baselines3.common.evaluation import evaluate_policy
 
 # Depending on your OS, you might need to change these paths
