@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+import torch as th
 import torch.nn as nn
 
 
@@ -25,56 +26,116 @@ class PerceptionImageDecoder(nn.Module):
         """
 
         super(PerceptionImageDecoder, self).__init__()
-        print("[ImgDecoder] Starting create_model")
+
+        self.elu = nn.ELU()
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
         self.with_logits = with_logits
-        self.n_channels = n_input_channels
-        self.dense = nn.Linear(latent_dim, 512)
-        self.dense1 = nn.Linear(512, 9 * 15 * 128)
+        self.n_input_channels = n_input_channels
+
+        #  Formula for output image/tensor size after deconv2d:
+        # n = (o - 1) * s + f - 2p
+        # o = ((n - f + 2p) / s) + 1, where
+        # n = input number of pixels (assume square image)
+        # o = output number of pixels (assume square image), after convolution
+        # f = number of kernels (assume square kernel)
+        # p = padding
+        # s = stride
+        # Number of output channels are random/tuning parameter.
+
+        # Zeroth deconv:
+        # Input 64 x 5 x 5
+        # => for 4x4 kernel, stride 3, padding 0, input 5x5 image:
+        # (5 - 1) * 3 + 4 - 2*0 = 16x16
+        # First deconv:
+        # => for 6x6 kernel, stride 2, padding (2, 2), input 16x16 image:
+        # (16 - 1) * 2 + 6 - 2*2 = 32x32
+        # Second deconv:
+        # => for 6x6 kernel, stride 2, padding (2, 2), input 32x32 image:
+        # (32 - 1) * 2 + 6 - 2*1 = 64x64
+        # Third deconv:
+        # => for 6x6 kernel, stride 4, padding (1, 1), input 64x64 image:
+        # (64 - 1) * 4 + 6 - 2*1 = 256x256
+
+        # Fully connected layers
+        # Version 1
+        self.fc0 = nn.Linear(latent_dim, 5 * 5 * 64)
+        # Version 2
+        # self.fc1 = nn.Linear(latent_dim, 512)
+        # # Relu activation
+        # self.fc2 = nn.Linear(512, 9 * 15 * 128)
 
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
-        self.deconv1 = nn.ConvTranspose2d(128, 128, kernel_size=3, stride=1, padding=1)
-        self.deconv2 = nn.ConvTranspose2d(
-            128, 64, kernel_size=5, stride=2, padding=(2, 2), output_padding=(0, 1), dilation=1
+
+        # Deconvolutional layers
+        # Version 1
+        self.deconv0 = nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=3, padding=0)
+        # ELU activation
+        self.deconv1 = nn.ConvTranspose2d(64, 32, kernel_size=6, stride=2, padding=(2, 2), output_padding=(0, 0))
+        # ELU activation
+        self.deconv2 = nn.ConvTranspose2d(32, 16, kernel_size=6, stride=2, padding=(2, 2), output_padding=(0, 0))
+        # ELU activation
+        self.deconv3 = nn.ConvTranspose2d(
+            16, self.n_input_channels, kernel_size=6, stride=4, padding=(1, 1), output_padding=(0, 0)
         )
-        self.deconv4 = nn.ConvTranspose2d(
-            64, 32, kernel_size=6, stride=4, padding=(2, 2), output_padding=(0, 0), dilation=1
-        )
-        self.deconv6 = nn.ConvTranspose2d(32, 16, kernel_size=6, stride=2, padding=(0, 0), output_padding=(0, 1))
-        self.deconv7 = nn.ConvTranspose2d(
-            16, self.n_channels, kernel_size=4, stride=2, padding=2
-        )  # tanh activation or sigmoid
+        # Sigmoid activation
 
-        print("[ImgDecoder] Done with create_model")
+        # Version 2
+        # self.deconv0 = nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1)
+        # # Relu activation
+        # self.deconv1 = nn.ConvTranspose2d(
+        #     128, 64, kernel_size=5, stride=2, padding=(2, 2), output_padding=(0, 1), dilation=1
+        # )
+        # # Relu activation
+        # self.deconv2 = nn.ConvTranspose2d(
+        #     64, 32, kernel_size=6, stride=4, padding=(2, 2), output_padding=(0, 0), dilation=1
+        # )
+        # # Relu activation
+        # self.deconv3 = nn.ConvTranspose2d(32, 16, kernel_size=6, stride=2, padding=(0, 0), output_padding=(0, 1))
+        # # Relu activation
+        # self.deconv4 = nn.ConvTranspose2d(
+        #     16, self.n_channels, kernel_size=4, stride=2, padding=2
+        # )  # tanh activation or sigmoid
+        # Sigmoid activation
 
-        print("Defined decoder.")
-
-    def forward(self, z):
+    def forward(self, z: th.Tensor) -> th.Tensor:
         return self.decode(z)
 
-    def decode(self, z):
-        x = self.dense(z)
-        x = torch.relu(x)
-        x = self.dense1(x)
-        x = x.view(x.size(0), 128, 9, 15)
+    def decode(self, z: th.Tensor) -> th.Tensor:
+        # Fully connected layers
+        # Version 1
+        x = self.fc0(z)
+        x = self.elu(x)
+        x = x.view(x.size(0), 64, 5, 5)
+        # Version 2
+        # x = self.dense(z)
+        # x = self.relu(x)
+        # x = self.dense1(x)
+        # x = x.view(x.size(0), 128, 9, 15)
 
+        # Deconvolutional layers
+        # Version 1
+        x = self.deconv0(x)
+        x = self.elu(x)
         x = self.deconv1(x)
-        x = torch.relu(x)
-
+        x = self.elu(x)
         x = self.deconv2(x)
-        x = torch.relu(x)
+        x = self.elu(x)
+        x = self.deconv3(x)
 
-        x = self.deconv4(x)
-        x = torch.relu(x)
+        # Version 2
+        # x = self.deconv0(x)
+        # x = self.relu(x)
+        # x = self.deconv1(x)
+        # x = self.relu(x)
+        # x = self.deconv2(x)
+        # x = self.relu(x)
+        # x = self.deconv3(x)
+        # x = self.relu(x)
+        # x = self.deconv4(x)
 
-        x = self.deconv6(x)
-        x = torch.relu(x)
-
-        x = self.deconv7(x)
-        # print(f"- After deconv 7, mean: {x.mean():.3f} var: {x.var():.3f}")
-        if self.with_logits:
-            return x
-
-        x = torch.sigmoid(x)
+        x = self.sigmoid(x)
         # print(f"- After sigmoid, mean: {x.mean():.3f} var: {x.var():.3f}")
         return x
 
@@ -82,6 +143,6 @@ class PerceptionImageDecoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dim = 64
-    img_decoder = ImgDecoder(latent_dim=latent_dim, input_dim=1).to("cuda")
-    summary(img_decoder, (1, latent_dim), device="cuda")
+    latent_dimension = 64
+    img_decoder = PerceptionImageDecoder(latent_dim=latent_dimension, n_input_channels=1).to("cuda")
+    summary(img_decoder, (1, latent_dimension), device="cuda")

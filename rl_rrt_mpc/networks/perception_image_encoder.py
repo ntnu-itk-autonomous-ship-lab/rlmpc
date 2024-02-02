@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+import torch as th
 import torch.nn as nn
 
 
@@ -29,84 +30,151 @@ class PerceptionImageEncoder(nn.Module):
             n_input_channels: Number of input channels
             latent_dim: Dimension of the latent space
         """
+
+        # Formula for output image/tensor size after conv2d:
+        # ((n - f + 2p) / s) + 1, where
+        # n = input number of pixels (assume square image)
+        # f = number of kernels (assume square kernel)
+        # p = padding
+        # s = stride
+        # Number of output channels are random/tuning parameter.
+
+        # Zeroth block:
+        # => for 6x6 kernel, stride 2, padding 2, input 256x256 image:
+        # ((256 - 6 + 2*2) / 2) + 1 = 128x128
+        # => for 5x5 kernel, stride 2, padding 2, input 128x128 image:
+        # ((128 - 5 + 2*2) / 2) + 1 = 64x64
+
+        # First block:
+        # => for 6x6 kernel, stride 2, padding 2, input 64x64 image:
+        # ((64 - 6 + 2*2) / 2) + 1 = 32x32
+        # => for 3x3 kernel, stride 1, padding 0, input 32x32 image:
+        # ((32 - 3 + 2*0) / 1) + 1 = 30x30
+
+        # Second block:
+        # => for 5x5 kernel, stride 3, padding 1 input 30x30 image:
+        # ((30 - 5 + 2*1) / 3) + 1 = 9x9
+
+        # Jump connection input image 64x64: desired size: 30x30
+        # => for 6x6 kernel, stride 2, padding 0, input 64x64 image:
+        # ((64 - 6 + 2*0) / 2) + 1 = 30x30
+
         super(PerceptionImageEncoder, self).__init__()
         self.n_input_channels = n_input_channels
         self.latent_dim = latent_dim
 
         self.elu = nn.ELU()
 
-        # First block of convolutions
+        # Zeroth block of convolutions
+        # Version 1:
         self.conv00: nn.Conv2d = nn.Conv2d(
-            in_channels=n_input_channels, out_channels=32, kernel_size=5, stride=2, padding=2
+            in_channels=n_input_channels, out_channels=32, kernel_size=6, stride=2, padding=2
         )
-        self.conv01: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=2, padding=2)
+        self.conv01: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5, stride=2, padding=2)
+
+        # Version 2:
+        # self.conv00: nn.Conv2d = nn.Conv2d(
+        #     in_channels=n_input_channels, out_channels=32, kernel_size=5, stride=2, padding=2
+        # )
+        # self.conv01: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, stride=2, padding=2)
         nn.init.xavier_uniform_(self.conv00.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv00.bias)
         nn.init.xavier_uniform_(self.conv01.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv01.bias)
 
-        # Second block of convolutions
-        self.conv10: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5, stride=2, padding=2)
-        self.conv11: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=2)
+        # First block of convolutions
+        # Version 1:
+        self.conv10: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=6, stride=2, padding=2)
+        self.conv11: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=0)
+
+        # Version 2:
+        # self.conv10: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5, stride=2, padding=1)
+        # self.conv11: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
         nn.init.xavier_uniform_(self.conv10.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv10.bias)
         nn.init.xavier_uniform_(self.conv11.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv11.bias)
 
-        # Third block of convolutions
-        # ELU activation function
-        self.conv20: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=2, padding=2)
-        self.conv21: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=2)
+        # # Second block of convolutions
+        # # ELU activation function
+        # Version 1:
+        self.conv20: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=3, padding=1)
+        # Version 2:
+        # self.conv20: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=2, padding=2)
+        # self.conv21: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=2)
         nn.init.xavier_uniform_(self.conv20.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv20.bias)
-        nn.init.xavier_uniform_(self.conv21.weight, gain=nn.init.calculate_gain("linear"))
-        nn.init.zeros_(self.conv21.bias)
+        # nn.init.xavier_uniform_(self.conv21.weight, gain=nn.init.calculate_gain("linear"))
+        # nn.init.zeros_(self.conv21.bias)
 
-        # Jump connection from last layer of first block to first layer of second block
-        self.conv0_jump_to_2: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1)
+        # Jump connection from last layer of zeroth block to first layer of second block
+        # Version 1
+        # self.conv0_jump_to_2: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=6, stride=2, padding=0)
+
+        # Version 2
+        # self.conv0_jump_to_2: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2, padding=1)
         # Jump connection from last layer of second block to first layer of third block
-        self.conv1_jump_to_3: nn.Conv2d = nn.Conv2d(
-            in_channels=64, out_channels=128, kernel_size=5, stride=4, padding=(2, 1)
-        )
+        # self.conv1_jump_to_3: nn.Conv2d = nn.Conv2d(
+        #     in_channels=64, out_channels=128, kernel_size=5, stride=4, padding=(2, 1)
+        # )
 
-        # Fourth block of convolutions
-        # ELU activation function
-        self.conv30: nn.Conv2d = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=5, stride=2, padding=2)
+        # Third (Fourth) block of convolutions
+        # Version 1:
+        self.conv30: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=2, padding=2)
+        # Version 2:
+        # self.conv30: nn.Conv2d = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=5, stride=2, padding=2)
 
         # Fully connected layers
-        self.fc1 = nn.Linear(in_features=3 * 6 * 128, out_features=512)
+        # Version 1:
+        self.fc1 = nn.Linear(in_features=5 * 5 * 64, out_features=2 * latent_dim)
         # ELU activation function
-        self.fc2 = nn.Linear(
-            in_features=512, out_features=2 * latent_dim
-        )  # 2 * latent_dim because we need to output both the mean and the log variance
 
-    def encode(self, image):
+        # Version 2:
+        # self.fc1 = nn.Linear(in_features=3 * 6 * 128, out_features=512)
+        # ELU activation function
+        # self.fc2 = nn.Linear(
+        #    in_features=512, out_features=2 * latent_dim
+        # )  # 2 * latent_dim because we need to output both the mean and the log variance
+
+    def encode(self, image: th.Tensor) -> th.Tensor:
         """Encodes the input image into a latent vector"""
-        # First block of convolutions
+        # Zeroth block of convolutions
         x00 = self.conv00(image)
         x01 = self.elu(self.conv01(x00))
 
+        # First block of convolutions
         x10 = self.conv10(x01)
         x11 = self.conv11(x10)
 
-        x0_jump_to_2 = self.conv0_jump_to_2(x01)
+        # x0_jump_to_2 = self.conv0_jump_to_2(x01)
+        x11 = x11  # + x0_jump_to_2
 
-        x11 = x11 + x0_jump_to_2
-        x20 = self.conv20(self.elu(x11))
-        x21 = self.conv21(x20)
+        # Second block of convolutions
+        # Version 1: Empty
+        x21 = self.conv20(self.elu(x11))
 
-        x1_jump_to_3 = self.conv1_jump_to_3(x11)
-        x21 = x21 + x1_jump_to_3
+        # Version 2:
+        # x20 = self.conv20(self.elu(x11))
+        # x21 = self.conv21(x20)
+        # x1_jump_to_3 = self.conv1_jump_to_3(x11)
+        # x21 = x21 + x1_jump_to_3
 
+        # Third (Fourth) block of convolutions
         x30 = self.conv30(self.elu(x21))
 
+        # Fully connected layers
+        # Version 1:
         x40 = self.fc1(x30.view(x30.size(0), -1))
-        x41 = self.fc2(self.elu(x40))
+        x41 = self.elu(x40)
+
+        # Version 2:
+        # x40 = self.fc1(x30.view(x30.size(0), -1))
+        # x41 = self.fc2(self.elu(x40))
 
         x = x41
         return x
 
-    def forward(self, image):
+    def forward(self, image: th.Tensor) -> th.Tensor:
         """Encodes the input image into a latent vector"""
         return self.encode(image)
 
@@ -114,6 +182,7 @@ class PerceptionImageEncoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 128
+    #
+    latent_dimension = 64
     encoder = PerceptionImageEncoder(latent_dim=latent_dimension, n_input_channels=1).to("cuda")
-    summary(encoder, (1, 270, 480), device="cuda")
+    summary(encoder, (1, 256, 256), device="cuda")
