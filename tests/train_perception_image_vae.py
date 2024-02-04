@@ -173,6 +173,7 @@ def train_vae(
     n_batches = int(len(training_dataloader) / batch_size)
     n_test_batches = int(len(test_dataloader) / batch_size)
 
+    # Create training data + test data
     for epoch in range(n_epochs):
         model.train()
         epoch_start_time = time.time()
@@ -271,7 +272,6 @@ def train_vae(
 
             # Forward pass
             reconstructed_image, means, log_vars, sampled_latent_vars = model(noisy_image)
-            clamped_g_cam_map = None
 
             mse_loss = reconstruction_loss(reconstructed_image, image_to_reconstruct)
             kld_loss = kullback_leibler_loss(means, log_vars)
@@ -296,7 +296,7 @@ def train_vae(
                 )
                 torchvision.utils.save_image(
                     grid,
-                    EXPERIMENT_BASE_PATH
+                    EXPERIMENT_PATH
                     + "/testing_images"
                     + "/"
                     + EXPERIMENT_NAME
@@ -311,7 +311,7 @@ def train_vae(
                 writer.add_scalar("Test/KL Div Loss", kld_loss.item() / BATCH_SIZE, epoch * n_test_batches + batch_idx)
 
         # Print the statistics
-        print("Test Loss:", loss_meter.avg)
+        print("Test Loss:", loss_meter.average_loss)
         loss_meter.reset()
 
     return model
