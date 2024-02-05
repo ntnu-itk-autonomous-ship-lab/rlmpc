@@ -7,7 +7,6 @@
     Author: Trym Tengesdal
 """
 
-
 import torch as th
 import torch.nn as nn
 from gymnasium import spaces
@@ -146,9 +145,6 @@ class DisturbanceNN(BaseFeaturesExtractor):
         return self.passthrough(observations)
 
 
-class PerceptionImageEncoder
-
-
 class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
     """
     :param observation_space: (gym.Space)
@@ -191,6 +187,7 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
     def forward(self, observations: th.Tensor) -> th.Tensor:
         return self.linear(self.cnn(observations))
 
+
 if __name__ == "__main__":
     import colav_simulator.common.paths as cs_dp
     import colav_simulator.scenario_generator as cs_sg
@@ -218,4 +215,3 @@ if __name__ == "__main__":
     scenario_episode_list, scenario_enc = scenario_generator.load_scenario_from_folder(
         rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     )
-

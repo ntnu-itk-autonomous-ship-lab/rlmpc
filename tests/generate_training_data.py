@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.paths as rl_dp
 import rl_rrt_mpc.sac as sac_rlmpc
+import skimage as skimg
 import stable_baselines3.common.vec_env as sb3_vec_env
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
@@ -53,9 +54,6 @@ if __name__ == "__main__":
     elif scenario_choice == 1:
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
-    elif scenario_choice == 2:
-        scenario_name = "rogaland_random_rl"
-        config_file = cs_dp.scenarios / "rogaland_random_rl.yaml"
     elif scenario_choice == 3:
         scenario_name = "rogaland_random_rl_2"
         config_file = rl_dp.scenarios / "rogaland_random_rl_2.yaml"
@@ -65,9 +63,9 @@ if __name__ == "__main__":
 
     scenario_generator = cs_sg.ScenarioGenerator(seed=0)
 
-    scen = scenario_generator.load_scenario_from_folder(
-        rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
-    )
+    # scen = scenario_generator.load_scenario_from_folder(
+    #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
+    # )
 
     # scenario_data = scenario_generator.generate(
     #     config_file=config_file,
@@ -84,6 +82,7 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
+        "max_number_of_episodes": 1,
         "test_mode": False,
         "observation_type": observation_type,
         "reload_map": False,
@@ -92,23 +91,36 @@ if __name__ == "__main__":
     }
     env = gym.make(id=env_id, **env_config)
 
-    record = True
+    record = False
     if record:
         video_path = rl_dp.animations / "demo.mp4"
         env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
 
     env.reset(seed=1)
     frames = []
-    for i in range(250):
+    for i in range(200):
         obs, reward, terminated, truncated, info = env.step(np.array([-0.2, 0.0]))
 
-        frames.append(env.render())
-
+        img = env.render()
+        frames.append(img)
         if terminated or truncated:
             env.reset()
 
-    save_gif = True
+    env.close()
+
+    img = frames[0]
+    gray_img = skimg.color.rgb2gray(img)
+    im_handle = plt.imshow(img, aspect="equal")
+
+    plt.axis("off")
+    plt.tight_layout()
+    # find way to rotate the image such that the vessel is pointing upwards
+    # then, extract a subimage around the vessel, and use that as the input to the VAE
+    # then, downsample the image to 256x256
+
+    # plt.savefig(rl_dp.animations / "demo2.png", bbox_inches="tight", pad_inches=0)
+    # convert img to grayscale
+
+    save_gif = False
     if save_gif:
         save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
-
-    env.close()
