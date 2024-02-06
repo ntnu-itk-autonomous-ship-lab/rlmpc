@@ -1,20 +1,15 @@
 from pathlib import Path
 
 import colav_simulator.behavior_generator as cs_bg
+import colav_simulator.gym.observation as cs_obs
 import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.paths as rl_dp
-import rl_rrt_mpc.sac as sac_rlmpc
-import skimage as skimg
-import stable_baselines3.common.vec_env as sb3_vec_env
-import torch as th
+import scipy.ndimage as scimg
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rl_rrt_mpc.networks.feature_extractors import PerceptionImageNavigationExtractor
-from stable_baselines3.common.evaluation import evaluate_policy
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
@@ -44,6 +39,11 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
         writer=animation.PillowWriter(fps=20),
         progress_callback=lambda i, n: print(f"Saving frame {i} of {n}"),
     )
+
+
+def get_center_pixels(arr: np.ndarray, npix: int) -> np.ndarray:
+    slices = [slice(shape / 2 - npix, shape / 2 + npix) for shape in arr.shape]
+    return arr[slices]
 
 
 if __name__ == "__main__":
@@ -78,7 +78,14 @@ if __name__ == "__main__":
     # print("done")
 
     # Collect perception image data by executing random actions in N environments over the scenarios.
-    observation_type = {"dict_observation": ["navigation_3dof_state_observation", "time_observation"]}
+    observation_type = {
+        "dict_observation": [
+            "navigation_3dof_state_observation",
+            "time_observation",
+            "tracking_observation",
+            "perception_image_observation",
+        ]
+    }
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
@@ -98,22 +105,44 @@ if __name__ == "__main__":
 
     env.reset(seed=1)
     frames = []
-    for i in range(200):
-        obs, reward, terminated, truncated, info = env.step(np.array([-0.2, 0.0]))
+    perception_images = []
+    nonscaled_observations = []
+    for i in range(50):
+        obs, reward, terminated, truncated, info = env.step(np.array([-0.25, 0.0]))
 
+        nonscaled_obs = info["unnormalized_obs"]
         img = env.render()
         frames.append(img)
+        perception_images.append(obs["PerceptionImageObservation"])
+        nonscaled_observations.append(nonscaled_obs)
         if terminated or truncated:
             env.reset()
 
     env.close()
 
-    img = frames[0]
-    gray_img = skimg.color.rgb2gray(img)
-    im_handle = plt.imshow(img, aspect="equal")
+    img = perception_images[0]
+    plt.imshow(img, aspect="equal")
+    obs0 = nonscaled_observations[0]
+    os_state = obs0["Navigation3DOFStateObservation"]
+    # rotated_img
+    os_heading = os_state[2]
 
+    rotated_img = scimg.rotate(img, os_heading * 180 / np.pi, reshape=False)
+    npx, npy = rotated_img.shape[:2]
+    plt.imshow(rotated_img, aspect="equal")
     plt.axis("off")
     plt.tight_layout()
+
+    # crop the image to the vessel
+    center_pixel_x = int(img.shape[0] // 2)
+    center_pixel_y = int(img.shape[1] // 2)
+    # image width and height corresponds to 2000.0 m x 2000.0 m
+    cropped_img = rotated_img[
+        center_pixel_x - int(0.35 * npx) : center_pixel_x + int(0.1 * npx),
+        center_pixel_y - int(0.25 * npy) : center_pixel_y + int(0.25 * npy),
+    ]
+    plt.imshow(cropped_img, aspect="equal")
+
     # find way to rotate the image such that the vessel is pointing upwards
     # then, extract a subimage around the vessel, and use that as the input to the VAE
     # then, downsample the image to 256x256

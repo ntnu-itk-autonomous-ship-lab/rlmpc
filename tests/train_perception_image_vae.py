@@ -12,8 +12,6 @@ from random import shuffle
 
 import colav_simulator.common.paths as cs_dp
 import colav_simulator.scenario_generator as cs_sg
-import matplotlib.pyplot as plt
-import numpy as np
 import rl_rrt_mpc.common.paths as rl_dp
 import tensorflow as tf
 import torch as th
@@ -30,6 +28,8 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
+
+train_set, test_set = th.utils.data.random_split(dataset, [int(0.8 * len(dataset)), int(0.2 * len(dataset))])
 
 gpus = tf.config.experimental.list_physical_devices("GPU")
 if gpus:

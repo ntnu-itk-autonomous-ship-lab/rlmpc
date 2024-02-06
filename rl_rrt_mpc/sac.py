@@ -7,6 +7,7 @@
 
     Author: Trym Tengesdal
 """
+
 import pathlib
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
@@ -413,17 +414,20 @@ class SACPolicyWithMPC(BasePolicy):
         Get the policy action from an observation (and optional hidden state).
         Includes sugar-coating to handle different observations (e.g. normalizing images).
 
-        :param observation: the input observation
-        :param state: The last hidden states (can be None, used in recurrent policies)
-        :param episode_start: The last masks (can be None, used in recurrent policies)
-            this correspond to beginning of episodes,
-            where the hidden states of the RNN must be reset.
-        :param deterministic: Whether or not to return deterministic actions.
-        :return: the model's action and the next hidden state
-            (used in recurrent policies)
+        Args:
+            - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
+            - state (Optional[Tuple[np.ndarray, ...]]): The last hidden states (can be None, used in recurrent policies)
+            - episode_start (Optional[np.ndarray]): The last masks (can be None, used in recurrent policies)
+                this correspond to beginning of episodes,
+                where the hidden states of the RNN must be reset.
+            - deterministic (bool): Whether or not to return deterministic actions.
+
+        Returns:
+            - Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]: the model's action and the next hidden state
         """
         # convert observation to mpc plan inputs ()
         ownship_state = observation["Navigation3DOFStateObservation"].flatten()
+        do_list = observation["TrackingObservation"]
         t = observation["TimeObservation"].flatten()[0]
         return self.actor.mu_mpc.act(t, ownship_state, do_list)
 
