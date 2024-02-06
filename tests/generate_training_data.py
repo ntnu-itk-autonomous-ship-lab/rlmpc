@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Callable
 
 import colav_simulator.behavior_generator as cs_bg
 import colav_simulator.gym.observation as cs_obs
@@ -7,9 +8,13 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import rl_rrt_mpc.common.paths as rl_dp
-import scipy.ndimage as scimg
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
@@ -41,8 +46,31 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
     )
 
 
+def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callable:
+    """
+    Utility function for multiprocessed env.
+
+    Args:
+        env_id: (str) the environment ID
+        env_config: (dict) the environment config
+        rank: (int) index of the subprocess
+        seed: (int) the inital seed for RNG
+
+    Returns:
+        (Callable): a function that creates the environment
+    """
+
+    def _init():
+        env = gym.make(env_id, **env_config)
+        env.seed(seed + rank)
+        return env
+
+    set_random_seed(seed)
+    return _init
+
+
 if __name__ == "__main__":
-    scenario_choice = 0
+    scenario_choice = 5
     if scenario_choice == 0:
         scenario_name = "rlmpc_scenario_cr_ss"
         config_file = rl_dp.scenarios / (scenario_name + ".yaml")
@@ -55,6 +83,9 @@ if __name__ == "__main__":
     elif scenario_choice == 4:
         scenario_name = "rl_scenario"
         config_file = rl_dp.scenarios / "rl_scenario.yaml"
+    elif scenario_choice == 5:
+        scenario_name = "rlmpc_scenario_random_everything"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything.yaml"
 
     scenario_generator = cs_sg.ScenarioGenerator(seed=0)
 
@@ -62,22 +93,22 @@ if __name__ == "__main__":
     #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     # )
 
-    # scenario_data = scenario_generator.generate(
-    #     config_file=config_file,
-    #     new_load_of_map_data=False,
-    #     save_scenario=True,
-    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
-    #     show_plots=True,
-    #     reset_episode_counter=False,
-    # )
-    # print("done")
+    scenario_data = scenario_generator.generate(
+        config_file=config_file,
+        new_load_of_map_data=False,
+        save_scenario=True,
+        save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
+        show_plots=True,
+        reset_episode_counter=False,
+    )
+    print("done")
 
     # Collect perception image data by executing random actions in N environments over the scenarios.
     observation_type = {
         "dict_observation": [
             "navigation_3dof_state_observation",
             "time_observation",
-            "tracking_observation",
+            # "tracking_observation",
             "perception_image_observation",
         ]
     }
@@ -92,58 +123,34 @@ if __name__ == "__main__":
         "seed": 0,
     }
     env = gym.make(id=env_id, **env_config)
+    num_cpu = 12  # Number of processes to use
+    # Create the vectorized environment
+    vec_env = SubprocVecEnv([make_env(env_id, env_config, i) for i in range(num_cpu)])
+
+    # load randomized episode data from selected map area (vary nr og actions, random ships etc..)
+    # save perception images and actions from each episode to a dataset folder for training the VAE
 
     record = False
     if record:
         video_path = rl_dp.animations / "demo.mp4"
         env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
 
-    env.reset(seed=1)
+    obs = env.reset()
     frames = []
     perception_images = []
     nonscaled_observations = []
     for i in range(200):
-        obs, reward, terminated, truncated, info = env.step(np.array([-0.25, 0.0]))
+        obs, reward, done, info = env.step(np.array([-0.25, 0.0]))
 
         nonscaled_obs = info["unnormalized_obs"]
         img = env.render()
         frames.append(img)
         perception_images.append(obs["PerceptionImageObservation"])
         nonscaled_observations.append(nonscaled_obs)
-        if terminated or truncated:
+        if done:
             env.reset()
 
     env.close()
-
-    img = perception_images[0]
-    plt.imshow(img, aspect="equal")
-    obs0 = nonscaled_observations[0]
-    os_state = obs0["Navigation3DOFStateObservation"]
-    # rotated_img
-    os_heading = os_state[2]
-
-    rotated_img = scimg.rotate(img, os_heading * 180 / np.pi, reshape=False)
-    npx, npy = rotated_img.shape[:2]
-    plt.imshow(rotated_img, aspect="equal")
-    plt.axis("off")
-    plt.tight_layout()
-
-    # crop the image to the vessel
-    center_pixel_x = int(img.shape[0] // 2)
-    center_pixel_y = int(img.shape[1] // 2)
-    # image width and height corresponds to 2000.0 m x 2000.0 m
-    cropped_img = rotated_img[
-        center_pixel_x - int(0.35 * npx) : center_pixel_x + int(0.1 * npx),
-        center_pixel_y - int(0.25 * npy) : center_pixel_y + int(0.25 * npy),
-    ]
-    plt.imshow(cropped_img, aspect="equal")
-
-    # find way to rotate the image such that the vessel is pointing upwards
-    # then, extract a subimage around the vessel, and use that as the input to the VAE
-    # then, downsample the image to 256x256
-
-    # plt.savefig(rl_dp.animations / "demo2.png", bbox_inches="tight", pad_inches=0)
-    # convert img to grayscale
 
     save_gif = False
     if save_gif:
