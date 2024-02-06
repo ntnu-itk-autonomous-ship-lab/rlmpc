@@ -41,11 +41,6 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
     )
 
 
-def get_center_pixels(arr: np.ndarray, npix: int) -> np.ndarray:
-    slices = [slice(shape / 2 - npix, shape / 2 + npix) for shape in arr.shape]
-    return arr[slices]
-
-
 if __name__ == "__main__":
     scenario_choice = 0
     if scenario_choice == 0:
@@ -107,7 +102,7 @@ if __name__ == "__main__":
     frames = []
     perception_images = []
     nonscaled_observations = []
-    for i in range(50):
+    for i in range(200):
         obs, reward, terminated, truncated, info = env.step(np.array([-0.25, 0.0]))
 
         nonscaled_obs = info["unnormalized_obs"]
