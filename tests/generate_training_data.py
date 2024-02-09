@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Callable
 
@@ -16,6 +17,9 @@ from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+
+# For macOS users, you might need to set the environment variable
+os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
@@ -63,14 +67,16 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
 
     def _init():
         env = gym.make(env_id, **env_config)
-        env.seed(seed + rank)
+        env.unwrapped.seed(seed + rank)
         return env
 
     set_random_seed(seed)
     return _init
 
 
-IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+# IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+IMAGE_DATADIR = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/training")
+assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 if __name__ == "__main__":
     scenario_choice = 5
@@ -120,18 +126,18 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 3,
+        "max_number_of_episodes": 70,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
+        "seed": 100,
     }
-    use_vec_env = True
+    use_vec_env = False
     if use_vec_env:
-        num_cpu = 1  # Number of processes to use
-        # Create the vectorized environment
-        vec_env = SubprocVecEnv([make_env(env_id, env_config, i) for i in range(num_cpu)])
+        num_cpu = 2
+        vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 100) for i in range(num_cpu)])
         obs = vec_env.reset()
         observations = [obs]
         frames = []
@@ -140,8 +146,7 @@ if __name__ == "__main__":
             actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
             obs, reward, dones, info = vec_env.step(actions)
             imgs = vec_env.get_images()
-            observations.append(obs)
-
+            perception_images.append(imgs)
         vec_env.close()
 
     else:
@@ -163,17 +168,24 @@ if __name__ == "__main__":
         observations = []
         frames = []
         perception_images = []
-        for i in range(100):
+        SAVE_FILE = "perception_images_rogaland_random_everything_macos1.npy"
+        for i in range(0):
             random_action = env.action_space.sample()
             obs, reward, terminated, truncated, info = env.step(random_action)
             img = env.render()
             frames.append(img)
             observations.append(obs)
+            perception_images.append(obs["PerceptionImageObservation"])
             if terminated or truncated:
                 env.reset()
 
         env.close()
 
+        # np.save(IMAGE_DATADIR / SAVE_FILE, np.array(perception_images, dtype=object), allow_pickle=True)
+
+        b = np.load(IMAGE_DATADIR / SAVE_FILE, allow_pickle=True).astype(np.float32)
+        img1 = b[0]
+        plt.imshow(img1[0, :, :])
         save_gif = False
         if save_gif:
             save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")

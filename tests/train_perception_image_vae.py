@@ -9,6 +9,7 @@ import time
 from collections import deque
 from pathlib import Path
 from random import shuffle
+from typing import Tuple
 
 import colav_simulator.common.paths as cs_dp
 import colav_simulator.scenario_generator as cs_sg
@@ -18,8 +19,9 @@ import torch as th
 import torch.nn as nn
 import torchvision
 import yaml
+from rl_rrt_mpc.common.datasets import PerceptionImageDataset
 from rl_rrt_mpc.networks.variational_autoencoder import VAE
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchsummary import summary
 
@@ -71,13 +73,12 @@ LOAD_MODEL_FILE: Path = BASE_PATH / "vae_models" / "first.pth"  # "_epochxx.pth"
 TFRECORD_FOLDER = BASE_PATH / "datasets"
 TFRECORD_TEST_FOLDER = BASE_PATH / "datasets" / "test"
 
-MULTI_GPU = False
 FILL_UNDEFINED_PIXELS_WITH_NEGATIVE_VALUES = True
 
 ADD_NOISE_TO_INPUT = False
 
-MAX_DEPTH = 10.0
-MIN_DEPTH = 0.15
+MAX_INTENSITY = 250
+MIN_INTENSITY = 0
 
 
 class RunningLoss:
@@ -112,28 +113,30 @@ def get_noise(means, std_dev, const_multiplier) -> th.Tensor:
     return const_multiplier * th.normal(means, std_dev)
 
 
-def process_for_training(input_image, filled_input_image):
+def process_for_training(
+    input_image: th.Tensor, filled_input_image: th.Tensor
+) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
     """
     Function to process the input image for training
     """
     processed_input_image = input_image.clone()
     processed_filled_input_image = filled_input_image.clone()
 
-    processed_input_image[processed_input_image > MAX_DEPTH] = MAX_DEPTH
-    processed_input_image[processed_input_image < MIN_DEPTH] = -1.0
-    processed_input_image = processed_input_image / MAX_DEPTH
+    processed_input_image[processed_input_image > MAX_INTENSITY] = MAX_INTENSITY
+    processed_input_image[processed_input_image < MIN_INTENSITY] = -1.0
+    processed_input_image = processed_input_image / MAX_INTENSITY
     processed_input_image[processed_input_image < 0] = -1.0
 
-    processed_filled_input_image = th.clamp(processed_filled_input_image, min=0, max=MAX_DEPTH)
-    processed_filled_input_image[processed_filled_input_image < MIN_DEPTH] = MAX_DEPTH
-    processed_filled_input_image = processed_filled_input_image / MAX_DEPTH
+    processed_filled_input_image = th.clamp(processed_filled_input_image, min=0, max=MAX_INTENSITY)
+    processed_filled_input_image[processed_filled_input_image < MIN_INTENSITY] = MAX_INTENSITY
+    processed_filled_input_image = processed_filled_input_image / MAX_INTENSITY
 
     processed_input_image_with_noise = processed_input_image.clone()
     image_to_reconstruct = processed_input_image.clone()
     if ADD_NOISE_TO_INPUT:
         std_dev = th.zeros_like(input_image)
         std_dev[:] = (
-            input_image * MIN_DEPTH / MAX_DEPTH
+            input_image * MIN_INTENSITY / MAX_INTENSITY
         )  # interpret this as: std_dev at max depth = 0.15m. std_dev at min depth = 0.0m. linearly increasing in between.
         processed_input_image_with_noise = image_to_reconstruct + get_noise(
             th.zeros_like(image_to_reconstruct), th.ones_like(image_to_reconstruct), std_dev
@@ -157,12 +160,14 @@ def train_vae(
     """Trains the variation autoencoder model.
 
     Args:
-        model (VAE): _description_
-        training_dataloader (DataLoader): _description_
-        n_epochs (int): _description_
-        batch_size (int): _description_
-        optimizer (dw): _description_
-        save_interval (int, optional): _description_. Defaults to 10.
+        model (VAE): The VAE model to train
+        training_dataloader (DataLoader): The training dataloader
+        test_dataloader (DataLoader): The test dataloader
+        writer (SummaryWriter): The tensorboard writer
+        n_epochs (int): The number of epochs to train the model
+        batch_size (int): The batch size
+        optimizer (th.optim.Adam): The optimizer, typically Adam.
+        save_interval (int, optional): The interval at which to save the model. Defaults to 10.
     """
     th.autograd.set_detect_anomaly(True)
     model.train()
@@ -252,10 +257,7 @@ def train_vae(
 
         # # Evaluate the model
         model.eval()
-        if MULTI_GPU:
-            model.module.set_inference_mode(True)
-        else:
-            model.set_inference_mode(True)
+        model.set_inference_mode(True)
         for batch_idx, (num_envs, images_per_env, depth_data, filtered_data, semantic_data) in enumerate(
             test_dataloader
         ):
@@ -318,25 +320,21 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    scenario_choice = 0
-    if scenario_choice == 0:
-        scenario_name = "rlmpc_scenario_cr_ss"
-        config_file = rl_dp.scenarios / (scenario_name + ".yaml")
-    elif scenario_choice == 1:
-        scenario_name = "rlmpc_scenario_head_on_channel"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
-    elif scenario_choice == 2:
-        scenario_name = "rogaland_random_rl"
-        config_file = cs_dp.scenarios / "rogaland_random_rl.yaml"
-    elif scenario_choice == 3:
-        scenario_name = "rogaland_random_rl_2"
-        config_file = rl_dp.scenarios / "rogaland_random_rl_2.yaml"
-    elif scenario_choice == 4:
-        scenario_name = "rl_scenario"
-        config_file = rl_dp.scenarios / "rl_scenario.yaml"
+    vae = VAE(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
 
-    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
+    # data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+    data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
 
-    scenario_episode_list, scenario_enc = scenario_generator.load_scenario_from_folder(
-        rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
+    training_dataset = PerceptionImageDataset(npz_file="perception", data_dir=data_dir / "training")
+    summary(vae, (3, 400, 400))
+
+    train_vae(
+        model=vae,
+        training_dataloader=train_loader,
+        test_dataloader=test_loader,
+        writer=writer,
+        n_epochs=NUM_EPOCHS,
+        batch_size=BATCH_SIZE,
+        optimizer=optimizer,
+        save_interval=SAVE_INTERVAL,
     )
