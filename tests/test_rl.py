@@ -2,6 +2,7 @@
 
     Shows how to use the gym environment, and how to save a video + gif of the simulation.
 """
+
 from pathlib import Path
 
 import colav_simulator.common.paths as dp
@@ -34,8 +35,14 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
         patch.set_data(frame_list[i])
         return (patch,)
 
-    anim = animation.FuncAnimation(fig=fig, func=animate, init_func=init, blit=True, frames=len(frame_list), interval=50, repeat=True)
-    anim.save(filename=filename.as_posix(), writer=animation.PillowWriter(fps=20), progress_callback=lambda i, n: print(f"Saving frame {i} of {n}"))
+    anim = animation.FuncAnimation(
+        fig=fig, func=animate, init_func=init, blit=True, frames=len(frame_list), interval=50, repeat=True
+    )
+    anim.save(
+        filename=filename.as_posix(),
+        writer=animation.PillowWriter(fps=20),
+        progress_callback=lambda i, n: print(f"Saving frame {i} of {n}"),
+    )
 
 
 if __name__ == "__main__":
@@ -45,7 +52,7 @@ if __name__ == "__main__":
     env_config = {
         "scenario_config_file": config_file,
         "render_mode": "rgb_array",
-        "render_update_interval": 0.2,
+        "render_update_rate": 0.2,
         "disable_render_during_training": True,
         "test_mode": True,
     }

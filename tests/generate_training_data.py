@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Callable
 
 import colav_simulator.behavior_generator as cs_bg
+import colav_simulator.common.paths as cs_dp
 import colav_simulator.gym.observation as cs_obs
 import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
@@ -69,17 +70,22 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
+IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+
 if __name__ == "__main__":
     scenario_choice = 5
-    if scenario_choice == 0:
+    if scenario_choice == -1:
+        scenario_name = "crossing_give_way"
+        config_file = cs_dp.scenarios / (scenario_name + ".yaml")
+    elif scenario_choice == 0:
         scenario_name = "rlmpc_scenario_cr_ss"
         config_file = rl_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 1:
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
     elif scenario_choice == 3:
-        scenario_name = "rogaland_random_rl_2"
-        config_file = rl_dp.scenarios / "rogaland_random_rl_2.yaml"
+        scenario_name = "rogaland_random_rl"
+        config_file = rl_dp.scenarios / "rogaland_random_rl.yaml"
     elif scenario_choice == 4:
         scenario_name = "rl_scenario"
         config_file = rl_dp.scenarios / "rl_scenario.yaml"
@@ -93,15 +99,14 @@ if __name__ == "__main__":
     #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     # )
 
-    scenario_data = scenario_generator.generate(
-        config_file=config_file,
-        new_load_of_map_data=False,
-        save_scenario=True,
-        save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
-        show_plots=True,
-        reset_episode_counter=False,
-    )
-    print("done")
+    # scenario_data = scenario_generator.generate(
+    #     config_file=config_file,
+    #     new_load_of_map_data=False,
+    #     save_scenario=True,
+    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
+    #     show_plots=True,
+    #     reset_episode_counter=False,
+    # )
 
     # Collect perception image data by executing random actions in N environments over the scenarios.
     observation_type = {
@@ -115,43 +120,60 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 1,
+        "max_number_of_episodes": 3,
         "test_mode": False,
+        "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 0,
     }
-    env = gym.make(id=env_id, **env_config)
-    num_cpu = 12  # Number of processes to use
-    # Create the vectorized environment
-    vec_env = SubprocVecEnv([make_env(env_id, env_config, i) for i in range(num_cpu)])
+    use_vec_env = True
+    if use_vec_env:
+        num_cpu = 1  # Number of processes to use
+        # Create the vectorized environment
+        vec_env = SubprocVecEnv([make_env(env_id, env_config, i) for i in range(num_cpu)])
+        obs = vec_env.reset()
+        observations = [obs]
+        frames = []
+        perception_images = []
+        for i in range(100):
+            actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
+            obs, reward, dones, info = vec_env.step(actions)
+            imgs = vec_env.get_images()
+            observations.append(obs)
 
-    # load randomized episode data from selected map area (vary nr og actions, random ships etc..)
-    # save perception images and actions from each episode to a dataset folder for training the VAE
+        vec_env.close()
 
-    record = False
-    if record:
-        video_path = rl_dp.animations / "demo.mp4"
-        env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
+    else:
+        env = gym.make(id=env_id, **env_config)
 
-    obs = env.reset()
-    frames = []
-    perception_images = []
-    nonscaled_observations = []
-    for i in range(200):
-        obs, reward, done, info = env.step(np.array([-0.25, 0.0]))
+        # Rogaland area: map_origin_enu:
+        # - -33024.0
+        # - 6572500.0
+        # map_size:
+        # - 4000.0
+        # - 4000.0
 
-        nonscaled_obs = info["unnormalized_obs"]
-        img = env.render()
-        frames.append(img)
-        perception_images.append(obs["PerceptionImageObservation"])
-        nonscaled_observations.append(nonscaled_obs)
-        if done:
-            env.reset()
+        record = False
+        if record:
+            video_path = rl_dp.animations / "demo.mp4"
+            env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
 
-    env.close()
+        obs = env.reset()
+        observations = []
+        frames = []
+        perception_images = []
+        for i in range(100):
+            random_action = env.action_space.sample()
+            obs, reward, terminated, truncated, info = env.step(random_action)
+            img = env.render()
+            frames.append(img)
+            observations.append(obs)
+            if terminated or truncated:
+                env.reset()
 
-    save_gif = False
-    if save_gif:
-        save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
+        env.close()
+
+        save_gif = False
+        if save_gif:
+            save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
