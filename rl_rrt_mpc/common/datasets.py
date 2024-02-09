@@ -30,11 +30,8 @@ class PerceptionImageDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
 
-        img_name =
-
         sample = self.data[idx]
 
         if self.transform:
             sample = self.transform(sample)
-
         return sample

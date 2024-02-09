@@ -30,8 +30,12 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-
-train_set, test_set = th.utils.data.random_split(dataset, [int(0.8 * len(dataset)), int(0.2 * len(dataset))])
+# BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/data")
+BASE_PATH: Path = Path("/Users/trtengesdal/Desktop/machine_learning/data")
+EXPERIMENT_NAME: str = "vae_training1"
+EXPERIMENT_PATH = BASE_PATH / EXPERIMENT_NAME
+SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
+LOAD_MODEL_FILE: Path = BASE_PATH / "vae_models" / "first.pth"  # "_epochxx.pth" appended in training
 
 gpus = tf.config.experimental.list_physical_devices("GPU")
 if gpus:
@@ -49,36 +53,6 @@ if gpus:
 
 device = th.device("cuda")
 device0 = th.device("cuda:0")
-
-
-# VAE Hyperparams
-LATENT_DIM = 128
-NUM_EPOCHS = 40
-ONE_TFRECORD = False
-BATCH_SIZE = 64
-LEARNING_RATE = 1e-4
-
-SAVE_MODEL = False
-LOAD_MODEL = False
-SAVE_INTERVAL = 10  # Save the model every 10 batches
-
-# Model Paths
-BASE_PATH: Path = Path("/home/Desktop/data")
-EXPERIMENT_NAME: str = "vae_training1"
-EXPERIMENT_PATH = BASE_PATH / EXPERIMENT_NAME
-SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
-LOAD_MODEL_FILE: Path = BASE_PATH / "vae_models" / "first.pth"  # "_epochxx.pth" appended in training
-
-# Data Path
-TFRECORD_FOLDER = BASE_PATH / "datasets"
-TFRECORD_TEST_FOLDER = BASE_PATH / "datasets" / "test"
-
-FILL_UNDEFINED_PIXELS_WITH_NEGATIVE_VALUES = True
-
-ADD_NOISE_TO_INPUT = False
-
-MAX_INTENSITY = 250
-MIN_INTENSITY = 0
 
 
 class RunningLoss:
@@ -114,7 +88,7 @@ def get_noise(means, std_dev, const_multiplier) -> th.Tensor:
 
 
 def process_for_training(
-    input_image: th.Tensor, filled_input_image: th.Tensor
+    input_image: th.Tensor, filled_input_image: th.Tensor, max_intensity: int = 250, min_intensity: float = 0.0
 ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
     """
     Function to process the input image for training
@@ -122,21 +96,21 @@ def process_for_training(
     processed_input_image = input_image.clone()
     processed_filled_input_image = filled_input_image.clone()
 
-    processed_input_image[processed_input_image > MAX_INTENSITY] = MAX_INTENSITY
-    processed_input_image[processed_input_image < MIN_INTENSITY] = -1.0
-    processed_input_image = processed_input_image / MAX_INTENSITY
+    processed_input_image[processed_input_image > max_intensity] = max_intensity
+    processed_input_image[processed_input_image < min_intensity] = -1.0
+    processed_input_image = processed_input_image / max_intensity
     processed_input_image[processed_input_image < 0] = -1.0
 
-    processed_filled_input_image = th.clamp(processed_filled_input_image, min=0, max=MAX_INTENSITY)
-    processed_filled_input_image[processed_filled_input_image < MIN_INTENSITY] = MAX_INTENSITY
-    processed_filled_input_image = processed_filled_input_image / MAX_INTENSITY
+    processed_filled_input_image = th.clamp(processed_filled_input_image, min=0, max=max_intensity)
+    processed_filled_input_image[processed_filled_input_image < min_intensity] = max_intensity
+    processed_filled_input_image = processed_filled_input_image / max_intensity
 
     processed_input_image_with_noise = processed_input_image.clone()
     image_to_reconstruct = processed_input_image.clone()
     if ADD_NOISE_TO_INPUT:
         std_dev = th.zeros_like(input_image)
         std_dev[:] = (
-            input_image * MIN_INTENSITY / MAX_INTENSITY
+            input_image * min_intensity / max_intensity
         )  # interpret this as: std_dev at max depth = 0.15m. std_dev at min depth = 0.0m. linearly increasing in between.
         processed_input_image_with_noise = image_to_reconstruct + get_noise(
             th.zeros_like(image_to_reconstruct), th.ones_like(image_to_reconstruct), std_dev
@@ -210,10 +184,10 @@ def train_vae(
 
             # Update the tensorboard
             if batch_idx % save_interval == 0 and batch_idx != 0:
-                writer.add_scalar("Training/Loss", loss.item() / BATCH_SIZE, epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/KLD Loss", kld_loss.item() / BATCH_SIZE, epoch * n_batches + batch_idx)
+                writer.add_scalar("Training/Loss", loss.item() / batch_size, epoch * n_batches + batch_idx)
+                writer.add_scalar("Training/KLD Loss", kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
                 print(
-                    f"[TRAINING] Epoch: {epoch}/{n_epochs} Batch: {batch_idx}/{n_batches} Avg. Train Loss: {loss.item()/BATCH_SIZE:.4f}, KL Div Loss.: {kld_loss.item()/BATCH_SIZE:.4f}"
+                    f"[TRAINING] Epoch: {epoch}/{n_epochs} Batch: {batch_idx}/{n_batches} Avg. Train Loss: {loss.item()/batch_size:.4f}, KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
                     f"Time: {time.time() - batch_start_time:.2f}s, Est. time remaining: {(n_batches - batch_idx)*avg_iter_time :.2f}s"
                 )
 
@@ -292,9 +266,9 @@ def train_vae(
                 n_grids=4,
             )
             writer.add_image("testing/images", grid, global_step=epoch)
-            if batch_idx % (save_interval) == 0 and batch_idx is not 0:
+            if batch_idx % (save_interval) == 0 and batch_idx != 0:
                 print(
-                    f"[TESTING] Epoch: {epoch}/{n_epochs} Batch: {batch_idx}/{n_test_batches} Avg. Train Loss: {loss.item()/BATCH_SIZE:.4f}, KL Div Loss.: {kld_loss.item()/BATCH_SIZE:.4f}"
+                    f"[TESTING] Epoch: {epoch}/{n_epochs} Batch: {batch_idx}/{n_test_batches} Avg. Train Loss: {loss.item()/batch_size:.4f}, KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
                 )
                 torchvision.utils.save_image(
                     grid,
@@ -309,8 +283,8 @@ def train_vae(
                     + ".png",
                 )
                 # Update the tensorboard
-                writer.add_scalar("Test/Loss", loss.item() / BATCH_SIZE, epoch * n_test_batches + batch_idx)
-                writer.add_scalar("Test/KL Div Loss", kld_loss.item() / BATCH_SIZE, epoch * n_test_batches + batch_idx)
+                writer.add_scalar("Test/Loss", loss.item() / batch_size, epoch * n_test_batches + batch_idx)
+                writer.add_scalar("Test/KL Div Loss", kld_loss.item() / batch_size, epoch * n_test_batches + batch_idx)
 
         # Print the statistics
         print("Test Loss:", loss_meter.average_loss)
@@ -320,21 +294,37 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    vae = VAE(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
+    latent_dim = 64
+    vae = VAE(n_input_channels=3, latent_dim=latent_dim).to(device)
+
+    save_model = False
+    load_model = False
+    save_interval = 10  # Save the model every 10 batches
+    batch_size = 64
+    num_epochs = 40
+    learning_rate = 1e-4
+
+    FILL_UNDEFINED_PIXELS_WITH_NEGATIVE_VALUES = True
+    ADD_NOISE_TO_INPUT = False
 
     # data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
     data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
 
-    training_dataset = PerceptionImageDataset(npz_file="perception", data_dir=data_dir / "training")
+    training_dataset = PerceptionImageDataset(npy_file="perception.npy", data_dir=data_dir / "training")
     summary(vae, (3, 400, 400))
+    test_dataset = PerceptionImageDataset(npy_file="test.npy", data_dir=data_dir / "test")
 
+    train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    writer = SummaryWriter()
+    optimizer = th.optim.Adam(vae.parameters(), lr=learning_rate)
     train_vae(
         model=vae,
-        training_dataloader=train_loader,
-        test_dataloader=test_loader,
+        training_dataloader=train_dataloader,
+        test_dataloader=test_dataloader,
         writer=writer,
-        n_epochs=NUM_EPOCHS,
-        batch_size=BATCH_SIZE,
+        n_epochs=num_epochs,
+        batch_size=batch_size,
         optimizer=optimizer,
-        save_interval=SAVE_INTERVAL,
+        save_interval=save_interval,
     )

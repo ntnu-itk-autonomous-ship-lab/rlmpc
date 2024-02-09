@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+
 import torch as th
 import torch.nn as nn
 
@@ -185,4 +186,4 @@ if __name__ == "__main__":
     #
     latent_dimension = 64
     encoder = PerceptionImageEncoder(latent_dim=latent_dimension, n_input_channels=1).to("cuda")
-    summary(encoder, (1, 256, 256), device="cuda")
+    summary(encoder, (3, 400, 400), device="cuda")
