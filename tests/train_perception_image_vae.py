@@ -88,7 +88,11 @@ def get_noise(means, std_dev, const_multiplier) -> th.Tensor:
 
 
 def process_for_training(
-    input_image: th.Tensor, filled_input_image: th.Tensor, max_intensity: int = 250, min_intensity: float = 0.0
+    input_image: th.Tensor,
+    filled_input_image: th.Tensor,
+    max_intensity: int = 250,
+    min_intensity: float = 0.0,
+    add_noise: bool = False,
 ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
     """
     Function to process the input image for training
@@ -107,7 +111,7 @@ def process_for_training(
 
     processed_input_image_with_noise = processed_input_image.clone()
     image_to_reconstruct = processed_input_image.clone()
-    if ADD_NOISE_TO_INPUT:
+    if add_noise:
         std_dev = th.zeros_like(input_image)
         std_dev[:] = (
             input_image * min_intensity / max_intensity
@@ -162,17 +166,14 @@ def train_vae(
             model.zero_grad()
             optimizer.zero_grad()
 
-            # Process the input image for training
             (
                 noisy_image,
-                image_to_reconstruct,
-                processed_input_image,
-                processed_filled_input_image,
+                perception_image_to_reconstruct,
             ) = process_for_training(perception_images, filtered_images)
 
             # Forward pass
             reconstructed_image, means, log_vars, sampled_latens_vars = model(noisy_image)
-            mse_loss = reconstruction_loss(reconstructed_image, image_to_reconstruct)
+            mse_loss = reconstruction_loss(reconstructed_image, perception_image_to_reconstruct)
             kld_loss = kullback_leibler_loss(means, log_vars)
             loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
@@ -194,11 +195,9 @@ def train_vae(
                 # add image to the tensorboard
                 grid = make_grid_for_tensorboard(
                     [
-                        filled_filtered_data,
-                        depth_data_to_reconstruct,
+                        perception_image_to_reconstruct,
                         noisy_image,
                         th.sigmoid(reconstructed_image),
-                        semantic_data,
                     ],
                     n_grids=4,
                 )
@@ -222,7 +221,7 @@ def train_vae(
         # Reset the loss meter
         loss_meter.reset()
         print("Saving model...")
-        save_path = f"{str(EXPERIMENT_PATH)}/models/{EXPERIMENT_NAME}_LD_{LATENT_DIM}_epoch_{epoch}.pth"
+        save_path = f"{str(EXPERIMENT_PATH)}/models/{EXPERIMENT_NAME}_LD_{model.latent_dim}_epoch_{epoch}.pth"
         th.save(
             model.state_dict(),
             save_path,
@@ -297,7 +296,6 @@ if __name__ == "__main__":
     latent_dim = 64
     vae = VAE(n_input_channels=3, latent_dim=latent_dim).to(device)
 
-    save_model = False
     load_model = False
     save_interval = 10  # Save the model every 10 batches
     batch_size = 64
@@ -310,9 +308,11 @@ if __name__ == "__main__":
     # data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
     data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
 
-    training_dataset = PerceptionImageDataset(npy_file="perception.npy", data_dir=data_dir / "training")
+    training_dataset = PerceptionImageDataset(npy_file="perception.npy", data_dir=data_dir)
     summary(vae, (3, 400, 400))
-    test_dataset = PerceptionImageDataset(npy_file="test.npy", data_dir=data_dir / "test")
+    test_dataset = PerceptionImageDataset(
+        npy_file="perception_images_rogaland_random_everything_vecenv_test.npy", data_dir=data_dir
+    )
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)

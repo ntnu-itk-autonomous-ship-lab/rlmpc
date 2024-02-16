@@ -74,12 +74,12 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-# IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
-IMAGE_DATADIR = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/training")
+IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+# IMAGE_DATADIR = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/training")
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 if __name__ == "__main__":
-    scenario_choice = 5
+    scenario_choice = 6
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -98,20 +98,22 @@ if __name__ == "__main__":
     elif scenario_choice == 5:
         scenario_name = "rlmpc_scenario_random_everything"
         config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything.yaml"
+    elif scenario_choice == 6:
+        scenario_name = "rlmpc_scenario_random_everything2"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything2.yaml"
 
-    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
+    scenario_generator = cs_sg.ScenarioGenerator(seed=1)
 
     # scen = scenario_generator.load_scenario_from_folder(
     #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     # )
-
     # scenario_data = scenario_generator.generate(
     #     config_file=config_file,
     #     new_load_of_map_data=False,
     #     save_scenario=True,
     #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
     #     show_plots=True,
-    #     reset_episode_counter=False,
+    #     episode_idx_save_offset=0,
     # )
 
     # Collect perception image data by executing random actions in N environments over the scenarios.
@@ -126,29 +128,38 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 70,
+        # "max_number_of_episodes": 10,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 100,
+        "seed": 0,
     }
-    use_vec_env = False
+    SAVE_FILE = "perception_images_rogaland_random_everything_vecenv_test.npy"
+
+    # b = np.load(IMAGE_DATADIR / SAVE_FILE, allow_pickle=True).astype(np.float32)
+    # plt.imshow(b[50, 0, 0, :, :])
+
+    use_vec_env = True
     if use_vec_env:
-        num_cpu = 2
-        vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 100) for i in range(num_cpu)])
+        num_cpu = 15
+        vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
         obs = vec_env.reset()
         observations = [obs]
         frames = []
-        perception_images = []
-        for i in range(100):
+        img_dim = list(obs["PerceptionImageObservation"].shape)
+        n_steps = 200
+        perception_images = np.zeros((n_steps, *img_dim), dtype=np.int8)
+        for i in range(n_steps):
             actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
             obs, reward, dones, info = vec_env.step(actions)
-            imgs = vec_env.get_images()
-            perception_images.append(imgs)
-        vec_env.close()
+            vec_env.render()
 
+            perception_images[i, :, :, :, :] = obs["PerceptionImageObservation"]
+
+        np.save(IMAGE_DATADIR / SAVE_FILE, perception_images)
+        vec_env.close()
     else:
         env = gym.make(id=env_id, **env_config)
 
@@ -164,12 +175,11 @@ if __name__ == "__main__":
             video_path = rl_dp.animations / "demo.mp4"
             env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
 
-        obs = env.reset()
+        obs = env.reset(seed=2)
         observations = []
         frames = []
         perception_images = []
-        SAVE_FILE = "perception_images_rogaland_random_everything_macos1.npy"
-        for i in range(0):
+        for i in range(500):
             random_action = env.action_space.sample()
             obs, reward, terminated, truncated, info = env.step(random_action)
             img = env.render()
@@ -181,11 +191,6 @@ if __name__ == "__main__":
 
         env.close()
 
-        # np.save(IMAGE_DATADIR / SAVE_FILE, np.array(perception_images, dtype=object), allow_pickle=True)
-
-        b = np.load(IMAGE_DATADIR / SAVE_FILE, allow_pickle=True).astype(np.float32)
-        img1 = b[0]
-        plt.imshow(img1[0, :, :])
-        save_gif = False
-        if save_gif:
-            save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
+    save_gif = False
+    if save_gif:
+        save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
