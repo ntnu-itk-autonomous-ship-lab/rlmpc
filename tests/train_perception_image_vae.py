@@ -2,7 +2,6 @@
 import argparse
 import inspect
 import math
-
 # import module for random sampling
 import random
 import time
@@ -85,44 +84,6 @@ def make_grid_for_tensorboard(images_list: list, n_grids: int = 2):
 def get_noise(means, std_dev, const_multiplier) -> th.Tensor:
     """ """
     return const_multiplier * th.normal(means, std_dev)
-
-
-def process_for_training(
-    input_image: th.Tensor,
-    filled_input_image: th.Tensor,
-    max_intensity: int = 250,
-    min_intensity: float = 0.0,
-    add_noise: bool = False,
-) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
-    """
-    Function to process the input image for training
-    """
-    processed_input_image = input_image.clone()
-    processed_filled_input_image = filled_input_image.clone()
-
-    processed_input_image[processed_input_image > max_intensity] = max_intensity
-    processed_input_image[processed_input_image < min_intensity] = -1.0
-    processed_input_image = processed_input_image / max_intensity
-    processed_input_image[processed_input_image < 0] = -1.0
-
-    processed_filled_input_image = th.clamp(processed_filled_input_image, min=0, max=max_intensity)
-    processed_filled_input_image[processed_filled_input_image < min_intensity] = max_intensity
-    processed_filled_input_image = processed_filled_input_image / max_intensity
-
-    processed_input_image_with_noise = processed_input_image.clone()
-    image_to_reconstruct = processed_input_image.clone()
-    if add_noise:
-        std_dev = th.zeros_like(input_image)
-        std_dev[:] = (
-            input_image * min_intensity / max_intensity
-        )  # interpret this as: std_dev at max depth = 0.15m. std_dev at min depth = 0.0m. linearly increasing in between.
-        processed_input_image_with_noise = image_to_reconstruct + get_noise(
-            th.zeros_like(image_to_reconstruct), th.ones_like(image_to_reconstruct), std_dev
-        )
-        processed_input_image_with_noise[processed_input_image_with_noise > 1.0] = 1.0
-        processed_input_image_with_noise[input_image < 0] = -1.0
-
-    return processed_input_image_with_noise, image_to_reconstruct, processed_input_image, processed_filled_input_image
 
 
 def train_vae(
