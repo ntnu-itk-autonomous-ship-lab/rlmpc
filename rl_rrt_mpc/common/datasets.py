@@ -33,7 +33,6 @@ class PerceptionImageDataset(Dataset):
         self,
         npy_file: str,
         data_dir: Path,
-        data_shape: Tuple[int, int, int, int, int] = (1000, 15, 3, 400, 400),
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -44,13 +43,13 @@ class PerceptionImageDataset(Dataset):
         Args:
             - npy_file (str): The name of the npy file.
             - data_dir (Path): The path to the data directory in which the numpy file is found.
-            - transform (transforms_v2): The transform to apply to the data.
+            - transform (transforms_v2...): The transform to apply to the data.
         """
         self.data_dir = data_dir
         self.transform = transform
         self.data = np.load(data_dir / npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
         # self.data = np.load(data_dir / npy_file, allow_pickle=True, mmap_mode="r").astype(np.uint8)
-        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = data_shape
+        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
 
     def get_datainfo(self) -> Tuple[int, int, int, int, int]:
         """Returns the data information."""

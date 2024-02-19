@@ -27,9 +27,6 @@ EXPERIMENT_PATH = BASE_PATH / EXPERIMENT_NAME
 SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
 LOAD_MODEL_FILE: Path = BASE_PATH / "vae_models" / "first.pth"  # "_epochxx.pth" appended in training
 
-device = torch.device("cuda")
-device0 = torch.device("cuda:0")
-
 
 class RunningLoss:
     def __init__(self, batch_size: int) -> None:
@@ -72,6 +69,7 @@ def train_vae(
     batch_size: int,
     optimizer: torch.optim.Adam,
     save_interval: int = 10,
+    device: torch.device = torch.device("cpu"),
 ) -> None:
     """Trains the variation autoencoder model.
 
@@ -84,11 +82,12 @@ def train_vae(
         batch_size (int): The batch size
         optimizer (torch.optim.Adam): The optimizer, typically Adam.
         save_interval (int, optional): The interval at which to save the model. Defaults to 10.
+        device (torch.device, optional): The device to train the model on. Defaults to "cpu".
     """
     torch.autograd.set_detect_anomaly(True)
     model.train()
     reconstruction_loss = nn.MSELoss()
-    kullback_leibler_loss = nn.KLDivLoss()
+    kullback_leibler_loss = nn.KLDivLoss(reduction="batchmean")
 
     loss_meter = RunningLoss(batch_size)
     n_batches = int(len(training_dataloader) / batch_size)
@@ -96,7 +95,6 @@ def train_vae(
 
     # Create training data + test data
     for epoch in range(n_epochs):
-        model.train()
         epoch_start_time = time.time()
 
         for batch_idx, (batch_images) in enumerate(training_dataloader):
@@ -104,9 +102,11 @@ def train_vae(
             model.zero_grad()
             optimizer.zero_grad()
 
+            batch_images = batch_images.to(device)
+
             # Forward pass
-            reconstructed_image, means, log_vars, sampled_latens_vars = model(noisy_image)
-            mse_loss = reconstruction_loss(reconstructed_image, perception_image_to_reconstruct)
+            reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
+            mse_loss = reconstruction_loss(reconstructed_images, batch_images)
             kld_loss = kullback_leibler_loss(means, log_vars)
             loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
@@ -128,7 +128,7 @@ def train_vae(
                 # add image to the tensorboard
                 grid = make_grid_for_tensorboard(
                     [
-                        perception_image_to_reconstruct,
+                        batch_images,
                         noisy_image,
                         torch.sigmoid(reconstructed_image),
                     ],
@@ -222,6 +222,7 @@ def train_vae(
 
 if __name__ == "__main__":
     latent_dim = 64
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(n_input_channels=3, latent_dim=latent_dim).to(device)
 
     load_model = False
@@ -235,24 +236,22 @@ if __name__ == "__main__":
     training_npy_filename = "perception_images_rogaland_random_everything_vecenv"
     test_npy_filename = "perception_images_rogaland_random_everything_vecenv_test"
 
-    transform = (
-        transforms_v2.Compose(
-            [
-                transforms_v2.ToDtype(torch.uint8, scale=True),
-                transforms_v2.RandomChoice(
-                    [
-                        transforms_v2.ToDtype(torch.uint8, scale=True),
-                        transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
-                        transforms_v2.RandomHorizontalFlip(),
-                        transforms_v2.RandomRotation(10),
-                        transforms_v2.ElasticTransform(alpha=100, sigma=5),
-                    ],
-                    p=[0.5, 0.5, 0.5, 0.5, 0.5],
-                ),
-                transforms_v2.ToDtype(torch.float16, scale=True),
-                transforms_v2.Normalize(mean=[0.5], std=[0.5]),
-            ]
-        ),
+    transform = transforms_v2.Compose(
+        [
+            transforms_v2.ToDtype(torch.uint8, scale=True),
+            transforms_v2.RandomChoice(
+                [
+                    transforms_v2.ToDtype(torch.uint8, scale=True),
+                    transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+                    transforms_v2.RandomHorizontalFlip(),
+                    transforms_v2.RandomRotation(10),
+                    transforms_v2.ElasticTransform(alpha=100, sigma=5),
+                ],
+                p=[0.5, 0.5, 0.5, 0.5, 0.5],
+            ),
+            transforms_v2.ToDtype(torch.float32, scale=True),
+            transforms_v2.Normalize(mean=[0.5], std=[0.5]),
+        ]
     )
     training_dataset = rl_ds.PerceptionImageDataset(training_npy_filename + ".npy", data_dir, transform=transform)
     test_dataset = rl_ds.PerceptionImageDataset(test_npy_filename + ".npy", data_dir)
@@ -266,8 +265,8 @@ if __name__ == "__main__":
         npy_file="perception_images_rogaland_random_everything_vecenv_test.npy", data_dir=data_dir
     )
 
-    train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     writer = SummaryWriter()
     optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
     train_vae(
@@ -279,4 +278,5 @@ if __name__ == "__main__":
         batch_size=batch_size,
         optimizer=optimizer,
         save_interval=save_interval,
+        device=device,
     )

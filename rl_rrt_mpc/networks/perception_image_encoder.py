@@ -126,6 +126,8 @@ class PerceptionImageEncoder(nn.Module):
         # Third (Fourth) block of convolutions
         # Version 1:
         self.conv30: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=6, stride=2, padding=2)
+        nn.init.xavier_uniform_(self.conv30.weight, gain=nn.init.calculate_gain("linear"))
+        nn.init.zeros_(self.conv30.bias)
         # Version 2:
         # self.conv30: nn.Conv2d = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=5, stride=2, padding=2)
 

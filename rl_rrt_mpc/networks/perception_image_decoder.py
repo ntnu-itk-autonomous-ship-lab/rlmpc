@@ -17,13 +17,13 @@ class PerceptionImageDecoder(nn.Module):
     Adapted from https://github.com/microsoft/AirSim-Drone-Racing-VAE-Imitation/blob/master/racing_models/cmvae.py
     """
 
-    def __init__(self, n_input_channels: int = 1, latent_dim: int = 64, with_logits=False):
+    def __init__(self, n_input_channels: int = 3, latent_dim: int = 64, first_deconv_input_dim: int = 8):
         """
 
         Args:
             n_input_channels: Number of input channels
             latent_dim: Dimension of the latent space
-            with_logits: Whether to return logits or not
+            first_deconv_input_dim: Dimension of the first input convolutional layer
         """
 
         super(PerceptionImageDecoder, self).__init__()
@@ -32,8 +32,8 @@ class PerceptionImageDecoder(nn.Module):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
-        self.with_logits = with_logits
         self.n_input_channels = n_input_channels
+        self.first_deconv_input_dim = 8
 
         #  Formula for output image/tensor size after deconv2d:
         # n = (o - 1) * s + f - 2p
@@ -53,15 +53,15 @@ class PerceptionImageDecoder(nn.Module):
         # => for 6x6 kernel, stride 2, padding (2, 2), input 25x25 image:
         # (25 - 1) * 2 + 6 - 2*2 = 50x50
         # Second deconv:
-        # => for 6x6 kernel, stride 2, padding (2, 2), input 32x32 image:
-        # (32 - 1) * 2 + 6 - 2*1 = 64x64
+        # => for 6x6 kernel, stride 2, padding (2, 2), input 50x50 image:
+        # (50 - 1) * 2 + 6 - 2*2 = 100x100
         # Third deconv:
-        # => for 6x6 kernel, stride 4, padding (1, 1), input 64x64 image:
-        # (64 - 1) * 4 + 6 - 2*1 = 256x256
+        # => for 6x6 kernel, stride 4, padding (1, 1), input 100x100 image:
+        # (100 - 1) * 4 + 6 - 2*1 = 400x400
 
         # Fully connected layers
         # Version 1
-        self.fc0 = nn.Linear(latent_dim, 5 * 5 * 64)
+        self.fc0 = nn.Linear(latent_dim, self.first_deconv_input_dim * self.first_deconv_input_dim * 64)
         # Version 2
         # self.fc1 = nn.Linear(latent_dim, 512)
         # # Relu activation
@@ -73,13 +73,11 @@ class PerceptionImageDecoder(nn.Module):
         # Version 1
         self.deconv0 = nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=3, padding=0)
         # ELU activation
-        self.deconv1 = nn.ConvTranspose2d(64, 32, kernel_size=6, stride=2, padding=(2, 2), output_padding=(0, 0))
+        self.deconv1 = nn.ConvTranspose2d(64, 32, kernel_size=6, stride=2, padding=(2, 2))
         # ELU activation
-        self.deconv2 = nn.ConvTranspose2d(32, 16, kernel_size=6, stride=2, padding=(2, 2), output_padding=(0, 0))
+        self.deconv2 = nn.ConvTranspose2d(32, 16, kernel_size=6, stride=2, padding=(2, 2))
         # ELU activation
-        self.deconv3 = nn.ConvTranspose2d(
-            16, self.n_input_channels, kernel_size=6, stride=4, padding=(1, 1), output_padding=(0, 0)
-        )
+        self.deconv3 = nn.ConvTranspose2d(16, self.n_input_channels, kernel_size=6, stride=4, padding=(1, 1))
         # Sigmoid activation
 
         # Version 2
@@ -108,7 +106,7 @@ class PerceptionImageDecoder(nn.Module):
         # Version 1
         x = self.fc0(z)
         x = self.elu(x)
-        x = x.view(x.size(0), 64, 5, 5)
+        x = x.view(x.size(0), 64, self.first_deconv_input_dim, self.first_deconv_input_dim)
         # Version 2
         # x = self.dense(z)
         # x = self.relu(x)
@@ -145,5 +143,5 @@ if __name__ == "__main__":
     from torchsummary import summary
 
     latent_dimension = 64
-    img_decoder = PerceptionImageDecoder(latent_dim=latent_dimension, n_input_channels=1).to("cuda")
+    img_decoder = PerceptionImageDecoder(latent_dim=latent_dimension, n_input_channels=3).to("cuda")
     summary(img_decoder, (1, latent_dimension), device="cuda")

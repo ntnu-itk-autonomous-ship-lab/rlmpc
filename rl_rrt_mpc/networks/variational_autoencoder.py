@@ -7,7 +7,6 @@
     Author: Trym Tengesdal
 """
 
-
 import torch as th
 import torch.nn as nn
 from rl_rrt_mpc.networks.perception_image_decoder import PerceptionImageDecoder
@@ -165,10 +164,10 @@ if __name__ == "__main__":
     LATENT_DIM = 64
     device = th.device("cpu")
     encoder = PerceptionImageEncoder(n_input_channels=1, latent_dim=LATENT_DIM).to(device)
-    summary(encoder, input_size=(1, 256, 256), batch_size=-1, device=device.type)
+    summary(encoder, input_size=(3, 400, 400), batch_size=-1, device=device.type)
 
     decoder = PerceptionImageDecoder(n_input_channels=1, latent_dim=LATENT_DIM).to(device)
     summary(decoder, input_size=(1, LATENT_DIM), batch_size=-1, device=device.type)
 
     vae = VAE(n_input_channels=1, latent_dim=LATENT_DIM).to(device)
-    summary(vae, input_size=(1, 256, 256), batch_size=-1, device=device.type)
+    summary(vae, input_size=(3, 400, 400), batch_size=-1, device=device.type)
