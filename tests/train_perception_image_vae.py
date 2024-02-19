@@ -1,23 +1,14 @@
 #  Use argument parser to set arguments of experiment name
 import argparse
 import inspect
-import math
-# import module for random sampling
-import random
 import time
-from collections import deque
 from pathlib import Path
-from random import shuffle
-from typing import Tuple
 
-import colav_simulator.common.paths as cs_dp
-import colav_simulator.scenario_generator as cs_sg
-import rl_rrt_mpc.common.paths as rl_dp
-import tensorflow as tf
-import torch as th
+import rl_rrt_mpc.common.datasets as rl_ds
+import torch
 import torch.nn as nn
 import torchvision
-import yaml
+import torchvision.transforms.v2 as transforms_v2
 from rl_rrt_mpc.common.datasets import PerceptionImageDataset
 from rl_rrt_mpc.networks.variational_autoencoder import VAE
 from torch.utils.data import DataLoader
@@ -36,22 +27,8 @@ EXPERIMENT_PATH = BASE_PATH / EXPERIMENT_NAME
 SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
 LOAD_MODEL_FILE: Path = BASE_PATH / "vae_models" / "first.pth"  # "_epochxx.pth" appended in training
 
-gpus = tf.config.experimental.list_physical_devices("GPU")
-if gpus:
-    try:
-        # Currently, memory growth needs to be the same across GPUs
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-        logical_gpus = tf.config.experimental.list_logical_devices("GPU")
-        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-    except RuntimeError as e:
-        # Memory growth must be set before GPUs have been initialized
-        print("GPU error")
-        print(e)
-
-
-device = th.device("cuda")
-device0 = th.device("cuda:0")
+device = torch.device("cuda")
+device0 = torch.device("cuda:0")
 
 
 class RunningLoss:
@@ -81,9 +58,9 @@ def make_grid_for_tensorboard(images_list: list, n_grids: int = 2):
     return torchvision.utils.make_grid(joined_images, nrow=n_grids, padding=5)
 
 
-def get_noise(means, std_dev, const_multiplier) -> th.Tensor:
+def get_noise(means, std_dev, const_multiplier) -> torch.Tensor:
     """ """
-    return const_multiplier * th.normal(means, std_dev)
+    return const_multiplier * torch.normal(means, std_dev)
 
 
 def train_vae(
@@ -93,7 +70,7 @@ def train_vae(
     writer: SummaryWriter,
     n_epochs: int,
     batch_size: int,
-    optimizer: th.optim.Adam,
+    optimizer: torch.optim.Adam,
     save_interval: int = 10,
 ) -> None:
     """Trains the variation autoencoder model.
@@ -105,10 +82,10 @@ def train_vae(
         writer (SummaryWriter): The tensorboard writer
         n_epochs (int): The number of epochs to train the model
         batch_size (int): The batch size
-        optimizer (th.optim.Adam): The optimizer, typically Adam.
+        optimizer (torch.optim.Adam): The optimizer, typically Adam.
         save_interval (int, optional): The interval at which to save the model. Defaults to 10.
     """
-    th.autograd.set_detect_anomaly(True)
+    torch.autograd.set_detect_anomaly(True)
     model.train()
     reconstruction_loss = nn.MSELoss()
     kullback_leibler_loss = nn.KLDivLoss()
@@ -122,15 +99,10 @@ def train_vae(
         model.train()
         epoch_start_time = time.time()
 
-        for batch_idx, (n_envs, images_per_env, perception_images, filtered_images) in enumerate(training_dataloader):
+        for batch_idx, (batch_images) in enumerate(training_dataloader):
             batch_start_time = time.time()
             model.zero_grad()
             optimizer.zero_grad()
-
-            (
-                noisy_image,
-                perception_image_to_reconstruct,
-            ) = process_for_training(perception_images, filtered_images)
 
             # Forward pass
             reconstructed_image, means, log_vars, sampled_latens_vars = model(noisy_image)
@@ -158,7 +130,7 @@ def train_vae(
                     [
                         perception_image_to_reconstruct,
                         noisy_image,
-                        th.sigmoid(reconstructed_image),
+                        torch.sigmoid(reconstructed_image),
                     ],
                     n_grids=4,
                 )
@@ -183,7 +155,7 @@ def train_vae(
         loss_meter.reset()
         print("Saving model...")
         save_path = f"{str(EXPERIMENT_PATH)}/models/{EXPERIMENT_NAME}_LD_{model.latent_dim}_epoch_{epoch}.pth"
-        th.save(
+        torch.save(
             model.state_dict(),
             save_path,
         )
@@ -202,10 +174,6 @@ def train_vae(
             filtered_data = filtered_data.to(device).unsqueeze(1)
             semantic_data = semantic_data.to(device).unsqueeze(1)
 
-            noisy_image, depth_data_to_reconstruct, filtered_data, filled_filtered_data, semantic_data = (
-                process_for_training(depth_data, filtered_data, semantic_data)
-            )
-
             # Forward pass
             reconstructed_image, means, log_vars, sampled_latent_vars = model(noisy_image)
 
@@ -220,7 +188,7 @@ def train_vae(
                     filled_filtered_data,
                     depth_data_to_reconstruct,
                     noisy_image,
-                    th.sigmoid(reconstructed_image),
+                    torch.sigmoid(reconstructed_image),
                     semantic_data,
                 ],
                 n_grids=4,
@@ -233,8 +201,7 @@ def train_vae(
                 torchvision.utils.save_image(
                     grid,
                     EXPERIMENT_PATH
-                    + "/testing_images"
-                    + "/"
+                    + "/testing_images/"
                     + EXPERIMENT_NAME
                     + "_epoch_"
                     + str(epoch)
@@ -263,22 +230,46 @@ if __name__ == "__main__":
     num_epochs = 40
     learning_rate = 1e-4
 
-    FILL_UNDEFINED_PIXELS_WITH_NEGATIVE_VALUES = True
-    ADD_NOISE_TO_INPUT = False
+    data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+    # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+    training_npy_filename = "perception_images_rogaland_random_everything_vecenv"
+    test_npy_filename = "perception_images_rogaland_random_everything_vecenv_test"
 
-    # data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
-    data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+    transform = (
+        transforms_v2.Compose(
+            [
+                transforms_v2.ToDtype(torch.uint8, scale=True),
+                transforms_v2.RandomChoice(
+                    [
+                        transforms_v2.ToDtype(torch.uint8, scale=True),
+                        transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+                        transforms_v2.RandomHorizontalFlip(),
+                        transforms_v2.RandomRotation(10),
+                        transforms_v2.ElasticTransform(alpha=100, sigma=5),
+                    ],
+                    p=[0.5, 0.5, 0.5, 0.5, 0.5],
+                ),
+                transforms_v2.ToDtype(torch.float16, scale=True),
+                transforms_v2.Normalize(mean=[0.5], std=[0.5]),
+            ]
+        ),
+    )
+    training_dataset = rl_ds.PerceptionImageDataset(training_npy_filename + ".npy", data_dir, transform=transform)
+    test_dataset = rl_ds.PerceptionImageDataset(test_npy_filename + ".npy", data_dir)
 
-    training_dataset = PerceptionImageDataset(npy_file="perception.npy", data_dir=data_dir)
+    unnnormalize_transform = transforms_v2.Compose(
+        [rl_ds.UnNormalize(mean=[0.5], std=[0.5]), transforms_v2.ToDtype(torch.uint8, scale=True)]
+    )
+
     summary(vae, (3, 400, 400))
     test_dataset = PerceptionImageDataset(
         npy_file="perception_images_rogaland_random_everything_vecenv_test.npy", data_dir=data_dir
     )
 
-    train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=1)
     writer = SummaryWriter()
-    optimizer = th.optim.Adam(vae.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
     train_vae(
         model=vae,
         training_dataloader=train_dataloader,

@@ -25,26 +25,62 @@ def plot_image(axes: plt.Axes, img: np.ndarray, title: str) -> None:
     plt.tight_layout()
 
 
+def show_dataset(dataset, n=6):
+    img = np.vstack([np.hstack([np.asarray(dataset[i][0]) for _ in range(n)]) for i in range(n)])
+    plt.tight_layout()
+    plt.imshow(img)
+    plt.axis("off")
+    plt.show(block=False)
+
+
 if __name__ == "__main__":
 
-    NPY_FILE = "perception_images_rogaland_random_everything_vecenv_test.npy"
+    FILENAME = "perception_images_rogaland_random_everything_vecenv_test"
+    NPY_FILE = FILENAME + ".npy"
 
-    dataset = rl_ds.PerceptionImageDataset(NPY_FILE, IMAGE_DATADIR)
-    rotated_dataset = rl_ds.PerceptionImageDataset(
-        NPY_FILE,
+    datashape = (200, 15, 3, 400, 400)
+    dataset = rl_ds.PerceptionImageDataset(IMAGE_DATADIR / NPY_FILE, IMAGE_DATADIR, data_shape=datashape)
+    combined_dataset = rl_ds.PerceptionImageDataset(
+        IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
+        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
-                transforms_v2.RandomRotation(45),
+                transforms_v2.RandomChoice(
+                    [
+                        transforms_v2.ToDtype(torch.uint8, scale=True),
+                        transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+                        transforms_v2.RandomHorizontalFlip(),
+                        transforms_v2.RandomRotation(10),
+                        transforms_v2.ElasticTransform(alpha=100, sigma=5),
+                    ],
+                    p=[0.5, 0.5, 0.5, 0.5, 0.5],
+                ),
                 transforms_v2.ToDtype(torch.float16, scale=True),
                 transforms_v2.Normalize(mean=[0.5], std=[0.5]),
             ]
         ),
     )
-    flipped_dataset = rl_ds.PerceptionImageDataset(
-        NPY_FILE,
+    show_dataset(combined_dataset, 6)
+    rotated_dataset = rl_ds.PerceptionImageDataset(
+        IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
+        data_shape=datashape,
+        transform=transforms_v2.Compose(
+            [
+                transforms_v2.ToDtype(torch.uint8, scale=True),
+                transforms_v2.RandomRotation(10),
+                transforms_v2.ToDtype(torch.float16, scale=True),
+                transforms_v2.Normalize(mean=[0.5], std=[0.5]),
+            ]
+        ),
+    )
+
+    flipped_dataset = rl_ds.PerceptionImageDataset(
+        IMAGE_DATADIR / NPY_FILE,
+        IMAGE_DATADIR,
+        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -56,8 +92,9 @@ if __name__ == "__main__":
         ),
     )
     elastic_dataset = rl_ds.PerceptionImageDataset(
-        NPY_FILE,
+        IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
+        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -68,8 +105,9 @@ if __name__ == "__main__":
         ),
     )
     affine_dataset = rl_ds.PerceptionImageDataset(
-        NPY_FILE,
+        IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
+        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -79,17 +117,16 @@ if __name__ == "__main__":
             ]
         ),
     )
-
     unnnormalize_transform = transforms_v2.Compose(
         [rl_ds.UnNormalize(mean=[0.5], std=[0.5]), transforms_v2.ToDtype(torch.uint8, scale=True)]
     )
 
     for i in range(10):
         original_img = dataset[i].numpy()
-        rotated_img = rotated_dataset[i].numpy()
-        flipped_img = flipped_dataset[i].numpy()
-        elastic_img = elastic_dataset[i].numpy()
-        affine_img = affine_dataset[i].numpy()
+        rotated_img = unnnormalize_transform(rotated_dataset[i]).numpy()
+        flipped_img = unnnormalize_transform(flipped_dataset[i]).numpy()
+        elastic_img = unnnormalize_transform(elastic_dataset[i]).numpy()
+        affine_img = unnnormalize_transform(affine_dataset[i]).numpy()
         fig = plt.figure()
         axs = fig.subplot_mosaic(
             [

@@ -41,24 +41,28 @@ class PerceptionImageEncoder(nn.Module):
         # Number of output channels are random/tuning parameter.
 
         # Zeroth block:
-        # => for 6x6 kernel, stride 2, padding 2, input 256x256 image:
-        # ((256 - 6 + 2*2) / 2) + 1 = 128x128
-        # => for 5x5 kernel, stride 2, padding 2, input 128x128 image:
-        # ((128 - 5 + 2*2) / 2) + 1 = 64x64
+        # => for 6x6 kernel, stride 2, padding 2, input 400x400 image:
+        # ((400 - 6 + 2*2) / 2) + 1 = 200x200
+        # => for 4x4 kernel, stride 2, padding 1, input 200x200 image:
+        # ((200 - 4 + 2*1) / 2) + 1 = 100x100
 
         # First block:
-        # => for 6x6 kernel, stride 2, padding 2, input 64x64 image:
-        # ((64 - 6 + 2*2) / 2) + 1 = 32x32
-        # => for 3x3 kernel, stride 1, padding 0, input 32x32 image:
-        # ((32 - 3 + 2*0) / 1) + 1 = 30x30
+        # => for 6x6 kernel, stride 2, padding 2, input 100x100 image:
+        # ((100 - 6 + 2*2) / 2) + 1 = 50x50
+        # => for 3x3 kernel, stride 1, padding 1, input 50x50 image:
+        # ((50 - 3 + 2*1) / 1) + 1 = 48x48
 
         # Second block:
-        # => for 5x5 kernel, stride 3, padding 1 input 30x30 image:
-        # ((30 - 5 + 2*1) / 3) + 1 = 9x9
+        # => for 5x5 kernel, stride 3, padding 1 input 48x48 image:
+        # ((48 - 5 + 2*1) / 3) + 1 = 16x16
 
-        # Jump connection input image 64x64: desired size: 30x30
-        # => for 6x6 kernel, stride 2, padding 0, input 64x64 image:
-        # ((64 - 6 + 2*0) / 2) + 1 = 30x30
+        # Jump connection input image 100x100: desired size: 48x48
+        # => for 4x4 kernel, stride 2, padding 0, input 100x100 image:
+        # ((100 - 4 + 2*0) / 2) + 1 = 48x48
+
+        # Third block:
+        # => for 6x6 kernel, stride 2, padding 2, input 16x16 image:
+        # ((16 - 6 + 2*2) / 2) + 1 = 8x8
 
         super(PerceptionImageEncoder, self).__init__()
         self.n_input_channels = n_input_channels
@@ -71,7 +75,7 @@ class PerceptionImageEncoder(nn.Module):
         self.conv00: nn.Conv2d = nn.Conv2d(
             in_channels=n_input_channels, out_channels=32, kernel_size=6, stride=2, padding=2
         )
-        self.conv01: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5, stride=2, padding=2)
+        self.conv01: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=4, stride=2, padding=1)
 
         # Version 2:
         # self.conv00: nn.Conv2d = nn.Conv2d(
@@ -86,7 +90,7 @@ class PerceptionImageEncoder(nn.Module):
         # First block of convolutions
         # Version 1:
         self.conv10: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=6, stride=2, padding=2)
-        self.conv11: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=0)
+        self.conv11: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
 
         # Version 2:
         # self.conv10: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=32, kernel_size=5, stride=2, padding=1)
@@ -121,13 +125,13 @@ class PerceptionImageEncoder(nn.Module):
 
         # Third (Fourth) block of convolutions
         # Version 1:
-        self.conv30: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=2, padding=2)
+        self.conv30: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=6, stride=2, padding=2)
         # Version 2:
         # self.conv30: nn.Conv2d = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=5, stride=2, padding=2)
 
         # Fully connected layers
         # Version 1:
-        self.fc1 = nn.Linear(in_features=5 * 5 * 64, out_features=2 * latent_dim)
+        self.fc1 = nn.Linear(in_features=8 * 8 * 64, out_features=2 * latent_dim)
         # ELU activation function
 
         # Version 2:
@@ -185,5 +189,5 @@ if __name__ == "__main__":
 
     #
     latent_dimension = 64
-    encoder = PerceptionImageEncoder(latent_dim=latent_dimension, n_input_channels=1).to("cuda")
+    encoder = PerceptionImageEncoder(latent_dim=latent_dimension, n_input_channels=3).to("cuda")
     summary(encoder, (3, 400, 400), device="cuda")

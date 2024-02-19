@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+
 import torch as th
 import torch.nn as nn
 
@@ -45,12 +46,12 @@ class PerceptionImageDecoder(nn.Module):
         # Number of output channels are random/tuning parameter.
 
         # Zeroth deconv:
-        # Input 64 x 5 x 5
-        # => for 4x4 kernel, stride 3, padding 0, input 5x5 image:
-        # (5 - 1) * 3 + 4 - 2*0 = 16x16
+        # Input 64 x 8 x 8
+        # => for 4x4 kernel, stride 3, padding 0, input 8x8 image:
+        # (8 - 1) * 3 + 4 - 2*0 = 25x25
         # First deconv:
-        # => for 6x6 kernel, stride 2, padding (2, 2), input 16x16 image:
-        # (16 - 1) * 2 + 6 - 2*2 = 32x32
+        # => for 6x6 kernel, stride 2, padding (2, 2), input 25x25 image:
+        # (25 - 1) * 2 + 6 - 2*2 = 50x50
         # Second deconv:
         # => for 6x6 kernel, stride 2, padding (2, 2), input 32x32 image:
         # (32 - 1) * 2 + 6 - 2*1 = 64x64

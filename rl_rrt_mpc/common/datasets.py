@@ -31,8 +31,9 @@ class PerceptionImageDataset(Dataset):
 
     def __init__(
         self,
-        npy_file: Path,
+        npy_file: str,
         data_dir: Path,
+        data_shape: Tuple[int, int, int, int, int] = (1000, 15, 3, 400, 400),
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -41,14 +42,15 @@ class PerceptionImageDataset(Dataset):
     ):
         """Initializes the dataset.
         Args:
-            - npy_file (Path): The path to the npy file.
+            - npy_file (str): The name of the npy file.
             - data_dir (Path): The path to the data directory in which the numpy file is found.
             - transform (transforms_v2): The transform to apply to the data.
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.data = np.load(data_dir / npy_file, allow_pickle=True).astype(np.uint8)
-        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
+        self.data = np.load(data_dir / npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+        # self.data = np.load(data_dir / npy_file, allow_pickle=True, mmap_mode="r").astype(np.uint8)
+        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = data_shape
 
     def get_datainfo(self) -> Tuple[int, int, int, int, int]:
         """Returns the data information."""
@@ -68,7 +70,7 @@ class PerceptionImageDataset(Dataset):
         assert idx < self.n_samples * self.n_envs, "Index out of range"
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
-        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :])
+        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy())
 
         if self.transform:
             sample = self.transform(sample)
