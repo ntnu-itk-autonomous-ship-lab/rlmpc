@@ -40,7 +40,6 @@ def kullback_leibler_divergence(mean: th.Tensor, logvar: th.Tensor) -> th.Tensor
         th.Tensor: The Kullback-Leibler divergence loss.
     """
     latent_dim = mean.shape[1]
-    k = latent_dim
     # kld_loss = -0.5 * torch.mean(torch.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1))
-    kld_loss = 0.5 * th.mean(th.sum(logvar.exp() + mean.pow(2) - k - logvar, dim=1))
+    kld_loss = 0.5 * th.mean(th.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1))
     return kld_loss

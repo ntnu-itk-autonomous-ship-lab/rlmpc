@@ -135,12 +135,12 @@ def train_vae(
 
                 grid = make_grid_for_tensorboard(
                     [
-                        batch_images[:, 0, :, :].squeeze(),
-                        torch.sigmoid(reconstructed_images[:, 0, :, :]).squeeze(),
-                        batch_images[:, 1, :, :].squeeze(),
-                        torch.sigmoid(reconstructed_images[:, 1, :, :]).squeeze(),
-                        batch_images[:, 2, :, :].squeeze(),
-                        torch.sigmoid(reconstructed_images[:, 2, :, :]).squeeze(),
+                        batch_images[0, 0, :, :].squeeze(),
+                        torch.sigmoid(reconstructed_images[0, 0, :, :]).squeeze(),
+                        batch_images[0, 1, :, :].squeeze(),
+                        torch.sigmoid(reconstructed_images[0, 1, :, :]).squeeze(),
+                        batch_images[0, 2, :, :].squeeze(),
+                        torch.sigmoid(reconstructed_images[0, 2, :, :]).squeeze(),
                     ],
                     n_grids=6,
                 )
@@ -228,7 +228,7 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10  # Save the model every 10 batches
-    batch_size = 1
+    batch_size = 16
     num_epochs = 40
     learning_rate = 1e-4
 

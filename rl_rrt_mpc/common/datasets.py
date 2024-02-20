@@ -74,4 +74,5 @@ class PerceptionImageDataset(Dataset):
         if self.transform:
             sample = self.transform(sample)
         assert not torch.isinf(sample).any(), "Sample contains inf"
+        # print(f"Sample min: {sample.min()}, max: {sample.max()}")
         return sample

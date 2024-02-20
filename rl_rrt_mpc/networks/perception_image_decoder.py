@@ -33,7 +33,7 @@ class PerceptionImageDecoder(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
         self.n_input_channels = n_input_channels
-        self.first_deconv_input_dim = 8
+        self.first_deconv_input_dim = first_deconv_input_dim
 
         #  Formula for output image/tensor size after deconv2d:
         # n = (o - 1) * s + f - 2p
@@ -105,7 +105,7 @@ class PerceptionImageDecoder(nn.Module):
         # Fully connected layers
         # Version 1
         x = self.fc0(z)
-        x = self.elu(x)
+        x = self.relu(x)
         x = x.view(x.size(0), 64, self.first_deconv_input_dim, self.first_deconv_input_dim)
         # Version 2
         # x = self.dense(z)
@@ -116,11 +116,11 @@ class PerceptionImageDecoder(nn.Module):
         # Deconvolutional layers
         # Version 1
         x = self.deconv0(x)
-        x = self.elu(x)
+        x = self.relu(x)
         x = self.deconv1(x)
-        x = self.elu(x)
+        x = self.relu(x)
         x = self.deconv2(x)
-        x = self.elu(x)
+        x = self.relu(x)
         x = self.deconv3(x)
 
         # Version 2
