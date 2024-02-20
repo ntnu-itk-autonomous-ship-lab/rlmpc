@@ -7,6 +7,8 @@
     Author: Trym Tengesdal
 """
 
+from typing import Tuple
+
 import torch as th
 import torch.nn as nn
 from rl_rrt_mpc.networks.perception_image_decoder import PerceptionImageDecoder
@@ -24,53 +26,26 @@ class Lambda(nn.Module):
         return self.func(x)
 
 
-# def reconstruction_loss(recon_x: th.Tensor, x: th.Tensor, mean: th.Tensor, logvar: th.Tensor) -> th.Tensor:
-#     """
-#     Compute the reconstruction loss of the VAE.
-
-#     Args:
-#         recon_x (th.Tensor): The reconstructed image.
-#         x (th.Tensor): The input image.
-#         mean (th.Tensor): The mean of the latent space.
-#         logvar (th.Tensor): The log variance of the latent space.
-
-#     Returns:
-#         th.Tensor: The reconstruction loss.
-#     """
-#     recon_loss = nn.MSELoss(reduction="none")
-
-
-# def kullback_leibler_divergence_loss(mean: th.Tensor, logvar: th.Tensor) -> th.Tensor:
-#     """Compute the Kullback-Leibler divergence loss of the VAE.
-
-#     Args:
-#         mean (th.Tensor): Mean of the latent space.
-#         logvar (th.Tensor): Log variance of the latent space.
-
-#     Returns:
-#         th.Tensor: The Kullback-Leibler divergence loss.
-#     """
-#     kld_loss = -0.5 * th.sum(1 + logvar - mean.pow(2) - logvar.exp())
-
-
 class VAE(nn.Module):
     """Variational Autoencoder for reconstruction of depth images."""
 
-    def __init__(self, n_input_channels: int = 1, latent_dim: int = 64, inference_mode: bool = False):
+    def __init__(
+        self, latent_dim: int = 64, input_image_dim: Tuple[int, int, int] = (3, 400, 400), inference_mode: bool = False
+    ):
         """
         Args:
-            n_input_channels (int): Number of input channels
             latent_dim (int): Dimension of the latent space
+            input_image_dim (Tuple[int, int, int]): Dimensions of the input image
             inference_mode (bool): Whether to use inference mode or not
         """
 
         super(VAE, self).__init__()
 
-        self.n_input_channels = n_input_channels
+        self.input_image_dim = input_image_dim
         self.latent_dim = latent_dim
         self.inference_mode = inference_mode
-        self.encoder = PerceptionImageEncoder(n_input_channels=n_input_channels, latent_dim=latent_dim)
-        self.decoder = PerceptionImageDecoder(n_input_channels=n_input_channels, latent_dim=latent_dim)
+        self.encoder = PerceptionImageEncoder(n_input_channels=input_image_dim[0], latent_dim=latent_dim)
+        self.decoder = PerceptionImageDecoder(n_input_channels=input_image_dim[0], latent_dim=latent_dim)
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
@@ -163,11 +138,11 @@ if __name__ == "__main__":
 
     LATENT_DIM = 64
     device = th.device("cpu")
-    encoder = PerceptionImageEncoder(n_input_channels=1, latent_dim=LATENT_DIM).to(device)
+    encoder = PerceptionImageEncoder(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
     summary(encoder, input_size=(3, 400, 400), batch_size=-1, device=device.type)
 
-    decoder = PerceptionImageDecoder(n_input_channels=1, latent_dim=LATENT_DIM).to(device)
+    decoder = PerceptionImageDecoder(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
     summary(decoder, input_size=(1, LATENT_DIM), batch_size=-1, device=device.type)
 
-    vae = VAE(n_input_channels=1, latent_dim=LATENT_DIM).to(device)
+    vae = VAE(latent_dim=LATENT_DIM, input_image_dim=(3, 400, 400)).to(device)
     summary(vae, input_size=(3, 400, 400), batch_size=-1, device=device.type)

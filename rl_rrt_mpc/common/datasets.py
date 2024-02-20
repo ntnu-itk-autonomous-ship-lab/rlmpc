@@ -73,4 +73,5 @@ class PerceptionImageDataset(Dataset):
 
         if self.transform:
             sample = self.transform(sample)
+        assert not torch.isinf(sample).any(), "Sample contains inf"
         return sample
