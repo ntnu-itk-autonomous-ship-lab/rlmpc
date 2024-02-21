@@ -136,7 +136,7 @@ class VAE(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    LATENT_DIM = 64
+    LATENT_DIM = 128
     device = th.device("cpu")
     encoder = PerceptionImageEncoder(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
     summary(encoder, input_size=(3, 400, 400), batch_size=-1, device=device.type)

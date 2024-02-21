@@ -26,7 +26,9 @@ def reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
     Returns:
         th.Tensor: The reconstruction loss.
     """
-    recon_loss = th.mean((recon_x - x).pow(2))
+    mse_nonreduced = nn.MSELoss(reduction="none")(recon_x, x)
+    mse_loss = th.mean(th.sum(mse_nonreduced, dim=[1, 2, 3]))
+    return mse_loss
 
 
 def kullback_leibler_divergence(mean: th.Tensor, logvar: th.Tensor) -> th.Tensor:

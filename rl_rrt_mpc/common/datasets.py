@@ -51,6 +51,10 @@ class PerceptionImageDataset(Dataset):
         # self.data = np.load(data_dir / npy_file, allow_pickle=True, mmap_mode="r").astype(np.uint8)
         self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
 
+        self.unnormalize_transform = transforms_v2.Compose(
+            [UnNormalize(mean=[0.5], std=[0.5]), transforms_v2.ToDtype(torch.uint8, scale=True)]
+        )
+
     def get_datainfo(self) -> Tuple[int, int, int, int, int]:
         """Returns the data information."""
         return self.n_samples, self.n_envs, self.n_channels, self.height, self.width

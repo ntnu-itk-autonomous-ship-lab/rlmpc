@@ -39,11 +39,10 @@ if __name__ == "__main__":
     NPY_FILE = FILENAME + ".npy"
 
     datashape = (200, 15, 3, 400, 400)
-    dataset = rl_ds.PerceptionImageDataset(IMAGE_DATADIR / NPY_FILE, IMAGE_DATADIR, data_shape=datashape)
+    dataset = rl_ds.PerceptionImageDataset(IMAGE_DATADIR / NPY_FILE, IMAGE_DATADIR)
     combined_dataset = rl_ds.PerceptionImageDataset(
         IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
-        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -66,7 +65,6 @@ if __name__ == "__main__":
     rotated_dataset = rl_ds.PerceptionImageDataset(
         IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
-        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -80,7 +78,6 @@ if __name__ == "__main__":
     flipped_dataset = rl_ds.PerceptionImageDataset(
         IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
-        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -94,7 +91,6 @@ if __name__ == "__main__":
     elastic_dataset = rl_ds.PerceptionImageDataset(
         IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
-        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -107,7 +103,6 @@ if __name__ == "__main__":
     affine_dataset = rl_ds.PerceptionImageDataset(
         IMAGE_DATADIR / NPY_FILE,
         IMAGE_DATADIR,
-        data_shape=datashape,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
