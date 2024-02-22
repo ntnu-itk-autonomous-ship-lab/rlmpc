@@ -106,7 +106,7 @@ def train_vae(
     if not model_path.exists():
         model_path.mkdir()
 
-    beta = 1.0
+    beta = 20.0
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
@@ -122,10 +122,12 @@ def train_vae(
             batch_images = batch_images.to(device)
 
             # Forward pass
+            log_sigma_opt = 0.0
             reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
-            mse_loss = loss_functions.reconstruction(reconstructed_images, batch_images)
+            mse_loss, log_sigma_opt = loss_functions.sigma_reconstruction(reconstructed_images, batch_images)
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            loss = mse_loss - beta_norm * kld_loss
+            # kld_loss = beta_norm * kld_loss
+            loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
@@ -134,22 +136,24 @@ def train_vae(
             optimizer.step()
 
             # Update the tensorboard
-            if batch_idx % save_interval == 0 and batch_idx != 0:
+            if (batch_idx + 1) % save_interval == 0:  # and batch_idx != 0:
                 writer.add_scalar("Training/Loss", loss.item() / batch_size, epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/KLD Loss", -kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
+                writer.add_scalar("Training/KLD Loss", kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
+                writer.add_scalar("Training/MSE Loss", mse_loss.item() / batch_size, epoch * n_batches + batch_idx)
+                writer.add_scalar("Training/Sigma Opt", log_sigma_opt.exp() / batch_size, epoch * n_batches + batch_idx)
                 print(
-                    f"[TRAINING] Epoch: {epoch}/{n_epochs} | Batch: {batch_idx}/{n_batches} | Avg. Train Loss: {loss.item() / batch_size:.4f} | KL Div. Loss: {-kld_loss.item()/batch_size:.4f} | "
+                    f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Avg. Train Loss: {loss.item() / batch_size:.4f} | KL Div. Loss: {kld_loss.item()/batch_size:.4f} | "
                     f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
                 )
 
                 grid = torchvision.utils.make_grid(
                     [
-                        batch_images[:, 0, :, :],
-                        reconstructed_images[:, 0, :, :],
-                        batch_images[:, 1, :, :],
-                        reconstructed_images[:, 1, :, :],
-                        batch_images[:, 2, :, :],
-                        reconstructed_images[:, 2, :, :],
+                        batch_images[0, 0, :, :].unsqueeze(0),
+                        reconstructed_images[0, 0, :, :].unsqueeze(0),
+                        batch_images[0, 1, :, :].unsqueeze(0),
+                        reconstructed_images[0, 1, :, :].unsqueeze(0),
+                        batch_images[0, 2, :, :].unsqueeze(0),
+                        reconstructed_images[0, 2, :, :].unsqueeze(0),
                     ],
                     nrow=6,
                     padding=2,
@@ -164,16 +168,19 @@ def train_vae(
 
         print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
         loss_meter.reset()
-        print("Saving model...")
-        save_path = f"{str(model_path)}/{EXPERIMENT_NAME}_LD_{model.latent_dim}_epoch_{epoch}.pth"
-        torch.save(
-            model.state_dict(),
-            save_path,
-        )
-        print("[DONE] Savng model at ", str(model_path))
+        # print("Saving model...")
+        # save_path = f"{str(model_path)}/{EXPERIMENT_NAME}_LD_{model.latent_dim}_epoch_{epoch}.pth"
+        # torch.save(
+        #     model.state_dict(),
+        #     save_path,
+        # )
+        # print("[DONE] Savng model at ", str(model_path))
 
         model.eval()
         model.set_inference_mode(True)
+        if True:
+            continue
+
         for batch_idx, batch_images in enumerate(test_dataloader):
             model.zero_grad()
             optimizer.zero_grad()
@@ -184,26 +191,27 @@ def train_vae(
             reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
             mse_loss = loss_functions.reconstruction(reconstructed_images, batch_images)
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            loss = mse_loss - beta_norm * kld_loss
+            kld_loss = beta_norm * kld_loss
+            loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
             grid = torchvision.utils.make_grid(
                 [
-                    batch_images[:, 0, :, :],
-                    reconstructed_images[:, 0, :, :],
-                    batch_images[:, 1, :, :],
-                    reconstructed_images[:, 1, :, :],
-                    batch_images[:, 2, :, :],
-                    reconstructed_images[:, 2, :, :],
+                    batch_images[0, 0, :, :].unsqueeze(0),
+                    reconstructed_images[0, 0, :, :].unsqueeze(0),
+                    batch_images[0, 1, :, :].unsqueeze(0),
+                    reconstructed_images[0, 1, :, :].unsqueeze(0),
+                    batch_images[0, 2, :, :].unsqueeze(0),
+                    reconstructed_images[0, 2, :, :].unsqueeze(0),
                 ],
                 nrow=6,
                 padding=2,
             )
             writer.add_image("testing/images", grid, global_step=epoch)
-            if batch_idx % (save_interval) == 0 and batch_idx != 0:
+            if batch_idx + 1 % save_interval == 0 and batch_idx != 0:
                 print(
-                    f"[TESTING] Epoch: {epoch}/{n_epochs} | Batch: {batch_idx}/{n_test_batches} | Avg. Train Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {- kld_loss.item()/batch_size:.4f}"
+                    f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Train Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
                 )
                 torchvision.utils.save_image(
                     grid,
@@ -221,17 +229,17 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 128
+    latent_dim = 64
     input_image_dim = (3, 400, 400)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(input_image_dim=input_image_dim, latent_dim=latent_dim).to(device)
     # summary(vae, (3, 400, 400))
 
     load_model = False
-    save_interval = 10  # Save the model every 10 batches
+    save_interval = 5
     batch_size = 1
-    num_epochs = 40
-    learning_rate = 1e-4
+    num_epochs = 1000
+    learning_rate = 0.0001
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
@@ -253,19 +261,15 @@ if __name__ == "__main__":
                 p=[0.5, 0.5, 0.5, 0.5, 0.5],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
-            transforms_v2.Normalize(mean=[0.5], std=[0.5]),
         ]
     )
     test_transform = transforms_v2.Compose(
         [
             transforms_v2.ToDtype(torch.float32, scale=True),
-            transforms_v2.Normalize(mean=[0.5], std=[0.5]),
         ]
     )
 
-    training_dataset = rl_ds.PerceptionImageDataset(
-        training_npy_filename + ".npy", data_dir, transform=training_transform
-    )
+    training_dataset = rl_ds.PerceptionImageDataset(training_npy_filename + ".npy", data_dir, transform=test_transform)
     test_dataset = rl_ds.PerceptionImageDataset(test_npy_filename + ".npy", data_dir, transform=test_transform)
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)

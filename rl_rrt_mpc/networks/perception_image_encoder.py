@@ -96,7 +96,7 @@ class PerceptionImageEncoder(nn.Module):
         # # Second block of convolutions
         # # ELU activation function
         self.conv20: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=3, padding=1)
-        self.conv21: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.conv21: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=latent_dim, kernel_size=3, stride=1, padding=1)
         nn.init.xavier_uniform_(self.conv20.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv20.bias)
         nn.init.xavier_uniform_(self.conv21.weight, gain=nn.init.calculate_gain("linear"))
@@ -106,7 +106,7 @@ class PerceptionImageEncoder(nn.Module):
         self.conv0_jump_to_2: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=6, stride=2, padding=0)
         # Jump connection from last layer of first block to first layer of second block
         self.conv1_jump_to_3: nn.Conv2d = nn.Conv2d(
-            in_channels=64, out_channels=128, kernel_size=5, stride=3, padding=1
+            in_channels=64, out_channels=latent_dim, kernel_size=5, stride=3, padding=1
         )
 
         # Third (Fourth) block of convolutions

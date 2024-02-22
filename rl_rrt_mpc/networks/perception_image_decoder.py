@@ -72,7 +72,7 @@ class PerceptionImageDecoder(nn.Module):
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
 
         # Deconvolutional layers
-        self.deconv0 = nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.deconv0 = nn.ConvTranspose2d(in_channels=latent_dim, out_channels=128, kernel_size=3, stride=1, padding=1)
         # Relu activation
         self.deconv1 = nn.ConvTranspose2d(128, 64, kernel_size=5, stride=2, padding=1)
         # Relu activation

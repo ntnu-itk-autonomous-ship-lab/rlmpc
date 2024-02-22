@@ -63,15 +63,16 @@ class VAE(nn.Module):
 
         # Reparametrization trick
         mean = self.mean_params(z)
-        logvar = self.logvar_params(z)
-        std = th.exp(0.5 * logvar)
+        logvars = self.logvar_params(z)
+        logvars = th.log(logvars.exp() + 1e-7)  # To avoid singularity
+        std = th.exp(0.5 * logvars)
         eps = th.randn_like(std)
         if self.inference_mode:
             eps = th.zeros_like(eps)
         z_sampled = mean + eps * std
 
         img_recon = self.decoder(z_sampled)
-        return img_recon, mean, logvar, z_sampled
+        return img_recon, mean, logvars, z_sampled
 
     def forward_test(self, image: th.Tensor) -> th.Tensor:
         """Do a forward pass of the VAE. Generates a reconstructed image based on input image.
@@ -86,15 +87,16 @@ class VAE(nn.Module):
 
         # Reparametrization trick
         mean = self.mean_params(z)
-        logvar = self.logvar_params(z)
-        std = th.exp(0.5 * logvar)
+        logvars = self.logvar_params(z)
+        logvars = th.log(logvars.exp() + 1e-7)  # To avoid singularity
+        std = th.exp(0.5 * logvars)
         eps = th.randn_like(std)
         if self.inference_mode:
             eps = th.zeros_like(eps)
         z_sampled = mean + eps * std
 
         img_recon = self.decoder(z_sampled)
-        return img_recon, mean, logvar, z_sampled
+        return img_recon, mean, logvars, z_sampled
 
     def encode(self, image: th.Tensor) -> th.Tensor:
         """Do a forward pass of the VAE. Generates a latent vector based on input image.
@@ -109,6 +111,7 @@ class VAE(nn.Module):
 
         means = self.mean_params(z)
         logvars = self.logvar_params(z)
+        logvars = th.log(logvars.exp() + 1e-7)  # To avoid singularity
         std = th.exp(0.5 * logvars)
         eps = th.randn_like(logvars)
         if self.inference_mode:

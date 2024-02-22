@@ -48,8 +48,13 @@ class PerceptionImageDataset(Dataset):
         self.data_dir = data_dir
         self.transform = transform
         self.data = np.load(data_dir / npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+        self.data = self.data[:10, 0, :, :, :]
         # self.data = np.load(data_dir / npy_file, allow_pickle=True, mmap_mode="r").astype(np.uint8)
-        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
+        if len(self.data.shape) == 4:
+            self.n_envs = 1
+            self.n_samples, self.n_channels, self.height, self.width = self.data.shape
+        else:
+            self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
 
         self.unnormalize_transform = transforms_v2.Compose(
             [UnNormalize(mean=[0.5], std=[0.5]), transforms_v2.ToDtype(torch.uint8, scale=True)]
@@ -73,7 +78,10 @@ class PerceptionImageDataset(Dataset):
         assert idx < self.n_samples * self.n_envs, "Index out of range"
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
-        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy())
+        if self.n_envs == 1:
+            sample = torch.from_numpy(self.data[sample_idx, :, :, :].copy())
+        else:
+            sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy())
 
         if self.transform:
             sample = self.transform(sample)

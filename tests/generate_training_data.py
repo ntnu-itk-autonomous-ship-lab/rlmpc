@@ -136,14 +136,14 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "seed": 0,
     }
-    SAVE_FILE = "perception_images_rogaland_random_everything_vecenv_test.npy"
+    SAVE_FILE = "perception_images_rogaland_random_everything_vecenv_test2.npy"
 
     # b = np.load(IMAGE_DATADIR / SAVE_FILE, allow_pickle=True).astype(np.float32)
     # plt.imshow(b[50, 0, 0, :, :])
 
-    use_vec_env = True
+    use_vec_env = False
     if use_vec_env:
-        num_cpu = 15
+        num_cpu = 1
         vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
         obs = vec_env.reset()
         observations = [obs]
