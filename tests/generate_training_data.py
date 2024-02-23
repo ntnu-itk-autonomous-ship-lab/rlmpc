@@ -127,7 +127,7 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 100000000000,
+        "max_number_of_episodes": 10000000,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
@@ -135,10 +135,8 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "seed": 2,
     }
-    SAVE_FILE = "perception_data_rogaland_random_everything_vecenv1.npy"
-
-    # b = np.load(IMAGE_DATADIR / SAVE_FILE, allow_pickle=True).astype(np.float32)
-    # plt.imshow(b[50, 0, 0, :, :])
+    IMG_SAVE_FILE = "perception_data_rogaland_random_everything.npy"
+    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -148,7 +146,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 1000
+        n_steps = 2000
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         for i in range(n_steps):
@@ -159,7 +157,12 @@ if __name__ == "__main__":
             perception_images[i] = obs["PerceptionImageObservation"]
             masks[i] = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
 
-        np.save(IMAGE_DATADIR / SAVE_FILE, perception_images)
+        np.save(IMAGE_DATADIR / IMG_SAVE_FILE, perception_images)
+        np.save(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, masks)
+
+        # imgs = np.load(IMAGE_DATADIR / IMG_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+        # m = np.load(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+
         vec_env.close()
     else:
         env = gym.make(id=env_id, **env_config)
