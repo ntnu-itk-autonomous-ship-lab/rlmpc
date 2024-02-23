@@ -8,9 +8,9 @@ from sys import platform
 import rl_rrt_mpc.common.datasets as rl_ds
 import rl_rrt_mpc.networks.loss_functions as loss_functions
 import torch
-import torch.nn as nn
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
+import yaml
 from rl_rrt_mpc.common.datasets import PerceptionImageDataset
 from rl_rrt_mpc.networks.variational_autoencoder import VAE
 from torch.utils.data import DataLoader
@@ -52,12 +52,34 @@ class RunningLoss:
         self.average_loss = 0.0
 
 
-def make_grid_for_tensorboard(images_list: list, n_grids: int = 2):
+def make_grid_for_tensorboard(batch_images, reconstructed_images, n_rows: int = 2):
     """ """
     joined_images = []
-    for images in images_list:
-        joined_images.extend(images[:n_grids])
-    return torchvision.utils.make_grid(joined_images, nrow=n_grids, padding=2)
+    # joined_images.extend([batch_images[i, 2, :, :].unsqueeze(0) for i in range(len(batch_images.shape[1]))])
+    # joined_images.extend([reconstructed_images[i, 2, :, :].unsqueeze(0) for i in range(len(reconstructed_images))])
+    # joined_images.extend([batch_images[i, 1, :, :].unsqueeze(0) for i in range(len(batch_images))])
+    # joined_images.extend([reconstructed_images[i, 1, :, :].unsqueeze(0) for i in range(len(reconstructed_images))])
+    # joined_images.extend([batch_images[i, 0, :, :].unsqueeze(0) for i in range(len(batch_images))])
+    # joined_images.extend([reconstructed_images[i, 0, :, :].unsqueeze(0) for i in range(len(reconstructed_images))])
+    for j in range(len(batch_images)):
+        for i in reversed(range(3)):
+            joined_images.append(batch_images[j, i, :, :].unsqueeze(0))
+            joined_images.append(reconstructed_images[j, i, :, :].unsqueeze(0))
+    # grid = torchvision.utils.make_grid(
+    #     [
+
+    #         # batch_images[:n_batch_images_to_show, 0, :, :],  # .unsqueeze(0),
+    #         # reconstructed_images[:n_batch_images_to_show, 0, :, :],  # .unsqueeze(0),
+    #         # batch_images[:n_batch_images_to_show, 1, :, :],  # .unsqueeze(0),
+    #         # reconstructed_images[:n_batch_images_to_show, 1, :, :],  # .unsqueeze(0),
+    #         # batch_images[:n_batch_images_to_show, 2, :, :],  # .unsqueeze(0),
+    #         # reconstructed_images[:n_batch_images_to_show, 2, :, :],  # .unsqueeze(0),
+    #     ],
+    #     nrow=6,
+    #     padding=2,
+    # )
+
+    return torchvision.utils.make_grid(joined_images, nrow=n_rows, padding=2)
 
 
 def get_noise(means, std_dev, const_multiplier) -> torch.Tensor:
@@ -106,6 +128,7 @@ def train_vae(
     if not model_path.exists():
         model_path.mkdir()
 
+    n_batch_images_to_show = batch_size if batch_size < 7 else 6
     beta = 20.0
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
@@ -136,7 +159,7 @@ def train_vae(
             optimizer.step()
 
             # Update the tensorboard
-            if (batch_idx + 1) % save_interval == 0:  # and batch_idx != 0:
+            if batch_idx % save_interval == 0:  # and batch_idx != 0:
                 writer.add_scalar("Training/Loss", loss.item() / batch_size, epoch * n_batches + batch_idx)
                 writer.add_scalar("Training/KLD Loss", kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
                 writer.add_scalar("Training/MSE Loss", mse_loss.item() / batch_size, epoch * n_batches + batch_idx)
@@ -146,17 +169,10 @@ def train_vae(
                     f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
                 )
 
-                grid = torchvision.utils.make_grid(
-                    [
-                        batch_images[0, 0, :, :].unsqueeze(0),
-                        reconstructed_images[0, 0, :, :].unsqueeze(0),
-                        batch_images[0, 1, :, :].unsqueeze(0),
-                        reconstructed_images[0, 1, :, :].unsqueeze(0),
-                        batch_images[0, 2, :, :].unsqueeze(0),
-                        reconstructed_images[0, 2, :, :].unsqueeze(0),
-                    ],
-                    nrow=6,
-                    padding=2,
+                grid = make_grid_for_tensorboard(
+                    batch_images[:n_batch_images_to_show],
+                    reconstructed_images[:n_batch_images_to_show],
+                    n_rows=6,
                 )
                 writer.add_image("training/images", grid, global_step=epoch * n_batches + batch_idx)
                 if batch_idx % (5 * save_interval) == 0:
@@ -168,13 +184,13 @@ def train_vae(
 
         print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
         loss_meter.reset()
-        # print("Saving model...")
-        # save_path = f"{str(model_path)}/{EXPERIMENT_NAME}_LD_{model.latent_dim}_epoch_{epoch}.pth"
-        # torch.save(
-        #     model.state_dict(),
-        #     save_path,
-        # )
-        # print("[DONE] Savng model at ", str(model_path))
+        print("Saving model...")
+        save_path = f"{str(model_path)}/{EXPERIMENT_NAME}_LD_{model.latent_dim}_epoch_{epoch}.pth"
+        torch.save(
+            model.state_dict(),
+            save_path,
+        )
+        print("[DONE] Savng model at ", str(model_path))
 
         model.eval()
         model.set_inference_mode(True)
@@ -196,17 +212,10 @@ def train_vae(
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
-            grid = torchvision.utils.make_grid(
-                [
-                    batch_images[0, 0, :, :].unsqueeze(0),
-                    reconstructed_images[0, 0, :, :].unsqueeze(0),
-                    batch_images[0, 1, :, :].unsqueeze(0),
-                    reconstructed_images[0, 1, :, :].unsqueeze(0),
-                    batch_images[0, 2, :, :].unsqueeze(0),
-                    reconstructed_images[0, 2, :, :].unsqueeze(0),
-                ],
-                nrow=6,
-                padding=2,
+            grid = make_grid_for_tensorboard(
+                batch_images[:n_batch_images_to_show],
+                reconstructed_images[:n_batch_images_to_show],
+                n_rows=6,
             )
             writer.add_image("testing/images", grid, global_step=epoch)
             if batch_idx + 1 % save_interval == 0 and batch_idx != 0:
@@ -236,9 +245,9 @@ if __name__ == "__main__":
     # summary(vae, (3, 400, 400))
 
     load_model = False
-    save_interval = 5
-    batch_size = 1
-    num_epochs = 1000
+    save_interval = 10
+    batch_size = 4
+    num_epochs = 500
     learning_rate = 0.0001
 
     log_dir = EXPERIMENT_PATH / "logs"
@@ -278,6 +287,22 @@ if __name__ == "__main__":
     print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
     writer = SummaryWriter(log_dir=log_dir)
     optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
+
+    training_config = {
+        "base_path": BASE_PATH,
+        "experiment_path": EXPERIMENT_PATH,
+        "experiment_name": EXPERIMENT_NAME,
+        "latent_dim": latent_dim,
+        "input_image_dim": input_image_dim,
+        "batch_size": batch_size,
+        "num_epochs": num_epochs,
+        "learning_rate": learning_rate,
+        "save_interval": save_interval,
+        "load_model": load_model,
+    }
+    with Path(EXPERIMENT_PATH / "config.yaml").open(mode="w", encoding="utf-8") as fp:
+        yaml.dump(training_config, fp)
+
     train_vae(
         model=vae,
         training_dataloader=train_dataloader,

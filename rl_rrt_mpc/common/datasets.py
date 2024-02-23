@@ -48,7 +48,7 @@ class PerceptionImageDataset(Dataset):
         self.data_dir = data_dir
         self.transform = transform
         self.data = np.load(data_dir / npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
-        self.data = self.data[:10, 0, :, :, :]
+        self.data = self.data[3:13, 0, :, :, :]  # disregard 3 first.
         # self.data = np.load(data_dir / npy_file, allow_pickle=True, mmap_mode="r").astype(np.uint8)
         if len(self.data.shape) == 4:
             self.n_envs = 1

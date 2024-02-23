@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+
 import time
 from typing import Optional, Tuple
 
@@ -292,7 +293,7 @@ class CasadiMPC:
         # shifted_ws_traj = warm_start_traj + np.array(
         #     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
         # ).reshape(nx, 1)
-        # cs_mapf.plot_trajectory(shifted_ws_traj, enc, "orange")
+        # cs_plotters.plot_trajectory(shifted_ws_traj, enc, "orange")
         return warm_start
 
     def _try_to_create_warm_start_solution(
@@ -367,9 +368,9 @@ class CasadiMPC:
         )
         shifted_pos_traj = X_warm_start[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1)
         if min_dist_so <= self._params.r_safe_so or min_dist_do <= self._params.r_safe_do:
-            cs_mapf.plot_trajectory(shifted_pos_traj, enc, "black")
+            cs_plotters.plot_trajectory(shifted_pos_traj, enc, "black")
             return w_warm_start, X_warm_start, U_warm_start, False
-        cs_mapf.plot_trajectory(shifted_pos_traj, enc, "pink")
+        cs_plotters.plot_trajectory(shifted_pos_traj, enc, "pink")
         return w_warm_start, X_warm_start, U_warm_start, True
 
     def _shift_warm_start(self, xs: np.ndarray, prev_warm_start: dict, dt: float, do_list: list, enc: senc.ENC) -> dict:

@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -151,7 +152,7 @@ class RLMPC(ci.ICOLAV):
             nominal_trajectory = nominal_trajectory + np.array(
                 [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             ).reshape(9, 1)
-            mapf.plot_waypoints(
+            plotters.plot_waypoints(
                 waypoints[:2, :],
                 draft=1.0,
                 enc=enc,
@@ -161,7 +162,7 @@ class RLMPC(ci.ICOLAV):
                 hole_buffer=3.0,
                 alpha=0.4,
             )
-            mapf.plot_trajectory(
+            plotters.plot_trajectory(
                 nominal_trajectory[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
                 enc,
                 "yellow",
@@ -235,7 +236,7 @@ class RLMPC(ci.ICOLAV):
         self._update_mpc_so_polygon_input(ownship_csog_state, enc, self._debug)
 
         if self._debug:
-            mapf.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
+            plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
             ship_poly = mapf.create_ship_polygon(
                 ownship_csog_state[0],
                 ownship_csog_state[1],
@@ -252,13 +253,13 @@ class RLMPC(ci.ICOLAV):
         )
 
         # if self._debug:
-        #     mapf.plot_dynamic_obstacles(
+        #     plotters.plot_dynamic_obstacles(
         #         do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
         #     )
-        #     mapf.plot_dynamic_obstacles(
+        #     plotters.plot_dynamic_obstacles(
         #         do_ho_list, "orange", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
         #     )
-        #     mapf.plot_dynamic_obstacles(
+        #     plotters.plot_dynamic_obstacles(
         #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
         #     )
 
@@ -277,7 +278,7 @@ class RLMPC(ci.ICOLAV):
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if self._debug:
-                mapf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
+                plotters.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
 
             self._mpc_trajectory, self._mpc_inputs = hf.interpolate_solution(
                 self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
@@ -343,7 +344,7 @@ class RLMPC(ci.ICOLAV):
         if enc is not None and show_plots:
             enc.start_display()
             # hf.plot_trajectory(waypoints, enc, color="green")
-            mapf.plot_trajectory(nominal_trajectory, enc, color="yellow")
+            plotters.plot_trajectory(nominal_trajectory, enc, color="yellow")
             for hazard in self._rel_polygons:
                 enc.draw_polygon(hazard, color="red", fill=False)
 

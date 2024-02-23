@@ -2,9 +2,8 @@ import os
 from pathlib import Path
 from typing import Callable
 
-import colav_simulator.behavior_generator as cs_bg
+import colav_simulator.common.image_helper_methods as cs_ihm
 import colav_simulator.common.paths as cs_dp
-import colav_simulator.gym.observation as cs_obs
 import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
 import matplotlib.pyplot as plt
@@ -79,7 +78,7 @@ IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 if __name__ == "__main__":
-    scenario_choice = 6
+    scenario_choice = 5
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -128,35 +127,37 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        # "max_number_of_episodes": 10,
+        "max_number_of_episodes": 100000000000,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 0,
+        "seed": 2,
     }
-    SAVE_FILE = "perception_images_rogaland_random_everything_vecenv_test2.npy"
+    SAVE_FILE = "perception_data_rogaland_random_everything_vecenv1.npy"
 
     # b = np.load(IMAGE_DATADIR / SAVE_FILE, allow_pickle=True).astype(np.float32)
     # plt.imshow(b[50, 0, 0, :, :])
 
-    use_vec_env = False
+    use_vec_env = True
     if use_vec_env:
-        num_cpu = 1
+        num_cpu = 15
         vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
         obs = vec_env.reset()
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 200
-        perception_images = np.zeros((n_steps, *img_dim), dtype=np.int8)
+        n_steps = 1000
+        perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
+        masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         for i in range(n_steps):
             actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
             obs, reward, dones, info = vec_env.step(actions)
             vec_env.render()
 
-            perception_images[i, :, :, :, :] = obs["PerceptionImageObservation"]
+            perception_images[i] = obs["PerceptionImageObservation"]
+            masks[i] = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
 
         np.save(IMAGE_DATADIR / SAVE_FILE, perception_images)
         vec_env.close()
@@ -183,9 +184,13 @@ if __name__ == "__main__":
             random_action = env.action_space.sample()
             obs, reward, terminated, truncated, info = env.step(random_action)
             img = env.render()
+
             frames.append(img)
             observations.append(obs)
-            perception_images.append(obs["PerceptionImageObservation"])
+            if i > 4:
+                perception_images.append(obs["PerceptionImageObservation"])
+                masks = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
+
             if terminated or truncated:
                 env.reset()
 
