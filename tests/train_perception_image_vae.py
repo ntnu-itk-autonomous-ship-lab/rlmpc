@@ -253,7 +253,7 @@ def train_vae(
         if loss_meter.average_loss < best_test_loss:
             best_test_loss = loss_meter.average_loss
             best_epoch = epoch
-            print(f"Current best model at epoch {best_epoch} with test loss {best_test_loss}")
+            print(f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}")
         loss_meter.reset()
 
     return model, best_test_loss, best_epoch
@@ -268,7 +268,7 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10
-    batch_size = 8
+    batch_size = 64
     num_epochs = 700
     learning_rate = 0.0001
 
