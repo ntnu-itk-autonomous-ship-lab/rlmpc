@@ -78,7 +78,7 @@ IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 if __name__ == "__main__":
-    scenario_choice = 5
+    scenario_choice = 6
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -133,10 +133,12 @@ if __name__ == "__main__":
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 2,
+        "seed": 0,
     }
-    IMG_SAVE_FILE = "perception_data_rogaland_random_everything.npy"
-    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything.npy"
+    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_test.npy"
+    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_test.npy"
+
+    # set edgepixels in adaptive threshold to 0.0, extract all seg instances.
 
     use_vec_env = True
     if use_vec_env:
@@ -146,7 +148,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 2000
+        n_steps = 300
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         for i in range(n_steps):
@@ -156,6 +158,7 @@ if __name__ == "__main__":
 
             perception_images[i] = obs["PerceptionImageObservation"]
             masks[i] = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
+            print(f"Progress: {i}/{n_steps}")
 
         np.save(IMAGE_DATADIR / IMG_SAVE_FILE, perception_images)
         np.save(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, masks)

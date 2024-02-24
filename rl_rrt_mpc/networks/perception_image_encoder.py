@@ -95,8 +95,8 @@ class PerceptionImageEncoder(nn.Module):
 
         # # Second block of convolutions
         # # ELU activation function
-        self.conv20: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=5, stride=3, padding=1)
-        self.conv21: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=latent_dim, kernel_size=3, stride=1, padding=1)
+        self.conv20: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=5, stride=3, padding=1)
+        self.conv21: nn.Conv2d = nn.Conv2d(in_channels=128, out_channels=latent_dim, kernel_size=3, stride=1, padding=1)
         nn.init.xavier_uniform_(self.conv20.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv20.bias)
         nn.init.xavier_uniform_(self.conv21.weight, gain=nn.init.calculate_gain("linear"))
@@ -159,6 +159,6 @@ class PerceptionImageEncoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 128
+    latent_dimension = 256
     encoder = PerceptionImageEncoder(latent_dim=latent_dimension, n_input_channels=3).to("cuda")
     summary(encoder, (3, 400, 400), device="cuda")

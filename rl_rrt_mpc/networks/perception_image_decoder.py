@@ -47,21 +47,24 @@ class PerceptionImageDecoder(nn.Module):
         # Number of output channels are random/tuning parameter.
 
         # Zeroth deconv:
-        # Input 128 x 8 x 8
+        # Input 256 x 8 x 8
         # => for 3x3 kernel, stride 1, padding 1, input 8x8 image:
         # (8 - 1) * 1 + 3 - 2*1 = 8x8
         # First deconv:
-        # => for 5x5 kernel, stride 2, padding (1, 1), input 8x8 image:
-        # (8 - 1) * 2 + 5 - 2*1 = 17x17
+        # => for 4x4 kernel, stride 2, padding (1, 1), input 8x8 image:
+        # (8 - 1) * 2 + 4 - 2*1 = 16x16
         # Second deconv:
-        # => for 6x6 kernel, stride 3, padding (2, 2), input 17x17 image:
-        # (17 - 1) * 3 + 6 - 2*2 = 50x50
+        # => for 5x5 kernel, stride 2, padding (1, 1), input 16x16 image:
+        # (16 - 1) * 2 + 5 - 2*1 = 33x33
         # Third deconv:
-        # => for 4x4 kernel, stride 2, padding (1, 1), input 50x50 image:
-        # (50 - 1) * 2 + 4 - 2*1 = 100x100
+        # => for 6x6 kernel, stride 3, padding (1, 1), input 33x33 image:
+        # (33 - 1) * 3 + 6 - 2*1 = 100x100
         # Fourth deconv:
-        # => for 6x6 kernel, stride 4, padding (1, 1), input 100x100 image:
-        # (100 - 1) * 4 + 6 - 2*1 = 400x400
+        # => for 6x6 kernel, stride 2, padding (2, 2), input 100x100 image:
+        # (100 - 1) * 2 + 6 - 2*2 = 200x200
+        # Fifth deconv:
+        # => for 4x4 kernel, stride 2, padding (1, 1), input 200x200 image:
+        # (200 - 1) * 2 + 4 - 2*1 = 400x400
 
         # Fully connected layers
         # Version 1
@@ -72,15 +75,17 @@ class PerceptionImageDecoder(nn.Module):
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
 
         # Deconvolutional layers
-        self.deconv0 = nn.ConvTranspose2d(in_channels=latent_dim, out_channels=128, kernel_size=3, stride=1, padding=1)
+        self.deconv0 = nn.ConvTranspose2d(in_channels=latent_dim, out_channels=256, kernel_size=3, stride=1, padding=1)
         # Relu activation
-        self.deconv1 = nn.ConvTranspose2d(128, 64, kernel_size=5, stride=2, padding=1)
+        self.deconv1 = nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1)
         # Relu activation
-        self.deconv2 = nn.ConvTranspose2d(64, 32, kernel_size=6, stride=3, padding=2)
+        self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=5, stride=2, padding=1)
         # Relu activation
-        self.deconv3 = nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1)
+        self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=6, stride=3, padding=1)
         # Relu activation
-        self.deconv4 = nn.ConvTranspose2d(16, self.n_input_channels, kernel_size=6, stride=4, padding=1)
+        self.deconv4 = nn.ConvTranspose2d(32, 16, kernel_size=6, stride=2, padding=2)
+        # Relu activation
+        self.deconv5 = nn.ConvTranspose2d(16, self.n_input_channels, kernel_size=4, stride=2, padding=1)
         # Sigmoid activation
 
         # Version 2
@@ -123,6 +128,8 @@ class PerceptionImageDecoder(nn.Module):
         x = self.deconv3(x)
         x = self.relu(x)
         x = self.deconv4(x)
+        x = self.relu(x)
+        x = self.deconv5(x)
 
         x = self.sigmoid(x)
         # print(f"latent vector: {z}")
@@ -133,6 +140,6 @@ class PerceptionImageDecoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 128
+    latent_dimension = 256
     img_decoder = PerceptionImageDecoder(latent_dim=latent_dimension, n_input_channels=3).to("cuda")
     summary(img_decoder, (1, latent_dimension), device="cuda")

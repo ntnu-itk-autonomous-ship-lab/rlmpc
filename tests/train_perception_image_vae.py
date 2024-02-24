@@ -52,7 +52,7 @@ class RunningLoss:
         self.average_loss = 0.0
 
 
-def make_grid_for_tensorboard(batch_images, reconstructed_images, n_rows: int = 2):
+def make_grid_for_tensorboard(batch_images, reconstructed_images, semantic_masks, n_rows: int = 2):
     """ """
     joined_images = []
     # joined_images.extend([batch_images[i, 2, :, :].unsqueeze(0) for i in range(len(batch_images.shape[1]))])
@@ -63,8 +63,12 @@ def make_grid_for_tensorboard(batch_images, reconstructed_images, n_rows: int = 
     # joined_images.extend([reconstructed_images[i, 0, :, :].unsqueeze(0) for i in range(len(reconstructed_images))])
     for j in range(len(batch_images)):
         for i in reversed(range(3)):
+            if batch_images[j, i, :, :].dim() > 2:
+                print("wrong")
             joined_images.append(batch_images[j, i, :, :].unsqueeze(0))
+            joined_images.append(semantic_masks[j, i, :, :].unsqueeze(0))
             joined_images.append(reconstructed_images[j, i, :, :].unsqueeze(0))
+
     # grid = torchvision.utils.make_grid(
     #     [
 
@@ -133,24 +137,29 @@ def train_vae(
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
+    best_test_loss = 1e20
+    best_epoch = 0
+
     # Create training data + test data
     for epoch in range(n_epochs):
         epoch_start_time = time.time()
 
-        for batch_idx, (batch_images) in enumerate(training_dataloader):
+        for batch_idx, (batch_images, semantic_masks) in enumerate(training_dataloader):
             batch_start_time = time.time()
             model.zero_grad()
             optimizer.zero_grad()
 
             batch_images = batch_images.to(device)
+            semantic_masks = semantic_masks.to(device)
 
             # Forward pass
             log_sigma_opt = 0.0
             reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
-            mse_loss, log_sigma_opt = loss_functions.sigma_reconstruction(reconstructed_images, batch_images)
+            mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
+                reconstructed_images, batch_images, semantic_masks
+            )
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            # kld_loss = beta_norm * kld_loss
-            loss = mse_loss + kld_loss
+            loss = 0.01 * (mse_loss + kld_loss)
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
@@ -159,7 +168,7 @@ def train_vae(
             optimizer.step()
 
             # Update the tensorboard
-            if batch_idx % save_interval == 0:  # and batch_idx != 0:
+            if batch_idx % save_interval == 0:
                 writer.add_scalar("Training/Loss", loss.item() / batch_size, epoch * n_batches + batch_idx)
                 writer.add_scalar("Training/KLD Loss", kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
                 writer.add_scalar("Training/MSE Loss", mse_loss.item() / batch_size, epoch * n_batches + batch_idx)
@@ -172,7 +181,8 @@ def train_vae(
                 grid = make_grid_for_tensorboard(
                     batch_images[:n_batch_images_to_show],
                     reconstructed_images[:n_batch_images_to_show],
-                    n_rows=6,
+                    semantic_masks[:n_batch_images_to_show],
+                    n_rows=3,
                 )
                 writer.add_image("training/images", grid, global_step=epoch * n_batches + batch_idx)
                 if batch_idx % (5 * save_interval) == 0:
@@ -190,55 +200,67 @@ def train_vae(
             model.state_dict(),
             save_path,
         )
-        print("[DONE] Savng model at ", str(model_path))
+        print("[DONE] Saving model at ", str(model_path))
 
         model.eval()
         model.set_inference_mode(True)
-        if True:
-            continue
+        # if True:
+        #     continue
 
-        for batch_idx, batch_images in enumerate(test_dataloader):
+        for batch_idx, (batch_images, semantic_masks) in enumerate(test_dataloader):
             model.zero_grad()
             optimizer.zero_grad()
 
+            batch_start_time = time.time()
+
             batch_images = batch_images.to(device)
+            semantic_masks = semantic_masks.to(device)
 
             # Forward pass
+            log_sigma_opt = 0.0
             reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
-            mse_loss = loss_functions.reconstruction(reconstructed_images, batch_images)
+            mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
+                reconstructed_images, batch_images, semantic_masks
+            )
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            kld_loss = beta_norm * kld_loss
-            loss = mse_loss + kld_loss
+            loss = 0.01 * (mse_loss + kld_loss)
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
             grid = make_grid_for_tensorboard(
                 batch_images[:n_batch_images_to_show],
                 reconstructed_images[:n_batch_images_to_show],
-                n_rows=6,
+                semantic_masks[:n_batch_images_to_show],
+                n_rows=3,
             )
             writer.add_image("testing/images", grid, global_step=epoch)
-            if batch_idx + 1 % save_interval == 0 and batch_idx != 0:
+            if batch_idx % save_interval == 0:
                 print(
                     f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Train Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
-                )
-                torchvision.utils.save_image(
-                    grid,
-                    test_images_path / (EXPERIMENT_NAME + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
                 )
                 # Update the tensorboard
                 writer.add_scalar("Test/Loss", loss.item() / batch_size, epoch * n_test_batches + batch_idx)
                 writer.add_scalar("Test/KL Div Loss", -kld_loss.item() / batch_size, epoch * n_test_batches + batch_idx)
+                if batch_idx % (5 * save_interval) == 0:
+                    torchvision.utils.save_image(
+                        grid,
+                        test_images_path
+                        / (EXPERIMENT_NAME + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
+                    )
 
         # Print the statistics
         print("Test Loss:", loss_meter.average_loss)
+        if loss_meter.average_loss < best_test_loss:
+            best_test_loss = loss_meter.average_loss
+            best_epoch = epoch
+            print(f"Current best model at epoch {best_epoch} with test loss {best_test_loss}")
         loss_meter.reset()
 
-    return model
+    return model, best_test_loss, best_epoch
 
 
 if __name__ == "__main__":
-    latent_dim = 64
+    latent_dim = 256
     input_image_dim = (3, 400, 400)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(input_image_dim=input_image_dim, latent_dim=latent_dim).to(device)
@@ -246,28 +268,28 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10
-    batch_size = 4
-    num_epochs = 500
+    batch_size = 8
+    num_epochs = 700
     learning_rate = 0.0001
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
-    training_npy_filename = "perception_images_rogaland_random_everything_vecenv"
-    test_npy_filename = "perception_images_rogaland_random_everything_vecenv_test"
+    training_data_npy_filename = "perception_data_rogaland_random_everything.npy"
+    training_masks_npy_filename = "segmentation_masks_rogaland_random_everything.npy"
+    test_npy_filename = "perception_data_rogaland_random_everything_test.npy"
 
     training_transform = transforms_v2.Compose(
         [
             transforms_v2.ToDtype(torch.uint8, scale=True),
             transforms_v2.RandomChoice(
                 [
-                    transforms_v2.ToDtype(torch.uint8, scale=True),
-                    transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+                    # transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
                     transforms_v2.RandomHorizontalFlip(),
-                    transforms_v2.RandomRotation(10),
-                    transforms_v2.ElasticTransform(alpha=100, sigma=5),
+                    transforms_v2.RandomRotation(2),
+                    transforms_v2.ElasticTransform(alpha=70, sigma=5),
                 ],
-                p=[0.5, 0.5, 0.5, 0.5, 0.5],
+                p=[0.5, 0.5, 0.5],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
         ]
@@ -278,8 +300,10 @@ if __name__ == "__main__":
         ]
     )
 
-    training_dataset = rl_ds.PerceptionImageDataset(training_npy_filename + ".npy", data_dir, transform=test_transform)
-    test_dataset = rl_ds.PerceptionImageDataset(test_npy_filename + ".npy", data_dir, transform=test_transform)
+    training_dataset = rl_ds.PerceptionImageDataset(
+        training_data_npy_filename, data_dir, training_masks_npy_filename, transform=training_transform
+    )
+    test_dataset = rl_ds.PerceptionImageDataset(test_npy_filename, data_dir, transform=test_transform)
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)

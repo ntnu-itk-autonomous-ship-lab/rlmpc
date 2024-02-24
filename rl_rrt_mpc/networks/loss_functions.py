@@ -9,9 +9,48 @@
 
 from typing import Tuple
 
+import matplotlib.pyplot as plt
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
+    """Loss function for semantically weighted reconstruction.
+
+    Args:
+        recon_x (th.Tensor): Reconstructed image.
+        x (th.Tensor): Input image.
+        semantic_mask (th.Tensor): Semantic mask.
+
+    Returns:
+        th.Tensor: The reconstruction loss.
+    """
+    weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
+    weight_matrix[semantic_mask < 1] = 10.0
+    for b in range(semantic_mask.shape[0]):
+        for c in range(semantic_mask.shape[1]):
+            # print(f"sum semantic mask: {th.sum(semantic_mask[b, c])}")
+            if not th.any(semantic_mask[b, c] > 0):
+                weight_matrix[b, c] = 0.0
+
+    # unique, counts = th.unique(semantic_mask, return_counts=True)
+    mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
+    mse = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
+    log_sigma_opt = 0.5 * (mse + 1e-7).log()
+
+    if False:
+        for b in range(semantic_mask.shape[0]):
+            for c in range(semantic_mask.shape[1]):
+                fig, ax = plt.subplots(1, 4)
+                plt.show(block=False)
+                ax[0].imshow(x[b, c].detach().cpu().numpy())
+                ax[1].imshow(semantic_mask[b, c].detach().cpu().numpy())
+                ax[2].imshow(weight_matrix[b, c].detach().cpu().numpy())
+                ax[3].imshow(recon_x[b, c].detach().cpu().numpy())
+    recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weight_matrix + log_sigma_opt
+    recon_loss = th.mean(th.sum(recon_loss, dim=[1, 2, 3]))
+    return recon_loss, log_sigma_opt + 1e-7
 
 
 def sigma_reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:

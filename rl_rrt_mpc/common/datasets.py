@@ -8,7 +8,7 @@
 """
 
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -31,8 +31,9 @@ class PerceptionImageDataset(Dataset):
 
     def __init__(
         self,
-        npy_file: str,
+        data_npy_file: str,
         data_dir: Path,
+        mask_npy_file: Optional[str] = None,
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
@@ -41,20 +42,25 @@ class PerceptionImageDataset(Dataset):
     ):
         """Initializes the dataset.
         Args:
-            - npy_file (str): The name of the npy file.
+            - data_npy_file (str): The name of the npy file containing the data.
+            - mask_npy_file (str): The name of the npy file containing the segmentation masks.
             - data_dir (Path): The path to the data directory in which the numpy file is found.
             - transform (transforms_v2...): The transform to apply to the data.
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.data = np.load(data_dir / npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
-        self.data = self.data[3:13, 0, :, :, :]  # disregard 3 first.
-        # self.data = np.load(data_dir / npy_file, allow_pickle=True, mmap_mode="r").astype(np.uint8)
+        self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+        # self.data = self.data[3:13, 0, :, :, :]  # disregard 3 first.
+        self.masks = None
+        if mask_npy_file is not None:
+            self.masks = np.load(data_dir / mask_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+            # self.masks = self.masks[3:13, 0, :, :, :]  # disregard 3 first.
+
         if len(self.data.shape) == 4:
-            self.n_envs = 1
-            self.n_samples, self.n_channels, self.height, self.width = self.data.shape
-        else:
-            self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
+            self.data = np.expand_dims(self.data, axis=0)
+            self.masks = np.expand_dims(self.masks, axis=0) if self.masks is not None else None
+
+        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
 
         self.unnormalize_transform = transforms_v2.Compose(
             [UnNormalize(mean=[0.5], std=[0.5]), transforms_v2.ToDtype(torch.uint8, scale=True)]
@@ -78,13 +84,17 @@ class PerceptionImageDataset(Dataset):
         assert idx < self.n_samples * self.n_envs, "Index out of range"
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
-        if self.n_envs == 1:
-            sample = torch.from_numpy(self.data[sample_idx, :, :, :].copy())
+        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy())
+        if self.masks is not None:
+            mask = torch.from_numpy(self.masks[sample_idx, env_idx, :, :, :].copy())
         else:
-            sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy())
+            mask = 255 * torch.ones_like(sample, dtype=torch.uint8)
 
         if self.transform:
-            sample = self.transform(sample)
+            both_images = torch.cat((sample.unsqueeze(0), mask.unsqueeze(0)), 0)
+            transformed = self.transform(both_images)
+            sample = transformed[0]
+            mask = transformed[1]
         assert not torch.isinf(sample).any(), "Sample contains inf"
         # print(f"Sample min: {sample.min()}, max: {sample.max()}")
-        return sample
+        return sample, mask
