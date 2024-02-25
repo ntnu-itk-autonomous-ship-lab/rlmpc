@@ -1,8 +1,8 @@
 """
-    variational_autoencoder.py
+    vae.py
 
     Summary:
-        Contains the variational autoencoder (VAE) network for processing and reconstructing images from the environment.
+        Contains the vanilla variational autoencoder (VAE) network for processing and reconstructing images from the environment.
 
     Author: Trym Tengesdal
 """
@@ -11,8 +11,8 @@ from typing import Tuple
 
 import torch as th
 import torch.nn as nn
-from rl_rrt_mpc.networks.perception_image_decoder import PerceptionImageDecoder
-from rl_rrt_mpc.networks.perception_image_encoder import PerceptionImageEncoder
+from rl_rrt_mpc.networks.vanilla_vae.decoder import PerceptionImageDecoder
+from rl_rrt_mpc.networks.vanilla_vae.encoder import PerceptionImageEncoder
 
 
 class Lambda(nn.Module):
@@ -30,7 +30,11 @@ class VAE(nn.Module):
     """Variational Autoencoder for reconstruction of depth images."""
 
     def __init__(
-        self, latent_dim: int = 64, input_image_dim: Tuple[int, int, int] = (3, 400, 400), inference_mode: bool = False
+        self,
+        latent_dim: int = 64,
+        input_image_dim: Tuple[int, int, int] = (3, 400, 400),
+        first_deconv_input_dim: int = 18,
+        inference_mode: bool = False,
     ):
         """
         Args:
@@ -45,7 +49,9 @@ class VAE(nn.Module):
         self.latent_dim = latent_dim
         self.inference_mode = inference_mode
         self.encoder = PerceptionImageEncoder(n_input_channels=input_image_dim[0], latent_dim=latent_dim)
-        self.decoder = PerceptionImageDecoder(n_input_channels=input_image_dim[0], latent_dim=latent_dim)
+        self.decoder = PerceptionImageDecoder(
+            n_input_channels=input_image_dim[0], latent_dim=latent_dim, first_deconv_input_dim=first_deconv_input_dim
+        )
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters

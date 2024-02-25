@@ -15,6 +15,43 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def vqvae(
+    recon_x: th.Tensor, z_e_x: th.Tensor, z_q_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor, beta: float = 1.0
+) -> th.Tensor:
+    """Loss function for VQ-VAE.
+
+    Args:
+        recon_x (th.Tensor): Reconstructed image.
+        z_e_x (th.Tensor): Latent space.
+        z_q_x (th.Tensor): Quantized latent space.
+        x (th.Tensor): Input image.
+        semantic_mask (th.Tensor): Semantic mask.
+        beta (float): Weight for the commitment loss.
+
+    Returns:
+        th.Tensor: _description_
+    """
+    weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
+    weight_matrix[semantic_mask < 1] = 15.0
+    for b in range(semantic_mask.shape[0]):
+        for c in range(semantic_mask.shape[1]):
+            # print(f"sum semantic mask: {th.sum(semantic_mask[b, c])}")
+            if not th.any(semantic_mask[b, c] > 0):
+                weight_matrix[b, c] = 0.0
+    loss_recon = 0.5 * nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
+    loss_recon = th.mean(th.sum(loss_recon, dim=[1, 2, 3]))
+
+    # loss_recon = F.mse_loss(recon_x, x)
+
+    # Vector quantization objective
+    loss_vq = F.mse_loss(z_q_x, z_e_x.detach())
+    # Commitment objective
+    loss_commit = F.mse_loss(z_e_x, z_q_x.detach())
+
+    loss = loss_recon + loss_vq + beta * loss_commit
+    return loss, loss_recon, loss_vq, loss_commit
+
+
 def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
     """Loss function for semantically weighted reconstruction.
 
@@ -27,7 +64,7 @@ def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor,
         th.Tensor: The reconstruction loss.
     """
     weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
-    weight_matrix[semantic_mask < 1] = 10.0
+    weight_matrix[semantic_mask < 1] = 1000.0
     for b in range(semantic_mask.shape[0]):
         for c in range(semantic_mask.shape[1]):
             # print(f"sum semantic mask: {th.sum(semantic_mask[b, c])}")
