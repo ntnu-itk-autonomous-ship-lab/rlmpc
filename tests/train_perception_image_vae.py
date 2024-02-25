@@ -116,7 +116,6 @@ def train_vae(
         device (torch.device, optional): The device to train the model on. Defaults to "cpu".
     """
     torch.autograd.set_detect_anomaly(True)
-    model.train()
 
     loss_meter = RunningLoss(batch_size)
     n_batches = int(len(training_dataloader))
@@ -144,6 +143,7 @@ def train_vae(
     for epoch in range(n_epochs):
         epoch_start_time = time.time()
 
+        model.train()
         for batch_idx, (batch_images, semantic_masks) in enumerate(training_dataloader):
             batch_start_time = time.time()
             model.zero_grad()
@@ -155,10 +155,10 @@ def train_vae(
             # Forward pass
             log_sigma_opt = 0.0
             reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
-            # mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
-            #     reconstructed_images, batch_images, semantic_masks
-            # )
-            mse_loss, log_sigma_opt = loss_functions.sigma_reconstruction(reconstructed_images, batch_images)
+            mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
+                reconstructed_images, batch_images, semantic_masks
+            )
+            # mse_loss, log_sigma_opt = loss_functions.sigma_reconstruction(reconstructed_images, batch_images)
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
             loss = 0.01 * (mse_loss + kld_loss)
             loss_meter.update(loss.item())
@@ -262,17 +262,17 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 256
+    latent_dim = 64
     input_image_dim = (3, 400, 400)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    vae = VAE(input_image_dim=input_image_dim, latent_dim=latent_dim, first_deconv_input_dim=16).to(device)
+    vae = VAE(input_image_dim=input_image_dim, latent_dim=latent_dim, first_deconv_input_dim=25).to(device)
     # summary(vae, (3, 400, 400))
 
     load_model = False
     save_interval = 10
-    batch_size = 32
+    batch_size = 64
     num_epochs = 40
-    learning_rate = 0.0001
+    learning_rate = 2e-04
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
@@ -287,14 +287,12 @@ if __name__ == "__main__":
             transforms_v2.RandomChoice(
                 [
                     transforms_v2.ToDtype(torch.float32, scale=True),
-                    transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
                     transforms_v2.RandomHorizontalFlip(),
                     transforms_v2.RandomRotation(2),
                     transforms_v2.RandomVerticalFlip(),
-                    transforms_v2.ElasticTransform(alpha=70, sigma=4),
-                    transforms_v2.RandomAffine(degrees=2, translate=(0.02, 0.02), scale=(0.95, 1.05)),
+                    transforms_v2.ElasticTransform(alpha=50, sigma=3),
                 ],
-                p=[0.8, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3],
+                p=[0.5, 0.5, 0.4, 0.1, 0.2],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
             # transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),

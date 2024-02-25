@@ -273,7 +273,7 @@ def train(
 
 
 if __name__ == "__main__":
-    latent_dim = 300
+    latent_dim = 10
     num_embeddings = 512
     input_image_dim = (3, 300, 300)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -282,7 +282,7 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10
-    batch_size = 32
+    batch_size = 64
     num_epochs = 40
     learning_rate = 2e-4
 
@@ -304,7 +304,7 @@ if __name__ == "__main__":
                     transforms_v2.RandomVerticalFlip(),
                     transforms_v2.ElasticTransform(alpha=50, sigma=3),
                 ],
-                p=[0.8, 0.4, 0.4, 0.1, 0.2],
+                p=[0.5, 0.5, 0.4, 0.1, 0.2],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
             transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),

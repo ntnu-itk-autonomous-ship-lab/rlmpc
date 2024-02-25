@@ -91,13 +91,13 @@ class PerceptionImageEncoder(nn.Module):
         nn.init.xavier_uniform_(self.conv10.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv10.bias)
 
-        self.conv11: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=0)
+        self.conv11: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=0)
         nn.init.xavier_uniform_(self.conv11.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv11.bias)
 
         # # Second block of convolutions
         # # ELU activation function
-        self.conv20: nn.Conv2d = nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1)
+        self.conv20: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=1)
         nn.init.xavier_uniform_(self.conv20.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv20.bias)
 
@@ -106,21 +106,17 @@ class PerceptionImageEncoder(nn.Module):
         # nn.init.zeros_(self.conv21.bias)
 
         # Jump connection from last layer of zeroth block to first layer of second block
-        self.conv0_jump_to_2: nn.Conv2d = nn.Conv2d(
-            in_channels=32, out_channels=128, kernel_size=5, stride=2, padding=0
-        )
+        self.conv0_jump_to_2: nn.Conv2d = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=5, stride=2, padding=0)
         # Jump connection from last layer of first block to first layer of second block
-        self.conv1_jump_to_3: nn.Conv2d = nn.Conv2d(
-            in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1
-        )
+        self.conv1_jump_to_3: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=1)
 
         # Third (Fourth) block of convolutions
-        self.conv30: nn.Conv2d = nn.Conv2d(in_channels=128, out_channels=latent_dim, kernel_size=3, stride=2, padding=1)
+        self.conv30: nn.Conv2d = nn.Conv2d(in_channels=64, out_channels=latent_dim, kernel_size=3, stride=2, padding=1)
         nn.init.xavier_uniform_(self.conv30.weight, gain=nn.init.calculate_gain("linear"))
         nn.init.zeros_(self.conv30.bias)
 
         # Fully connected layers
-        self.fc0 = nn.Linear(in_features=16 * 16 * latent_dim, out_features=2 * latent_dim)
+        self.fc0 = nn.Linear(in_features=25 * 25 * latent_dim, out_features=2 * latent_dim)
         # ELU activation function
         # self.fc1 = nn.Linear(in_features=2 * 512, out_features=2 * latent_dim)
 
@@ -170,6 +166,6 @@ class PerceptionImageEncoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 128
+    latent_dimension = 64
     encoder = PerceptionImageEncoder(latent_dim=latent_dimension, n_input_channels=3).to("cuda")
-    summary(encoder, (3, 256, 256), device="cuda")
+    summary(encoder, (3, 400, 400), device="cuda")

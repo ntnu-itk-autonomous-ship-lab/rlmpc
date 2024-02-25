@@ -69,11 +69,6 @@ class VectorQuantizationStraightThrough(Function):
         return (grad_inputs, grad_codebook)
 
 
-vq = VectorQuantization.apply
-vq_st = VectorQuantizationStraightThrough.apply
-__all__ = [vq, vq_st]
-
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find("Conv") != -1:
@@ -92,12 +87,12 @@ class VQEmbedding(nn.Module):
 
     def forward(self, z_e_x):
         z_e_x_ = z_e_x.permute(0, 2, 3, 1).contiguous()
-        latents = vq(z_e_x_, self.embedding.weight)
+        latents = VectorQuantization.apply(z_e_x_, self.embedding.weight)
         return latents
 
     def straight_through(self, z_e_x):
         z_e_x_ = z_e_x.permute(0, 2, 3, 1).contiguous()
-        z_q_x_, indices = vq_st(z_e_x_, self.embedding.weight.detach())
+        z_q_x_, indices = VectorQuantizationStraightThrough.apply(z_e_x_, self.embedding.weight.detach())
         z_q_x = z_q_x_.permute(0, 3, 1, 2).contiguous()
 
         z_q_x_bar_flatten = torch.index_select(self.embedding.weight, dim=0, index=indices)
@@ -108,15 +103,13 @@ class VQEmbedding(nn.Module):
 
 
 class ResBlock(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, in_dim: int = 256, num_res_channels: int = 32, out_dim: int = 256):
         super().__init__()
         self.block = nn.Sequential(
             nn.ReLU(True),
-            nn.Conv2d(dim, dim, 3, 1, 1),
-            nn.BatchNorm2d(dim),
+            nn.Conv2d(in_dim, num_res_channels, kernel_size=3, stride=1, padding=1),
             nn.ReLU(True),
-            nn.Conv2d(dim, dim, 1),
-            nn.BatchNorm2d(dim),
+            nn.Conv2d(num_res_channels, out_dim, kernel_size=1, stride=1),
         )
 
     def forward(self, x):
@@ -124,29 +117,24 @@ class ResBlock(nn.Module):
 
 
 class VectorQuantizedVAE(nn.Module):
-    def __init__(self, input_dim: int = 3, dim: int = 128, K: int = 512):
+    def __init__(self, input_dim: int = 3, latent_dim: int = 3, num_res_channels=32, conv_dim: int = 256, K: int = 512):
         super().__init__()
-        self.latent_dim = dim
+        self.latent_dim = latent_dim
         self.num_embeddings = K
         self.encoder = nn.Sequential(
-            nn.Conv2d(input_dim, dim, 4, 2, 1),
-            nn.BatchNorm2d(dim),
-            nn.ReLU(True),
-            nn.Conv2d(dim, dim, 4, 2, 1),
-            ResBlock(dim),
-            ResBlock(dim),
+            nn.Conv2d(input_dim, conv_dim, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(conv_dim, conv_dim, kernel_size=4, stride=2, padding=1),
+            ResBlock(in_dim=conv_dim, num_res_channels=num_res_channels, out_dim=conv_dim),
+            ResBlock(in_dim=conv_dim, num_res_channels=num_res_channels, out_dim=conv_dim),
         )
 
-        self.codebook = VQEmbedding(K, dim)
+        self.codebook = VQEmbedding(K, latent_dim)
 
         self.decoder = nn.Sequential(
-            ResBlock(dim),
-            ResBlock(dim),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(dim, dim, 4, 2, 1),
-            nn.BatchNorm2d(dim),
-            nn.ReLU(True),
-            nn.ConvTranspose2d(dim, input_dim, 4, 2, 1),
+            ResBlock(latent_dim, conv_dim),
+            ResBlock(conv_dim, conv_dim),
+            nn.ConvTranspose2d(conv_dim, conv_dim, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(conv_dim, input_dim, kernel_size=4, stride=2, padding=1),
             nn.Sigmoid(),
         )
 
@@ -172,6 +160,6 @@ class VectorQuantizedVAE(nn.Module):
 if __name__ == "__main__":
     import torchsummary
 
-    device = torch.device("cuda")
-    model = VectorQuantizedVAE(input_dim=3, dim=128).to(device)
+    device = torch.device("cpu")
+    model = VectorQuantizedVAE(input_dim=3, latent_dim=5, conv_dim=256, K=512).to(device)
     torchsummary.summary(model, (3, 256, 256))

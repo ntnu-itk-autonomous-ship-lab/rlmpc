@@ -140,8 +140,8 @@ class PerceptionImageDecoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 128
-    img_decoder = PerceptionImageDecoder(latent_dim=latent_dimension, n_input_channels=3, first_deconv_input_dim=16).to(
+    latent_dimension = 64
+    img_decoder = PerceptionImageDecoder(latent_dim=latent_dimension, n_input_channels=3, first_deconv_input_dim=25).to(
         "cuda"
     )
     summary(img_decoder, (1, latent_dimension), device="cuda")
