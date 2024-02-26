@@ -267,8 +267,8 @@ def train(
                 / (EXPERIMENT_NAME + "_bestsofar_test_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + "_best.png"),
             )
         else:
-            num_nondecreasing_loss_iters += 1
             print(f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
+            num_nondecreasing_loss_iters += 1
         loss_meter.reset()
 
         if num_nondecreasing_loss_iters > early_stopping_patience:
