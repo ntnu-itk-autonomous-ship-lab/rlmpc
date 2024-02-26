@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 def vqvae(
     recon_x: th.Tensor, z_e_x: th.Tensor, z_q_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor, beta: float = 1.0
-) -> th.Tensor:
+) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
     """Loss function for VQ-VAE.
 
     Args:
@@ -29,7 +29,7 @@ def vqvae(
         beta (float): Weight for the commitment loss.
 
     Returns:
-        th.Tensor: _description_
+        Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]: The total loss, the reconstruction loss, the VQ loss, and the commitment loss.
     """
     weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
     weight_matrix[semantic_mask < 1] = 15.0
@@ -88,6 +88,34 @@ def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor,
     recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weight_matrix + log_sigma_opt
     recon_loss = th.mean(th.sum(recon_loss, dim=[1, 2, 3]))
     return recon_loss, log_sigma_opt + 1e-7
+
+
+def semantic_reconstruction_loss(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
+    """Loss function for semantically weighted reconstruction.
+
+    Args:
+        recon_x (th.Tensor): Reconstructed image.
+        x (th.Tensor): Input image.
+        semantic_mask (th.Tensor): Semantic mask.
+
+    Returns:
+        th.Tensor: The reconstruction loss.
+    """
+    # Shift recon_x to [0, 1] range if it is in [-1, 1] range
+    if th.min(recon_x) < 0:
+        recon_x = (recon_x + 1) / 2
+
+    weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
+    weight_matrix[semantic_mask < 1] = 50.0
+    for b in range(semantic_mask.shape[0]):
+        for c in range(semantic_mask.shape[1]):
+            # print(f"sum semantic mask: {th.sum(semantic_mask[b, c])}")
+            if not th.any(semantic_mask[b, c] > 0):
+                weight_matrix[b, c] = 0.0
+
+    mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
+    recon_loss = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
+    return recon_loss
 
 
 def sigma_reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:

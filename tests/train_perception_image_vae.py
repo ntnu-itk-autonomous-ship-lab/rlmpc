@@ -262,7 +262,7 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 64
+    latent_dim = 256
     input_image_dim = (3, 400, 400)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(input_image_dim=input_image_dim, latent_dim=latent_dim, first_deconv_input_dim=25).to(device)
@@ -272,7 +272,7 @@ if __name__ == "__main__":
     save_interval = 10
     batch_size = 64
     num_epochs = 40
-    learning_rate = 2e-04
+    learning_rate = 1e-04
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
