@@ -78,7 +78,7 @@ IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 if __name__ == "__main__":
-    scenario_choice = 6
+    scenario_choice = 7
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -100,6 +100,9 @@ if __name__ == "__main__":
     elif scenario_choice == 6:
         scenario_name = "rlmpc_scenario_random_everything2"
         config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything2.yaml"
+    elif scenario_choice == 7:
+        scenario_name = "rlmpc_scenario_random_many_vessels"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_random_many_vessels.yaml"
 
     scenario_generator = cs_sg.ScenarioGenerator(seed=1)
 
@@ -127,16 +130,16 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 10000000,
+        "max_number_of_episodes": 1000000,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 0,
+        "seed": 10,
     }
-    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_test.npy"
-    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_test.npy"
+    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_many_vessels.npy"
+    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_many_vessels.npy"
 
     # set edgepixels in adaptive threshold to 0.0, extract all seg instances.
 
@@ -148,16 +151,22 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 300
+        n_steps = 600
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
-        masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
+        masks = np.zeros((n_steps, *img_dim), dtype=np.int16)
         for i in range(n_steps):
             actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
             obs, reward, dones, info = vec_env.step(actions)
             vec_env.render()
 
             perception_images[i] = obs["PerceptionImageObservation"]
-            masks[i] = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
+            masks[i] = cs_ihm.create_simulation_image_segmentation_mask(perception_images[i])
+            if False:
+                fig, ax = plt.subplots(1, 2)
+                ax[0].imshow(perception_images[i, 0, 0], cmap="gray")
+                ax[1].imshow(masks[i, 0, 0], cmap="gray")
+                plt.show(block=False)
+
             print(f"Progress: {i}/{n_steps}")
 
         np.save(IMAGE_DATADIR / IMG_SAVE_FILE, perception_images)
@@ -182,7 +191,7 @@ if __name__ == "__main__":
             video_path = rl_dp.animations / "demo.mp4"
             env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
 
-        obs = env.reset(seed=2)
+        obs = env.reset(seed=13)
         observations = []
         frames = []
         perception_images = []
@@ -193,7 +202,7 @@ if __name__ == "__main__":
 
             frames.append(img)
             observations.append(obs)
-            if i > 4:
+            if i > 2:
                 perception_images.append(obs["PerceptionImageObservation"])
                 masks = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
 
