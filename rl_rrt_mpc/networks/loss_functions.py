@@ -31,17 +31,9 @@ def vqvae(
     Returns:
         Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]: The total loss, the reconstruction loss, the VQ loss, and the commitment loss.
     """
-    weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
-    weight_matrix[semantic_mask < 1] = 15.0
-    for b in range(semantic_mask.shape[0]):
-        for c in range(semantic_mask.shape[1]):
-            # print(f"sum semantic mask: {th.sum(semantic_mask[b, c])}")
-            if not th.any(semantic_mask[b, c] > 0):
-                weight_matrix[b, c] = 0.0
+    weight_matrix = semantic_mask * 100.0
     loss_recon = 0.5 * nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     loss_recon = th.mean(th.sum(loss_recon, dim=[1, 2, 3]))
-
-    # loss_recon = F.mse_loss(recon_x, x)
 
     # Vector quantization objective
     loss_vq = F.mse_loss(z_q_x, z_e_x.detach())
@@ -63,15 +55,8 @@ def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor,
     Returns:
         th.Tensor: The reconstruction loss.
     """
-    weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
-    weight_matrix[semantic_mask < 1] = 1000.0
-    for b in range(semantic_mask.shape[0]):
-        for c in range(semantic_mask.shape[1]):
-            # print(f"sum semantic mask: {th.sum(semantic_mask[b, c])}")
-            if not th.any(semantic_mask[b, c] > 0):
-                weight_matrix[b, c] = 0.0
-
     # unique, counts = th.unique(semantic_mask, return_counts=True)
+    weight_matrix = semantic_mask * 100.0
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     mse = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
     log_sigma_opt = 0.5 * (mse + 1e-7).log()
@@ -105,14 +90,7 @@ def semantic_reconstruction_loss(recon_x: th.Tensor, x: th.Tensor, semantic_mask
     if th.min(recon_x) < 0:
         recon_x = (recon_x + 1) / 2
 
-    weight_matrix = th.ones_like(semantic_mask, dtype=th.float32)
-    weight_matrix[semantic_mask < 1] = 50.0
-    for b in range(semantic_mask.shape[0]):
-        for c in range(semantic_mask.shape[1]):
-            # print(f"sum semantic mask: {th.sum(semantic_mask[b, c])}")
-            if not th.any(semantic_mask[b, c] > 0):
-                weight_matrix[b, c] = 0.0
-
+    weight_matrix = semantic_mask * 100.0
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     recon_loss = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
     return recon_loss

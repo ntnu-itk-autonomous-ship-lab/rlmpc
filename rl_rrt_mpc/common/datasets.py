@@ -98,3 +98,68 @@ class PerceptionImageDataset(Dataset):
         assert not torch.isinf(sample).any(), "Sample contains inf"
         # print(f"Sample min: {sample.min()}, max: {sample.max()}")
         return sample, mask
+
+
+# class PartialDataset(Dataset):
+# """
+# * Description: custom `Dataset` module for processing `.npy` files (N, C, H, W) (N > 1) grouped by date
+# - i.e. mini-batched .npy file stored by date
+# - Therefore, the number of samples, 'N', is different from each other...
+# """
+# def __init__(self, read_path, date, transform=None):
+#     """
+#     * Arguments:
+#     - read_path (string): path of `.npy` files
+#     - data (string): date(yymmdd) as a file name
+#     - transform (callable, optional): optional transform to be applied on a sample
+#     """
+#     self.transform = transform
+#     self.path = read_path
+#     self.date = date
+
+#     self.data = self.read_memmap(f'{os.path.join(self.path, self.date)}.npy')
+
+# def read_memmap(self, file_name):
+#     """
+#     * Descripton: read `np.memmap` file from the directory
+
+#     * Argument:
+#     - file_name (string): path of '.npy' and '.npy.conf' files
+
+#     * Output:
+#     - whole data loaded in a memory-efficient manner (np.memmap)
+#     """
+#     with open(file_name + '.conf', 'r') as file:
+#         memmap_configs = json.load(file)
+#         return np.memmap(file_name, mode='r+', shape=tuple(memmap_configs['shape']), dtype=memmap_configs['dtype'])
+
+# def __getitem__(self, index):
+#     """
+#     * Description: function for indexing samples
+
+#     * Argument:
+#     - index (int): index of the sample
+
+#     * Output:
+#     - input data, output data (torch.Tensor, torch.Tensor)
+#     - (batch_size, 4 (Mask(0 - background, 1 - foreground) / input1 / input2 / input3), height, width), (batch_size, output, height, width)
+#     """
+
+#     mask = torch.Tensor(self.data[index, 0, :, :]).reshape(1, PATCH_HEIGHT, PATCH_WIDTH)
+#     inputs = torch.Tensor(self.data[index, 2:4, :, :])
+#     output = torch.Tensor(self.data[index, 1, :, :]).reshape(1, PATCH_HEIGHT, PATCH_WIDTH)
+
+#     if self.transform is not None:
+#         inputs = self.transform(inputs)
+
+#     inputs = np.concatenate([mask, inputs], axis=0)
+#     return (inputs, output)
+
+# def __len__(self):
+#     """
+#     * Description: fucntion for noticing the length of dataset
+
+#     * Output:
+#     - length (int)
+#     """
+#     return self.data.shape[0]

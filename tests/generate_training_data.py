@@ -78,7 +78,7 @@ IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 if __name__ == "__main__":
-    scenario_choice = 7
+    scenario_choice = 6
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -98,13 +98,13 @@ if __name__ == "__main__":
         scenario_name = "rlmpc_scenario_random_everything"
         config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything.yaml"
     elif scenario_choice == 6:
-        scenario_name = "rlmpc_scenario_random_everything2"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything2.yaml"
+        scenario_name = "rlmpc_scenario_random_everything_test"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything_test.yaml"
     elif scenario_choice == 7:
         scenario_name = "rlmpc_scenario_random_many_vessels"
         config_file = rl_dp.scenarios / "rlmpc_scenario_random_many_vessels.yaml"
 
-    scenario_generator = cs_sg.ScenarioGenerator(seed=1)
+    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
 
     # scen = scenario_generator.load_scenario_from_folder(
     #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
@@ -136,12 +136,10 @@ if __name__ == "__main__":
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 10,
+        "seed": 15,
     }
-    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_many_vessels.npy"
-    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_many_vessels.npy"
-
-    # set edgepixels in adaptive threshold to 0.0, extract all seg instances.
+    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_test.npy"
+    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_test.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -151,7 +149,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 600
+        n_steps = 300
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         masks = np.zeros((n_steps, *img_dim), dtype=np.int16)
         for i in range(n_steps):

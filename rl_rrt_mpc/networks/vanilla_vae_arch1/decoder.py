@@ -46,26 +46,6 @@ class PerceptionImageDecoder(nn.Module):
         # s = stride
         # Number of output channels are random/tuning parameter.
 
-        # Zeroth deconv:
-        # Input 256 x 8 x 8
-        # => for 3x3 kernel, stride 1, padding 1, input 8x8 image:
-        # (8 - 1) * 1 + 3 - 2*1 = 8x8
-        # First deconv:
-        # => for 4x4 kernel, stride 2, padding (1, 1), input 8x8 image:
-        # (8 - 1) * 2 + 4 - 2*1 = 16x16
-        # Second deconv:
-        # => for 6x6 kernel, stride 3, padding (1, 1), input 16x16 image:
-        # (16 - 1) * 3 + 6 - 2*1 = 49x49
-        # Third deconv:
-        # => for 6x6 kernel, stride 2, padding (1, 1), input 49x49 image:
-        # (49 - 1) * 2 + 6 - 2*1 = 100x100
-        # Fourth deconv: skip
-        # => for 6x6 kernel, stride 2, padding (2, 2), input 100x100 image:
-        # (68 - 1) * 2 + 6 - 2*2 =
-        # Fifth deconv:
-        # => for 5x5 kernel, stride 3, padding (1, 1), input 100x100 image:
-        # (100 - 1) * 3 + 5 - 2*1 = 300x300
-
         # Fully connected layers
         # Version 1
         # self.fc0 = nn.Linear(latent_dim, 512)
