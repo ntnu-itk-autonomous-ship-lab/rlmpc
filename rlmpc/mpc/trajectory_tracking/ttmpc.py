@@ -7,6 +7,7 @@
 
     Author: Trym Tengesdal
 """
+
 import platform
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,20 +15,20 @@ from typing import Optional, Tuple, Type
 
 import colav_simulator.core.models as cs_models
 import numpy as np
-import rl_rrt_mpc.common.config_parsing as cp
-import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.mpc.common as common
-import rl_rrt_mpc.mpc.models as models
-import rl_rrt_mpc.mpc.mpc_interface as mpc_interface
-import rl_rrt_mpc.mpc.parameters as mpc_parameters
-import rl_rrt_mpc.mpc.trajectory_tracking.casadi_mpc as casadi_mpc
+import rlmpc.common.config_parsing as cp
+import rlmpc.common.paths as dp
+import rlmpc.mpc.common as common
+import rlmpc.mpc.models as models
+import rlmpc.mpc.mpc_interface as mpc_interface
+import rlmpc.mpc.parameters as mpc_parameters
+import rlmpc.mpc.trajectory_tracking.casadi_mpc as casadi_mpc
 import seacharts.enc as senc
 
 uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
     ACADOS_COMPATIBLE = False  # ACADOS does not support arm64 and macOS yet
 else:
-    import rl_rrt_mpc.mpc.trajectory_tracking.acados_mpc as acados_mpc
+    import rlmpc.mpc.trajectory_tracking.acados_mpc as acados_mpc
 
     ACADOS_COMPATIBLE = True
 
@@ -72,9 +73,13 @@ class TTMPC(mpc_interface.IMPC):
             self._solver_options = default_config.solver_options
             self._acados_enabled = default_config.enable_acados
 
-        self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(config.model, self._params, self._solver_options.casadi)
+        self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(
+            config.model, self._params, self._solver_options.casadi
+        )
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(config.model, self._params, self._solver_options.acados)
+            self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(
+                config.model, self._params, self._solver_options.acados
+            )
 
     @property
     def params(self) -> mpc_parameters.TTMPCParams:
@@ -125,10 +130,20 @@ class TTMPC(mpc_interface.IMPC):
         """
         self._casadi_mpc.construct_ocp(so_list, enc, map_origin, min_depth)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, map_origin, min_depth)
+            self._acados_mpc.construct_ocp(
+                nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, map_origin, min_depth
+            )
 
     def plan(
-        self, t: float, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray], xs: np.ndarray, do_list: list, so_list: list, enc: senc.ENC, **kwargs
+        self,
+        t: float,
+        nominal_trajectory: np.ndarray,
+        nominal_inputs: Optional[np.ndarray],
+        xs: np.ndarray,
+        do_list: list,
+        so_list: list,
+        enc: senc.ENC,
+        **kwargs
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 

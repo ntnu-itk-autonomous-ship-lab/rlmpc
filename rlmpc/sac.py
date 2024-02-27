@@ -13,9 +13,9 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Un
 
 import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
-import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.off_policy_algorithm as opa
-import rl_rrt_mpc.rlmpc as rlmpc
+import rlmpc.common.paths as dp
+import rlmpc.off_policy_algorithm as opa
+import rlmpc.rlmpc as rlmpc
 import scipy.interpolate as interp
 import seacharts.enc as senc
 import stable_baselines3.common.buffers as sb3_buffers

@@ -7,6 +7,7 @@
 
     Author: Trym Tengesdal
 """
+
 import unittest
 from typing import Optional, Tuple
 
@@ -15,11 +16,11 @@ import geopandas as gpd
 import geopy.distance
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.gmm_em as gmm_em
-import rl_rrt_mpc.common.helper_functions as hf
-import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.common.rbf_casadi as rbf_casadi
-import rl_rrt_mpc.common.smallestenclosingcircle as smallestenclosingcircle
+import rlmpc.common.gmm_em as gmm_em
+import rlmpc.common.helper_functions as hf
+import rlmpc.common.paths as dp
+import rlmpc.common.rbf_casadi as rbf_casadi
+import rlmpc.common.smallestenclosingcircle as smallestenclosingcircle
 import scipy.interpolate as scipyintp
 import scipy.spatial as scipy_spatial
 import seacharts.enc as senc

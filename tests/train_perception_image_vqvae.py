@@ -5,15 +5,15 @@ import time
 from pathlib import Path
 from sys import platform
 
-import rl_rrt_mpc.common.datasets as rl_ds
-import rl_rrt_mpc.common.helper_functions as rl_hf
-import rl_rrt_mpc.networks.loss_functions as loss_functions
+import rlmpc.common.datasets as rl_ds
+import rlmpc.common.helper_functions as rl_hf
+import rlmpc.networks.loss_functions as loss_functions
 import torch
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rl_rrt_mpc.common.datasets import PerceptionImageDataset
-from rl_rrt_mpc.networks.vqvae3 import VQVAE as VectorQuantizedVAE
+from rlmpc.common.datasets import PerceptionImageDataset
+from rlmpc.networks.vqvae3 import VQVAE as VectorQuantizedVAE
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchsummary import summary

@@ -10,7 +10,7 @@
 import inspect
 import pathlib
 from contextlib import contextmanager
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 import casadi as csd
 import colav_simulator.core.controllers as controllers
@@ -20,9 +20,9 @@ import colav_simulator.core.models as sim_models
 import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.file_utils as fu
-import rl_rrt_mpc.common.math_functions as mf
-import rl_rrt_mpc.common.paths as dp
+import rlmpc.common.file_utils as fu
+import rlmpc.common.math_functions as mf
+import rlmpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry

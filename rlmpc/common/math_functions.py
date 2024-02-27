@@ -6,15 +6,18 @@
 
     Author: Trym Tengesdal
 """
+
 import math
 from typing import Tuple
 
 import casadi as csd
 import numpy as np
-import rl_rrt_mpc.common.helper_functions as hf
+import rlmpc.common.helper_functions as hf
 
 
-def scale_min_max(x: float | np.ndarray | csd.MX, x_min: float | np.ndarray, x_max: float | np.ndarray) -> float | np.ndarray:
+def scale_min_max(
+    x: float | np.ndarray | csd.MX, x_min: float | np.ndarray, x_max: float | np.ndarray
+) -> float | np.ndarray:
     """Scales input x to [x_min, x_max]
 
     Args:
@@ -28,7 +31,9 @@ def scale_min_max(x: float | np.ndarray | csd.MX, x_min: float | np.ndarray, x_m
     return x_min + x * (x_max - x_min)
 
 
-def normalize_min_max(x: float | np.ndarray | csd.MX, x_min: float | np.ndarray, x_max: float | np.ndarray) -> float | np.ndarray:
+def normalize_min_max(
+    x: float | np.ndarray | csd.MX, x_min: float | np.ndarray, x_max: float | np.ndarray
+) -> float | np.ndarray:
     """Normalizes input x to [0, 1]
 
     Args:
@@ -256,7 +261,9 @@ def Rpsi(psi) -> np.ndarray:
 
 def Rpsi_casadi(psi: csd.MX) -> csd.MX:
     """Same as Rpsi but for casadi."""
-    return hf.casadi_matrix_from_nested_list([[csd.cos(psi), -csd.sin(psi), 0], [csd.sin(psi), csd.cos(psi), 0], [0, 0, 1]])
+    return hf.casadi_matrix_from_nested_list(
+        [[csd.cos(psi), -csd.sin(psi), 0], [csd.sin(psi), csd.cos(psi), 0], [0, 0, 1]]
+    )
 
 
 def Rpsi2D(psi: float) -> np.ndarray:

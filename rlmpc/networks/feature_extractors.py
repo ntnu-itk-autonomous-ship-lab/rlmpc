@@ -191,7 +191,7 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
 if __name__ == "__main__":
     import colav_simulator.common.paths as cs_dp
     import colav_simulator.scenario_generator as cs_sg
-    import rl_rrt_mpc.common.paths as rl_dp
+    import rlmpc.common.paths as rl_dp
 
     scenario_choice = 0
     if scenario_choice == 0:

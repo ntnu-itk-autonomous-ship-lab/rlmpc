@@ -2,7 +2,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.datasets as rl_ds
+import rlmpc.common.datasets as rl_ds
 import torch
 from torchvision.transforms import v2 as transforms_v2
 
