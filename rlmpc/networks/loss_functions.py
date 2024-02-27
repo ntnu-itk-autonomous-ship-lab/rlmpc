@@ -86,11 +86,8 @@ def semantic_reconstruction_loss(recon_x: th.Tensor, x: th.Tensor, semantic_mask
     Returns:
         th.Tensor: The reconstruction loss.
     """
-    # Shift recon_x to [0, 1] range if it is in [-1, 1] range
-    if th.min(recon_x) < 0:
-        recon_x = (recon_x + 1) / 2
-
-    weight_matrix = semantic_mask * 100.0
+    weight_matrix = semantic_mask * 1000.0
+    unique, counts = th.unique(weight_matrix, return_counts=True)
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     recon_loss = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
     return recon_loss

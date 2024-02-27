@@ -241,7 +241,7 @@ def train(
 
 
 if __name__ == "__main__":
-    input_image_dim = (3, 256, 256)
+    input_image_dim = (3, 400, 400)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # vqvae = VectorQuantizedVAE(
     #     num_hiddens=128,
