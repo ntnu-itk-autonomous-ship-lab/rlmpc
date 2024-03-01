@@ -81,7 +81,7 @@ elif platform == "darwin":
 
 
 if __name__ == "__main__":
-    scenario_choice = 5
+    scenario_choice = 6
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -139,10 +139,10 @@ if __name__ == "__main__":
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 15,
+        "seed": 1,
     }
-    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_land_only.npy"
-    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_land_only.npy"
+    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_land_only_test.npy"
+    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_land_only_test.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -152,7 +152,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 3000
+        n_steps = 750
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         masks = np.zeros((n_steps, *img_dim), dtype=np.int16)
         for i in range(n_steps):

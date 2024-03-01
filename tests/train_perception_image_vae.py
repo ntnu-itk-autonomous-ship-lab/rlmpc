@@ -26,7 +26,7 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "training_vae1"
+EXPERIMENT_NAME: str = "training_vae2"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
 LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
@@ -245,8 +245,8 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 32
-    input_image_dim = (3, 256, 256)
+    latent_dim = 256
+    input_image_dim = (1, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(
         input_image_dim=input_image_dim,
@@ -264,13 +264,13 @@ if __name__ == "__main__":
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
-    training_data_npy_filename1 = "perception_data_rogaland_random_everything.npy"
-    training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything.npy"
+    training_data_npy_filename1 = "perception_data_rogaland_random_everything_land_only.npy"
+    training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything_land_only.npy"
 
-    training_data_npy_filename2 = "perception_data_rogaland_random_everything_many_vessels.npy"
-    training_masks_npy_filename2 = "segmentation_masks_rogaland_random_everything_many_vessels.npy"
-    test_data_npy_filename = "perception_data_rogaland_random_everything_test.npy"
-    test_masks_npy_filename = "segmentation_masks_rogaland_random_everything_test.npy"
+    training_data_npy_filename2 = "perception_data_rogaland_random_everything_land_only2.npy"
+    training_masks_npy_filename2 = "segmentation_masks_rogaland_random_everything_land_only2.npy"
+    test_data_npy_filename = "perception_data_rogaland_random_everything_land_only_test.npy"
+    test_masks_npy_filename = "segmentation_masks_rogaland_random_everything_land_only_test.npy"
 
     training_transform = transforms_v2.Compose(
         [
@@ -280,10 +280,9 @@ if __name__ == "__main__":
                     transforms_v2.ToDtype(torch.float32, scale=True),
                     transforms_v2.RandomHorizontalFlip(),
                     transforms_v2.RandomRotation(3),
-                    transforms_v2.RandomVerticalFlip(),
                     transforms_v2.ElasticTransform(alpha=40, sigma=3),
                 ],
-                p=[0.5, 0.5, 0.4, 0.01, 0.1],
+                p=[0.5, 0.5, 0.4, 0.1],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
             transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),

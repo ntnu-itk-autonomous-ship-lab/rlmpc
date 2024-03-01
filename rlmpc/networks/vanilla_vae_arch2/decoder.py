@@ -63,15 +63,14 @@ class PerceptionImageDecoder(nn.Module):
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
 
         self.deconv_block = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=latent_dim, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=5, stride=2, padding=1),
+            nn.ConvTranspose2d(in_channels=latent_dim, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=5, stride=2, padding=2),
             nn.ReLU(),
-            nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=6, stride=2, padding=1, dilation=1),
-            # nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=1, dilation=1),
+            nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=6, stride=4, padding=2, dilation=1),
             nn.ReLU(),
-            nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=4, stride=2, padding=1, dilation=1),
+            nn.ConvTranspose2d(in_channels=32, out_channels=16, kernel_size=4, stride=2, padding=2, dilation=1),
             nn.ReLU(),
-            nn.ConvTranspose2d(in_channels=32, out_channels=n_input_channels, kernel_size=3, stride=1, padding=1),
+            nn.ConvTranspose2d(in_channels=16, out_channels=n_input_channels, kernel_size=4, stride=2, padding=3),
             nn.Sigmoid(),
         )
 
@@ -92,8 +91,8 @@ class PerceptionImageDecoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 32
+    latent_dimension = 128
     img_decoder = PerceptionImageDecoder(
-        latent_dim=latent_dimension, n_input_channels=3, first_deconv_input_dim=(16, 16)
+        latent_dim=latent_dimension, n_input_channels=1, first_deconv_input_dim=(latent_dimension, 9, 9)
     ).to("cuda")
     summary(img_decoder, (1, latent_dimension), device="cuda")

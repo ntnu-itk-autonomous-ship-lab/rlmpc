@@ -48,8 +48,9 @@ def make_grid_for_tensorboard(batch_images, reconstructed_images, semantic_masks
         torch.Tensor: The grid of images
     """
     joined_images = []
-    for j in range(len(batch_images)):
-        for i in reversed(range(3)):
+    batch_size, n_channels, _, _ = batch_images.shape
+    for j in range(batch_size):
+        for i in reversed(range(n_channels)):
             if batch_images[j, i, :, :].dim() > 2:
                 print("wrong")
             joined_images.append(batch_images[j, i, :, :].unsqueeze(0))

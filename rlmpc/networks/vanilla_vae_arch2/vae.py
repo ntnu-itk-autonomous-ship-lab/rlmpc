@@ -155,18 +155,10 @@ class VAE(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    LATENT_DIM = 32
+    LATENT_DIM = 256
     image_dim = (3, 256, 256)
     fc_dim = 32
     device = th.device("cpu")
-    encoder = PerceptionImageEncoder(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
-    summary(encoder, input_size=image_dim, batch_size=-1, device=device.type)
-
-    decoder = PerceptionImageDecoder(
-        n_input_channels=3, latent_dim=LATENT_DIM, first_deconv_input_dim=(LATENT_DIM, 16, 16)
-    ).to(device)
-    summary(decoder, input_size=(1, LATENT_DIM), batch_size=-1, device=device.type)
-
     vae = VAE(
         latent_dim=LATENT_DIM, input_image_dim=image_dim, encoder_conv_block_dims=(32, 128, 128, 128), fc_dim=fc_dim
     ).to(device)

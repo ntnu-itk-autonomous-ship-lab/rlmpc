@@ -55,36 +55,35 @@ class PerceptionImageEncoder(nn.Module):
 
         self.block_0_dim = conv_block_dims[0]
         self.conv_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=n_input_channels, out_channels=self.block_0_dim, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=n_input_channels, out_channels=self.block_0_dim, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_0_dim, kernel_size=3, stride=2, padding=2),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2, padding=1),
         )
 
         self.block_1_dim = conv_block_dims[1]
         self.conv_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=3, stride=1, padding=1),
-            # nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_1_dim, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_1_dim, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
         )
 
         # Jump connection from last layer of zeroth block to first layer of second block
         self.conv0_jump_to_2 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
         )
 
         # # Second block of convolutions
         self.block_2_dim = conv_block_dims[2]
         self.conv_block_2 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_2_dim, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
         )
 
         # Jump connection from last layer of first block to first layer of third block
         self.conv1_jump_to_3 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=5, stride=4, padding=2),
             nn.ReLU(),
         )
 
@@ -92,19 +91,17 @@ class PerceptionImageEncoder(nn.Module):
         self.block_3_dim = conv_block_dims[3]
         self.conv_block_3 = nn.Sequential(
             nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.latent_dim, kernel_size=3, stride=1, padding=1),
-            # nn.Conv2d(in_channels=self.block_3_dim, out_channels=self.block_3_dim, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2, padding=0),
         )
 
         # Jump connection from last layer of second block to first layer of fourth block
-        # self.conv2_jump_to_4 = nn.Sequential(
-        #     nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_3_dim, kernel_size=6, stride=4, padding=3),
-        #     nn.ReLU(),
-        # )
+        self.conv2_jump_to_4 = nn.Sequential(
+            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_3_dim, kernel_size=6, stride=4, padding=3),
+            nn.ReLU(),
+        )
 
         # Fully connected layers
-        self.last_conv_block_dim = (self.latent_dim, 16, 16)
+        self.last_conv_block_dim = (self.latent_dim, 9, 9)
         self.last_conv_block_flattened_dim = (
             self.last_conv_block_dim[0] * self.last_conv_block_dim[1] * self.last_conv_block_dim[2]
         )
@@ -165,8 +162,8 @@ if __name__ == "__main__":
     from torchsummary import summary
 
     #
-    latent_dimension = 32
+    latent_dimension = 128
     encoder = PerceptionImageEncoder(
-        n_input_channels=3, latent_dim=latent_dimension, conv_block_dims=(64, 128, 128, 128)
+        n_input_channels=3, latent_dim=latent_dimension, conv_block_dims=(64, 128, 128, 128), fc_dim=512
     ).to("cuda")
     summary(encoder, (3, 256, 256), device="cuda")

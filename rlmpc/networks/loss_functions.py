@@ -45,8 +45,24 @@ def vqvae(
     return loss, loss_recon, loss_vq, loss_commit
 
 
-def compute_weights_from_semantic_mask(semantic_mask: th.Tensor) -> th.Tensor:
+def compute_weights_from_semantic_mask_land_ownship_only(semantic_mask: th.Tensor) -> th.Tensor:
     """Compute weights from semantic mask.
+
+    Args:
+        semantic_mask (th.Tensor): Semantic mask tensor.
+
+    Returns:
+        th.Tensor: The weight matrix.
+    """
+    weight_matrix = th.ones_like(semantic_mask)
+    weight_matrix[semantic_mask > 0.1] = 10.0
+    weight_matrix[semantic_mask > 0.21] = 100.0
+    weight_matrix[semantic_mask > 0.9] = 500.0
+    return weight_matrix
+
+
+def compute_weights_from_semantic_mask(semantic_mask: th.Tensor) -> th.Tensor:
+    """Compute weights from semantic mask, land and ownship only.
 
     Args:
         semantic_mask (th.Tensor): Semantic mask tensor.
@@ -57,7 +73,7 @@ def compute_weights_from_semantic_mask(semantic_mask: th.Tensor) -> th.Tensor:
     weight_matrix = th.ones_like(semantic_mask)
     semantic_mask = (semantic_mask * 1000.0).int()
     unique, counts = th.unique(semantic_mask, return_counts=True)
-    weights = [5.0, 50.0, 150.0]  # land edges, nominal path, ships
+    weights = [100.0, 50.0, 150.0]  # land edges, nominal path, ships
     for idx, (val, _) in enumerate(zip(unique[-3:], counts[-3:])):
         weight_matrix[semantic_mask == val] = weights[idx]
     return weight_matrix
@@ -102,7 +118,7 @@ def semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, seman
     Returns:
         th.Tensor: The reconstruction loss.
     """
-    weight_matrix = compute_weights_from_semantic_mask(semantic_mask)
+    weight_matrix = compute_weights_from_semantic_mask_land_ownship_only(semantic_mask)
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     recon_loss = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
     return recon_loss
