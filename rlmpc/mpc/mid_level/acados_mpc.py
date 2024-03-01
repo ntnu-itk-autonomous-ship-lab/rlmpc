@@ -10,9 +10,13 @@
 from typing import Optional, Tuple
 
 import casadi as csd
+import colav_simulator.common.map_functions as mapf
 import numpy as np
 import rlmpc.common.helper_functions as hf
+<<<<<<< HEAD
 import rlmpc.common.map_functions as mapf
+=======
+>>>>>>> 584db34bd60a24470a355d7b2cca2613083a7e20
 import rlmpc.common.math_functions as mf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
@@ -169,7 +173,8 @@ class AcadosMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        min_dist, _, _ = mapf.compute_closest_grounding_dist(pos_past_N, self._min_depth, enc)
+        dvecs = mapf.compute_distance_vectors_to_grounding(pos_past_N, self._min_depth, enc)
+        min_dist = np.min(np.linalg.norm(dvecs, axis=1))
         if min_dist <= self._params.d_safe_so:
             return x_warm_start, u_warm_start, False
 

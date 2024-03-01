@@ -10,7 +10,7 @@
 import inspect
 import pathlib
 from contextlib import contextmanager
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Tuple
 
 import casadi as csd
 import colav_simulator.core.controllers as controllers
@@ -26,11 +26,36 @@ import rlmpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
+import torch
+import torchvision
 import tqdm
 import yaml
 from matplotlib import cm
-from scipy.interpolate import BSpline, interp1d
+from scipy.interpolate import interp1d
 from scipy.stats import chi2
+
+
+def make_grid_for_tensorboard(batch_images, reconstructed_images, semantic_masks, n_rows: int = 2) -> torch.Tensor:
+    """Create grid of images to show in tensorboard.
+
+    Args:
+        batch_images (torch.Tensor): The batch of input images
+        reconstructed_images (torch.Tensor): The batch of reconstructed images
+        semantic_masks (torch.Tensor): The batch of semantic masks
+        n_rows (int, optional): The number of rows in the grid. Defaults to 2.
+
+    Returns:
+        torch.Tensor: The grid of images
+    """
+    joined_images = []
+    for j in range(len(batch_images)):
+        for i in reversed(range(3)):
+            if batch_images[j, i, :, :].dim() > 2:
+                print("wrong")
+            joined_images.append(batch_images[j, i, :, :].unsqueeze(0))
+            joined_images.append(semantic_masks[j, i, :, :].unsqueeze(0))
+            joined_images.append(reconstructed_images[j, i, :, :].unsqueeze(0))
+    return torchvision.utils.make_grid(joined_images, nrow=n_rows, padding=2)
 
 
 @contextmanager

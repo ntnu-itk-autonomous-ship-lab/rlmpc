@@ -13,6 +13,7 @@ from typing import Optional
 
 import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
+import colav_simulator.common.plotters as plotters
 import colav_simulator.core.colav.colav_interface as ci
 import colav_simulator.core.guidances as guidances
 import colav_simulator.core.stochasticity as stochasticity

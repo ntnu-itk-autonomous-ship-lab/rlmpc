@@ -12,6 +12,7 @@ from typing import Optional, Tuple
 
 import casadi as csd
 import colav_simulator.common.map_functions as cs_mapf
+import colav_simulator.common.plotters as cs_plotters
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.helper_functions as hf
