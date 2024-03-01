@@ -10,6 +10,7 @@
 from typing import Tuple
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,7 +32,7 @@ def vqvae(
     Returns:
         Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]: The total loss, the reconstruction loss, the VQ loss, and the commitment loss.
     """
-    weight_matrix = semantic_mask * 100.0
+    weight_matrix = compute_weights_from_semantic_mask(semantic_mask)
     loss_recon = 0.5 * nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     loss_recon = th.mean(th.sum(loss_recon, dim=[1, 2, 3]))
 
@@ -44,38 +45,53 @@ def vqvae(
     return loss, loss_recon, loss_vq, loss_commit
 
 
+def compute_weights_from_semantic_mask(semantic_mask: th.Tensor) -> th.Tensor:
+    """Compute weights from semantic mask.
+
+    Args:
+        semantic_mask (th.Tensor): Semantic mask tensor.
+
+    Returns:
+        th.Tensor: The weight matrix.
+    """
+    weight_matrix = th.ones_like(semantic_mask)
+    semantic_mask = (semantic_mask * 1000.0).int()
+    unique, counts = th.unique(semantic_mask, return_counts=True)
+    weights = [5.0, 50.0, 150.0]  # land edges, nominal path, ships
+    for idx, (val, _) in enumerate(zip(unique[-3:], counts[-3:])):
+        weight_matrix[semantic_mask == val] = weights[idx]
+    return weight_matrix
+
+
 def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
     """Loss function for semantically weighted reconstruction.
 
     Args:
-        recon_x (th.Tensor): Reconstructed image.
-        x (th.Tensor): Input image.
+        recon_x (th.Tensor): Reconstructed image, normalized to [0, 1].
+        x (th.Tensor): Input image, normalized to [0, 1].
         semantic_mask (th.Tensor): Semantic mask.
 
     Returns:
         th.Tensor: The reconstruction loss.
     """
-    # unique, counts = th.unique(semantic_mask, return_counts=True)
-    weight_matrix = semantic_mask * 100.0
+    weight_matrix = compute_weights_from_semantic_mask(semantic_mask)
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     mse = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
     log_sigma_opt = 0.5 * (mse + 1e-7).log()
 
     if False:
-        for b in range(semantic_mask.shape[0]):
-            for c in range(semantic_mask.shape[1]):
-                fig, ax = plt.subplots(1, 4)
-                plt.show(block=False)
-                ax[0].imshow(x[b, c].detach().cpu().numpy())
-                ax[1].imshow(semantic_mask[b, c].detach().cpu().numpy())
-                ax[2].imshow(weight_matrix[b, c].detach().cpu().numpy())
-                ax[3].imshow(recon_x[b, c].detach().cpu().numpy())
+        fig, ax = plt.subplots(1, 4)
+        plt.show(block=False)
+        ax[0].imshow(x[0, 0].detach().cpu().numpy())
+        ax[1].imshow(semantic_mask[0, 0].detach().cpu().numpy())
+        ax[2].imshow(weight_matrix[0, 0].detach().cpu().numpy())
+        ax[3].imshow(recon_x[0, 0].detach().cpu().numpy())
     recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weight_matrix + log_sigma_opt
     recon_loss = th.mean(th.sum(recon_loss, dim=[1, 2, 3]))
     return recon_loss, log_sigma_opt + 1e-7
 
 
-def semantic_reconstruction_loss(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
+def semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
     """Loss function for semantically weighted reconstruction.
 
     Args:
@@ -86,8 +102,7 @@ def semantic_reconstruction_loss(recon_x: th.Tensor, x: th.Tensor, semantic_mask
     Returns:
         th.Tensor: The reconstruction loss.
     """
-    weight_matrix = semantic_mask * 1000.0
-    unique, counts = th.unique(weight_matrix, return_counts=True)
+    weight_matrix = compute_weights_from_semantic_mask(semantic_mask)
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
     recon_loss = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
     return recon_loss

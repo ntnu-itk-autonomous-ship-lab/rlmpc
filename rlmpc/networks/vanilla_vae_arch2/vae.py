@@ -33,14 +33,16 @@ class VAE(nn.Module):
         self,
         latent_dim: int = 64,
         input_image_dim: Tuple[int, int, int] = (3, 400, 400),
-        first_deconv_input_dim: int = 18,
+        encoder_conv_block_dims: Tuple[int, int, int, int] = (32, 64, 128, 128),
+        fc_dim: int = 32,
         inference_mode: bool = False,
     ):
         """
         Args:
             latent_dim (int): Dimension of the latent space
             input_image_dim (Tuple[int, int, int]): Dimensions of the input image
-            inference_mode (bool): Whether to use inference mode or not
+            encoder_conv_block_dims (Tuple[int, int, int, int]): Dimensions of the convolutional blocks
+            inference_mode (bool): Inference mode
         """
 
         super(VAE, self).__init__()
@@ -48,9 +50,17 @@ class VAE(nn.Module):
         self.input_image_dim = input_image_dim
         self.latent_dim = latent_dim
         self.inference_mode = inference_mode
-        self.encoder = PerceptionImageEncoder(n_input_channels=input_image_dim[0], latent_dim=latent_dim)
+        self.encoder = PerceptionImageEncoder(
+            n_input_channels=input_image_dim[0],
+            latent_dim=latent_dim,
+            conv_block_dims=encoder_conv_block_dims,
+            fc_dim=fc_dim,
+        )
         self.decoder = PerceptionImageDecoder(
-            n_input_channels=input_image_dim[0], latent_dim=latent_dim, first_deconv_input_dim=first_deconv_input_dim
+            n_input_channels=input_image_dim[0],
+            latent_dim=latent_dim,
+            first_deconv_input_dim=self.encoder.last_conv_block_dim,
+            fc_dim=fc_dim,
         )
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
@@ -145,13 +155,19 @@ class VAE(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    LATENT_DIM = 128
+    LATENT_DIM = 32
+    image_dim = (3, 256, 256)
+    fc_dim = 32
     device = th.device("cpu")
     encoder = PerceptionImageEncoder(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
-    summary(encoder, input_size=(3, 400, 400), batch_size=-1, device=device.type)
+    summary(encoder, input_size=image_dim, batch_size=-1, device=device.type)
 
-    decoder = PerceptionImageDecoder(n_input_channels=3, latent_dim=LATENT_DIM).to(device)
+    decoder = PerceptionImageDecoder(
+        n_input_channels=3, latent_dim=LATENT_DIM, first_deconv_input_dim=(LATENT_DIM, 16, 16)
+    ).to(device)
     summary(decoder, input_size=(1, LATENT_DIM), batch_size=-1, device=device.type)
 
-    vae = VAE(latent_dim=LATENT_DIM, input_image_dim=(3, 400, 400)).to(device)
-    summary(vae, input_size=(3, 400, 400), batch_size=-1, device=device.type)
+    vae = VAE(
+        latent_dim=LATENT_DIM, input_image_dim=image_dim, encoder_conv_block_dims=(32, 128, 128, 128), fc_dim=fc_dim
+    ).to(device)
+    summary(vae, input_size=image_dim, batch_size=-1, device=device.type)

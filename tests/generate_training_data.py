@@ -8,7 +8,7 @@ import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.paths as rl_dp
+import rlmpc.common.paths as rl_dp
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
 from stable_baselines3.common.env_util import make_vec_env
@@ -78,7 +78,7 @@ IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 if __name__ == "__main__":
-    scenario_choice = 6
+    scenario_choice = 5
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 1000000,
+        "max_number_of_episodes": 1000000000,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
@@ -138,8 +138,8 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "seed": 15,
     }
-    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_test.npy"
-    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_test.npy"
+    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_land_only.npy"
+    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_land_only.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -149,7 +149,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 300
+        n_steps = 3000
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         masks = np.zeros((n_steps, *img_dim), dtype=np.int16)
         for i in range(n_steps):

@@ -78,7 +78,7 @@ class PerceptionImageEncoder(nn.Module):
 
         # Zeroth block of convolutions
         self.conv00: nn.Conv2d = nn.Conv2d(
-            in_channels=n_input_channels, out_channels=16, kernel_size=3, stride=1, padding=0
+            in_channels=n_input_channels, out_channels=16, kernel_size=5, stride=2, padding=0
         )
         self.conv01: nn.Conv2d = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=2, padding=0)
         nn.init.xavier_uniform_(self.conv00.weight, gain=nn.init.calculate_gain("linear"))

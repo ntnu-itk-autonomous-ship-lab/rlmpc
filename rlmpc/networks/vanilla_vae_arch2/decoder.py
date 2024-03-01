@@ -7,6 +7,8 @@
     Author: Trym Tengesdal
 """
 
+from typing import Tuple
+
 import torch as th
 import torch.nn as nn
 
@@ -17,13 +19,19 @@ class PerceptionImageDecoder(nn.Module):
     Adapted from https://github.com/microsoft/AirSim-Drone-Racing-VAE-Imitation/blob/master/racing_models/cmvae.py
     """
 
-    def __init__(self, n_input_channels: int = 3, latent_dim: int = 128, first_deconv_input_dim: int = 8):
+    def __init__(
+        self,
+        n_input_channels: int = 3,
+        latent_dim: int = 128,
+        first_deconv_input_dim: Tuple[int, int] = (32, 7, 7),
+        fc_dim: int = 32,
+    ):
         """
 
         Args:
-            n_input_channels: Number of input channels
-            latent_dim: Dimension of the latent space
-            first_deconv_input_dim: Dimension of the first input convolutional layer
+            n_input_channels (int): Number of input channels
+            latent_dim (int): Dimension of the latent space
+            first_deconv_input_dim (Tuple[int, int]): Dimensions of the first deconvolutional block
         """
 
         super(PerceptionImageDecoder, self).__init__()
@@ -46,82 +54,46 @@ class PerceptionImageDecoder(nn.Module):
         # s = stride
         # Number of output channels are random/tuning parameter.
 
-        # Fully connected layers
-        # Version 1
-        # self.fc0 = nn.Linear(latent_dim, 512)
-        # Relu activation
-        self.fc1 = nn.Linear(latent_dim, self.first_deconv_input_dim * self.first_deconv_input_dim * latent_dim)
+        self.fc_dim = fc_dim
+        self.fc_block = nn.Sequential(
+            nn.Linear(latent_dim, fc_dim),
+            nn.Linear(fc_dim, first_deconv_input_dim[0] * first_deconv_input_dim[1] * first_deconv_input_dim[2]),
+        )
 
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
 
-        # Deconvolutional layers
-        self.deconv0 = nn.ConvTranspose2d(in_channels=latent_dim, out_channels=128, kernel_size=3, stride=1, padding=1)
-        # Relu activation
-        self.deconv1 = nn.ConvTranspose2d(128, 128, kernel_size=3, stride=1, padding=1)
-        # Relu activation
-        self.deconv2 = nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1)
-        # Relu activation
-        self.deconv3 = nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1)
-        # Relu activation
-        self.deconv4 = nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1)
-        # Relu activation
-        self.deconv5 = nn.ConvTranspose2d(16, self.n_input_channels, kernel_size=4, stride=2, padding=1)
-        # Sigmoid activation
-
-        # Version 2
-        # self.deconv0 = nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1)
-        # # Relu activation
-        # self.deconv1 = nn.ConvTranspose2d(
-        #     128, 64, kernel_size=5, stride=2, padding=(2, 2), output_padding=(0, 1), dilation=1
-        # )
-        # # Relu activation
-        # self.deconv2 = nn.ConvTranspose2d(
-        #     64, 32, kernel_size=6, stride=4, padding=(2, 2), output_padding=(0, 0), dilation=1
-        # )
-        # # Relu activation
-        # self.deconv3 = nn.ConvTranspose2d(32, 16, kernel_size=6, stride=2, padding=(0, 0), output_padding=(0, 1))
-        # # Relu activation
-        # self.deconv4 = nn.ConvTranspose2d(
-        #     16, self.n_channels, kernel_size=4, stride=2, padding=2
-        # )  # tanh activation or sigmoid
-        # Sigmoid activation
+        self.deconv_block = nn.Sequential(
+            nn.ConvTranspose2d(in_channels=latent_dim, out_channels=128, kernel_size=3, stride=2, padding=1),
+            nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=5, stride=2, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=6, stride=2, padding=1, dilation=1),
+            # nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=1, dilation=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=4, stride=2, padding=1, dilation=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(in_channels=32, out_channels=n_input_channels, kernel_size=3, stride=1, padding=1),
+            nn.Sigmoid(),
+        )
 
     def forward(self, z: th.Tensor) -> th.Tensor:
         return self.decode(z)
 
     def decode(self, z: th.Tensor) -> th.Tensor:
         # Fully connected layers
-        # Version 1
-        # x = self.fc0(z)
-        # x = self.relu(x)
-        x = self.fc1(z)
-        x = x.view(x.size(0), self.latent_dim, self.first_deconv_input_dim, self.first_deconv_input_dim)
+        x = self.fc_block(z)
+        x = x.view(
+            x.size(0), self.first_deconv_input_dim[0], self.first_deconv_input_dim[1], self.first_deconv_input_dim[2]
+        )
 
-        # Deconvolutional layers
-        # Version 1
-        x = self.deconv0(x)
-        x = self.relu(x)
-        x = self.deconv1(x)
-        x = self.relu(x)
-        x = self.deconv2(x)
-        x = self.relu(x)
-        x = self.deconv3(x)
-        x = self.relu(x)
-        x = self.deconv4(x)
-        x = self.relu(x)
-        x = self.deconv5(x)
-
-        x = self.sigmoid(x)
-        # print(f"latent vector: {z}")
-        # print(f"After sigmoid, mean: {x.mean():.3f} var: {x.var():.3f}")
+        x = self.deconv_block(x)
         return x
 
 
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 64
-    img_decoder = PerceptionImageDecoder(latent_dim=latent_dimension, n_input_channels=3, first_deconv_input_dim=25).to(
-        "cuda"
-    )
+    latent_dimension = 32
+    img_decoder = PerceptionImageDecoder(
+        latent_dim=latent_dimension, n_input_channels=3, first_deconv_input_dim=(16, 16)
+    ).to("cuda")
     summary(img_decoder, (1, latent_dimension), device="cuda")

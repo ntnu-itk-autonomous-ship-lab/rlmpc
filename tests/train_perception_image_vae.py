@@ -12,11 +12,9 @@ import torch
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rlmpc.common.datasets import PerceptionImageDataset
-from rlmpc.networks.vanilla_vae_arch1.vae import VAE
+from rlmpc.networks.vanilla_vae_arch2.vae import VAE
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchsummary import summary
 
 if platform == "linux" or platform == "linux2":
     BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/data/vae/")
@@ -96,7 +94,7 @@ def train_vae(
         model_path.mkdir()
 
     n_batch_images_to_show = batch_size if batch_size < 7 else 6
-    beta = 20.0
+    beta = 1.0
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
@@ -119,12 +117,15 @@ def train_vae(
             # Forward pass
             log_sigma_opt = 0.0
             reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
-            mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
+            # mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
+            #     reconstructed_images, batch_images, semantic_masks
+            # )
+            mse_loss = loss_functions.semantically_weighted_reconstruction(
                 reconstructed_images, batch_images, semantic_masks
             )
-            # mse_loss, log_sigma_opt = loss_functions.sigma_reconstruction(reconstructed_images, batch_images)
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            loss = 0.01 * (mse_loss + kld_loss)
+            kld_loss = kld_loss * beta_norm
+            loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
@@ -137,7 +138,7 @@ def train_vae(
                 writer.add_scalar("Training/Loss", loss.item() / batch_size, epoch * n_batches + batch_idx)
                 writer.add_scalar("Training/KLD Loss", kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
                 writer.add_scalar("Training/MSE Loss", mse_loss.item() / batch_size, epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/Sigma Opt", log_sigma_opt.exp() / batch_size, epoch * n_batches + batch_idx)
+                # writer.add_scalar("Training/Sigma Opt", log_sigma_opt.exp() / batch_size, epoch * n_batches + batch_idx)
                 print(
                     f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Avg. Train Loss: {loss.item() / batch_size:.4f} | KL Div. Loss: {kld_loss.item()/batch_size:.4f} | "
                     f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
@@ -187,9 +188,12 @@ def train_vae(
             # mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
             #     reconstructed_images, batch_images, semantic_masks
             # )
-            mse_loss, log_sigma_opt = loss_functions.sigma_reconstruction(reconstructed_images, batch_images)
+            mse_loss = loss_functions.semantically_weighted_reconstruction(
+                reconstructed_images, batch_images, semantic_masks
+            )
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            loss = 0.01 * (mse_loss + kld_loss)
+            kld_loss = kld_loss * beta_norm
+            loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
@@ -241,17 +245,21 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 128
+    latent_dim = 32
     input_image_dim = (3, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    vae = VAE(input_image_dim=input_image_dim, latent_dim=latent_dim, first_deconv_input_dim=25).to(device)
+    vae = VAE(
+        input_image_dim=input_image_dim,
+        latent_dim=latent_dim,
+        encoder_conv_block_dims=[32, 64, 128, 128],
+    ).to(device)
     # summary(vae, (3, 400, 400))
 
     load_model = False
     save_interval = 10
     batch_size = 64
     num_epochs = 40
-    learning_rate = 1e-04
+    learning_rate = 2e-04
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
@@ -261,8 +269,8 @@ if __name__ == "__main__":
 
     training_data_npy_filename2 = "perception_data_rogaland_random_everything_many_vessels.npy"
     training_masks_npy_filename2 = "segmentation_masks_rogaland_random_everything_many_vessels.npy"
-
-    test_npy_filename = "perception_data_rogaland_random_everything_test.npy"
+    test_data_npy_filename = "perception_data_rogaland_random_everything_test.npy"
+    test_masks_npy_filename = "segmentation_masks_rogaland_random_everything_test.npy"
 
     training_transform = transforms_v2.Compose(
         [
@@ -271,20 +279,20 @@ if __name__ == "__main__":
                 [
                     transforms_v2.ToDtype(torch.float32, scale=True),
                     transforms_v2.RandomHorizontalFlip(),
-                    transforms_v2.RandomRotation(2),
+                    transforms_v2.RandomRotation(3),
                     transforms_v2.RandomVerticalFlip(),
-                    transforms_v2.ElasticTransform(alpha=50, sigma=3),
+                    transforms_v2.ElasticTransform(alpha=40, sigma=3),
                 ],
-                p=[0.5, 0.5, 0.4, 0.1, 0.2],
+                p=[0.5, 0.5, 0.4, 0.01, 0.1],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
-            # transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
+            transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
         ]
     )
     test_transform = transforms_v2.Compose(
         [
             transforms_v2.ToDtype(torch.float32, scale=True),
-            # transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
+            transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
         ]
     )
 
@@ -296,7 +304,9 @@ if __name__ == "__main__":
     )
     training_dataset = torch.utils.data.ConcatDataset([training_dataset1, training_dataset2])
 
-    test_dataset = rl_ds.PerceptionImageDataset(test_npy_filename, data_dir, transform=test_transform)
+    test_dataset = rl_ds.PerceptionImageDataset(
+        test_data_npy_filename, data_dir, test_masks_npy_filename, transform=test_transform
+    )
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)

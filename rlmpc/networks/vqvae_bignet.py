@@ -27,7 +27,7 @@ class Encoder(nn.Module):
             nn.BatchNorm2d(hidden_dim),
             nn.ReLU(),
             nn.Conv2d(hidden_dim, hidden_dim, 5, 2, 2, bias=False),
-            # nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1, bias=False),
+            nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1, bias=False),
             nn.BatchNorm2d(hidden_dim),
             nn.ReLU(),
             nn.Conv2d(hidden_dim, hidden_dim, 3, 1, 1, bias=False),
@@ -111,8 +111,8 @@ class Decoder(nn.Module):
             nn.ConvTranspose2d(hidden_dim, hidden_dim, 3, 2, 1, bias=False),
             nn.BatchNorm2d(hidden_dim),
             nn.ReLU(),
-            # nn.ConvTranspose2d(hidden_dim, hidden_dim, 6, 1, 1, bias=False),
-            nn.ConvTranspose2d(hidden_dim, channels, 6, 1, 1, bias=False),
+            nn.ConvTranspose2d(hidden_dim, hidden_dim, 6, 1, 1, bias=False),
+            nn.ConvTranspose2d(hidden_dim, channels, 5, 1, 2, bias=False),
             nn.Sigmoid(),
         )
 
@@ -314,8 +314,8 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     model = VQVAE(
         channels=3,
-        num_embeddings=2000,
-        embedding_dim=1,
+        num_embeddings=1024,
+        embedding_dim=128,
         hidden_dim=256,
         n_pixelcnn_res_blocks=2,
         n_pixelcnn_conv_blocks=2,

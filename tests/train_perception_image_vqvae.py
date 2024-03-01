@@ -13,7 +13,7 @@ import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
 from rlmpc.common.datasets import PerceptionImageDataset
-from rlmpc.networks.vqvae3 import VQVAE as VectorQuantizedVAE
+from rlmpc.networks.vqvae3 import VQVAE
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchsummary import summary
@@ -28,7 +28,7 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "training_vqvae1"
+EXPERIMENT_NAME: str = "training_vqvae3"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
 LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
@@ -54,7 +54,7 @@ class RunningLoss:
 
 
 def train(
-    model: VectorQuantizedVAE,
+    model: VQVAE,
     training_dataloader: DataLoader,
     test_dataloader: DataLoader,
     writer: SummaryWriter,
@@ -69,7 +69,7 @@ def train(
     """Trains the variation autoencoder model.
 
     Args:
-        model (VAE): The VAE model to train
+        model (VQVAE): The VQVAE model to train
         training_dataloader (DataLoader): The training dataloader
         test_dataloader (DataLoader): The test dataloader
         writer (SummaryWriter): The tensorboard writer
@@ -119,7 +119,9 @@ def train(
             # Forward pass
             reconstructed_images = model(batch_images)
             vq_loss, commit_loss = model.get_vqvae_loss(batch_images)
-            recon_loss = loss_functions.semantic_reconstruction_loss(reconstructed_images, batch_images, semantic_masks)
+            recon_loss = loss_functions.semantically_weighted_reconstruction(
+                reconstructed_images, batch_images, semantic_masks
+            )
             # recon_loss = loss_functions.vanilla_reconstruction(reconstructed_images, batch_images)
             loss = recon_loss + vq_loss + commit_loss
             loss_meter.update(loss.item())
@@ -181,7 +183,9 @@ def train(
             # Forward pass
             reconstructed_images = model(batch_images)
             vq_loss, commit_loss = model.get_vqvae_loss(batch_images)
-            recon_loss = loss_functions.semantic_reconstruction_loss(reconstructed_images, batch_images, semantic_masks)
+            recon_loss = loss_functions.semantically_weighted_reconstruction(
+                reconstructed_images, batch_images, semantic_masks
+            )
             loss = recon_loss + vq_loss + commit_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
@@ -241,22 +245,13 @@ def train(
 
 
 if __name__ == "__main__":
-    input_image_dim = (3, 400, 400)
+    input_image_dim = (3, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # vqvae = VectorQuantizedVAE(
-    #     num_hiddens=128,
-    #     num_residual_layers=2,
-    #     num_residual_hiddens=32,
-    #     num_embeddings=512,
-    #     embedding_dim=64,
-    #     commitment_cost=0.25,
-    #     decay=0.99,
-    # ).to(device)
-    vqvae = VectorQuantizedVAE(
+    vqvae = VQVAE(
         channels=3,
-        num_embeddings=512,
+        num_embeddings=2000,
         hidden_dim=256,
-        embedding_dim=32,
+        embedding_dim=1,
         n_pixelcnn_res_blocks=2,
         n_pixelcnn_conv_blocks=2,
     ).to(device)
@@ -265,9 +260,9 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10
-    batch_size = 8
+    batch_size = 32
     num_epochs = 40
-    learning_rate = 4e-4
+    learning_rate = 2e-4
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
@@ -277,7 +272,8 @@ if __name__ == "__main__":
 
     training_data_npy_filename2 = "perception_data_rogaland_random_everything_many_vessels.npy"
     training_masks_npy_filename2 = "segmentation_masks_rogaland_random_everything_many_vessels.npy"
-    test_npy_filename = "perception_data_rogaland_random_everything_test.npy"
+    test_data_npy_filename = "perception_data_rogaland_random_everything_test.npy"
+    test_masks_npy_filename = "segmentation_masks_rogaland_random_everything_test.npy"
 
     training_transform = transforms_v2.Compose(
         [
@@ -288,9 +284,9 @@ if __name__ == "__main__":
                     transforms_v2.RandomHorizontalFlip(),
                     transforms_v2.RandomRotation(2),
                     transforms_v2.RandomVerticalFlip(),
-                    transforms_v2.ElasticTransform(alpha=50, sigma=3),
+                    transforms_v2.ElasticTransform(alpha=30, sigma=3),
                 ],
-                p=[0.5, 0.5, 0.4, 0.1, 0.2],
+                p=[0.5, 0.5, 0.4, 0.2, 0.1],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
             transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
@@ -311,7 +307,9 @@ if __name__ == "__main__":
     )
     training_dataset = torch.utils.data.ConcatDataset([training_dataset1, training_dataset2])
 
-    test_dataset = rl_ds.PerceptionImageDataset(test_npy_filename, data_dir, transform=test_transform)
+    test_dataset = rl_ds.PerceptionImageDataset(
+        test_data_npy_filename, data_dir, test_masks_npy_filename, transform=test_transform
+    )
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
@@ -328,6 +326,7 @@ if __name__ == "__main__":
         "num_hiddens": vqvae.hidden_dim,
         "num_residual_layers": vqvae.hidden_dim,
         "input_image_dim": input_image_dim,
+        "architecture": "VQVAE3",
         "batch_size": batch_size,
         "num_epochs": num_epochs,
         "learning_rate": learning_rate,
