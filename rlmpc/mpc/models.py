@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import Tuple
@@ -13,7 +14,7 @@ from typing import Tuple
 import casadi as csd
 import colav_simulator.core.models as cs_models
 import numpy as np
-import rl_rrt_mpc.common.math_functions as mf
+import rlmpc.common.math_functions as mf
 from acados_template import AcadosModel
 
 

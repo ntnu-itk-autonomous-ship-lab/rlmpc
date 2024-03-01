@@ -1,5 +1,5 @@
 import colav_simulator.common.paths as dp
-import rl_rrt_mpc.rlmpc as rlmpc
+import rlmpc.rlmpc as rlmpc
 from colav_simulator.scenario_generator import ScenarioGenerator
 from colav_simulator.simulator import Simulator
 

@@ -6,18 +6,19 @@
 
     Author: Trym Tengesdal
 """
+
 import platform
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, Type
 
 import numpy as np
-import rl_rrt_mpc.common.config_parsing as cp
-import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.mpc.common as common
-import rl_rrt_mpc.mpc.mid_level.casadi_mpc as casadi_mpc
-import rl_rrt_mpc.mpc.models as models
-import rl_rrt_mpc.mpc.parameters as mpc_parameters
+import rlmpc.common.config_parsing as cp
+import rlmpc.common.paths as dp
+import rlmpc.mpc.common as common
+import rlmpc.mpc.mid_level.casadi_mpc as casadi_mpc
+import rlmpc.mpc.models as models
+import rlmpc.mpc.parameters as mpc_parameters
 import scipy.interpolate as interp
 import seacharts.enc as senc
 
@@ -25,7 +26,7 @@ uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
     ACADOS_COMPATIBLE = False  # ACADOS does not support arm64 and macOS yet
 else:
-    import rl_rrt_mpc.mpc.mid_level.acados_mpc as acados_mpc
+    import rlmpc.mpc.mid_level.acados_mpc as acados_mpc
 
     ACADOS_COMPATIBLE = True
 

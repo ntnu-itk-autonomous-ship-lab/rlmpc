@@ -2,13 +2,14 @@
 
     Shows how to use the gym environment, and how to save a video + gif of the simulation.
 """
+
 from pathlib import Path
 
 import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.math_functions as mf
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.mpc.common as mpc_common
+import rlmpc.mpc.common as mpc_common
 from matplotlib import cm
 
 plt.rcParams.update(

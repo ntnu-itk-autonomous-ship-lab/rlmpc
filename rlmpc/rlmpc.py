@@ -18,14 +18,14 @@ import colav_simulator.core.guidances as guidances
 import colav_simulator.core.stochasticity as stochasticity
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.colregs_handler as ch
-import rl_rrt_mpc.common.config_parsing as cp
-import rl_rrt_mpc.common.helper_functions as hf
-import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.common.set_generator as sg
-import rl_rrt_mpc.mpc.common as mpc_common
-import rl_rrt_mpc.mpc.mid_level.mid_level_mpc as mlmpc
-import rl_rrt_mpc.mpc.parameters as mpc_params
+import rlmpc.colregs_handler as ch
+import rlmpc.common.config_parsing as cp
+import rlmpc.common.helper_functions as hf
+import rlmpc.common.paths as dp
+import rlmpc.common.set_generator as sg
+import rlmpc.mpc.common as mpc_common
+import rlmpc.mpc.mid_level.mid_level_mpc as mlmpc
+import rlmpc.mpc.parameters as mpc_params
 import seacharts.enc as senc
 import yaml
 from shapely import strtree

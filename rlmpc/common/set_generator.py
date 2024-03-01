@@ -6,10 +6,11 @@
 
     Author: Glenn Bitar, Andreas Martinsen, Trym Tengesdal
 """
+
 from typing import Optional, Tuple
 
 import numpy as np
-import rl_rrt_mpc.common.helper_functions as hf
+import rlmpc.common.helper_functions as hf
 import seacharts.enc as senc
 import shapely.geometry as geometry
 from scipy.spatial import ConvexHull, HalfspaceIntersection
@@ -62,7 +63,13 @@ class SetGenerator(object):
         self.P1 = np.array(P1)
         self.P2 = np.array(P2)
 
-    def close_points(self, P: np.ndarray, Pr: np.ndarray = np.eye(2), Pd1: Optional[np.ndarray] = None, Pd2: Optional[np.ndarray] = None) -> np.ndarray:
+    def close_points(
+        self,
+        P: np.ndarray,
+        Pr: np.ndarray = np.eye(2),
+        Pd1: Optional[np.ndarray] = None,
+        Pd2: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Finds the closest point Pc to P on each linesegment (the points that you are closest to colliding with).
         The problem is an optimization problem on the form:
@@ -160,10 +167,16 @@ class SetGenerator(object):
         #         enc.draw_circle((p[1], p[0]), color="blue", radius=1)
 
         # Sort points by how close they are (euclidean distance)
-        closest = np.argsort(Pr[0, 0] * (Pc[:, 0] - P[0]) ** 2 + (Pr[0, 1] + Pr[1, 0]) * (Pc[:, 0] - P[0]) * (Pc[:, 1] - P[1]) + Pr[0, 0] * (Pc[:, 1] - P[1]) ** 2)
+        closest = np.argsort(
+            Pr[0, 0] * (Pc[:, 0] - P[0]) ** 2
+            + (Pr[0, 1] + Pr[1, 0]) * (Pc[:, 0] - P[0]) * (Pc[:, 1] - P[1])
+            + Pr[0, 0] * (Pc[:, 1] - P[1]) ** 2
+        )
 
         if reduce == "none":
-            N = np.sqrt(np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)).reshape(-1, 1)  # Normalizing factor
+            N = np.sqrt(np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)).reshape(
+                -1, 1
+            )  # Normalizing factor
             N[N == 0] = 1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
             A = (((Pc - P) @ Pr)[closest]) / N
             b = np.sum(A * Pc[closest], axis=1)
@@ -171,7 +184,9 @@ class SetGenerator(object):
             return A, b
 
         elif reduce == "continuous":
-            N = np.sqrt(np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)).reshape(-1, 1)  # Normalizing factor
+            N = np.sqrt(np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)).reshape(
+                -1, 1
+            )  # Normalizing factor
             N[N == 0] = 1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
             A = (((Pc - P) @ Pr)[closest]) / N
             b = np.sum(A * Pc[closest], axis=1)
@@ -223,7 +238,14 @@ class SetGenerator(object):
             raise ValueError("Unknown reduction method")
 
 
-def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, color: str, enc: senc.ENC, map_origin: np.ndarray = np.array([0.0, 0.0])) -> None:
+def plot_constraints(
+    A: np.ndarray,
+    b: np.ndarray,
+    p: np.ndarray,
+    color: str,
+    enc: senc.ENC,
+    map_origin: np.ndarray = np.array([0.0, 0.0]),
+) -> None:
     """Plots the constraints in the halfspace intersection
 
     Args:

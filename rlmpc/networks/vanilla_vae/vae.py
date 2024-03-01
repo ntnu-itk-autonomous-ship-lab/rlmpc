@@ -11,8 +11,8 @@ from typing import Tuple
 
 import torch as th
 import torch.nn as nn
-from rl_rrt_mpc.networks.vanilla_vae.decoder import PerceptionImageDecoder
-from rl_rrt_mpc.networks.vanilla_vae.encoder import PerceptionImageEncoder
+from rlmpc.networks.vanilla_vae.decoder import PerceptionImageDecoder
+from rlmpc.networks.vanilla_vae.encoder import PerceptionImageEncoder
 
 
 class Lambda(nn.Module):

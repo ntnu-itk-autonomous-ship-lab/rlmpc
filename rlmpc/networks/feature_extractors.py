@@ -13,7 +13,7 @@ from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 
-class PerceptionImageCNN(BaseFeaturesExtractor):
+class PerceptionImageVAE(BaseFeaturesExtractor):
     """
     :param observation_space: (gym.Space) of dimension ()
     :param features_dim: (int) Number of features extracted.
@@ -26,7 +26,7 @@ class PerceptionImageCNN(BaseFeaturesExtractor):
         observation_space: spaces.Box,
         features_dim: int = 256,
     ):
-        super(PerceptionImageCNN, self).__init__(observation_space, features_dim=features_dim)
+        super(PerceptionImageVAE, self).__init__(observation_space, features_dim=features_dim)
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
 
@@ -46,7 +46,7 @@ class PerceptionImageCNN(BaseFeaturesExtractor):
         # ((32 - 5 + 2*0) / 1) + 1 = 28x28
         # Number of output channels are random/tuning parameter.
 
-        print("PerceptionImageCNN CONFIG")
+        print("PerceptionImageVAE CONFIG")
         print("\tIN_CHANNELS =", self.n_input_channels)
         print("\tKERNEL_SIZE =", self.kernel_size)
         print("\tPADDING     =", self.padding)
@@ -191,7 +191,7 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
 if __name__ == "__main__":
     import colav_simulator.common.paths as cs_dp
     import colav_simulator.scenario_generator as cs_sg
-    import rl_rrt_mpc.common.paths as rl_dp
+    import rlmpc.common.paths as rl_dp
 
     scenario_choice = 0
     if scenario_choice == 0:

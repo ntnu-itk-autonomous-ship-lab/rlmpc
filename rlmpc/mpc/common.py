@@ -7,15 +7,16 @@
 
     Author: Trym Tengesdal
 """
+
 from dataclasses import asdict, dataclass, field
 from typing import List, Tuple
 
 import casadi as csd
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.math_functions as mf
-import rl_rrt_mpc.common.paths as dp
-import rl_rrt_mpc.mpc.models as models
+import rlmpc.common.math_functions as mf
+import rlmpc.common.paths as dp
+import rlmpc.mpc.models as models
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
@@ -111,16 +112,24 @@ class NLPSensitivities:
     dlag_dw: csd.Function  # Partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}
     dlag_dp_f: csd.Function  # Partial derivative of the Lagrangian wrt the fixed parameters
     dlag_dp: csd.Function  # Partial derivative of the Lagrangian wrt the adjustable parameters
-    d2lag_d2w: csd.Function  # Second order partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}, i.e. the Hessian
+    d2lag_d2w: (
+        csd.Function
+    )  # Second order partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}, i.e. the Hessian
 
     dr_dz: csd.Function  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers)
     dr_dp: csd.Function  # Partial derivative of the KKT matrix wrt the adjustable parameters
     dr_dp_f: csd.Function  # Partial derivative of the KKT matrix wrt the fixed parameters
 
     # See Gros and Zanon "Reinforcement Learning based on MPC and the Stochastic Policy Gradient Method" for info on the below sensitivity functions
-    dr_dz_bar: csd.Function  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers) with first input replaced by stochastic perturbation vector d
-    dr_dp_bar: csd.Function  # Partial derivative of the KKT matrix wrt the adjustable parameters with first input replaced by stochastic perturbation vector d
-    dr_dp_f_bar: csd.Function  # Partial derivative of the KKT matrix wrt the fixed parameters with first fixed parameter replaced by first input vector
+    dr_dz_bar: (
+        csd.Function
+    )  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers) with first input replaced by stochastic perturbation vector d
+    dr_dp_bar: (
+        csd.Function
+    )  # Partial derivative of the KKT matrix wrt the adjustable parameters with first input replaced by stochastic perturbation vector d
+    dr_dp_f_bar: (
+        csd.Function
+    )  # Partial derivative of the KKT matrix wrt the fixed parameters with first fixed parameter replaced by first input vector
     d2r_dp_da: list[
         csd.Function
     ]  # List of second order partial derivatives of the KKT matrix wrt the adjustable parameters and the action (first input vector). Length of list is equal to the number of adjustable parameters.

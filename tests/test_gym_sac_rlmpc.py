@@ -6,13 +6,13 @@ import gymnasium as gym
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.paths as rl_dp
-import rl_rrt_mpc.sac as sac_rlmpc
+import rlmpc.common.paths as rl_dp
+import rlmpc.sac as sac_rlmpc
 import stable_baselines3.common.vec_env as sb3_vec_env
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rl_rrt_mpc.networks.feature_extractors import PerceptionImageNavigationExtractor
+from rlmpc.networks.feature_extractors import PerceptionImageNavigationExtractor
 from stable_baselines3.common.evaluation import evaluate_policy
 
 # Depending on your OS, you might need to change these paths

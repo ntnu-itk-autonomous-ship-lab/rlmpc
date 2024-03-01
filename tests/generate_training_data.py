@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from sys import platform
 from typing import Callable
 
 import colav_simulator.common.image_helper_methods as cs_ihm
@@ -8,7 +9,7 @@ import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
-import rl_rrt_mpc.common.paths as rl_dp
+import rlmpc.common.paths as rl_dp
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
 from stable_baselines3.common.env_util import make_vec_env
@@ -73,12 +74,14 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
-# IMAGE_DATADIR = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/training")
-assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
+if platform == "linux" or platform == "linux2":
+    IMAGE_DATADIR: Path = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+elif platform == "darwin":
+    IMAGE_DATADIR: Path = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+
 
 if __name__ == "__main__":
-    scenario_choice = 6
+    scenario_choice = 5
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
@@ -127,7 +130,7 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 10000000,
+        "max_number_of_episodes": 1,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
@@ -138,9 +141,7 @@ if __name__ == "__main__":
     IMG_SAVE_FILE = "perception_data_rogaland_random_everything_test.npy"
     SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_test.npy"
 
-    # set edgepixels in adaptive threshold to 0.0, extract all seg instances.
-
-    use_vec_env = True
+    use_vec_env = False
     if use_vec_env:
         num_cpu = 15
         vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
