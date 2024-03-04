@@ -107,14 +107,14 @@ if __name__ == "__main__":
         scenario_name = "rlmpc_scenario_random_many_vessels"
         config_file = rl_dp.scenarios / "rlmpc_scenario_random_many_vessels.yaml"
 
-    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
+    scenario_generator = cs_sg.ScenarioGenerator(seed=5)
 
     # scen = scenario_generator.load_scenario_from_folder(
     #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     # )
     # scenario_data = scenario_generator.generate(
     #     config_file=config_file,
-    #     new_load_of_map_data=False,
+    #     new_load_of_map_data=True,
     #     save_scenario=True,
     #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
     #     show_plots=True,
@@ -139,22 +139,22 @@ if __name__ == "__main__":
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 1,
+        "seed": 10,
     }
     IMG_SAVE_FILE = "perception_data_rogaland_random_everything_land_only_test.npy"
     SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_land_only_test.npy"
 
     use_vec_env = True
     if use_vec_env:
-        num_cpu = 15
+        num_cpu = 18
         vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
         obs = vec_env.reset()
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 750
+        n_steps = 1000
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
-        masks = np.zeros((n_steps, *img_dim), dtype=np.int16)
+        masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         for i in range(n_steps):
             actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
             obs, reward, dones, info = vec_env.step(actions)

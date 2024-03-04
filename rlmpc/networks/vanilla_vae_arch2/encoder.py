@@ -57,59 +57,52 @@ class PerceptionImageEncoder(nn.Module):
         self.conv_block_0 = nn.Sequential(
             nn.Conv2d(in_channels=n_input_channels, out_channels=self.block_0_dim, kernel_size=5, stride=2, padding=2),
             nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_0_dim, kernel_size=3, stride=2, padding=2),
-            nn.ReLU(),
+            nn.ELU(),
         )
 
         self.block_1_dim = conv_block_dims[1]
         self.conv_block_1 = nn.Sequential(
             nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=5, stride=2, padding=2),
             nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_1_dim, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
+            nn.ELU(),
         )
 
         # Jump connection from last layer of zeroth block to first layer of second block
         self.conv0_jump_to_2 = nn.Sequential(
             nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
+            nn.ELU(),
         )
 
         # # Second block of convolutions
         self.block_2_dim = conv_block_dims[2]
         self.conv_block_2 = nn.Sequential(
             nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=5, stride=2, padding=2),
-            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_2_dim, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
+            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_2_dim, kernel_size=3, stride=2, padding=2),
+            nn.ELU(),
         )
 
         # Jump connection from last layer of first block to first layer of third block
         self.conv1_jump_to_3 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=5, stride=4, padding=2),
-            nn.ReLU(),
+            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=5, stride=4, padding=4),
+            nn.ELU(),
         )
 
         # Third (Fourth) block of convolutions
         self.block_3_dim = conv_block_dims[3]
         self.conv_block_3 = nn.Sequential(
             nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.latent_dim, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-        )
-
-        # Jump connection from last layer of second block to first layer of fourth block
-        self.conv2_jump_to_4 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_3_dim, kernel_size=6, stride=4, padding=3),
-            nn.ReLU(),
+            nn.ELU(),
         )
 
         # Fully connected layers
-        self.last_conv_block_dim = (self.latent_dim, 9, 9)
+        self.last_conv_block_dim = (self.latent_dim, 10, 10)
         self.last_conv_block_flattened_dim = (
             self.last_conv_block_dim[0] * self.last_conv_block_dim[1] * self.last_conv_block_dim[2]
         )
         self.fc_dim = fc_dim
         self.fc_block = nn.Sequential(
-            nn.Flatten(),
             nn.Linear(in_features=self.last_conv_block_flattened_dim, out_features=self.fc_dim),
-            nn.ReLU(),
+            nn.ELU(),
             nn.Linear(in_features=self.fc_dim, out_features=2 * latent_dim),
         )
 
@@ -144,11 +137,6 @@ class PerceptionImageEncoder(nn.Module):
         if debug:
             print("x3.shape", x3.shape)
 
-        # x2_jump_to_4 = self.conv2_jump_to_4(x2)
-        # if debug:
-        #     print("x2_jump_to_4.shape", x2_jump_to_4.shape)
-        # x3 += x2_jump_to_4
-
         x4 = self.fc_block(x3.view(-1, self.last_conv_block_flattened_dim))
         # print("x4.shape", x4.shape)
         return x4
@@ -162,8 +150,8 @@ if __name__ == "__main__":
     from torchsummary import summary
 
     #
-    latent_dimension = 128
+    latent_dimension = 32
     encoder = PerceptionImageEncoder(
-        n_input_channels=3, latent_dim=latent_dimension, conv_block_dims=(64, 128, 128, 128), fc_dim=512
+        n_input_channels=3, latent_dim=latent_dimension, conv_block_dims=(128, 128, 128, 128), fc_dim=512
     ).to("cuda")
     summary(encoder, (3, 256, 256), device="cuda")

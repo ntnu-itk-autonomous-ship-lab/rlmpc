@@ -1,26 +1,26 @@
 name: "rlmpc_scenario_random_everything"
 save_scenario: False
 t_start: 0.0
-t_end: 200.0
+t_end: 400.0
 dt_sim: 0.5
 utm_zone: 33
-map_size: [1500.0, 1500.0]
-map_origin_enu: [-31824.0, 6573700.0]
+map_size: [2700.0, 2700.0]
+map_origin_enu: [-32524.0, 6573700.0]
 map_data_files: ["Rogaland_utm33.gdb"]
 map_tolerance: 1
 map_buffer: 0
 new_load_of_map_data: False
 type: MS
-#n_random_ships: 1
-n_random_ships_range: [1, 7]
+n_random_ships: 0
+#n_random_ships_range: [1, 7]
 episode_generation:
-  n_episodes: 100
-  n_constant_os_state_episodes: 5
-  n_constant_os_plan_episodes: 5
-  n_constant_do_state_episodes: 5
-  n_plans_per_do_state: 5
+  n_episodes: 200
+  n_constant_os_state_episodes: 1
+  n_constant_os_plan_episodes: 1
+  n_constant_do_state_episodes: 1
+  n_plans_per_do_state: 1
   n_constant_disturbance_episodes: 10
-  delta_uniform_position_sample: 5
+  delta_uniform_position_sample: 1
 rl_action_type: "continuous_autopilot_reference_action"
 rl_observation_type:
   dict_observation:

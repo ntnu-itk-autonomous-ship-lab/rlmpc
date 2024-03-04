@@ -26,7 +26,7 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "training_vae2"
+EXPERIMENT_NAME: str = "training_vae1"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
 LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
@@ -93,13 +93,14 @@ def train_vae(
     if not model_path.exists():
         model_path.mkdir()
 
-    n_batch_images_to_show = batch_size if batch_size < 7 else 6
+    n_batch_images_to_show = 12
     beta = 1.0
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
     best_test_loss = 1e20
     best_epoch = 0
+    random_indices = torch.randint(0, batch_size, (n_batch_images_to_show,))
 
     # Create training data + test data
     for epoch in range(n_epochs):
@@ -145,9 +146,9 @@ def train_vae(
                 )
 
                 grid = rl_hf.make_grid_for_tensorboard(
-                    batch_images[:n_batch_images_to_show],
-                    reconstructed_images[:n_batch_images_to_show],
-                    semantic_masks[:n_batch_images_to_show],
+                    batch_images[random_indices],
+                    reconstructed_images[random_indices],
+                    semantic_masks[random_indices],
                     n_rows=6,
                 )
                 writer.add_image("training/images", grid, global_step=epoch * n_batches + batch_idx)
@@ -197,20 +198,21 @@ def train_vae(
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
 
-            grid = rl_hf.make_grid_for_tensorboard(
-                batch_images[:n_batch_images_to_show],
-                reconstructed_images[:n_batch_images_to_show],
-                semantic_masks[:n_batch_images_to_show],
-                n_rows=6,
-            )
-            writer.add_image("testing/images", grid, global_step=epoch)
             if batch_idx % save_interval == 0:
                 print(
-                    f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Train Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
+                    f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Test Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
                 )
                 # Update the tensorboard
                 writer.add_scalar("Test/Loss", loss.item() / batch_size, epoch * n_test_batches + batch_idx)
                 writer.add_scalar("Test/KL Div Loss", -kld_loss.item() / batch_size, epoch * n_test_batches + batch_idx)
+
+                grid = rl_hf.make_grid_for_tensorboard(
+                    batch_images[random_indices],
+                    reconstructed_images[random_indices],
+                    semantic_masks[random_indices],
+                    n_rows=6,
+                )
+                writer.add_image("testing/images", grid, global_step=epoch * n_batches + batch_idx)
                 if batch_idx % (5 * save_interval) == 0:
                     torchvision.utils.save_image(
                         grid,
@@ -245,13 +247,16 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 256
+    latent_dim = 128
+    fc_dim = 512
+    encoder_conv_block_dims = [32, 64, 128, 128]
     input_image_dim = (1, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(
         input_image_dim=input_image_dim,
         latent_dim=latent_dim,
-        encoder_conv_block_dims=[32, 64, 128, 128],
+        fc_dim=fc_dim,
+        encoder_conv_block_dims=encoder_conv_block_dims,
     ).to(device)
     # summary(vae, (3, 400, 400))
 
@@ -259,14 +264,13 @@ if __name__ == "__main__":
     save_interval = 10
     batch_size = 64
     num_epochs = 40
-    learning_rate = 2e-04
+    learning_rate = 3e-04
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
     training_data_npy_filename1 = "perception_data_rogaland_random_everything_land_only.npy"
     training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything_land_only.npy"
-
     training_data_npy_filename2 = "perception_data_rogaland_random_everything_land_only2.npy"
     training_masks_npy_filename2 = "segmentation_masks_rogaland_random_everything_land_only2.npy"
     test_data_npy_filename = "perception_data_rogaland_random_everything_land_only_test.npy"
@@ -279,15 +283,20 @@ if __name__ == "__main__":
                 [
                     transforms_v2.ToDtype(torch.float32, scale=True),
                     transforms_v2.RandomHorizontalFlip(),
-                    transforms_v2.RandomRotation(3),
-                    transforms_v2.ElasticTransform(alpha=40, sigma=3),
+                    # transforms_v2.ElasticTransform(alpha=40, sigma=3),
                 ],
-                p=[0.5, 0.5, 0.4, 0.1],
+                p=[0.5, 0.5],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
             transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
         ]
     )
+    # training_transform = transforms_v2.Compose(
+    #     [
+    #         transforms_v2.ToDtype(torch.float32, scale=True),
+    #         transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
+    #     ]
+    # )
     test_transform = transforms_v2.Compose(
         [
             transforms_v2.ToDtype(torch.float32, scale=True),
@@ -320,6 +329,8 @@ if __name__ == "__main__":
         "experiment_name": EXPERIMENT_NAME,
         "latent_dim": latent_dim,
         "input_image_dim": input_image_dim,
+        "fc_dim": fc_dim,
+        "encoder_conv_block_dims": encoder_conv_block_dims,
         "batch_size": batch_size,
         "num_epochs": num_epochs,
         "learning_rate": learning_rate,
