@@ -7,6 +7,7 @@
     Author: Trym Tengesdal
 """
 
+import rlmpc.networks.vanilla_vae_arch2 as vae_arch2
 import torch as th
 import torch.nn as nn
 from gymnasium import spaces
@@ -24,7 +25,8 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Box,
-        features_dim: int = 256,
+        input_image_dim: tuple = (1, 256, 256),
+        latent_dim: int = 64,
     ):
         super(PerceptionImageVAE, self).__init__(observation_space, features_dim=features_dim)
         # We assume CxHxW images (channels first)

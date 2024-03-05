@@ -62,12 +62,13 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "scenario_generator_config": sg_config,
+        "max_number_of_episodes": 1000000000,
         "test_mode": False,
+        "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 0,
+        "seed": 15,
     }
     env = gym.make(id=env_id, **env_config)
 

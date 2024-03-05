@@ -512,7 +512,7 @@ class SAC(opa.OffPolicyAlgorithm):
     #     "MultiInputPolicy": MultiInputPolicy,
     # }
     policy: SACPolicyWithMPC
-    actor: Actor
+    actor: SACMPCActor
     critic: ContinuousCritic
     critic_target: ContinuousCritic
 
@@ -726,7 +726,7 @@ class SAC(opa.OffPolicyAlgorithm):
         log_interval: int = 4,
         tb_log_name: str = "SAC",
         reset_num_timesteps: bool = True,
-        progress_bar: bool = False,
+        progress_bar: bool = True,
     ) -> SelfSAC:
         return super().learn(
             total_timesteps=total_timesteps,

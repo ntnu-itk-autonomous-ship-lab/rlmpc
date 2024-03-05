@@ -7,6 +7,7 @@
 
     Author: Trym Tengesdal
 """
+
 import sys
 import time
 import warnings
@@ -261,8 +262,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self.lr_schedule,
             **self.policy_kwargs,  # pytype:disable=not-instantiable
         )
-        self.policy = self.policy.to(self.device)
 
+        # self.policy = self.policy.to(self.device) Not applicable for RLMPC
         # Convert train freq parameter to TrainFreq object
         self._convert_train_freq()
 
