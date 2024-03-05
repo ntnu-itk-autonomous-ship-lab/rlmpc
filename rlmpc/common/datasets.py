@@ -49,11 +49,11 @@ class PerceptionImageDataset(Dataset):
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)[4:]
+        self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
         # self.data = self.data[3:13, 0, :, :, :]  # disregard 3 first.
         self.masks = None
         if mask_npy_file is not None:
-            self.masks = np.load(data_dir / mask_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)[4:]
+            self.masks = np.load(data_dir / mask_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
             # self.masks = self.masks[3:13, 0, :, :, :]  # disregard 3 first.
 
         if len(self.data.shape) == 4:
@@ -84,7 +84,7 @@ class PerceptionImageDataset(Dataset):
         assert idx < self.n_samples * self.n_envs, "Index out of range"
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
-        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy())
+        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy().astype(np.uint8))
         if self.masks is not None:
             mask = torch.from_numpy(self.masks[sample_idx, env_idx, :, :, :].copy())
         else:
