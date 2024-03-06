@@ -15,101 +15,32 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 
 class PerceptionImageVAE(BaseFeaturesExtractor):
-    """
-    :param observation_space: (gym.Space) of dimension ()
-    :param features_dim: (int) Number of features extracted.
-        This corresponds to the number of unit for the last layer.
-    """
+    """ """
 
-    # def __init__(self, observation_space: gym.spaces.Box, sensor_dim: int = 180, features_dim: int = 32, kernel_overlap: float = 0.05):
     def __init__(
         self,
         observation_space: spaces.Box,
-        input_image_dim: tuple = (1, 256, 256),
+        encoder_conv_block_dims=(32, 128, 128, 128),
+        fc_dim=512,
         latent_dim: int = 64,
+        model_file: str = None,
     ):
-        super(PerceptionImageVAE, self).__init__(observation_space, features_dim=features_dim)
-        # We assume CxHxW images (channels first)
-        # Re-ordering will be done by pre-preprocessing or wrapper
+        super(PerceptionImageVAE, self).__init__(observation_space, features_dim=latent_dim)
 
-        self.n_input_channels = observation_space.shape[0]
+        self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
-        self.kernel_size = 8
-        self.padding = 0
-        self.stride = 4
-
-        # Formula for output image/tensor size after conv2d:
-        # ((n - f + 2p) / s) + 1, where
-        # n = input number of pixels (assume square image)
-        # f = number of kernels (assume square kernel)
-        # p = padding
-        # s = stride
-        # => for 5x5 kernel, 0 padding, stride 1, input 32x32 image:
-        # ((32 - 5 + 2*0) / 1) + 1 = 28x28
-        # Number of output channels are random/tuning parameter.
-
-        print("PerceptionImageVAE CONFIG")
-        print("\tIN_CHANNELS =", self.n_input_channels)
-        print("\tKERNEL_SIZE =", self.kernel_size)
-        print("\tPADDING     =", self.padding)
-        print("\tSTRIDE      =", self.stride)
-        self.perception_image_cnn = nn.Sequential(
-            # in_channels: (static obstacles + nominal path + dynamic obstacles) x winow size
-            nn.Conv2d(
-                in_channels=self.n_input_channels,
-                out_channels=32,
-                kernel_size=self.kernel_size,
-                padding=self.padding,
-                stride=self.stride,
-            ),
-            nn.Conv2d(
-                in_channels=32,
-                out_channels=64,
-                kernel_size=self.kernel_size / 2,
-                padding=self.padding,
-                stride=self.stride / 2,
-            ),
-            nn.Flatten(),
-        )
-
-        # Compute shape by doing one forward pass
-        self.n_flatten = 0
-        sample = th.as_tensor(observation_space.sample()).float()
-        print("Observation space - sample shape:", sample.shape)
-        sample = sample.reshape(1, sample.shape[0], sample.shape[1])
-        with th.no_grad():
-            print("PerceptionImageCNN initializing, input is", sample.shape, "and", end=" ")
-            flatten = self.perception_image_cnn(sample)
-            self.n_flatten = flatten.shape[1]
-            print("output is", flatten.shape)
-
-        self.linear = nn.Sequential(nn.Linear(self.n_flatten, features_dim), nn.ReLU())
+        if model_file is not None:
+            self.vae: vae_arch2.VAE = th.load(model_file)
+        else:
+            self.vae = vae_arch2.VAE(
+                latent_dim=latent_dim,
+                input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
+                encoder_conv_block_dims=encoder_conv_block_dims,
+                fc_dim=fc_dim,
+            )
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        return self.perception_image_cnn(observations)
-
-    def get_features(self, observations: th.Tensor) -> list:
-        feat = []
-        out = observations
-        for layer in self.perception_image_cnn:
-            out = layer(out)
-            if not isinstance(layer, nn.ReLU):
-                feat.append(out.cpu().detach().numpy())
-        return feat
-
-    def get_activations(self, observations: th.Tensor) -> list:
-        feat = []
-        out = observations
-        for layer in self.perception_image_cnn:
-            out = layer(out)
-            if isinstance(layer, nn.ReLU):
-                feat.append(out)
-
-        for layer in self.linear:
-            out = layer(out)
-            if isinstance(layer, nn.ReLU):
-                feat.append(out.detach().numpy())
-        return feat
+        return self.vae.encode(observations)
 
 
 class NavigationNN(BaseFeaturesExtractor):
@@ -147,7 +78,7 @@ class DisturbanceNN(BaseFeaturesExtractor):
         return self.passthrough(observations)
 
 
-class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
+class CombinedExtractor(BaseFeaturesExtractor):
     """
     :param observation_space: (gym.Space)
     :param features_dim: (int) Number of features extracted.
@@ -158,7 +89,7 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
         # We do not know features-dim here before going over all the items,
         # so put something dummy for now. PyTorch requires calling
         # nn.Module.__init__ before adding modules
-        super(PerceptionImageNavigationExtractor, self).__init__(observation_space, features_dim)
+        super(CombinedExtractor, self).__init__(observation_space, features_dim)
         # We assume CxHxW images (channels first)
         # Re-ordering will be done by pre-preprocessing or wrapper
 
@@ -168,15 +99,17 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
         # We need to know size of the output of this extractor,
         # so go over all the spaces and compute output feature sizes
         for key, subspace in observation_space.spaces.items():
-            if key == "perception_image":
+            if key == "PerceptionImageObservation":
                 # Pass sensor readings through CNN
-                extractors[key] = PerceptionImageCNN(subspace, features_dim=subspace.shape)
+                extractors[key] = PerceptionImageVAE(subspace, features_dim=subspace.shape)
                 total_concat_size += features_dim  # extractors[key].n_flatten
-            elif key == "navigation":
+            elif key == "Navigation3DOF":
                 # Pass navigation features straight through to the MlpPolicy.
                 extractors[key] = NavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
-            elif key == "disturbance":
+            elif key == "TrackingObservation":
+                extractors[key] = TrackingLSTM(subspace, features_dim=subspace.shape[-1])
+            elif key == "DisturbanceObservation":
                 # Pass disturbance features straight through to the MlpPolicy.
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
                 total_concat_size += subspace.shape[-1]
@@ -187,7 +120,11 @@ class PerceptionImageNavigationExtractor(BaseFeaturesExtractor):
         self._features_dim = total_concat_size
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        return self.linear(self.cnn(observations))
+        encoded_tensor_list = []
+        for key, extractor in self.extractors.items():
+            encoded_tensor_list.append(extractor(observations[key]))
+
+        return th.cat(encoded_tensor_list, dim=1)
 
 
 if __name__ == "__main__":
