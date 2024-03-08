@@ -62,13 +62,13 @@ class Config:
 class MidlevelMPC:
     """Class for a mid-level COLAV planner with multiple economic goals. Nonlinear obstacle constraints."""
 
-    def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
+    def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rlmpc_config) -> None:
         if config:
             self._params = config.mpc
             self._solver_options: common.SolverConfig = config.solver_options
             self._acados_enabled: bool = config.enable_acados
         else:
-            default_config = cp.extract(Config, config_file, dp.rl_rrt_mpc_schema)
+            default_config = cp.extract(Config, config_file, dp.rlmpc_config)
             self._params = default_config.mpc
             self._solver_options = default_config.solver_options
             self._acados_enabled = default_config.enable_acados

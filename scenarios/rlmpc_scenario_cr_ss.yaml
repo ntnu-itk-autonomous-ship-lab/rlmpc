@@ -26,6 +26,8 @@ rl_observation_type:
   dict_observation:
     - "navigation_3dof_state_observation"
     - "tracking_observation"
+    - "relative_tracking_observation"
+    - "disturbance_observation"
     - "time_observation"
 stochasticity:
   currents:

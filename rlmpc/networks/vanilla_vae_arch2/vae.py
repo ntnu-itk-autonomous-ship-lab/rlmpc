@@ -155,11 +155,11 @@ class VAE(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    LATENT_DIM = 32
+    LATENT_DIM = 100
     image_dim = (1, 256, 256)
     fc_dim = 512
     device = th.device("cpu")
     vae = VAE(
-        latent_dim=LATENT_DIM, input_image_dim=image_dim, encoder_conv_block_dims=(32, 128, 128, 128), fc_dim=fc_dim
+        latent_dim=LATENT_DIM, input_image_dim=image_dim, encoder_conv_block_dims=(32, 128, 256, 256), fc_dim=fc_dim
     ).to(device)
     summary(vae, input_size=image_dim, batch_size=-1, device=device.type)

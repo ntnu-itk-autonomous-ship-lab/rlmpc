@@ -16,13 +16,13 @@ import numpy as np
 import rlmpc.common.paths as dp
 import rlmpc.off_policy_algorithm as opa
 import rlmpc.rlmpc as rlmpc
-import scipy.interpolate as interp
 import seacharts.enc as senc
 import stable_baselines3.common.buffers as sb3_buffers
 import stable_baselines3.common.noise as sb3_noise
 import stable_baselines3.common.vec_env as sb3_vec_env
 import stable_baselines3.sac.policies as sb3_sac_policies
 import torch as th
+from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
 from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution, StateDependentNoiseDistribution
 from stable_baselines3.common.preprocessing import get_action_dim
@@ -360,7 +360,7 @@ class SACPolicyWithMPC(BasePolicy):
         # Target networks should always be in eval mode
         self.critic_target.set_training_mode(False)
 
-    def _build_actor(
+    def initialize_mpc_actor(
         self,
         t: float,
         waypoints: np.ndarray,
@@ -370,10 +370,11 @@ class SACPolicyWithMPC(BasePolicy):
         enc: Optional[senc.ENC] = None,
         goal_state: Optional[np.ndarray] = None,
         w: Optional[stochasticity.DisturbanceData] = None,
+        **kwargs,
     ) -> None:
         """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
         the OCP"""
-        self.actor.mu_mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w)
+        self.actor.mu_mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -582,6 +583,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
         if _init_setup_model:
             self._setup_model()
+            self.initialize_mpc_actor(env)
 
     def _setup_model(self) -> None:
         super()._setup_model()
@@ -617,6 +619,35 @@ class SAC(opa.OffPolicyAlgorithm):
             # this will throw an error if a malformed string (different from 'auto')
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
+
+    def initialize_mpc_actor(
+        self,
+        env: COLAVEnvironment,
+    ) -> None:
+        t = env.unwrapped.time
+        waypoints = env.unwrapped.ownship.waypoints
+        speed_plan = env.unwrapped.ownship.speed_plan
+        ownship_state = env.unwrapped.ownship.state
+        enc = env.unwrapped.enc
+        do_list = env.unwrapped.ownship.get_do_track_information()
+        goal_state = env.unwrapped.ownship.goal_state
+        w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
+        os_draft = env.unwrapped.ownship.draft
+        os_length = env.unwrapped.ownship.length
+        os_width = env.unwrapped.ownship.width
+        self.policy.initialize_mpc_actor(
+            t,
+            waypoints,
+            speed_plan,
+            ownship_state,
+            do_list,
+            enc,
+            goal_state,
+            w,
+            os_draft=os_draft,
+            os_length=os_length,
+            os_width=os_width,
+        )
 
     def _create_aliases(self) -> None:
         self.actor: SACMPCActor = self.policy.actor

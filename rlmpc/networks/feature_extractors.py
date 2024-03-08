@@ -7,9 +7,12 @@
     Author: Trym Tengesdal
 """
 
+from typing import Tuple
+
 import rlmpc.networks.vanilla_vae_arch2 as vae_arch2
 import torch as th
 import torch.nn as nn
+import torch.nn.utils.rnn as rnn_utils
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
@@ -78,6 +81,37 @@ class DisturbanceNN(BaseFeaturesExtractor):
         return self.passthrough(observations)
 
 
+class TrackingGRU(BaseFeaturesExtractor):
+    """Feature extractor for the tracking state."""
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        features_dim: int = 0,
+        hidden_dim: int = 10,
+        num_layers: int = 2,
+    ) -> None:
+        super(TrackingGRU).__init__(observation_space, features_dim)
+
+        self.input_dim = observation_space.shape[-1]
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.gru = nn.GRU(input_size=self.input_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
+
+    def forward(self, observations: th.Tensor, hidden: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+
+        packed_seq = rnn_utils.pack_padded_sequence(
+            observations, [len(obs) for obs in observations], batch_first=True, enforce_sorted=False
+        )
+        packed_output, hidden = self.gru(packed_seq)
+        output, _ = rnn_utils.pad_packed_sequence(packed_output, batch_first=True)
+
+        return output, hidden
+
+    def init_hidden(self, batch_size: int) -> th.Tensor:
+        return th.zeros(self.num_layers, batch_size, self.hidden_dim)
+
+
 class CombinedExtractor(BaseFeaturesExtractor):
     """
     :param observation_space: (gym.Space)
@@ -107,8 +141,8 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 # Pass navigation features straight through to the MlpPolicy.
                 extractors[key] = NavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
-            elif key == "TrackingObservation":
-                extractors[key] = TrackingLSTM(subspace, features_dim=subspace.shape[-1])
+            elif key == "RelativeTrackingObservation":
+                extractors[key] = TrackingGRU(subspace, features_dim=subspace.shape[-1], hidden_dim=10, num_layers=2)
             elif key == "DisturbanceObservation":
                 # Pass disturbance features straight through to the MlpPolicy.
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])

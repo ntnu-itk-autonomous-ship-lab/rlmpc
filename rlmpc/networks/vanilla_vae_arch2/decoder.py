@@ -57,6 +57,7 @@ class PerceptionImageDecoder(nn.Module):
         self.fc_dim = fc_dim
         self.fc_block = nn.Sequential(
             nn.Linear(latent_dim, fc_dim),
+            # nn.ReLU(),
             nn.Linear(fc_dim, first_deconv_input_dim[0] * first_deconv_input_dim[1] * first_deconv_input_dim[2]),
         )
 

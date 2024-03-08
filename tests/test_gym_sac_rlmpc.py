@@ -12,7 +12,7 @@ import stable_baselines3.common.vec_env as sb3_vec_env
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rlmpc.networks.feature_extractors import PerceptionImageNavigationExtractor
+from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3.common.evaluation import evaluate_policy
 
 # Depending on your OS, you might need to change these paths
@@ -54,15 +54,29 @@ if __name__ == "__main__":
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
 
-    sg_config = cs_sg.Config()
-    sg_config.behavior_generator.ownship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
-    sg_config.behavior_generator.target_ship_method = cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
+    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
+    # scenario_data = scenario_generator.generate(
+    #     config_file=config_file,
+    #     new_load_of_map_data=False,
+    #     save_scenario=True,
+    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
+    #     show_plots=True,
+    #     episode_idx_save_offset=0,
+    # )
 
-    observation_type = {"dict_observation": ["navigation_3dof_state_observation", "time_observation"]}
+    observation_type = {
+        "dict_observation": [
+            "navigation_3dof_state_observation",
+            "relative_tracking_observation",
+            "tracking_observation",
+            "disturbance_observation",
+            "time_observation",
+        ]
+    }
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 1000000000,
+        "max_number_of_episodes": 1,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
@@ -75,8 +89,7 @@ if __name__ == "__main__":
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
     policy_kwargs = {
-        "features_extractor_class": PerceptionImageNavigationExtractor,
-        "features_extractor_kwargs": dict(features_dim=12),
+        "features_extractor_class": CombinedExtractor,
         "critic_arch": [128, 64, 32],
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
