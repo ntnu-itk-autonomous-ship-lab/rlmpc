@@ -282,6 +282,8 @@ class SACPolicyWithMPC(BasePolicy):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Box,
+        observation_type: Any,
+        action_type: Any,
         lr_schedule: Schedule,
         critic_arch: Optional[List[int]] = [256, 256],
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
@@ -307,6 +309,8 @@ class SACPolicyWithMPC(BasePolicy):
             squash_output=True,
             normalize_images=normalize_images,
         )
+        self.observation_type = observation_type
+        self.action_type = action_type
         self.activation_fn = activation_fn
         self.critic_kwargs = {
             "observation_space": self.observation_space,
@@ -427,10 +431,19 @@ class SACPolicyWithMPC(BasePolicy):
             - Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]: the model's action and the next hidden state
         """
         # convert observation to mpc plan inputs ()
-        ownship_state = observation["Navigation3DOFStateObservation"].flatten()
-        do_list = observation["TrackingObservation"]
+        do_arr = observation["TrackingObservation"]
         t = observation["TimeObservation"].flatten()[0]
-        return self.actor.mu_mpc.act(t, ownship_state, do_list)
+        max_num_do = do_arr.shape[1]
+        do_list = []
+        for i in range(max_num_do):
+            if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its 6 elemet vector
+                cov = np.zeros((4, 4))
+                do_list.append((i, do_arr[0:4], cov, do_arr[4, i], do_arr[5, i]))
+
+        # unnormalize ownship state
+        unnorm_obs = self.observation_type.unnormalize(observation)
+        ownship_state = unnorm_obs["Navigation3DOFStateObservation"].flatten()
+        return self.actor.mu_mpc.act(t, ownship_state, do_list), 1.0
 
     def set_training_mode(self, mode: bool) -> None:
         """
@@ -546,6 +559,9 @@ class SAC(opa.OffPolicyAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
     ):
+        policy_kwargs.update(
+            {"observation_type": env.unwrapped.observation_type, "action_type": env.unwrapped.action_type}
+        )
         super().__init__(
             policy,
             env,
@@ -632,9 +648,6 @@ class SAC(opa.OffPolicyAlgorithm):
         do_list = env.unwrapped.ownship.get_do_track_information()
         goal_state = env.unwrapped.ownship.goal_state
         w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
-        os_draft = env.unwrapped.ownship.draft
-        os_length = env.unwrapped.ownship.length
-        os_width = env.unwrapped.ownship.width
         self.policy.initialize_mpc_actor(
             t,
             waypoints,
@@ -644,9 +657,6 @@ class SAC(opa.OffPolicyAlgorithm):
             enc,
             goal_state,
             w,
-            os_draft=os_draft,
-            os_length=os_length,
-            os_width=os_width,
         )
 
     def _create_aliases(self) -> None:

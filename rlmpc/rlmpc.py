@@ -38,6 +38,9 @@ class RLMPCParams:
     ktp: guidances.KTPGuidanceParams
     mpc: mlmpc.Config
     colregs_handler: ch.COLREGSHandlerParams
+    ship_length: float = 8.0
+    ship_width: float = 3.0
+    ship_draft: float = 0.5
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -242,8 +245,8 @@ class RLMPC(ci.ICOLAV):
                 ownship_csog_state[0],
                 ownship_csog_state[1],
                 ownship_csog_state[2],
-                kwargs["os_length"],
-                kwargs["os_width"],
+                self._config.ship_length,
+                self._config.ship_width,
                 1.0,
                 1.0,
             )
@@ -322,7 +325,7 @@ class RLMPC(ci.ICOLAV):
             - show_plots (bool): Whether to show plots or not.
             - **kwargs: Additional keyword arguments.
         """
-        self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
+        self._min_depth = mapf.find_minimum_depth(self._config.ship_draft, enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
             self._min_depth, enc, show_plots=show_plots
         )
@@ -350,7 +353,13 @@ class RLMPC(ci.ICOLAV):
                 enc.draw_polygon(hazard, color="red", fill=False)
 
             ship_poly = mapf.create_ship_polygon(
-                ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0
+                ownship_state[0],
+                ownship_state[1],
+                ownship_state[2],
+                self._config.ship_length,
+                self._config.ship_width,
+                1.0,
+                1.0,
             )
             # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
             enc.draw_polygon(ship_poly, color="pink")

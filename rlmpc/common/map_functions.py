@@ -1337,10 +1337,10 @@ def create_path_linestring_from_splines(
         geometry.LineString: Path linestring
     """
     path_points = []
-    path_values = np.linspace(0.0, final_path_variable_value, 100)
+    path_values = np.linspace(0.001, final_path_variable_value, 100)
     for s in path_values:
-        x = splines[0](s, spline_coeffs[0])
-        y = splines[1](s, spline_coeffs[1])
+        x = splines[0](s)
+        y = splines[1](s)
         path_points.append([x, y])
     path_linestring = geometry.LineString(path_points)
     return path_linestring

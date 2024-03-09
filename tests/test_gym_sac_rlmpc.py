@@ -85,6 +85,7 @@ if __name__ == "__main__":
         "seed": 15,
     }
     env = gym.make(id=env_id, **env_config)
+    # env.reset(seed=1)
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
