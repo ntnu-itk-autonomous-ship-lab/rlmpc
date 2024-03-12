@@ -111,6 +111,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             sde_sample_freq=sde_sample_freq,
             supported_action_spaces=supported_action_spaces,
         )
+        self.policy_kwargs.update(
+            {"observation_type": env.unwrapped.observation_type, "action_type": env.unwrapped.action_type}
+        )
         self.learning_rate = learning_rate
         self.buffer_size: int = buffer_size
         self.batch_size: int = batch_size
@@ -257,9 +260,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             )
 
         self.policy = self.policy_class(  # pytype:disable=not-instantiable
-            self.observation_space,
-            self.action_space,
-            self.lr_schedule,
+            observation_space=self.observation_space,
+            action_space=self.action_space,
+            lr_schedule=self.lr_schedule,
             **self.policy_kwargs,  # pytype:disable=not-instantiable
         )
 

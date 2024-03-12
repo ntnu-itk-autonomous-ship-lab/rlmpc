@@ -7,8 +7,6 @@ los:
   K_p: 0.024
   K_i: 0.0
   max_cross_track_error_int: 101.0
-ktp:
-  epsilon: 0.0002
 
 colregs_handler:
   theta_critical_ot: 45.0  # contact angle threshold for OT situation

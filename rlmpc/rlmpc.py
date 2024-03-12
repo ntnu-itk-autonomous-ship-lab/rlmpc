@@ -9,7 +9,7 @@
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
@@ -27,6 +27,7 @@ import rlmpc.common.set_generator as sg
 import rlmpc.mpc.common as mpc_common
 import rlmpc.mpc.mid_level.mid_level_mpc as mlmpc
 import rlmpc.mpc.parameters as mpc_params
+import scipy.interpolate as interp
 import seacharts.enc as senc
 import yaml
 from shapely import strtree
@@ -88,7 +89,7 @@ class RLMPC(ci.ICOLAV):
             self._config = cp.extract(RLMPCParams, config, dp.rlmpc_schema)
 
         self._los = guidances.LOSGuidance(self._config.los)
-        self._ktp = guidances.KinematicTrajectoryPlanner(self._config.ktp)
+        self._ktp = guidances.KinematicTrajectoryPlanner()
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
 
@@ -112,6 +113,11 @@ class RLMPC(ci.ICOLAV):
         self._speed_plan: np.ndarray = np.array([])
         self._enc: Optional[senc.ENC] = None
         self._nominal_path = None
+
+    def get_nominal_path(
+        self,
+    ) -> Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.PchipInterpolator, float]:
+        return self._nominal_path
 
     def initialize(
         self,

@@ -9,7 +9,7 @@
 
 from typing import Tuple
 
-import rlmpc.networks.vanilla_vae_arch2 as vae_arch2
+import rlmpc.networks.vanilla_vae_arch2.vae as vae_arch2
 import torch as th
 import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
@@ -23,17 +23,18 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Box,
-        encoder_conv_block_dims=(32, 128, 128, 128),
+        encoder_conv_block_dims=(32, 256, 256, 256),
         fc_dim=512,
-        latent_dim: int = 64,
-        model_file: str = None,
+        latent_dim: int = 128,
+        model_file: str | None = None,
     ):
         super(PerceptionImageVAE, self).__init__(observation_space, features_dim=latent_dim)
 
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
+        model_file = "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae1_model_LD_128_best.pth"
         if model_file is not None:
-            self.vae: vae_arch2.VAE = th.load(model_file)
+            self.vae: vae_arch2.VAE = th.load(model_file, map_location=th.device("cpu"))
         else:
             self.vae = vae_arch2.VAE(
                 latent_dim=latent_dim,
@@ -43,7 +44,9 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
             )
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        return self.vae.encode(observations)
+        z_e = self.encode(observations)
+        print(f"z_e shape: {z_e.shape}")
+        return z_e
 
 
 class NavigationNN(BaseFeaturesExtractor):
@@ -57,7 +60,7 @@ class NavigationNN(BaseFeaturesExtractor):
         super(NavigationNN, self).__init__(observation_space, features_dim=features_dim)
         self.passthrough = nn.Identity()
 
-    def forward(self, observations: th.Tensor) -> th.Tensor:
+    def forward(self, observations: th.Tensor, nominal_path=None) -> th.Tensor:
         shape = observations.shape
         observations = observations[:, 0, :].reshape(shape[0], shape[-1])
         return self.passthrough(observations)
@@ -87,16 +90,15 @@ class TrackingGRU(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Space,
-        features_dim: int = 0,
-        hidden_dim: int = 10,
+        features_dim: int = 10,
         num_layers: int = 2,
     ) -> None:
-        super(TrackingGRU).__init__(observation_space, features_dim)
+        super(TrackingGRU, self).__init__(observation_space, features_dim=20)
 
-        self.input_dim = observation_space.shape[-1]
-        self.hidden_dim = hidden_dim
+        self.input_dim = observation_space.shape[0]
+        self.hidden_dim = features_dim
         self.num_layers = num_layers
-        self.gru = nn.GRU(input_size=self.input_dim, hidden_size=hidden_dim, num_layers=num_layers, batch_first=True)
+        self.gru = nn.GRU(input_size=self.input_dim, hidden_size=features_dim, num_layers=num_layers, batch_first=True)
 
     def forward(self, observations: th.Tensor, hidden: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
 
@@ -135,14 +137,14 @@ class CombinedExtractor(BaseFeaturesExtractor):
         for key, subspace in observation_space.spaces.items():
             if key == "PerceptionImageObservation":
                 # Pass sensor readings through CNN
-                extractors[key] = PerceptionImageVAE(subspace, features_dim=subspace.shape)
+                extractors[key] = PerceptionImageVAE(subspace)
                 total_concat_size += features_dim  # extractors[key].n_flatten
-            elif key == "Navigation3DOF":
+            elif key == "Navigation3DOFStateObservation":
                 # Pass navigation features straight through to the MlpPolicy.
                 extractors[key] = NavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = TrackingGRU(subspace, features_dim=subspace.shape[-1], hidden_dim=10, num_layers=2)
+                extractors[key] = TrackingGRU(subspace, features_dim=30, num_layers=2)
             elif key == "DisturbanceObservation":
                 # Pass disturbance features straight through to the MlpPolicy.
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
@@ -163,7 +165,10 @@ class CombinedExtractor(BaseFeaturesExtractor):
 
 if __name__ == "__main__":
     import colav_simulator.common.paths as cs_dp
+    import colav_simulator.gym.environment as cs_env
+    import colav_simulator.gym.observation as cs_obs
     import colav_simulator.scenario_generator as cs_sg
+    import gymnasium as gym
     import rlmpc.common.paths as rl_dp
 
     scenario_choice = 0
@@ -183,8 +188,27 @@ if __name__ == "__main__":
         scenario_name = "rl_scenario"
         config_file = rl_dp.scenarios / "rl_scenario.yaml"
 
-    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
+    observation_type = {
+        "dict_observation": [
+            "perception_image_observation",
+            "navigation_3dof_state_observation",
+            "relative_tracking_observation",
+            "tracking_observation",
+            "disturbance_observation",
+            "time_observation",
+        ]
+    }
+    env_id = "COLAVEnvironment-v0"
+    env_config = {
+        "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
+        "max_number_of_episodes": 1,
+        "test_mode": False,
+        "render_update_rate": 0.5,
+        "observation_type": observation_type,
+        "reload_map": False,
+        "show_loaded_scenario_data": False,
+        "seed": 15,
+    }
+    env = gym.make(id=env_id, **env_config)
 
-    scenario_episode_list, scenario_enc = scenario_generator.load_scenario_from_folder(
-        rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
-    )
+    feature_extractor = CombinedExtractor(env.observation_space)

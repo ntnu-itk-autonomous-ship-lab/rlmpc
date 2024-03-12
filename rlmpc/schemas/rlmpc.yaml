@@ -25,12 +25,6 @@ los:
     max_cross_track_error_int:
       required: True
       type: float
-ktp:
-  type: dict
-  schema:
-    epsilon:
-      required: True
-      type: float
 
 colregs_handler:
   required: True
