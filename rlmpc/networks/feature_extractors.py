@@ -23,7 +23,7 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Box,
-        encoder_conv_block_dims=(32, 256, 256, 256),
+        encoder_conv_block_dims=(32, 64, 128, 128),
         fc_dim=512,
         latent_dim: int = 128,
         model_file: str | None = None,
@@ -33,15 +33,23 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
         model_file = "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae1_model_LD_128_best.pth"
+        self.vae: vae_arch2.VAE = vae_arch2.VAE(
+            latent_dim=latent_dim,
+            input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
+            encoder_conv_block_dims=encoder_conv_block_dims,
+            fc_dim=fc_dim,
+        )
         if model_file is not None:
-            self.vae: vae_arch2.VAE = th.load(model_file, map_location=th.device("cpu"))
-        else:
-            self.vae = vae_arch2.VAE(
-                latent_dim=latent_dim,
-                input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
-                encoder_conv_block_dims=encoder_conv_block_dims,
-                fc_dim=fc_dim,
+            self.vae.load_state_dict(
+                th.load(
+                    "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae1_model_LD_128_best.pth",
+                    map_location=th.device("cpu"),
+                )
             )
+            self.vae.eval()
+            self.vae.set_inference_mode(True)
+
+        self.latent_dim = self.vae.latent_dim
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         z_e = self.encode(observations)
@@ -49,30 +57,30 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         return z_e
 
 
-class NavigationNN(BaseFeaturesExtractor):
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 6):
+class PathRelativeNavigationNN(BaseFeaturesExtractor):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 5):
         """Feature extractor for the navigation state. This is a simple passthrough layer.
 
         Args:
             observation_space (gym.spaces.Box): Navigation state observation space.
-            features_dim (int, optional): State vector length. Defaults to 6, i.e. [x, y, psi, u, v, r]. Could be other choices as well ([psi, u, v, r, y_e, chi_e, etc..])
+            features_dim (int, optional): Length of Features [d2path, speed_ref_diff, u, v, r]
         """
-        super(NavigationNN, self).__init__(observation_space, features_dim=features_dim)
+        super(PathRelativeNavigationNN, self).__init__(observation_space, features_dim=features_dim)
         self.passthrough = nn.Identity()
 
-    def forward(self, observations: th.Tensor, nominal_path=None) -> th.Tensor:
+    def forward(self, observations: th.Tensor) -> th.Tensor:
         shape = observations.shape
         observations = observations[:, 0, :].reshape(shape[0], shape[-1])
         return self.passthrough(observations)
 
 
 class DisturbanceNN(BaseFeaturesExtractor):
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 6):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 4):
         """Feature extractor for the navigation state. This is a simple passthrough layer.
 
         Args:
             observation_space (gym.spaces.Box): Navigation state observation space.
-            features_dim (int, optional): Disturbance vector length. Defaults to 6, i.e. [V_c, beta_c, V_w, beta_w].
+            features_dim (int, optional): Disturbance vector length. Defaults to 4, i.e. [V_c, beta_c, V_w, beta_w].
         """
         super(DisturbanceNN, self).__init__(observation_space, features_dim=features_dim)
 
@@ -90,10 +98,10 @@ class TrackingGRU(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Space,
-        features_dim: int = 10,
+        features_dim: int = 30,
         num_layers: int = 2,
     ) -> None:
-        super(TrackingGRU, self).__init__(observation_space, features_dim=20)
+        super(TrackingGRU, self).__init__(observation_space, features_dim=features_dim)
 
         self.input_dim = observation_space.shape[0]
         self.hidden_dim = features_dim
@@ -126,9 +134,6 @@ class CombinedExtractor(BaseFeaturesExtractor):
         # so put something dummy for now. PyTorch requires calling
         # nn.Module.__init__ before adding modules
         super(CombinedExtractor, self).__init__(observation_space, features_dim)
-        # We assume CxHxW images (channels first)
-        # Re-ordering will be done by pre-preprocessing or wrapper
-
         extractors = {}
 
         total_concat_size = 0
@@ -136,23 +141,19 @@ class CombinedExtractor(BaseFeaturesExtractor):
         # so go over all the spaces and compute output feature sizes
         for key, subspace in observation_space.spaces.items():
             if key == "PerceptionImageObservation":
-                # Pass sensor readings through CNN
                 extractors[key] = PerceptionImageVAE(subspace)
-                total_concat_size += features_dim  # extractors[key].n_flatten
-            elif key == "Navigation3DOFStateObservation":
-                # Pass navigation features straight through to the MlpPolicy.
-                extractors[key] = NavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
+                total_concat_size += extractors[key].latent_dim
+            elif key == "PathRelativeNavigationObservation":
+                extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
                 extractors[key] = TrackingGRU(subspace, features_dim=30, num_layers=2)
+                total_concat_size += extractors[key].features_dim
             elif key == "DisturbanceObservation":
-                # Pass disturbance features straight through to the MlpPolicy.
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
                 total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)
-
-        # Update the features dim manually
         self._features_dim = total_concat_size
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
@@ -165,9 +166,6 @@ class CombinedExtractor(BaseFeaturesExtractor):
 
 if __name__ == "__main__":
     import colav_simulator.common.paths as cs_dp
-    import colav_simulator.gym.environment as cs_env
-    import colav_simulator.gym.observation as cs_obs
-    import colav_simulator.scenario_generator as cs_sg
     import gymnasium as gym
     import rlmpc.common.paths as rl_dp
 
@@ -191,7 +189,7 @@ if __name__ == "__main__":
     observation_type = {
         "dict_observation": [
             "perception_image_observation",
-            "navigation_3dof_state_observation",
+            "path_relative_observation",
             "relative_tracking_observation",
             "tracking_observation",
             "disturbance_observation",

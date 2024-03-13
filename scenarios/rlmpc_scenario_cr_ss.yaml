@@ -14,14 +14,14 @@ type: CR_GW
 n_random_ships: 1
 #n_random_ships_range: [1, 2]
 episode_generation:
-  n_episodes: 500
+  n_episodes: 2
   n_constant_os_state_episodes: 1
   n_constant_os_plan_episodes: 20
   n_constant_do_state_episodes: 1
   n_plans_per_do_state: 5
   n_constant_disturbance_episodes: 10
   delta_uniform_position_sample: 20
-rl_action_type: "continuous_autopilot_reference_action"
+rl_action_type: "continuous_relative_autopilot_reference_action"
 rl_observation_type:
   dict_observation:
     - "navigation_3dof_state_observation"
@@ -32,7 +32,7 @@ rl_observation_type:
 stochasticity:
   currents:
     constant: True
-    initial_speed: 2.0
+    initial_speed: 1.0
     initial_direction: 10.0
     speed_range: [0.0, 1.0]
     direction_range: [-360.0, 360.0]
@@ -82,14 +82,14 @@ ship_list:
         cross_track_error_int_threshold: 30.0
     controller:
       flsh:
-        K_p_u: 3.0
-        K_i_u: 0.1
-        K_p_psi: 3.0
-        K_d_psi: 1.75
-        K_i_psi: 0.003
+        K_p_u: 4.0
+        K_i_u: 0.3
+        K_p_psi: 4.0
+        K_d_psi: 2.0
+        K_i_psi: 0.005
         max_speed_error_int: 2.0
         speed_error_int_threshold: 1.0
-        max_psi_error_int: 50.0
+        max_psi_error_int: 30.0
         psi_error_int_threshold: 15.0
     model:
       telemetron: ''

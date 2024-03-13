@@ -366,18 +366,19 @@ class SACPolicyWithMPC(BasePolicy):
 
     def initialize_mpc_actor(
         self,
-        t: float,
-        waypoints: np.ndarray,
-        speed_plan: np.ndarray,
-        ownship_state: np.ndarray,
-        do_list: list,
-        enc: Optional[senc.ENC] = None,
-        goal_state: Optional[np.ndarray] = None,
-        w: Optional[stochasticity.DisturbanceData] = None,
+        env: COLAVEnvironment,
         **kwargs,
     ) -> None:
         """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
         the OCP"""
+        t = env.unwrapped.time
+        waypoints = env.unwrapped.ownship.waypoints
+        speed_plan = env.unwrapped.ownship.speed_plan
+        ownship_state = env.unwrapped.ownship.state
+        enc = env.unwrapped.enc
+        do_list = env.unwrapped.ownship.get_do_track_information()
+        goal_state = env.unwrapped.ownship.goal_state
+        w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
         self.actor.mu_mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
@@ -411,39 +412,56 @@ class SACPolicyWithMPC(BasePolicy):
     def predict_with_mpc(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
-        state: Optional[Tuple[np.ndarray, ...]] = None,
+        state: List[Dict[str, Any]] = None,
         episode_start: Optional[np.ndarray] = None,
         deterministic: bool = False,
-    ) -> Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
         """
         Get the policy action from an observation (and optional hidden state).
         Includes sugar-coating to handle different observations (e.g. normalizing images).
 
         Args:
             - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
-            - state (Optional[Tuple[np.ndarray, ...]]): The last hidden states (can be None, used in recurrent policies)
+            - state (List[Dict[str, Any]]): The MPC internal state (current solution info, etc.)
             - episode_start (Optional[np.ndarray]): The last masks (can be None, used in recurrent policies)
                 this correspond to beginning of episodes,
                 where the hidden states of the RNN must be reset.
             - deterministic (bool): Whether or not to return deterministic actions.
 
         Returns:
-            - Tuple[np.ndarray, Optional[Tuple[np.ndarray, ...]]]: the model's action and the next hidden state
+            - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
         """
         # convert observation to mpc plan inputs ()
-        do_arr = observation["TrackingObservation"]
-        t = observation["TimeObservation"].flatten()[0]
-        max_num_do = do_arr.shape[1]
-        do_list = []
-        for i in range(max_num_do):
-            if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its 6 elemet vector
-                cov = np.zeros((4, 4))
-                do_list.append((i, do_arr[0:4], cov, do_arr[4, i], do_arr[5, i]))
+        batch_size = observation["TrackingObservation"].shape[0]
+        normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
+        unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
+        actor_infos = [{} for _ in range(batch_size)]
+        w = stochasticity.DisturbanceData()
+        for b in range(batch_size):
+            do_arr = observation["TrackingObservation"][b]
+            t = observation["TimeObservation"][b].flatten()[0]
+            max_num_do = do_arr.shape[1]
+            do_list = []
+            for i in range(max_num_do):
+                if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its vector
+                    cov = do_arr[6:, i]
+                    do_list.append((i, do_arr[0:4], cov, do_arr[4, i], do_arr[5, i]))
 
-        # unnormalize ownship state
-        unnorm_obs = self.observation_type.unnormalize(observation)
-        ownship_state = unnorm_obs["Navigation3DOFStateObservation"].flatten()
-        return self.actor.mu_mpc.act(t, ownship_state, do_list), 1.0
+            # unnormalize ownship state
+            obs_b = {k: v[b] for k, v in observation.items()}
+            unnorm_obs_b = self.observation_type.unnormalize(obs_b)
+            ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
+            disturbance_vector = unnorm_obs_b["DisturbanceObservation"].flatten()
+
+            w.currents = {"speed": disturbance_vector[0], "direction": disturbance_vector[1]}
+            w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3]}
+            action, info = self.actor.mu_mpc.act(
+                t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=state[b]
+            )
+            unnormalized_actions[b, :] = action
+            normalized_actions[b, :] = self.action_type.normalize(action)
+            actor_infos[b] = info
+        return unnormalized_actions, normalized_actions, actor_infos
 
     def set_training_mode(self, mode: bool) -> None:
         """
@@ -599,7 +617,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
         if _init_setup_model:
             self._setup_model()
-            self.initialize_mpc_actor(env)
+            # self.initialize_mpc_actor(env)
 
     def _setup_model(self) -> None:
         super()._setup_model()
@@ -640,24 +658,7 @@ class SAC(opa.OffPolicyAlgorithm):
         self,
         env: COLAVEnvironment,
     ) -> None:
-        t = env.unwrapped.time
-        waypoints = env.unwrapped.ownship.waypoints
-        speed_plan = env.unwrapped.ownship.speed_plan
-        ownship_state = env.unwrapped.ownship.state
-        enc = env.unwrapped.enc
-        do_list = env.unwrapped.ownship.get_do_track_information()
-        goal_state = env.unwrapped.ownship.goal_state
-        w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
-        self.policy.initialize_mpc_actor(
-            t,
-            waypoints,
-            speed_plan,
-            ownship_state,
-            do_list,
-            enc,
-            goal_state,
-            w,
-        )
+        self.policy.initialize_mpc_actor(env)
 
     def _create_aliases(self) -> None:
         self.actor: SACMPCActor = self.policy.actor
@@ -667,19 +668,15 @@ class SAC(opa.OffPolicyAlgorithm):
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
-        # Update optimizers learning rate
         optimizers = [self.critic.optimizer]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
-
-        # Update learning rate according to lr schedule
         self._update_learning_rate(optimizers)
 
         ent_coef_losses, ent_coefs = [], []
         actor_losses, critic_losses = [], []
 
         for gradient_step in range(gradient_steps):
-            # Sample replay buffer
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
 
             # We need to sample because `log_std` may have changed between two gradient steps

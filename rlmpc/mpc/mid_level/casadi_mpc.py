@@ -13,6 +13,7 @@ from typing import Optional, Tuple
 import casadi as csd
 import colav_simulator.common.map_functions as cs_mapf
 import colav_simulator.common.plotters as cs_plotters
+import colav_simulator.core.stochasticity as stoch
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.helper_functions as hf
@@ -402,11 +403,11 @@ class CasadiMPC:
         ]
         u_attempts = [
             U_prev[:, -1],
-            np.array([0.05, -0.05, 0.0]),
-            np.array([-0.05, -0.05, 0.0]),
             np.array([0.05, -0.1, 0.0]),
             np.array([-0.05, -0.1, 0.0]),
-            np.array([0.0, -0.1, 0.0]),
+            np.array([0.05, -0.1, 0.0]),
+            np.array([-0.05, -0.15, 0.0]),
+            np.array([0.0, -0.15, 0.0]),
         ]
 
         do_list_shifted = []
@@ -444,6 +445,7 @@ class CasadiMPC:
         do_ot_list: list,
         so_list: list,
         enc: Optional[senc.ENC],
+        w: Optional[stoch.DisturbanceData] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         show_plots: bool = False,
@@ -458,10 +460,11 @@ class CasadiMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List ofrelevant static obstacle Polygon objects.
             - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
             - show_plots (bool, optional): Whether to show plots. Defaults to False.
-            - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
+            - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
@@ -470,7 +473,7 @@ class CasadiMPC:
             self._current_warmstart = self._create_initial_warm_start(
                 xs, self._lbg.shape[0], do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc
             )
-            self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc, **kwargs)
+            self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc)
             self._xs_prev = xs
             self._initialized = True
             self._prev_cost = np.inf
@@ -480,6 +483,9 @@ class CasadiMPC:
         xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
         self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
+        if "prev_mpc_soln" in kwargs:
+            self._current_warmstart = kwargs["prev_mpc_soln"]["soln"]
+
         if dt > 0.0:
             self._current_warmstart = self._shift_warm_start(
                 xs_unwrapped, self._current_warmstart, dt, do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc
@@ -496,6 +502,7 @@ class CasadiMPC:
             enc,
             perturb_nlp=perturb_nlp,
             perturb_sigma=perturb_sigma,
+            w=w,
             **kwargs,
         )
 
@@ -684,12 +691,14 @@ class CasadiMPC:
         X = []
         Sigma, Sigma_bx, Sigma_do, Sigma_so = [], [], [], []
 
-        if self._p_mdl.shape[0] > 0:
-            p_adjustable.append(self._p_mdl)
+        # if self._p_mdl.shape[0] > 0:
+        #     p_adjustable.append(self._p_mdl)
 
         # NLP perturbation (may be zero or randomly generated if the MPC is used as a stochastic policy)
         self._nlp_perturbation = csd.MX.sym("nlp_perturbation", nu, 1)
         p_fixed.append(self._nlp_perturbation)
+
+        p_fixed.append(self._p_mdl)  # env disturbance velocity
 
         # Initial state constraint
         x_0 = csd.MX.sym("x_0_constr", nx, 1)
@@ -1245,6 +1254,7 @@ class CasadiMPC:
         do_ot_list: list,
         so_list: list,
         enc: Optional[senc.ENC] = None,
+        w: Optional[stoch.DisturbanceData] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         **kwargs,
@@ -1260,6 +1270,7 @@ class CasadiMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
+            - w (Optional[stoch.DisturbanceData]): Disturbance data object.
             - perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
@@ -1271,6 +1282,23 @@ class CasadiMPC:
         n_colregs_zones = 3
         nx, nu = self._model.dims()
 
+        v_disturbance = np.zeros(2)
+        if w is not None and "speed" in w.currents:
+            v_current = np.array(
+                [
+                    w.currents["speed"] * np.cos(w.currents["direction"]),
+                    w.currents["speed"] * np.sin(w.currents["direction"]),
+                ]
+            )
+            v_disturbance = v_disturbance + v_current
+        if w is not None and "speed" in w.wind:
+            v_wind = np.array(
+                [
+                    w.wind["speed"] * np.cos(w.wind["direction"]),
+                    w.wind["speed"] * np.sin(w.wind["direction"]),
+                ]
+            )
+            v_disturbance = v_disturbance + v_wind
         adjustable_parameter_values = self.get_adjustable_params()
         fixed_parameter_values: list = []
 
@@ -1278,6 +1306,8 @@ class CasadiMPC:
         if perturb_nlp:
             d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
         fixed_parameter_values.extend(d.flatten().tolist())  # d
+
+        fixed_parameter_values.extend(v_disturbance.flatten())
 
         state_aug = np.zeros((nx, 1))
         U = np.sqrt(state[3] ** 2 + state[4] ** 2)
@@ -1298,7 +1328,7 @@ class CasadiMPC:
 
         fixed_parameter_values.append(self._params.gamma)
 
-        so_parameter_values = self._update_so_parameter_values(so_list, state, enc, **kwargs)
+        so_parameter_values = self._update_so_parameter_values(so_list, state, enc)
         fixed_parameter_values.extend(so_parameter_values)
 
         max_num_so_constr = min(len(self._so_surfaces), self._params.max_num_so_constr)
@@ -1308,9 +1338,9 @@ class CasadiMPC:
         fixed_parameter_values.extend(W.tolist())
         fixed_parameter_values.append(self._params.r_safe_so)
 
-        do_parameter_values_cr = self._create_do_parameter_values(state, do_cr_list, **kwargs)
-        do_parameter_values_ho = self._create_do_parameter_values(state, do_ho_list, **kwargs)
-        do_parameter_values_ot = self._create_do_parameter_values(state, do_ot_list, **kwargs)
+        do_parameter_values_cr = self._create_do_parameter_values(state, do_cr_list)
+        do_parameter_values_ho = self._create_do_parameter_values(state, do_ho_list)
+        do_parameter_values_ot = self._create_do_parameter_values(state, do_ot_list)
         fixed_parameter_values.extend(do_parameter_values_cr)
         fixed_parameter_values.extend(do_parameter_values_ho)
         fixed_parameter_values.extend(do_parameter_values_ot)
@@ -1412,7 +1442,7 @@ class CasadiMPC:
                 fixed_so_parameter_values.extend([c[0], c[1], *A.flatten().tolist()])
         return fixed_so_parameter_values
 
-    def _update_so_parameter_values(self, so_list: list, state: np.ndarray, enc: senc.ENC, **kwargs) -> list:
+    def _update_so_parameter_values(self, so_list: list, state: np.ndarray, enc: senc.ENC) -> list:
         """Updates the parameter values for the static obstacle constraints in case of changing constraints.
 
         Args:

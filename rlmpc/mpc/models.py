@@ -332,9 +332,12 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         u = csd.MX.sym("u", nu)
         xdot = csd.MX.sym("x_dot", nx)
 
-        p = csd.vertcat([])
+        v_disturbance = csd.MX.sym("v_disturbance", 2, 1)  # Current velocity vector
+        p = csd.vertcat(v_disturbance)
 
-        kinematics = csd.vertcat(x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), u[0], u[1], x[5], u[2])
+        kinematics = csd.vertcat(
+            x[3] * csd.cos(x[2]) + v_disturbance[0], x[3] * csd.sin(x[2]) + v_disturbance[1], u[0], u[1], x[5], u[2]
+        )
         f_expl = kinematics
         f_impl = xdot - f_expl
 

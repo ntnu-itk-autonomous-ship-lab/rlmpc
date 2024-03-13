@@ -1,13 +1,13 @@
-import colav_simulator.common.paths as dp
+import rlmpc.common.paths as dp
 import rlmpc.rlmpc as rlmpc
 from colav_simulator.scenario_generator import ScenarioGenerator
 from colav_simulator.simulator import Simulator
 
 if __name__ == "__main__":
     rlmpc_obj = rlmpc.RLMPC()
-    scenario_file = dp.scenarios / "rlmpc_scenario.yaml"
+    scenario_file = dp.scenarios / "rlmpc_scenario_cr_ss.yaml"
     scenario_generator = ScenarioGenerator(seed=7)
-    scenario_data = scenario_generator.generate(config_file=scenario_file, new_load_of_map_data=False)
+    scenario_data = scenario_generator.generate(config_file=scenario_file, new_load_of_map_data=False, show_plots=False)
     simulator = Simulator()
     simulator.toggle_liveplot_visibility(True)
     output = simulator.run([scenario_data], colav_systems=[(0, rlmpc_obj)])

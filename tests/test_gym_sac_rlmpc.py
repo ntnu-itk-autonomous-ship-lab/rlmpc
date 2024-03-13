@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import colav_simulator.behavior_generator as cs_bg
 import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
 import matplotlib as mpl
@@ -66,8 +65,10 @@ if __name__ == "__main__":
 
     observation_type = {
         "dict_observation": [
-            "navigation_3dof_state_observation",
+            "path_relative_navigation_observation",
+            "perception_image_observation",
             "relative_tracking_observation",
+            "navigation_3dof_state_observation",
             "tracking_observation",
             "disturbance_observation",
             "time_observation",
@@ -101,7 +102,7 @@ if __name__ == "__main__":
     }
     model = sac_rlmpc.SAC(policy, env, verbose=1, policy_kwargs=policy_kwargs)
 
-    model.learn(total_timesteps=10_000, progress_bar=True)
+    model.learn(total_timesteps=100, progress_bar=True)
     mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
     print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 

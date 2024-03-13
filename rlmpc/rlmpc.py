@@ -9,9 +9,10 @@
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import colav_simulator.common.map_functions as mapf
+import colav_simulator.common.math_functions as mf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
 import colav_simulator.common.plotters as plotters
 import colav_simulator.core.colav.colav_interface as ci
@@ -35,8 +36,6 @@ from shapely import strtree
 
 @dataclass
 class RLMPCParams:
-    los: guidances.LOSGuidanceParams
-    ktp: guidances.KTPGuidanceParams
     mpc: mlmpc.Config
     colregs_handler: ch.COLREGSHandlerParams
     ship_length: float = 8.0
@@ -46,8 +45,6 @@ class RLMPCParams:
     @classmethod
     def from_dict(cls, config_dict: dict):
         config = RLMPCParams(
-            los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
-            ktp=guidances.KTPGuidanceParams.from_dict(config_dict["ktp"]),
             mpc=mlmpc.Config.from_dict(config_dict["midlevel_mpc"]),
             colregs_handler=ch.COLREGSHandlerParams.from_dict(config_dict["colregs_handler"]),
         )
@@ -88,7 +85,6 @@ class RLMPC(ci.ICOLAV):
         elif isinstance(config, Path):
             self._config = cp.extract(RLMPCParams, config, dp.rlmpc_schema)
 
-        self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
@@ -179,21 +175,38 @@ class RLMPC(ci.ICOLAV):
             )
         self._initialized = True
 
-    def act(self, t: float, ownship_state: np.ndarray, do_list: list, **kwargs) -> np.ndarray:
+    def act(
+        self,
+        t: float,
+        ownship_state: np.ndarray,
+        do_list: list,
+        w: Optional[stochasticity.DisturbanceData] = None,
+        **kwargs,
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Act function for the RL-MPC. Calls the plan function and returns the reference trajectory.
 
         Args:
             t (float): Current time.
-            ownship_state (np.ndarray): Current ownship state on the form [x, y, chi, U]^T.
+            ownship_state (np.ndarray): Current ownship state on the form [x, y, psi, u, v, r]^T.
             do_list (list): List of dynamic obstacles.
-            enc (Optional[senc.ENC], optional): Electronic Navigational Chart object. Defaults to None.
+            w (Optional[stochasticity.DisturbanceData]): Stochastic disturbance data.
 
         Returns:
-            np.ndarray: 9x1 reference trajectory
+            Tuple[np.ndarray, Dict[str, Any]]: The reference action and the most recent MPC solution.
         """
-        return self.plan(
-            t, self._waypoints, self._speed_plan, ownship_state, do_list, self._enc, goal_state=None, **kwargs
+        refs = self.plan(
+            t, self._waypoints, self._speed_plan, ownship_state, do_list, self._enc, w=w, goal_state=None, **kwargs
         )
+        mpc_output = self._mpc_soln
+        action = refs[
+            2:4, 0
+        ]  # course and speed reference at a lookahead distance, relative to the current course and speed
+        U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
+        action[0] = mf.wrap_angle_diff_to_pmpi(action[0], ownship_state[2])
+        action[1] = action[1] - U
+        if action[1] < 0.0:
+            action[1] = 0.0
+        return action, mpc_output
 
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
@@ -282,6 +295,8 @@ class RLMPC(ci.ICOLAV):
                 do_ot_list=do_ot_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
+                w=w,
+                **kwargs,
             )
             self._mpc_trajectory = self._mpc_soln["trajectory"][:, :N]
             self._mpc_inputs = self._mpc_soln["inputs"][:, :N]

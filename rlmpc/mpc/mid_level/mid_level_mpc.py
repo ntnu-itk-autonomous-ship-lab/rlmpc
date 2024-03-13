@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, Type
 
+import colav_simulator.core.stochasticity as stoch
 import numpy as np
 import rlmpc.common.config_parsing as cp
 import rlmpc.common.paths as dp
@@ -129,6 +130,7 @@ class MidlevelMPC:
         do_ot_list: list,
         so_list: list,
         enc: senc.ENC,
+        w: Optional[stoch.DisturbanceData] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         **kwargs
@@ -143,15 +145,16 @@ class MidlevelMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): Electronic Navigational Chart object.
+            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
-            - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
+            - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks, course references (X[4, :]), speed references (U_d(s)), solver stats ++
         """
         if self._acados_enabled:
-            mpc_soln = self._acados_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, **kwargs)
+            mpc_soln = self._acados_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, w, **kwargs)
         else:
             mpc_soln = self._casadi_mpc.plan(
                 t,
@@ -163,6 +166,7 @@ class MidlevelMPC:
                 enc,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
+                w=w,
                 **kwargs
             )
         return mpc_soln
