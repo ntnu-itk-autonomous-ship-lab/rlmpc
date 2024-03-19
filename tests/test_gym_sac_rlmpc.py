@@ -92,7 +92,7 @@ if __name__ == "__main__":
     policy = sac_rlmpc.SACPolicyWithMPC
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [128, 64, 32],
+        "critic_arch": [256, 128, 32],
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "use_sde": False,

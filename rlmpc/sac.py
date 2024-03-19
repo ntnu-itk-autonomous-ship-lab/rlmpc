@@ -13,11 +13,11 @@ from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Un
 
 import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
+import rlmpc.buffers as rlmpc_buffers
 import rlmpc.common.paths as dp
 import rlmpc.off_policy_algorithm as opa
 import rlmpc.rlmpc as rlmpc
 import seacharts.enc as senc
-import stable_baselines3.common.buffers as sb3_buffers
 import stable_baselines3.common.noise as sb3_noise
 import stable_baselines3.common.vec_env as sb3_vec_env
 import stable_baselines3.sac.policies as sb3_sac_policies
@@ -72,8 +72,6 @@ class SACMPCActor(BasePolicy):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Box,
-        features_extractor: th.nn.Module,
-        features_dim: int,
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
         use_sde: bool = False,
@@ -91,54 +89,40 @@ class SACMPCActor(BasePolicy):
         )
 
         action_dim = get_action_dim(self.action_space)
-        self.action_dist = SquashedDiagGaussianDistribution(action_dim)  # type: ignore[assignment]
-        self.mu = th.nn.Linear(features_dim, action_dim)
         self.log_std_dev = th.nn.Parameter(th.ones(1, action_dim) * log_std_init)
 
         # Save arguments to re-create object at loading
         self.use_sde = use_sde
         self.sde_features_extractor = None
-        self.features_dim = features_dim
         self.activation_fn = activation_fn
         self.log_std_init = log_std_init
         self.use_expln = use_expln
         self.full_std = full_std
         self.clip_mean = clip_mean
 
-        # Not used, dummy
-        self.net_arch = [256, 256]
-        action_dim = get_action_dim(self.action_space)
-        latent_pi_net = create_mlp(features_dim, -1, self.net_arch, activation_fn)
-        self.latent_pi = th.nn.Sequential(*latent_pi_net)
-        last_layer_dim = self.net_arch[-1] if len(self.net_arch) > 0 else features_dim
-
         action_dim = get_action_dim(self.action_space)
         if self.use_sde:
             self.action_dist = StateDependentNoiseDistribution(
-                action_dim, full_std=full_std, use_expln=use_expln, learn_features=True, squash_output=True
+                action_dim, full_std=full_std, use_expln=use_expln, learn_features=False, squash_output=True
             )
             self.mu, self.log_std = self.action_dist.proba_distribution_net(
-                latent_dim=last_layer_dim, latent_sde_dim=last_layer_dim, log_std_init=log_std_init
+                latent_dim=action_dim, latent_sde_dim=action_dim, log_std_init=log_std_init
             )
             # Avoid numerical issues by limiting the mean of the Gaussian
             # to be in [-clip_mean, clip_mean]
             if clip_mean > 0.0:
                 self.mu = th.nn.Sequential(self.mu, th.nn.Hardtanh(min_val=-clip_mean, max_val=clip_mean))
         else:
-            self.action_dist = SquashedDiagGaussianDistribution(action_dim)  # type: ignore[assignment]
-            self.mu = th.nn.Linear(last_layer_dim, action_dim)
-            self.log_std = th.nn.Linear(last_layer_dim, action_dim)  # type: ignore[assignment]
-
-        self.mu_mpc = rlmpc.RLMPC(mpc_config)
-        # Consider using a stochastic Mpc with a gaussian random variable in the cost function
+            self.action_dist = SquashedDiagGaussianDistribution(action_dim).proba_distribution(
+                th.zeros(action_dim), log_std=log_std_init * th.ones(action_dim)
+            )
+        self.mpc = rlmpc.RLMPC(mpc_config)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
 
         data.update(
             dict(
-                net_arch=self.net_arch,
-                features_dim=self.features_dim,
                 activation_fn=self.activation_fn,
                 use_sde=self.use_sde,
                 log_std_init=self.log_std_init,
@@ -174,22 +158,22 @@ class SACMPCActor(BasePolicy):
         assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
         self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
 
-    def get_action_dist_params(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
+    def get_action_dist_params(
+        self, obs: th.Tensor, action: th.Tensor
+    ) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
         """
         Get the parameters for the action distribution.
 
         Args:
             - obs (th.Tensor): Observation
+            - action (th.Tensor): Action computed by the actor for the given observation
 
         Returns:
             - Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]: Mean, standard deviation and optional keyword arguments.
         """
         assert isinstance(self.observation_space, spaces.Dict)
-        #        features = self.extract_features(obs, self.features_extractor)
 
-        # Call mpc
-        mean_actions = self.mu_mpc()
-
+        mean_actions = action
         log_std = self.log_std_dev
         log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
         return mean_actions, log_std, {}
@@ -207,7 +191,7 @@ class SACMPCActor(BasePolicy):
         **kwargs,
     ) -> None:
         """Initializes the actor MPC"""
-        self.mu_mpc.initialize(
+        self.mpc.initialize(
             t,
             waypoints,
             speed_plan,
@@ -218,6 +202,7 @@ class SACMPCActor(BasePolicy):
             w,
             **kwargs,
         )
+        self.mpc_sensitivities = self.mpc.build_sensitivities()
 
     def forward(self, obs: th.Tensor, deterministic: bool = False) -> th.Tensor:
         """Computes the mean policy action (output of MPC), and samples from its stochastic
@@ -235,10 +220,25 @@ class SACMPCActor(BasePolicy):
         # Note: the action is squashed
         return self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **kwargs)
 
-    def action_log_prob(self, obs: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
-        # Compute mpc solution for the observation(s)
-        mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
-        # return action and associated log prob
+    def action_log_prob(self, obs: th.Tensor, action: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+        """Computes the log probability of the policy distribution for the given observation.
+
+        Args:
+            obs (th.Tensor): Observation
+            action (th.Tensor): (MPC) Action for the given observation
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor]:
+        """
+
+        # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
+        # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
+        # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
+        #
+        # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
+        mean_actions, log_std, kwargs = self.get_action_dist_params(obs, action)
+
+        # return action and associated gaussian log prob if an ad hoc stochastic policy is used
         return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
 
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
@@ -326,8 +326,6 @@ class SACPolicyWithMPC(BasePolicy):
             "observation_space": self.observation_space,
             "action_space": self.action_space,
             "mpc_config": mpc_config,
-            "features_extractor": 0,
-            "features_dim": 1,
         }
         sde_kwargs = {
             "use_sde": use_sde,
@@ -379,7 +377,7 @@ class SACPolicyWithMPC(BasePolicy):
         do_list = env.unwrapped.ownship.get_do_track_information()
         goal_state = env.unwrapped.ownship.goal_state
         w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
-        self.actor.mu_mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
+        self.actor.mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -417,8 +415,7 @@ class SACPolicyWithMPC(BasePolicy):
         deterministic: bool = False,
     ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
         """
-        Get the policy action from an observation (and optional hidden state).
-        Includes sugar-coating to handle different observations (e.g. normalizing images).
+        Get the policy action from an observation (and optional actor state).
 
         Args:
             - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
@@ -455,7 +452,7 @@ class SACPolicyWithMPC(BasePolicy):
 
             w.currents = {"speed": disturbance_vector[0], "direction": disturbance_vector[1]}
             w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3]}
-            action, info = self.actor.mu_mpc.act(
+            action, info = self.actor.mpc.act(
                 t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=state[b]
             )
             unnormalized_actions[b, :] = action
@@ -555,13 +552,13 @@ class SAC(opa.OffPolicyAlgorithm):
         learning_rate: Union[float, Schedule] = 3e-4,
         buffer_size: int = 1_000_000,  # 1e6
         learning_starts: int = 0,
-        batch_size: int = 256,
+        batch_size: int = 64,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, Tuple[int, str]] = 1,
+        train_freq: Union[int, Tuple[int, str]] = (100, "step"),
         gradient_steps: int = 1,
         action_noise: Optional[sb3_noise.ActionNoise] = None,
-        replay_buffer_class: Optional[Type[sb3_buffers.ReplayBuffer]] = None,
+        replay_buffer_class: Optional[Type[rlmpc_buffers.ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         ent_coef: Union[str, float] = "auto",
         target_update_interval: int = 1,
@@ -684,7 +681,9 @@ class SAC(opa.OffPolicyAlgorithm):
                 self.actor.reset_noise()
 
             # Action by the current actor for the sampled state
-            actions_pi, log_prob = self.actor.action_log_prob(replay_data.observations)
+            actions_pi, log_prob = self.actor.action_log_prob(
+                replay_data.observations, replay_data.actions, replay_data.infos
+            )
             log_prob = log_prob.reshape(-1, 1)
 
             ent_coef_loss = None
@@ -709,7 +708,9 @@ class SAC(opa.OffPolicyAlgorithm):
 
             with th.no_grad():
                 # Select action according to policy
-                next_actions, next_log_prob = self.actor.action_log_prob(replay_data.next_observations)
+                next_actions, next_log_prob = self.actor.action_log_prob(
+                    replay_data.next_observations, replay_data.infos
+                )
                 # Compute the next Q values: min over all critics targets
                 next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_actions), dim=1)
                 next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)

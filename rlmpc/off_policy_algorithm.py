@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
-import stable_baselines3.common.buffers as sb3_buffers
+import rlmpc.buffers as rlmpc_buffers
 import stable_baselines3.common.callbacks as sb3_callbacks
 import stable_baselines3.common.logger as sb3_logger
 import stable_baselines3.common.monitor as sb3_monitor
@@ -73,13 +73,13 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         learning_rate: float,
         buffer_size: int = 1e6,
         learning_starts: int = 0,
-        batch_size: int = 256,
+        batch_size: int = 64,
         tau: float = 0.005,
         gamma: float = 0.99,
-        train_freq: Union[int, Tuple[int, str]] = (1, "step"),
+        train_freq: Union[int, Tuple[int, str]] = (50, "step"),
         gradient_steps: int = 1,
         action_noise: Optional[sb3_noise.ActionNoise] = None,
-        replay_buffer_class: Optional[Type[sb3_buffers.ReplayBuffer]] = None,
+        replay_buffer_class: Optional[Type[rlmpc_buffers.ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
         stats_window_size: int = 100,
@@ -124,7 +124,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.gradient_steps: int = gradient_steps
         self.action_noise = action_noise
         self.verbose: int = verbose
-        self.replay_buffer: Optional[sb3_buffers.ReplayBuffer] = None
+        self.replay_buffer: Optional[rlmpc_buffers.ReplayBuffer] = None
         self.replay_buffer_class = replay_buffer_class
         self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
@@ -244,9 +244,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         if self.replay_buffer_class is None:
             if isinstance(self.observation_space, spaces.Dict):
-                self.replay_buffer_class = sb3_buffers.DictReplayBuffer
+                self.replay_buffer_class = rlmpc_buffers.DictReplayBuffer
             else:
-                self.replay_buffer_class = sb3_buffers.ReplayBuffer
+                self.replay_buffer_class = rlmpc_buffers.ReplayBuffer
 
         if self.replay_buffer is None:
             replay_buffer_kwargs = self.replay_buffer_kwargs.copy()
@@ -292,7 +292,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         """
         self.replay_buffer = sb3_sutils.load_from_pkl(path, self.verbose)
         assert isinstance(
-            self.replay_buffer, sb3_buffers.ReplayBuffer
+            self.replay_buffer, rlmpc_buffers.ReplayBuffer
         ), "The replay buffer must be a ReplayBuffer class"
 
     def _setup_learn(
@@ -389,9 +389,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         env: VecEnv,
         callback: sb3_callbacks.BaseCallback,
         train_freq: sb3_types.TrainFreq,
-        replay_buffer: sb3_buffers.ReplayBuffer,
+        replay_buffer: rlmpc_buffers.ReplayBuffer,
         action_noise: Optional[np.ndarray] = None,
-        learning_starts: int = 0,
+        learning_starts: int = 10,
         log_interval: Optional[int] = None,
     ) -> sb3_types.RolloutReturn:
         """
@@ -437,7 +437,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             new_obs, rewards, dones, infos = env.step(actions)
             for idx, info in enumerate(infos):
-                info.update({"actor_info": actor_infos[idx]})
+                info.update({"actor_info": actor_infos[idx]["soln"]})
 
             self._num_timesteps += env.num_envs
             num_collected_steps += 1
@@ -454,7 +454,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self._update_info_buffer(infos, dones)
 
             # Store data in replay buffer (normalized action and unnormalized observation)
-            self._store_transition(replay_buffer, actions, new_obs, rewards, dones, infos=infos)
+            self._store_transition(replay_buffer, actions, new_obs, rewards, dones, infos)
 
             self._update_current_progress_remaining(self._num_timesteps, self._total_timesteps)
 
@@ -477,7 +477,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
     def _store_transition(
         self,
-        replay_buffer: sb3_buffers.ReplayBuffer,
+        replay_buffer: rlmpc_buffers.ReplayBuffer,
         buffer_action: np.ndarray,
         new_obs: Union[np.ndarray, Dict[str, np.ndarray]],
         reward: np.ndarray,
