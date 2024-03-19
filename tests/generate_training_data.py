@@ -136,17 +136,16 @@ if __name__ == "__main__":
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 1000000000,
+        "max_number_of_episodes": 100000000,
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "shuffle_loaded_scenario_data": True,
-        "seed": 5,
+        "seed": 11,
     }
-    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_land_only_test22.npy"
-    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_land_only_test22.npy"
+    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_land_only2.npy"
+    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_land_only2.npy"
 
     use_vec_env = False
     if use_vec_env:
@@ -156,7 +155,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 1000
+        n_steps = 2000
         perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
         for i in range(n_steps):

@@ -4,7 +4,9 @@ import inspect
 import time
 from pathlib import Path
 from sys import platform
+from typing import List, Tuple
 
+import numpy as np
 import rlmpc.common.datasets as rl_ds
 import rlmpc.common.helper_functions as rl_hf
 import rlmpc.networks.loss_functions as loss_functions
@@ -26,7 +28,7 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "training_vae1"
+EXPERIMENT_NAME: str = "training_vae4"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
 LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
@@ -62,7 +64,7 @@ def train_vae(
     save_interval: int = 10,
     device: torch.device = torch.device("cpu"),
     early_stopping_patience: int = 10,
-) -> None:
+) -> Tuple[VAE, float, int, List[List[float]], List[List[float]]]:
     """Trains the variation autoencoder model.
 
     Args:
@@ -76,6 +78,9 @@ def train_vae(
         save_interval (int, optional): The interval at which to save the model. Defaults to 10.
         device (torch.device, optional): The device to train the model on. Defaults to "cpu".
         early_stopping_patience (int, optional): The number of epochs to wait before stopping training if the loss does not decrease. Defaults to 10.
+
+    Returns:
+        Tuple[VAE, float, int, List[List[float]], List[List[float]]]: The trained model, the best test loss, the epoch at which the best test loss occurred, the training losses, and the testing losses.
     """
     torch.autograd.set_detect_anomaly(True)
 
@@ -102,9 +107,14 @@ def train_vae(
     best_epoch = 0
     random_indices = torch.randint(0, batch_size, (n_batch_images_to_show,))
 
+    training_losses = []
+    testing_losses = []
+
     # Create training data + test data
     for epoch in range(n_epochs):
         epoch_start_time = time.time()
+
+        training_batch_losses = []
 
         model.train()
         for batch_idx, (batch_images, semantic_masks) in enumerate(training_dataloader):
@@ -129,6 +139,7 @@ def train_vae(
             loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
+            training_batch_losses.append(loss.item())
 
             # Backward pass
             loss.backward()
@@ -169,10 +180,14 @@ def train_vae(
         )
         print("[DONE] Saving model at ", str(model_path))
 
+        training_losses.append(training_batch_losses)
+
         model.eval()
         model.set_inference_mode(True)
         # if True:
         #     continue
+
+        test_batch_losses = []
 
         for batch_idx, (batch_images, semantic_masks) in enumerate(test_dataloader):
             model.zero_grad()
@@ -197,6 +212,7 @@ def train_vae(
             loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
+            test_batch_losses.append(loss.item())
 
             if batch_idx % save_interval == 0:
                 print(
@@ -219,6 +235,8 @@ def train_vae(
                         test_images_path
                         / (EXPERIMENT_NAME + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
                     )
+
+        testing_losses.append(test_batch_losses)
 
         # Print the statistics
         print("Test Loss:", loss_meter.average_loss)
@@ -243,13 +261,18 @@ def train_vae(
             print(f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training.")
             break
 
+    training_losses = np.array(training_losses)
+    testing_losses = np.array(testing_losses)
+    np.save(EXPERIMENT_PATH / "training_losses.npy", training_losses)
+    np.save(EXPERIMENT_PATH / "testing_losses.npy", testing_losses)
+
     return model, best_test_loss, best_epoch
 
 
 if __name__ == "__main__":
     latent_dim = 128
-    fc_dim = 512
-    encoder_conv_block_dims = [32, 64, 128, 128]
+    fc_dim = 800
+    encoder_conv_block_dims = [32, 256, 256, 256]
     input_image_dim = (1, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(
@@ -258,13 +281,14 @@ if __name__ == "__main__":
         fc_dim=fc_dim,
         encoder_conv_block_dims=encoder_conv_block_dims,
     ).to(device)
+
     # summary(vae, (3, 400, 400))
 
     load_model = False
     save_interval = 10
     batch_size = 64
-    num_epochs = 40
-    learning_rate = 3e-04
+    num_epochs = 100
+    learning_rate = 1e-04
 
     log_dir = EXPERIMENT_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
@@ -283,20 +307,14 @@ if __name__ == "__main__":
                 [
                     transforms_v2.ToDtype(torch.float32, scale=True),
                     transforms_v2.RandomHorizontalFlip(),
-                    # transforms_v2.ElasticTransform(alpha=40, sigma=3),
+                    transforms_v2.ElasticTransform(alpha=50, sigma=3),
                 ],
-                p=[0.5, 0.5],
+                p=[0.5, 0.5, 0.5],
             ),
             transforms_v2.ToDtype(torch.float32, scale=True),
             transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
         ]
     )
-    # training_transform = transforms_v2.Compose(
-    #     [
-    #         transforms_v2.ToDtype(torch.float32, scale=True),
-    #         transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
-    #     ]
-    # )
     test_transform = transforms_v2.Compose(
         [
             transforms_v2.ToDtype(torch.float32, scale=True),
@@ -340,7 +358,7 @@ if __name__ == "__main__":
     with Path(EXPERIMENT_PATH / "config.yaml").open(mode="w", encoding="utf-8") as fp:
         yaml.dump(training_config, fp)
 
-    train_vae(
+    model, opt_loss, opt_epoch = train_vae(
         model=vae,
         training_dataloader=train_dataloader,
         test_dataloader=test_dataloader,
