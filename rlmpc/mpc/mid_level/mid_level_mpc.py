@@ -133,6 +133,7 @@ class MidlevelMPC:
         w: Optional[stoch.DisturbanceData] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
+        prev_soln: Optional[dict] = None,
         **kwargs
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
@@ -148,13 +149,16 @@ class MidlevelMPC:
             - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
+            - prev_soln (Optional[dict], optional): Previous solution to use as warm start. Defaults to None.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks, course references (X[4, :]), speed references (U_d(s)), solver stats ++
         """
         if self._acados_enabled:
-            mpc_soln = self._acados_mpc.plan(t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, w, **kwargs)
+            mpc_soln = self._acados_mpc.plan(
+                t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, w, prev_soln, **kwargs
+            )
         else:
             mpc_soln = self._casadi_mpc.plan(
                 t,
@@ -167,6 +171,7 @@ class MidlevelMPC:
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
                 w=w,
+                prev_soln=prev_soln,
                 **kwargs
             )
         return mpc_soln

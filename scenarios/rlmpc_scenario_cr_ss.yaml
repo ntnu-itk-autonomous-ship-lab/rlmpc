@@ -32,7 +32,6 @@ rl_observation_type:
 stochasticity:
   currents:
     constant: True
-    initial_speed: 1.0
     initial_direction: 10.0
     speed_range: [0.0, 1.0]
     direction_range: [-360.0, 360.0]

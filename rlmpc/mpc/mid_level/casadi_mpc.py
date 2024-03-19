@@ -188,7 +188,7 @@ class CasadiMPC:
         self._model.set_max_path_variable(s_final)  # margin
         print("Path information set. | s_final: ", s_final)
 
-    def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int) -> np.ndarray:
+    def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int, p: Optional[np.ndarray] = None) -> np.ndarray:
         """Euler prediction of the ship model and path timing model, concatenated.
 
         Args:
@@ -196,15 +196,18 @@ class CasadiMPC:
             - u (np.ndarray): Input to apply, either nu x N or nu x 1.
             - dt (float): Time step.
             - N (int): Number of steps to predict.
+            - p (Optional[np.ndarray]): Model parameters. Defaults to None.
 
         Returns:
             np.ndarray: Predicted states.
         """
-        p = self._p_ship_mdl_values
+        p = p = self._p_ship_mdl_values if p is None else p
         X = self._model.erk4_n_step(xs, u, p, self._params.dt, N)
         return X
 
-    def _create_initial_warm_start(self, xs: np.ndarray, dim_g: int, do_list, enc: senc.ENC) -> dict:
+    def _create_initial_warm_start(
+        self, xs: np.ndarray, dim_g: int, do_list, enc: senc.ENC, w: Optional[stoch.DisturbanceData] = None
+    ) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
 
         Args:
@@ -212,9 +215,28 @@ class CasadiMPC:
             - dim_g (int): Dimension/length of the constraints.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): ENC object containing the map info.
+            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
         """
         self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
         self._s_dot = self.compute_path_variable_derivative(self._s)
+
+        v_disturbance = np.zeros(2)
+        if w is not None and "speed" in w.currents:
+            v_current = np.array(
+                [
+                    w.currents["speed"] * np.cos(w.currents["direction"]),
+                    w.currents["speed"] * np.sin(w.currents["direction"]),
+                ]
+            )
+            v_disturbance = v_disturbance + v_current
+        if w is not None and "speed" in w.wind:
+            v_wind = np.array(
+                [
+                    w.wind["speed"] * np.cos(w.wind["direction"]),
+                    w.wind["speed"] * np.sin(w.wind["direction"]),
+                ]
+            )
+            v_disturbance = v_disturbance + v_wind
 
         n_colregs_zones = 3
         nx, nu = self._model.dims()
@@ -232,9 +254,9 @@ class CasadiMPC:
             np.array([0.0, 0.0, 0.0]),
             np.array([-0.02, 0.0, 0.0]),
             np.array([0.02, 0.0, 0.0]),
-            np.array([-0.02, -0.05, 0.0]),
-            np.array([0.02, -0.05, 0.0]),
-            np.array([0.0, -0.05, 0.0]),
+            np.array([-0.01, -0.03, 0.0]),
+            np.array([0.01, -0.03, 0.0]),
+            np.array([0.0, -0.03, 0.0]),
             np.array([-0.02, -0.1, -0.1]),
             np.array([0.02, -0.1, -0.1]),
             np.array([0.0, -0.1, -0.1]),
@@ -261,7 +283,7 @@ class CasadiMPC:
 
         for i in range(n_attempts):
             inputs = np.tile(u_attempts[i], (N, 1)).T
-            warm_start_traj = self._model_prediction(xs_k, inputs, N + 1)
+            warm_start_traj = self._model_prediction(xs_k, inputs, N + 1, p=v_disturbance)
             chi = warm_start_traj[2, :]
             chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
             warm_start_traj[2, :] = chi_unwrapped
@@ -282,16 +304,21 @@ class CasadiMPC:
                 success = True
                 break
 
-        assert success, "Could not create initial warm start solution"
+        if not success:
+            print("WARNING: Could not create an initially feasible warm start solution!")
 
-        w = np.concatenate(
+        decision_variables = np.concatenate(
             (
                 inputs.T.flatten(),
                 warm_start_traj.T.flatten(),
                 slacks.T.flatten(),
             )
         )
-        warm_start = {"x": w.tolist(), "lam_x": np.zeros(w.shape[0]).tolist(), "lam_g": np.zeros(dim_g).tolist()}
+        warm_start = {
+            "x": decision_variables.tolist(),
+            "lam_x": np.zeros(decision_variables.shape[0]).tolist(),
+            "lam_g": np.zeros(dim_g).tolist(),
+        }
         # shifted_ws_traj = warm_start_traj + np.array(
         #     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
         # ).reshape(nx, 1)
@@ -309,6 +336,7 @@ class CasadiMPC:
         n_shifts: int,
         do_list: list,
         enc: senc.ENC,
+        w: Optional[stoch.DisturbanceData] = None,
     ) -> Tuple[np.ndarray, bool]:
         """Creates a shifted warm start trajectory from the previous trajectory and the new control input,
         possibly with an offset start back in time.
@@ -323,6 +351,7 @@ class CasadiMPC:
             - n_shifts (int): Number of shifts to perform on the previous trajectory.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) with EN coordinates.
             - enc (senc.ENC): The ENC object containing the map.
+            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, bool]: The new warm start, corresponding state and input trajectories, and a boolean indicating if the warm start was successful.
@@ -340,6 +369,24 @@ class CasadiMPC:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
             U_warm_start = np.concatenate((U_prev[:, n_shifts:-offset], inputs_past_N), axis=1)
 
+        v_disturbance = np.zeros(2)
+        if w is not None and "speed" in w.currents:
+            v_current = np.array(
+                [
+                    w.currents["speed"] * np.cos(w.currents["direction"]),
+                    w.currents["speed"] * np.sin(w.currents["direction"]),
+                ]
+            )
+            v_disturbance = v_disturbance + v_current
+        if w is not None and "speed" in w.wind:
+            v_wind = np.array(
+                [
+                    w.wind["speed"] * np.cos(w.wind["direction"]),
+                    w.wind["speed"] * np.sin(w.wind["direction"]),
+                ]
+            )
+            v_disturbance = v_disturbance + v_wind
+
         xs_init_mpc = np.zeros(nx)
         xs_init_mpc[:3] = xs[:3]
         xs_init_mpc[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
@@ -349,7 +396,7 @@ class CasadiMPC:
 
         s_dot_shifted = X_prev[5, n_shifts]
         xs_init_mpc[4:] = np.array([s_shifted, s_dot_shifted])
-        X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1)
+        X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1, p=v_disturbance)
         chi = X_warm_start[2, :].tolist()
         X_warm_start[2, :] = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
         w_warm_start = np.concatenate(
@@ -375,7 +422,15 @@ class CasadiMPC:
         cs_plotters.plot_trajectory(shifted_pos_traj, enc, "pink")
         return w_warm_start, X_warm_start, U_warm_start, True
 
-    def _shift_warm_start(self, xs: np.ndarray, prev_warm_start: dict, dt: float, do_list: list, enc: senc.ENC) -> dict:
+    def _shift_warm_start(
+        self,
+        xs: np.ndarray,
+        prev_warm_start: dict,
+        dt: float,
+        do_list: list,
+        enc: senc.ENC,
+        w: Optional[stoch.DisturbanceData] = None,
+    ) -> dict:
         """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
 
         Args:
@@ -384,6 +439,7 @@ class CasadiMPC:
             - dt (float): Time to shift the warm start decision trajectory.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): Electronic Navigational Chart object.
+            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
         """
         _, nu = self._model.dims()
         n_attempts = 6
@@ -395,18 +451,18 @@ class CasadiMPC:
         Sigma_prev = Sigma_prev.full()
         offsets = [
             0,
-            int(0.4 * N),
-            int(0.4 * N),
+            int(0.3 * N),
+            int(0.3 * N),
+            int(0.5 * N),
+            int(0.5 * N),
             int(0.7 * N),
-            int(0.7 * N),
-            int(0.9 * N),
         ]
         u_attempts = [
             U_prev[:, -1],
-            np.array([0.05, -0.1, 0.0]),
-            np.array([-0.05, -0.1, 0.0]),
-            np.array([0.05, -0.1, 0.0]),
-            np.array([-0.05, -0.15, 0.0]),
+            np.array([0.04, -0.06, 0.0]),
+            np.array([-0.04, -0.06, 0.0]),
+            np.array([0.04, -0.06, 0.0]),
+            np.array([-0.04, -0.15, 0.0]),
             np.array([0.0, -0.15, 0.0]),
         ]
 
@@ -424,11 +480,13 @@ class CasadiMPC:
         success = False
         for i in range(n_attempts):
             w_warm_start, X_warm_start, U_warm_start, success = self._try_to_create_warm_start_solution(
-                xs, X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, do_list_shifted, enc
+                xs, X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, do_list_shifted, enc, w=w
             )
             if success:
                 break
-        assert success, "Could not create warm start solution"
+
+        if not success:
+            print("WARNING: Could not create a feasible warm start solution!")
         new_warm_start = prev_warm_start
         new_warm_start["x"] = w_warm_start.tolist()
 
@@ -448,6 +506,7 @@ class CasadiMPC:
         w: Optional[stoch.DisturbanceData] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
+        prev_soln: Optional[dict] = None,
         show_plots: bool = False,
         **kwargs,
     ) -> dict:
@@ -463,6 +522,7 @@ class CasadiMPC:
             - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
+            - prev_soln (Optional[dict], optional): Previous solution to use. Defaults to None.
             - show_plots (bool, optional): Whether to show plots. Defaults to False.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
@@ -471,7 +531,7 @@ class CasadiMPC:
         """
         if not self._initialized:
             self._current_warmstart = self._create_initial_warm_start(
-                xs, self._lbg.shape[0], do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc
+                xs, self._lbg.shape[0], do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc, w=w
             )
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc)
             self._xs_prev = xs
@@ -483,12 +543,12 @@ class CasadiMPC:
         xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
         self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
-        if "prev_mpc_soln" in kwargs:
-            self._current_warmstart = kwargs["prev_mpc_soln"]["soln"]
+        if prev_soln:
+            self._current_warmstart = prev_soln
 
         if dt > 0.0:
             self._current_warmstart = self._shift_warm_start(
-                xs_unwrapped, self._current_warmstart, dt, do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc
+                xs_unwrapped, self._current_warmstart, dt, do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc, w=w
             )
 
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
@@ -532,11 +592,12 @@ class CasadiMPC:
         cost_val = soln["f"].full()[0][0]
         lam_x = soln["lam_x"].full()
         lam_g = soln["lam_g"].full()
+        lam_p = soln["lam_p"].full()
         U, X, Sigma = self._extract_trajectories(soln)
         w_sub = np.concatenate((U.T.flatten(), X.T.flatten()))
         self.print_solution_info(soln, parameter_values, stats, t_solve)
-        # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
-        # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
+        self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
+        self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
 
         if not stats["success"]:
             mpc_common.plot_casadi_solver_stats(stats, True)
@@ -569,11 +630,14 @@ class CasadiMPC:
         self._current_warmstart["x"] = self._decision_variables(U, X, Sigma)
         self._current_warmstart["lam_x"] = lam_x
         self._current_warmstart["lam_g"] = lam_g
+        self._current_warmstart["lam_p"] = lam_p
+        self._current_warmstart["f"] = cost_val
+
         self._t_prev = t
         self._prev_inputs = U[:, 0]
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
         output = {
-            "soln": soln,
+            "soln": self._current_warmstart,
             "trajectory": X,
             "inputs": U,
             "slacks": Sigma,

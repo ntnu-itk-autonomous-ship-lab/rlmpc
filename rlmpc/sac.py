@@ -15,6 +15,7 @@ import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
 import rlmpc.buffers as rlmpc_buffers
 import rlmpc.common.paths as dp
+import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.off_policy_algorithm as opa
 import rlmpc.rlmpc as rlmpc
 import seacharts.enc as senc
@@ -158,7 +159,7 @@ class SACMPCActor(BasePolicy):
         assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
         self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
 
-    def get_action_dist_params(
+    def get_adhoc_action_dist_params(
         self, obs: th.Tensor, action: th.Tensor
     ) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
         """
@@ -216,16 +217,19 @@ class SACMPCActor(BasePolicy):
         Returns:
             - th.Tensor: A sampled action from the policy distribution.
         """
-        mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
+        mean_actions, log_std, kwargs = self.get_adhoc_action_dist_params(obs)
         # Note: the action is squashed
         return self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **kwargs)
 
-    def action_log_prob(self, obs: th.Tensor, action: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+    def action_log_prob(
+        self, obs: th.Tensor, action: th.Tensor, infos: Optional[List[Dict[str, Any]]] = None
+    ) -> Tuple[th.Tensor, th.Tensor]:
         """Computes the log probability of the policy distribution for the given observation.
 
         Args:
             obs (th.Tensor): Observation
             action (th.Tensor): (MPC) Action for the given observation
+            infos (Optional[List[Dict[str, Any]]], optional): Additional information. Defaults to None.
 
         Returns:
             Tuple[th.Tensor, th.Tensor]:
@@ -236,7 +240,7 @@ class SACMPCActor(BasePolicy):
         # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
         #
         # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
-        mean_actions, log_std, kwargs = self.get_action_dist_params(obs, action)
+        mean_actions, log_std, kwargs = self.get_adhoc_action_dist_params(obs, action)
 
         # return action and associated gaussian log prob if an ad hoc stochastic policy is used
         return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
@@ -292,7 +296,7 @@ class SACPolicyWithMPC(BasePolicy):
         log_std_init: float = -3.0,
         use_expln: bool = False,
         clip_mean: float = 2.0,
-        features_extractor_class: Type[BaseFeaturesExtractor] = FlattenExtractor,
+        features_extractor_class: Type[BaseFeaturesExtractor] = rlmpc_fe.CombinedExtractor,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
@@ -441,8 +445,8 @@ class SACPolicyWithMPC(BasePolicy):
             do_list = []
             for i in range(max_num_do):
                 if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its vector
-                    cov = do_arr[6:, i]
-                    do_list.append((i, do_arr[0:4], cov, do_arr[4, i], do_arr[5, i]))
+                    cov = do_arr[6:, i].reshape(4, 4)
+                    do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
 
             # unnormalize ownship state
             obs_b = {k: v[b] for k, v in observation.items()}

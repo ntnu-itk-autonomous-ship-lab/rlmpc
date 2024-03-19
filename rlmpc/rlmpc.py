@@ -181,6 +181,7 @@ class RLMPC(ci.ICOLAV):
         ownship_state: np.ndarray,
         do_list: list,
         w: Optional[stochasticity.DisturbanceData] = None,
+        prev_soln: Optional[dict] = None,
         **kwargs,
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Act function for the RL-MPC. Calls the plan function and returns the reference trajectory.
@@ -190,12 +191,22 @@ class RLMPC(ci.ICOLAV):
             ownship_state (np.ndarray): Current ownship state on the form [x, y, psi, u, v, r]^T.
             do_list (list): List of dynamic obstacles.
             w (Optional[stochasticity.DisturbanceData]): Stochastic disturbance data.
+            prev_soln (Optional[dict]): Previous MPC solution.
 
         Returns:
             Tuple[np.ndarray, Dict[str, Any]]: The reference action and the most recent MPC solution.
         """
         refs = self.plan(
-            t, self._waypoints, self._speed_plan, ownship_state, do_list, self._enc, w=w, goal_state=None, **kwargs
+            t,
+            self._waypoints,
+            self._speed_plan,
+            ownship_state,
+            do_list,
+            self._enc,
+            w=w,
+            goal_state=None,
+            prev_soln=prev_soln,
+            **kwargs,
         )
         mpc_output = self._mpc_soln
         action = refs[
@@ -204,8 +215,6 @@ class RLMPC(ci.ICOLAV):
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
         action[0] = mf.wrap_angle_diff_to_pmpi(action[0], ownship_state[2])
         action[1] = action[1] - U
-        if action[1] < 0.0:
-            action[1] = 0.0
         return action, mpc_output
 
     def save_params(self, filename: Path) -> None:
