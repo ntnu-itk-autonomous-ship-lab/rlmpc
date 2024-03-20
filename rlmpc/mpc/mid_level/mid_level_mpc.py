@@ -109,11 +109,11 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
 
-    def build_sensitivities(self, tau: float = 0.01) -> common.NLPSensitivities:
+    def build_sensitivities(self, tau: Optional[float] = None) -> common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function with respect to the decision variables and parameters.
 
         Args:
-            - tau (float): Barrier parameter for the primal-dual interior point method formulation.
+            - tau (Optional[float]): Barrier parameter for the primal-dual interior point formulation. Defaults to None.
 
         Returns:
             - common.NLPSensitivities: Class container of the sensitivity functions necessary for

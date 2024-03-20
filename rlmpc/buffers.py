@@ -9,18 +9,12 @@
 
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Generator, List, Optional, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Union
 
 import numpy as np
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.preprocessing import get_action_dim, get_obs_shape
-from stable_baselines3.common.type_aliases import (
-    DictReplayBufferSamples,
-    DictRolloutBufferSamples,
-    ReplayBufferSamples,
-    RolloutBufferSamples,
-)
 from stable_baselines3.common.utils import get_device
 from stable_baselines3.common.vec_env import VecNormalize
 
@@ -29,6 +23,37 @@ try:
     import psutil
 except ImportError:
     psutil = None
+
+TensorDict = Dict[str, th.Tensor]
+
+
+class ReplayBufferSamples(NamedTuple):
+    observations: th.Tensor
+    actions: th.Tensor
+    next_observations: th.Tensor
+    next_actions: th.Tensor
+    dones: th.Tensor
+    rewards: th.Tensor
+    infos: List[Dict[str, Any]]
+
+
+class DictReplayBufferSamples(NamedTuple):
+    observations: TensorDict
+    actions: th.Tensor
+    next_observations: TensorDict
+    next_actions: th.Tensor
+    dones: th.Tensor
+    rewards: th.Tensor
+    infos: List[Dict[str, Any]]
+
+
+class RolloutBufferSamples(NamedTuple):
+    observations: th.Tensor
+    actions: th.Tensor
+    old_values: th.Tensor
+    old_log_prob: th.Tensor
+    advantages: th.Tensor
+    returns: th.Tensor
 
 
 class BaseBuffer(ABC):
@@ -220,6 +245,9 @@ class ReplayBuffer(BaseBuffer):
         self.actions = np.zeros(
             (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
         )
+        self.next_actions = np.zeros(
+            (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+        )
 
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
@@ -251,6 +279,7 @@ class ReplayBuffer(BaseBuffer):
         obs: np.ndarray,
         next_obs: np.ndarray,
         action: np.ndarray,
+        next_action: np.ndarray,
         reward: np.ndarray,
         done: np.ndarray,
         infos: List[Dict[str, Any]],
@@ -273,6 +302,7 @@ class ReplayBuffer(BaseBuffer):
             self.next_observations[self.pos] = np.array(next_obs).copy()
 
         self.actions[self.pos] = np.array(action).copy()
+        self.next_actions[self.pos] = np.array(next_action).copy()
         self.rewards[self.pos] = np.array(reward).copy()
         self.dones[self.pos] = np.array(done).copy()
         self.infos[self.pos] = infos
@@ -320,11 +350,12 @@ class ReplayBuffer(BaseBuffer):
             self._normalize_obs(self.observations[batch_inds, env_indices, :], env),
             self.actions[batch_inds, env_indices, :],
             next_obs,
+            self.next_actions[batch_inds, env_indices, :],
             # Only use dones that are not due to timeouts
             # deactivated by default (timeouts is initialized as an array of False)
             (self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
             self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
-            self.infos[batch_inds].copy(),
+            [self.infos[b_idx] for b_idx in batch_inds],
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
 
@@ -397,6 +428,10 @@ class DictReplayBuffer(ReplayBuffer):
         self.actions = np.zeros(
             (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
         )
+        self.next_actions = np.zeros(
+            (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+        )
+
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.infos = [{} for _ in range(self.buffer_size)]
@@ -432,6 +467,7 @@ class DictReplayBuffer(ReplayBuffer):
         obs: Dict[str, np.ndarray],
         next_obs: Dict[str, np.ndarray],
         action: np.ndarray,
+        next_action: np.ndarray,
         reward: np.ndarray,
         done: np.ndarray,
         infos: List[Dict[str, Any]],
@@ -453,6 +489,7 @@ class DictReplayBuffer(ReplayBuffer):
         action = action.reshape((self.n_envs, self.action_dim))
 
         self.actions[self.pos] = np.array(action).copy()
+        self.next_actions[self.pos] = np.array(next_action).copy()
         self.rewards[self.pos] = np.array(reward).copy()
         self.dones[self.pos] = np.array(done).copy()
         self.infos[self.pos] = infos
@@ -504,11 +541,12 @@ class DictReplayBuffer(ReplayBuffer):
             observations=observations,
             actions=self.to_torch(self.actions[batch_inds, env_indices]),
             next_observations=next_observations,
+            next_actions=self.to_torch(self.next_actions[batch_inds, env_indices]),
             # Only use dones that are not due to timeouts
             # deactivated by default (timeouts is initialized as an array of False)
             dones=self.to_torch(
                 self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])
             ).reshape(-1, 1),
             rewards=self.to_torch(self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env)),
-            infos=self.infos[batch_inds].copy(),
+            infos=[self.infos[b_idx] for b_idx in batch_inds],
         )

@@ -73,6 +73,8 @@ class SACMPCActor(BasePolicy):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Box,
+        observation_type: Any,
+        action_type: Any,
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
         use_sde: bool = False,
@@ -88,6 +90,9 @@ class SACMPCActor(BasePolicy):
             normalize_images=False,
             squash_output=True,
         )
+
+        self.observation_type = observation_type
+        self.action_type = action_type
 
         action_dim = get_action_dim(self.action_space)
         self.log_std_dev = th.nn.Parameter(th.ones(1, action_dim) * log_std_init)
@@ -118,6 +123,7 @@ class SACMPCActor(BasePolicy):
                 th.zeros(action_dim), log_std=log_std_init * th.ones(action_dim)
             )
         self.mpc = rlmpc.RLMPC(mpc_config)
+        self.mpc_sensitivities = None
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -160,7 +166,7 @@ class SACMPCActor(BasePolicy):
         self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
 
     def get_adhoc_action_dist_params(
-        self, obs: th.Tensor, action: th.Tensor
+        self, obs: rlmpc_buffers.TensorDict, action: th.Tensor
     ) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
         """
         Get the parameters for the action distribution.
@@ -179,50 +185,11 @@ class SACMPCActor(BasePolicy):
         log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
         return mean_actions, log_std, {}
 
-    def initialize(
-        self,
-        t: float,
-        waypoints: np.ndarray,
-        speed_plan: np.ndarray,
-        ownship_state: np.ndarray,
-        do_list: list,
-        enc: Optional[senc.ENC] = None,
-        goal_state: Optional[np.ndarray] = None,
-        w: Optional[stochasticity.DisturbanceData] = None,
-        **kwargs,
-    ) -> None:
-        """Initializes the actor MPC"""
-        self.mpc.initialize(
-            t,
-            waypoints,
-            speed_plan,
-            ownship_state,
-            do_list,
-            enc,
-            goal_state,
-            w,
-            **kwargs,
-        )
-        self.mpc_sensitivities = self.mpc.build_sensitivities()
-
-    def forward(self, obs: th.Tensor, deterministic: bool = False) -> th.Tensor:
-        """Computes the mean policy action (output of MPC), and samples from its stochastic
-        distribution.
-
-        Args:
-            - obs (th.Tensor): Consists of the current time, own-ship state, dynamic obstacles and potentially
-                disturbance data
-            - deterministic (bool): Whether or not to
-
-        Returns:
-            - th.Tensor: A sampled action from the policy distribution.
-        """
-        mean_actions, log_std, kwargs = self.get_adhoc_action_dist_params(obs)
-        # Note: the action is squashed
-        return self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **kwargs)
-
     def action_log_prob(
-        self, obs: th.Tensor, action: th.Tensor, infos: Optional[List[Dict[str, Any]]] = None
+        self,
+        obs: rlmpc_buffers.TensorDict,
+        action: Optional[th.Tensor] = None,
+        infos: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[th.Tensor, th.Tensor]:
         """Computes the log probability of the policy distribution for the given observation.
 
@@ -234,12 +201,20 @@ class SACMPCActor(BasePolicy):
         Returns:
             Tuple[th.Tensor, th.Tensor]:
         """
+        # obs = obs.to("cpu").detach()
+        # action = action.to("cpu").detach()
 
         # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
         # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
         # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
         #
         # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
+        if action is None:
+            unnorm_actions, norm_actions, actor_infos = self.predict_with_mpc(obs, state=infos, deterministic=False)
+            action = norm_actions
+        if isinstance(action, np.ndarray):
+            action = th.from_numpy(action)
+
         mean_actions, log_std, kwargs = self.get_adhoc_action_dist_params(obs, action)
 
         # return action and associated gaussian log prob if an ad hoc stochastic policy is used
@@ -247,6 +222,92 @@ class SACMPCActor(BasePolicy):
 
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
         return self(observation, deterministic)
+
+    def predict_with_mpc(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: List[Dict[str, Any]] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+        """
+        Get the policy action from an observation (and optional actor state).
+
+        Args:
+            - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
+            - state (List[Dict[str, Any]]): The MPC internal state (current solution info, etc.)
+            - deterministic (bool): Whether or not to return deterministic actions.
+
+        Returns:
+            - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
+        """
+        # convert observation to mpc plan inputs ()
+        batch_size = observation["TrackingObservation"].shape[0]
+        normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
+        unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
+        actor_infos = [{} for _ in range(batch_size)]
+        for b in range(batch_size):
+            t, ownship_state, do_list, w = self.extract_observation_features(observation, b)
+            action, info = self.mpc.act(
+                t=t,
+                ownship_state=ownship_state,
+                do_list=do_list,
+                w=w,
+                prev_soln=state[b][0]["actor_info"] if state is not None else None,
+            )
+            unnormalized_actions[b, :] = action
+            normalized_actions[b, :] = self.action_type.normalize(action)
+            actor_infos[b] = info
+        return unnormalized_actions, normalized_actions, actor_infos
+
+    def extract_observation_features(
+        self, observation: Union[np.ndarray, Dict[str, np.ndarray], rlmpc_buffers.TensorDict], idx: int
+    ) -> Tuple[float, np.ndarray, List, stochasticity.DisturbanceData]:
+        """Extract features from the observation at a given index in the batch.
+
+        Args:
+            observation (Union[np.ndarray, Dict[str, np.ndarray], rlmpc_buffers.TensorDict]): The input observation
+            idx (int): The index of the observation in the batch
+
+        Returns:
+            Tuple[float, np.ndarray, List, stoch.DisturbanceData]: Time, ownship state, DO list and disturbance data
+        """
+        obs_b = {k: v[idx].numpy() if isinstance(v[idx], th.Tensor) else v[idx] for k, v in observation.items()}
+        do_arr = obs_b["TrackingObservation"]
+        t = obs_b["TimeObservation"].flatten()[0]
+        unnorm_obs_b = self.observation_type.unnormalize(obs_b)
+        ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
+        disturbance_vector = unnorm_obs_b["DisturbanceObservation"].flatten()
+
+        max_num_do = do_arr.shape[1]
+        do_list = []
+        for i in range(max_num_do):
+            if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its vector
+                cov = do_arr[6:, i].reshape(4, 4)
+                do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
+
+        w = stochasticity.DisturbanceData()
+        w.currents = {"speed": disturbance_vector[0], "direction": disturbance_vector[1]}
+        w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3]}
+        return t, ownship_state, do_list, w
+
+    def initialize(
+        self,
+        env: COLAVEnvironment,
+        **kwargs,
+    ) -> None:
+        """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
+        the OCP"""
+        t = env.unwrapped.time
+        waypoints = env.unwrapped.ownship.waypoints
+        speed_plan = env.unwrapped.ownship.speed_plan
+        ownship_state = env.unwrapped.ownship.state
+        enc = env.unwrapped.enc
+        do_list = env.unwrapped.ownship.get_do_track_information()
+        goal_state = env.unwrapped.ownship.goal_state
+        w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
+
+        self.mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
+        self.mpc_sensitivities = self.mpc.build_sensitivities()
 
 
 class SACPolicyWithMPC(BasePolicy):
@@ -330,6 +391,8 @@ class SACPolicyWithMPC(BasePolicy):
             "observation_space": self.observation_space,
             "action_space": self.action_space,
             "mpc_config": mpc_config,
+            "observation_type": self.observation_type,
+            "action_type": self.action_type,
         }
         sde_kwargs = {
             "use_sde": use_sde,
@@ -338,7 +401,7 @@ class SACPolicyWithMPC(BasePolicy):
             "clip_mean": clip_mean,
         }
         self.actor_kwargs.update(sde_kwargs)
-        # fix features_dim=0 og action_dim=1
+
         self.actor = SACMPCActor(
             **self.actor_kwargs,
             activation_fn=activation_fn,
@@ -371,17 +434,7 @@ class SACPolicyWithMPC(BasePolicy):
         env: COLAVEnvironment,
         **kwargs,
     ) -> None:
-        """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
-        the OCP"""
-        t = env.unwrapped.time
-        waypoints = env.unwrapped.ownship.waypoints
-        speed_plan = env.unwrapped.ownship.speed_plan
-        ownship_state = env.unwrapped.ownship.state
-        enc = env.unwrapped.enc
-        do_list = env.unwrapped.ownship.get_do_track_information()
-        goal_state = env.unwrapped.ownship.goal_state
-        w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
-        self.actor.mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
+        self.actor.initialize(env, **kwargs)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -409,6 +462,7 @@ class SACPolicyWithMPC(BasePolicy):
         return ContinuousCritic(**critic_kwargs).to(self.device)
 
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
+        # NOT USED IN SACMPC due to not actor NN
         return self.actor(observation, deterministic)
 
     def predict_with_mpc(
@@ -438,9 +492,9 @@ class SACPolicyWithMPC(BasePolicy):
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         actor_infos = [{} for _ in range(batch_size)]
         w = stochasticity.DisturbanceData()
-        for b in range(batch_size):
-            do_arr = observation["TrackingObservation"][b]
-            t = observation["TimeObservation"][b].flatten()[0]
+        for idx in range(batch_size):
+            do_arr = observation["TrackingObservation"][idx]
+            t = observation["TimeObservation"][idx].flatten()[0]
             max_num_do = do_arr.shape[1]
             do_list = []
             for i in range(max_num_do):
@@ -449,7 +503,7 @@ class SACPolicyWithMPC(BasePolicy):
                     do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
 
             # unnormalize ownship state
-            obs_b = {k: v[b] for k, v in observation.items()}
+            obs_b = {k: v[idx] for k, v in observation.items()}
             unnorm_obs_b = self.observation_type.unnormalize(obs_b)
             ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
             disturbance_vector = unnorm_obs_b["DisturbanceObservation"].flatten()
@@ -457,11 +511,11 @@ class SACPolicyWithMPC(BasePolicy):
             w.currents = {"speed": disturbance_vector[0], "direction": disturbance_vector[1]}
             w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3]}
             action, info = self.actor.mpc.act(
-                t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=state[b]
+                t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=state[idx]
             )
-            unnormalized_actions[b, :] = action
-            normalized_actions[b, :] = self.action_type.normalize(action)
-            actor_infos[b] = info
+            unnormalized_actions[idx, :] = action
+            normalized_actions[idx, :] = self.action_type.normalize(action)
+            actor_infos[idx] = info
         return unnormalized_actions, normalized_actions, actor_infos
 
     def set_training_mode(self, mode: bool) -> None:
@@ -554,7 +608,7 @@ class SAC(opa.OffPolicyAlgorithm):
         policy: Type[SACPolicyWithMPC],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
-        buffer_size: int = 1_000_000,  # 1e6
+        buffer_size: int = 1_000,  # 1e6
         learning_starts: int = 0,
         batch_size: int = 64,
         tau: float = 0.005,
@@ -579,7 +633,11 @@ class SAC(opa.OffPolicyAlgorithm):
         _init_setup_model: bool = True,
     ):
         policy_kwargs.update(
-            {"observation_type": env.unwrapped.observation_type, "action_type": env.unwrapped.action_type}
+            {
+                "observation_type": env.unwrapped.observation_type,
+                "action_type": env.unwrapped.action_type,
+                "features_extractor_kwargs": {"batch_size": batch_size},
+            }
         )
         super().__init__(
             policy,
@@ -712,11 +770,13 @@ class SAC(opa.OffPolicyAlgorithm):
 
             with th.no_grad():
                 # Select action according to policy
-                next_actions, next_log_prob = self.actor.action_log_prob(
-                    replay_data.next_observations, replay_data.infos
+                next_log_prob = self.actor.action_log_prob(
+                    replay_data.next_observations, replay_data.next_actions, infos=replay_data.infos
                 )
                 # Compute the next Q values: min over all critics targets
-                next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_actions), dim=1)
+                next_q_values = th.cat(
+                    self.critic_target(replay_data.next_observations, replay_data.next_actions), dim=1
+                )
                 next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
                 # add entropy term
                 next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
@@ -747,7 +807,6 @@ class SAC(opa.OffPolicyAlgorithm):
 
             # Optimize the actor, using MPC-sensitivities
 
-            # Update target networks
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
                 # Copy running stats, see GH issue #996

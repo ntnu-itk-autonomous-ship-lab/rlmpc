@@ -85,7 +85,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         verbose: int = 0,
-        device: Union[th.device, str] = "auto",
+        device: Union[th.device, str] = "cuda" if th.cuda.is_available() else "cpu",
         support_multi_env: bool = False,
         monitor_wrapper: bool = True,
         seed: Optional[int] = None,
@@ -437,7 +437,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             new_obs, rewards, dones, infos = env.step(actions)
             for idx, info in enumerate(infos):
-                info.update({"actor_info": actor_infos[idx]["soln"]})
+                info.update({"actor_info": actor_infos[idx]})
 
             self._num_timesteps += env.num_envs
             num_collected_steps += 1

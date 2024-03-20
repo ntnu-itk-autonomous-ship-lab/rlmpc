@@ -196,6 +196,14 @@ class RLMPC(ci.ICOLAV):
         Returns:
             Tuple[np.ndarray, Dict[str, Any]]: The reference action and the most recent MPC solution.
         """
+        if prev_soln:
+            self._mpc_trajectory = prev_soln["trajectory"]
+            self._mpc_inputs = prev_soln["inputs"]
+            self._t_prev = prev_soln["t_prev"]
+            self._t_prev_mpc = prev_soln["t_prev_mpc"]
+            print(f"Len prev trajectory: {self._mpc_trajectory.shape[1]}")
+            prev_soln = prev_soln["soln"]  # only propagate the previous MPC solver solution further
+
         refs = self.plan(
             t,
             self._waypoints,
@@ -252,8 +260,6 @@ class RLMPC(ci.ICOLAV):
         """
         assert enc is not None, "ENC must be provided to the RL-MPC"
         assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
-
-        N = int(self._mpc.params.T / self._mpc.params.dt)
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
@@ -262,40 +268,39 @@ class RLMPC(ci.ICOLAV):
         if not self._initialized:
             self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
 
-        translated_do_list = hf.translate_dynamic_obstacle_coordinates(
-            do_list, self._map_origin[1], self._map_origin[0]
-        )
-        self._update_mpc_so_polygon_input(ownship_csog_state, enc, self._debug)
-
-        if self._debug:
-            plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
-            ship_poly = mapf.create_ship_polygon(
-                ownship_csog_state[0],
-                ownship_csog_state[1],
-                ownship_csog_state[2],
-                self._config.ship_length,
-                self._config.ship_width,
-                1.0,
-                1.0,
-            )
-            enc.draw_polygon(ship_poly, color="pink")
-
-        do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
-            ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
-        )
-
-        # if self._debug:
-        #     plotters.plot_dynamic_obstacles(
-        #         do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-        #     )
-        #     plotters.plot_dynamic_obstacles(
-        #         do_ho_list, "orange", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-        #     )
-        #     plotters.plot_dynamic_obstacles(
-        #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-        #     )
-
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
+            translated_do_list = hf.translate_dynamic_obstacle_coordinates(
+                do_list, self._map_origin[1], self._map_origin[0]
+            )
+            self._update_mpc_so_polygon_input(ownship_csog_state, enc, self._debug)
+
+            if self._debug:
+                plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
+                ship_poly = mapf.create_ship_polygon(
+                    ownship_csog_state[0],
+                    ownship_csog_state[1],
+                    ownship_csog_state[2],
+                    self._config.ship_length,
+                    self._config.ship_width,
+                    1.0,
+                    1.0,
+                )
+                enc.draw_polygon(ship_poly, color="pink")
+
+            do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
+                ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
+            )
+
+            # if self._debug:
+            #     plotters.plot_dynamic_obstacles(
+            #         do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
+            #     )
+            #     plotters.plot_dynamic_obstacles(
+            #         do_ho_list, "orange", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
+            #     )
+            #     plotters.plot_dynamic_obstacles(
+            #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
+            #     )
             self._mpc_soln = self._mpc.plan(
                 t,
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
@@ -307,6 +312,7 @@ class RLMPC(ci.ICOLAV):
                 w=w,
                 **kwargs,
             )
+            N = int(self._mpc.params.T / self._mpc.params.dt)
             self._mpc_trajectory = self._mpc_soln["trajectory"][:, :N]
             self._mpc_inputs = self._mpc_soln["inputs"][:, :N]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
@@ -318,12 +324,17 @@ class RLMPC(ci.ICOLAV):
                 self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
             )
             self._t_prev_mpc = t
+            # Update the solution dictionary with interpolated trajectory and inputs
+            self._mpc_soln["trajectory"] = self._mpc_trajectory
+            self._mpc_soln["inputs"] = self._mpc_inputs
+            self._mpc_soln["t_prev_mpc"] = t
 
         else:
             self._mpc_trajectory = self._mpc_trajectory[:, 1:]
             self._mpc_inputs = self._mpc_inputs[:, 1:]
 
         self._t_prev = t
+        self._mpc_soln["t_prev"] = t
         lookahead_samples = 10
         self._references = np.zeros((9, len(self._mpc_trajectory[0, lookahead_samples:])))
         self._references[2, :] = self._mpc_trajectory[2, lookahead_samples:]
@@ -333,11 +344,11 @@ class RLMPC(ci.ICOLAV):
         )
         return self._references
 
-    def build_sensitivities(self, tau: float = 0.01) -> mpc_common.NLPSensitivities:
+    def build_sensitivities(self, tau: Optional[float] = None) -> mpc_common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function underlying the MPC NLP with respect to the decision variables and parameters.
 
         Args:
-            tau (float, optional): Barrier parameter used in the primal-dual formulation. Defaults to 0.01.
+            tau (float, optional): Barrier parameter used in the primal-dual formulation. Defaults to None.
 
         Returns:
             mpc_common.NLPSensitivities: Class containing the sensitivity functions necessary for computing the score function gradient in RL context.

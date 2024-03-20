@@ -7,6 +7,8 @@
     Author: Trym Tengesdal
 """
 
+import pathlib
+from sys import platform
 from typing import Tuple
 
 import rlmpc.networks.vanilla_vae_arch2.vae as vae_arch2
@@ -15,6 +17,11 @@ import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+if platform == "linux" or platform == "linux2":
+    VAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/data/vae/")
+elif platform == "darwin":
+    VAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
 
 
 class PerceptionImageVAE(BaseFeaturesExtractor):
@@ -32,27 +39,29 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
 
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
-        model_file = "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae1_model_LD_128_best.pth"
+        if model_file is None:
+            model_file = VAE_DATADIR / "training_vae1_model_LD_128_best.pth"
         self.vae: vae_arch2.VAE = vae_arch2.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
             encoder_conv_block_dims=encoder_conv_block_dims,
             fc_dim=fc_dim,
         )
-        if model_file is not None:
-            self.vae.load_state_dict(
-                th.load(
-                    "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae1_model_LD_128_best.pth",
-                    map_location=th.device("cpu"),
-                )
+
+        self.vae.load_state_dict(
+            th.load(
+                str(model_file),
+                map_location=th.device("cpu"),
             )
-            self.vae.eval()
-            self.vae.set_inference_mode(True)
+        )
+        self.vae.eval()
+        self.vae.set_inference_mode(True)
 
         self.latent_dim = self.vae.latent_dim
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        z_e = self.encode(observations)
+        assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
+        z_e, _, _ = self.vae.encode(observations)
         print(f"z_e shape: {z_e.shape}")
         return z_e
 
@@ -69,8 +78,6 @@ class PathRelativeNavigationNN(BaseFeaturesExtractor):
         self.passthrough = nn.Identity()
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        shape = observations.shape
-        observations = observations[:, 0, :].reshape(shape[0], shape[-1])
         return self.passthrough(observations)
 
 
@@ -87,8 +94,6 @@ class DisturbanceNN(BaseFeaturesExtractor):
         self.passthrough = nn.Identity()
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        shape = observations.shape
-        observations = observations[:, 0, :].reshape(shape[0], shape[-1])
         return self.passthrough(observations)
 
 
@@ -99,7 +104,8 @@ class TrackingGRU(BaseFeaturesExtractor):
         self,
         observation_space: spaces.Space,
         features_dim: int = 30,
-        num_layers: int = 2,
+        num_layers: int = 1,
+        batch_size: int = 1,
     ) -> None:
         super(TrackingGRU, self).__init__(observation_space, features_dim=features_dim)
 
@@ -107,16 +113,21 @@ class TrackingGRU(BaseFeaturesExtractor):
         self.hidden_dim = features_dim
         self.num_layers = num_layers
         self.gru = nn.GRU(input_size=self.input_dim, hidden_size=features_dim, num_layers=num_layers, batch_first=True)
+        self.hidden = self.init_hidden(batch_size)
 
-    def forward(self, observations: th.Tensor, hidden: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
-
+    def forward(self, observations: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+        # Shift the last dimension to the middle
+        observations = observations.permute(0, 2, 1)
         packed_seq = rnn_utils.pack_padded_sequence(
             observations, [len(obs) for obs in observations], batch_first=True, enforce_sorted=False
         )
-        packed_output, hidden = self.gru(packed_seq)
+        packed_output, hidden = self.gru(packed_seq, self.hidden)
         output, _ = rnn_utils.pad_packed_sequence(packed_output, batch_first=True)
 
-        return output, hidden
+        self.hidden = hidden
+        assert hidden == output[:, -1, :]
+        # Output is the last hidden state
+        return output[:, -1, :]
 
     def init_hidden(self, batch_size: int) -> th.Tensor:
         return th.zeros(self.num_layers, batch_size, self.hidden_dim)
@@ -129,7 +140,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
         This corresponds to the number of unit for the last layer.
     """
 
-    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256):
+    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256, batch_size: int = 1):
         # We do not know features-dim here before going over all the items,
         # so put something dummy for now. PyTorch requires calling
         # nn.Module.__init__ before adding modules
@@ -147,7 +158,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = TrackingGRU(subspace, features_dim=30, num_layers=2)
+                extractors[key] = TrackingGRU(subspace, features_dim=30, num_layers=2, batch_size=batch_size)
                 total_concat_size += extractors[key].features_dim
             elif key == "DisturbanceObservation":
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])

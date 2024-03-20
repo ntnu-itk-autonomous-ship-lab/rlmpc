@@ -9,7 +9,7 @@
 """
 
 from dataclasses import asdict, dataclass, field
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import casadi as csd
 import matplotlib.pyplot as plt
@@ -109,6 +109,8 @@ class SolverConfig:
 
 @dataclass
 class NLPSensitivities:
+    """Class for containing MPC problem sensitivity functions"""
+
     dlag_dw: csd.Function  # Partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}
     dlag_dp_f: csd.Function  # Partial derivative of the Lagrangian wrt the fixed parameters
     dlag_dp: csd.Function  # Partial derivative of the Lagrangian wrt the adjustable parameters
@@ -116,31 +118,33 @@ class NLPSensitivities:
         csd.Function
     )  # Second order partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}, i.e. the Hessian
 
-    dr_dz: csd.Function  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers)
+    dr_dz: (
+        csd.Function
+    )  # Partial derivative of the KKT matrix wrt the NLP solution z = (decision variables, multipliers)
     dr_dp: csd.Function  # Partial derivative of the KKT matrix wrt the adjustable parameters
     dr_dp_f: csd.Function  # Partial derivative of the KKT matrix wrt the fixed parameters
 
     # See Gros and Zanon "Reinforcement Learning based on MPC and the Stochastic Policy Gradient Method" for info on the below sensitivity functions
-    dr_dz_bar: (
+    dr_dz_bar: Optional[
+        (csd.Function)
+    ]  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers) with first input replaced by stochastic perturbation vector d
+    dr_dp_bar: Optional[
         csd.Function
-    )  # Partial derivative of the KKT matrix wrt the NLP solution (decision variables, multipliers) with first input replaced by stochastic perturbation vector d
-    dr_dp_bar: (
+    ]  # Partial derivative of the KKT matrix wrt the adjustable parameters with first input replaced by stochastic perturbation vector d
+    dr_dp_f_bar: Optional[
         csd.Function
-    )  # Partial derivative of the KKT matrix wrt the adjustable parameters with first input replaced by stochastic perturbation vector d
-    dr_dp_f_bar: (
-        csd.Function
-    )  # Partial derivative of the KKT matrix wrt the fixed parameters with first fixed parameter replaced by first input vector
-    d2r_dp_da: list[
-        csd.Function
+    ]  # Partial derivative of the KKT matrix wrt the fixed parameters with first fixed parameter replaced by first input vector
+    d2r_dp_da: Optional[
+        list[csd.Function]
     ]  # List of second order partial derivatives of the KKT matrix wrt the adjustable parameters and the action (first input vector). Length of list is equal to the number of adjustable parameters.
-    d2r_dp_dz_bar: list[
-        csd.Function
+    d2r_dp_dz_bar: Optional[
+        list[csd.Function]
     ]  # List of second order partial derivatives of the KKT matrix wrt the adjustable parameters and the NLP solution (decision variables, multipliers) with first input replaced by stochastic perturbation vector d. Length of list is equal to the number of adjustable parameters.
-    d2r_dzdz_j_bar: list[
-        csd.Function
+    d2r_dzdz_j_bar: Optional[
+        list[csd.Function]
     ]  # List of second order partial derivatives of the KKT matrix wrt the NLP solution (decision variables, multipliers) with first element of (z_bar) by stochastic perturbation vector d. Length of list is equal to the number of decision variables
-    d2r_dadz_j_bar: list[
-        csd.Function
+    d2r_dadz_j_bar: Optional[
+        list[csd.Function]
     ]  # List of second order partial derivatives of the KKT matrix wrt the action (first input vector) and the NLP solution z_bar where the first input is replaced by stochastic perturbation vector d. Length of list is equal to the number of decision variables
 
     @classmethod
@@ -153,13 +157,13 @@ class NLPSensitivities:
             dr_dz=input_dict["dr_dz"],
             dr_dp=input_dict["dr_dp"],
             dr_dp_f=input_dict["dr_dp_f"],
-            dr_dz_bar=input_dict["dr_dz_bar"],
-            dr_dp_bar=input_dict["dr_dp_bar"],
-            dr_dp_f_bar=input_dict["dr_dp_f_bar"],
-            d2r_dp_da=input_dict["d2r_dp_da"],
-            d2r_dp_dz_bar=input_dict["d2r_dp_dz_bar"],
-            d2r_dzdz_j_bar=input_dict["d2r_dzdz_j_bar"],
-            d2r_dadz_j_bar=input_dict["d2r_dadz_j_bar"],
+            dr_dz_bar=input_dict["dr_dz_bar"] if "dr_dz_bar" in input_dict else None,
+            dr_dp_bar=input_dict["dr_dp_bar"] if "dr_dp_bar" in input_dict else None,
+            dr_dp_f_bar=input_dict["dr_dp_f_bar"] if "dr_dp_f_bar" in input_dict else None,
+            d2r_dp_da=input_dict["d2r_dp_da"] if "d2r_dp_da" in input_dict else None,
+            d2r_dp_dz_bar=input_dict["d2r_dp_dz_bar"] if "d2r_dp_dz_bar" in input_dict else None,
+            d2r_dzdz_j_bar=input_dict["d2r_dzdz_j_bar"] if "d2r_dzdz_j_bar" in input_dict else None,
+            d2r_dadz_j_bar=input_dict["d2r_dadz_j_bar"] if "d2r_dadz_j_bar" in input_dict else None,
         )
         return output
 

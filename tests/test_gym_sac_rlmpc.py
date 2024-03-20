@@ -100,7 +100,17 @@ if __name__ == "__main__":
         "use_expln": False,
         "clip_mean": 2.0,
     }
-    model = sac_rlmpc.SAC(policy, env, verbose=1, policy_kwargs=policy_kwargs)
+    model = sac_rlmpc.SAC(
+        policy,
+        env,
+        verbose=1,
+        policy_kwargs=policy_kwargs,
+        buffer_size=50,
+        learning_starts=0,
+        batch_size=8,
+        train_freq=(50, "step"),
+        device="cpu",
+    )
 
     model.learn(total_timesteps=100, progress_bar=True)
     mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)

@@ -596,8 +596,8 @@ class CasadiMPC:
         U, X, Sigma = self._extract_trajectories(soln)
         w_sub = np.concatenate((U.T.flatten(), X.T.flatten()))
         self.print_solution_info(soln, parameter_values, stats, t_solve)
-        self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
-        self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
+        # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
+        # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
 
         if not stats["success"]:
             mpc_common.plot_casadi_solver_stats(stats, True)
@@ -1523,16 +1523,21 @@ class CasadiMPC:
             self._p_fixed_so_values = np.concatenate((A.flatten(), b.flatten()), axis=0).tolist()
         return self._p_fixed_so_values
 
-    def build_sensitivities(self, tau: float = 0.01) -> mpc_common.NLPSensitivities:
+    def build_sensitivities(
+        self, tau: Optional[float] = None, second_order: Optional[bool] = False
+    ) -> mpc_common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function with respect to the decision variables and parameters.
 
         Args:
-            - tau (float): Barrier parameter for the primal-dual interior point method formulation.
+            - tau (Optional[float]): Barrier parameter. Defaults to None.
+            - second_order (Optional[bool]): Whether or not to generate second order sensitivities (for the stochastic policy gradient case)
 
         Returns:
             - mpc_common.NLPSensitivities: Class containing the sensitivity functions necessary for
                 computing the score function  gradient in RL context, and more.
         """
+        if tau is None:
+            tau = self._solver_options.mu_target
         output_dict = {}
         G = self._nlp_eq
         H = self._nlp_ineq
@@ -1590,7 +1595,7 @@ class CasadiMPC:
         R_kkt = csd.vertcat(
             csd.transpose(dlag_dw),
             G,
-            csd.diag(mu) * H + tau,
+            csd.diag(mu) @ H + tau,
         )
 
         # # Generate sensitivity of the KKT matrix
@@ -1611,9 +1616,11 @@ class CasadiMPC:
         # dz_dp_f = -csd.inv(dr_dz) @ dr_dp_f
         # dz_dp_f_func = csd.Function("dz_dp_f_func", [z, self._p_fixed, self._p_adjustable], [dz_dp_f])
 
+        if not second_order:
+            return mpc_common.NLPSensitivities.from_dict(output_dict)
+
         # Generate sensitivity of z_bar (contains perturbation as first element, with u0 as a fixed parameter)
         # with respect to the parameters and the perturbation (if using stochastic policies)
-
         z_bar_list = [self._nlp_perturbation] + self._opt_vars_list[1:] + [lamb, mu]
         z_bar = csd.vertcat(*z_bar_list)
         p_fixed_bar_list = [self._opt_vars_list[0]] + self._p_fixed_list[1:]

@@ -13,10 +13,7 @@ import casadi as csd
 import colav_simulator.common.map_functions as mapf
 import numpy as np
 import rlmpc.common.helper_functions as hf
-<<<<<<< HEAD
 import rlmpc.common.map_functions as mapf
-=======
->>>>>>> 584db34bd60a24470a355d7b2cca2613083a7e20
 import rlmpc.common.math_functions as mf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common

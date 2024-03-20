@@ -181,6 +181,9 @@ def interpolate_solution(
             )
 
         return intp_trajectory, intp_inputs
+    print(f"len interp mpc trajectory: {len(intp_trajectory[0, :])}")
+    if len(intp_trajectory[0, :]) < int(T_mpc / dt_mpc):
+        print("hh")
     return intp_trajectory, intp_inputs
 
 
