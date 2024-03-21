@@ -487,6 +487,7 @@ class DictReplayBuffer(ReplayBuffer):
 
         # Reshape to handle multi-dim and discrete action spaces, see GH #970 #1392
         action = action.reshape((self.n_envs, self.action_dim))
+        next_action = next_action.reshape((self.n_envs, self.action_dim))
 
         self.actions[self.pos] = np.array(action).copy()
         self.next_actions[self.pos] = np.array(next_action).copy()

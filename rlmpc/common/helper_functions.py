@@ -145,15 +145,14 @@ def create_los_based_trajectory(
 
 
 def interpolate_solution(
-    trajectory: np.ndarray, inputs: np.ndarray, t: float, t_prev: float, T_mpc: float, dt_mpc: float
+    trajectory: np.ndarray, inputs: np.ndarray, dt_sim: float, T_mpc: float, dt_mpc: float
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Interpolates the solution from the MPC to the time step in the simulation.
 
     Args:
         - trajectory (np.ndarray): The solution state trajectory.
         - inputs (np.ndarray): The solution input trajectory.
-        - t (float): The current time step.
-        - t_prev (float): The previous time step.
+        - dt_sim (float): The simulation time step.
         - T_mpc (float): The MPC horizon.
         - dt_mpc (float): The MPC time step.
 
@@ -162,10 +161,9 @@ def interpolate_solution(
     """
     intp_trajectory = trajectory
     intp_inputs = inputs
-    if dt_mpc > t - t_prev or dt_mpc < t - t_prev:
+    if dt_mpc > dt_sim or dt_mpc < dt_sim:
         nx = trajectory.shape[0]
         nu = inputs.shape[0]
-        dt_sim = np.max([t - t_prev, 0.5])
         sim_times = np.arange(0.0, T_mpc, dt_sim)
         mpc_times = np.arange(0.0, T_mpc, dt_mpc)
         n_samples = len(sim_times)
@@ -181,9 +179,6 @@ def interpolate_solution(
             )
 
         return intp_trajectory, intp_inputs
-    print(f"len interp mpc trajectory: {len(intp_trajectory[0, :])}")
-    if len(intp_trajectory[0, :]) < int(T_mpc / dt_mpc):
-        print("hh")
     return intp_trajectory, intp_inputs
 
 

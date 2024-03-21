@@ -114,7 +114,13 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.policy_kwargs.update(
             {"observation_type": env.unwrapped.observation_type, "action_type": env.unwrapped.action_type}
         )
+
+        self._last_actions: np.ndarray | None = None
         self._last_actor_info: List[Dict[str, Any]] = [{} for _ in range(self.n_envs)]
+        self._last_rewards: float = np.zeros(self.n_envs)
+        self._last_dones: np.ndarray = np.zeros(self.n_envs, dtype=bool)
+        self._last_infos: List[Dict[str, Any]] = [{} for _ in range(self.n_envs)]
+        self._current_obs: Union[np.ndarray, Dict[str, np.ndarray]] | None = None
         self.learning_rate = learning_rate
         self.buffer_size: int = buffer_size
         self.batch_size: int = batch_size
@@ -176,6 +182,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
     def _sample_action(
         self,
         learning_starts: int,
+        observation: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
+        actor_info: Optional[Union[Dict, List[Dict]]] = None,
         action_noise: Optional[sb3_noise.ActionNoise] = None,
         n_envs: int = 1,
     ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
@@ -187,19 +195,23 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         Args:
             - learning_starts (int): Number of steps before learning for the warm-up phase.
+            - observation (Optional[Union[np.ndarray, Dict[str, np.ndarray]]]): The current observation
+            - actor_info (Optional[Union[Dict, List[Dict]]]): The last MPC internal states (solution info etc.)
             - action_noise (Optional[ActionNoise]): Action noise that will be used for exploration
                 Required for deterministic policy (e.g. TD3). This can also be used
                 in addition to the stochastic policy for SAC.
             - n_envs (int): Number of parallel environments.
 
         Returns:
-            - Tuple[np.ndarray, np.ndarray, List[Dict]]: scaled action(s) to take in the environment, and unscaled action that will be stored in the replay buffer. Also, information on the MPC internal states (solution info etc.) is returned
+            - Tuple[np.ndarray, np.ndarray, List[Dict]]: scaled action(s) to take in the environment, and the corresponding unscaled action(s). Also, information on the MPC internal states (solution info etc.) is returned.
         """
+        observation = self._last_obs if observation is None else observation
+        actor_info = self._last_actor_info if actor_info is None else actor_info
         # Note: when using continuous actions,
         # we assume that the policy uses tanh to scale the action
         # We use non-deterministic action in the case of SAC, for TD3, it does not matter
         unnormalized_actions, normalized_actions, actor_infos = self.predict_with_mpc(
-            observation=self._last_obs, state=self._last_actor_info, deterministic=False
+            observation=observation, state=actor_info, deterministic=False
         )
 
         # Add noise to the action (improve exploration)
@@ -429,18 +441,48 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         callback.on_rollout_start()
         continue_training = True
+        action_count = 0
+        self._current_obs = self._last_obs
         while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
             if env.envs[0].unwrapped.time == 0.0:
                 self.policy.initialize_mpc_actor(env.envs[0])
 
-            actions, buffer_actions, actor_infos = self._sample_action(learning_starts, action_noise, env.num_envs)
+            actions, buffer_actions, actor_infos = self._sample_action(
+                learning_starts,
+                observation=self._current_obs,
+                actor_info=self._last_actor_info,
+                action_noise=action_noise,
+                n_envs=env.num_envs,
+            )
 
-            new_obs, rewards, dones, infos = env.step(actions)
+            # SARSA style buffer storage
+            action_count += 1
+            if action_count == 2:
+                action_count = 0
+                self._store_transition(
+                    replay_buffer,
+                    self._last_obs,
+                    self._last_actions,
+                    self._current_obs,
+                    actions,
+                    self._last_rewards,
+                    self._last_dones,
+                    self._last_infos,
+                )
+                self._num_timesteps += env.num_envs
+                num_collected_steps += 1
+
+            next_obs, rewards, dones, infos = env.step(actions)
+            self._last_obs = self._current_obs
+            self._last_actions = actions
+            self._last_actor_info = actor_infos
+            self._current_obs = next_obs
+            self._last_rewards = rewards
+            self._last_dones = dones
+
             for idx, info in enumerate(infos):
                 info.update({"actor_info": actor_infos[idx]})
-
-            self._num_timesteps += env.num_envs
-            num_collected_steps += 1
+            self._last_infos = infos
 
             # Give access to local variables
             callback.update_locals(locals())
@@ -453,9 +495,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
 
-            # Store data in replay buffer (normalized action and unnormalized observation)
-            self._store_transition(replay_buffer, actions, new_obs, rewards, dones, infos)
-
             self._update_current_progress_remaining(self._num_timesteps, self._total_timesteps)
 
             for idx, done in enumerate(dones):
@@ -463,6 +502,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     # Update stats
                     num_collected_episodes += 1
                     self._episode_num += 1
+                    action_count = 0
+                    self._last_actor_info[idx] = {}
+                    self._last_dones[idx] = False
 
                     if action_noise is not None:
                         kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
@@ -478,8 +520,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
     def _store_transition(
         self,
         replay_buffer: rlmpc_buffers.ReplayBuffer,
+        obs: Union[np.ndarray, Dict[str, np.ndarray]],
         buffer_action: np.ndarray,
         new_obs: Union[np.ndarray, Dict[str, np.ndarray]],
+        next_buffer_action: np.ndarray,
         reward: np.ndarray,
         dones: np.ndarray,
         infos: List[Dict[str, Any]],
@@ -491,9 +535,11 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         Args:
             - replay_buffer (ReplayBuffer): Replay buffer object where to store the transition.
-            - buffer_action (np.ndarray): normalized action
+            - obs (Union[np.ndarray, Dict[str, np.ndarray]]): last observation
+            - buffer_action (np.ndarray): normalized action corresponding to the last observation
             - new_obs (Union[np.ndarray, Dict[str, np.ndarray]]): next observation in the current episode
                 or first observation of the episode (when dones is True)
+            - next_buffer_action (np.ndarray): next normalized action corresponding to the new observation
             - reward (np.ndarray): reward for the current transition
             - dones (np.ndarray): Termination signals
             - infos (List[Dict[str, Any]]): List of additional information about the transition.
@@ -512,9 +558,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         # first observation of the next episode
         for i, done in enumerate(dones):
             if done and infos[i].get("terminal_observation") is not None:
-                infos[i][
-                    "actor_info"
-                ] = {}  # Clear the actor (state) info for the terminal observation, as the actor state should
                 # not be used in the next episode
                 if isinstance(next_obs, dict):
                     next_obs_ = infos[i]["terminal_observation"]
@@ -531,16 +574,14 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                         next_obs[i] = self._vec_normalize_env.unnormalize_obs(next_obs[i, :])
 
         replay_buffer.add(
-            self._last_original_obs,
+            obs,
             next_obs,
             buffer_action,
+            next_buffer_action,
             reward_,
             dones,
             infos,
         )
-
-        self._last_obs = new_obs
-        self._last_actor_info = [info.get("actor_info") for info in infos]
         # Save the unnormalized observation
         if self._vec_normalize_env is not None:
             self._last_original_obs = new_obs_

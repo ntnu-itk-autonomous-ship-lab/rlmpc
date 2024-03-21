@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Tuple
@@ -78,7 +79,6 @@ class COLREGSHandler:
             - Separate dynamic obstacles by their relevance to the own-ship, into three lists: crossing, head-on and overtaking.
             - Ignore stand-on obstacles.
             - For each list, sort the dynamic obstacles by their distance/danger level to the own-ship.
-            -
 
         Args:
             xs (np.ndarray): State of the own-ship on the form [x, y, chi, U]^T

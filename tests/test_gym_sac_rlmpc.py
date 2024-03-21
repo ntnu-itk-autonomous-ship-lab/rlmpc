@@ -78,9 +78,11 @@ if __name__ == "__main__":
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "max_number_of_episodes": 1,
+        "action_sampling_time": 1.0 / 0.2,  # from rlmpc.yaml config file
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
+        "action_type": "continuous_relative_los_reference_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
         "seed": 15,
@@ -105,10 +107,10 @@ if __name__ == "__main__":
         env,
         verbose=1,
         policy_kwargs=policy_kwargs,
-        buffer_size=50,
+        buffer_size=40,
         learning_starts=0,
         batch_size=8,
-        train_freq=(50, "step"),
+        train_freq=(40, "step"),
         device="cpu",
     )
 

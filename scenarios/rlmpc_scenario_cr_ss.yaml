@@ -84,7 +84,7 @@ ship_list:
         K_p_u: 4.0
         K_i_u: 0.3
         K_p_psi: 4.0
-        K_d_psi: 2.0
+        K_d_psi: 6.0
         K_i_psi: 0.005
         max_speed_error_int: 2.0
         speed_error_int_threshold: 1.0

@@ -1,5 +1,25 @@
 
-
+los:
+  type: dict
+  schema:
+    pass_angle_threshold:
+      required: True
+      type: float
+    R_a:
+      required: True
+      type: float
+    K_p:
+      required: True
+      type: float
+    K_i:
+      required: True
+      type: float
+    max_cross_track_error_int:
+      required: True
+      type: float
+    cross_track_error_int_threshold:
+      required: True
+      type: float
 colregs_handler:
   required: True
   type: dict
