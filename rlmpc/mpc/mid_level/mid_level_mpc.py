@@ -83,8 +83,25 @@ class MidlevelMPC:
             )
 
     @property
+    def model_dims(self) -> Tuple[int, int]:
+        return self._casadi_mpc.model.dims()
+
+    @property
     def params(self) -> mpc_parameters.MidlevelMPCParams:
         return self._params
+
+    @property
+    def adjustable_params(self) -> np.ndarray:
+        return self._casadi_mpc.get_adjustable_params()
+
+    @property
+    def fixed_params(self) -> np.ndarray:
+        return self._casadi_mpc.get_fixed_params()
+
+    def update_adjustable_params(self, delta: np.ndarray) -> None:
+        self._casadi_mpc.update_adjustable_params(delta)
+        if self._acados_enabled and ACADOS_COMPATIBLE:
+            self._acados_mpc.update_adjustable_params(delta)
 
     def construct_ocp(
         self,

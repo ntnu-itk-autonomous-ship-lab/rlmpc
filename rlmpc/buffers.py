@@ -341,11 +341,11 @@ class ReplayBuffer(BaseBuffer):
         # Sample randomly the env idx
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
-        if self.optimize_memory_usage:
-            next_obs = self._normalize_obs(self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :], env)
-        else:
-            next_obs = self._normalize_obs(self.next_observations[batch_inds, env_indices, :], env)
-
+        # if self.optimize_memory_usage:
+        #     next_obs = self._normalize_obs(self.observations[(batch_inds + 1) % self.buffer_size, env_indices, :], env)
+        # else:
+        #     next_obs = self._normalize_obs(self.next_observations[batch_inds, env_indices, :], env)
+        next_obs = self.next_observations[batch_inds, env_indices, :]
         data = (
             self._normalize_obs(self.observations[batch_inds, env_indices, :], env),
             self.actions[batch_inds, env_indices, :],
@@ -526,13 +526,8 @@ class DictReplayBuffer(ReplayBuffer):
         # Sample randomly the env idx
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
-        # Normalize if needed and remove extra dimension (we are using only one env for now)
-        obs_ = self._normalize_obs(
-            {key: obs[batch_inds, env_indices, :] for key, obs in self.observations.items()}, env
-        )
-        next_obs_ = self._normalize_obs(
-            {key: obs[batch_inds, env_indices, :] for key, obs in self.next_observations.items()}, env
-        )
+        obs_ = {key: obs[batch_inds, env_indices, :] for key, obs in self.observations.items()}
+        next_obs_ = {key: obs[batch_inds, env_indices, :] for key, obs in self.next_observations.items()}
 
         # Convert to torch tensor
         observations = {key: self.to_torch(obs) for key, obs in obs_.items()}

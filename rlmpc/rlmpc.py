@@ -236,6 +236,34 @@ class RLMPC(ci.ICOLAV):
         )
         return action, mpc_output
 
+    def get_mpc_params(self) -> mpc_params.MidlevelMPCParams:
+        """Returns the MPC parameters.
+
+        Returns:
+            mpc_params.MidlevelMPCParams: The MPC parameters.
+        """
+        return self._mpc.params
+
+    def get_mpc_model_dims(self) -> Tuple[int, int]:
+        """Returns the model dimensions.
+
+        Returns:
+            Tuple[int, int]: The MPC state and input dimensions.
+        """
+        return self._mpc.model_dims
+
+    def get_adjustable_mpc_params(self) -> np.ndarray:
+        """Returns the adjustable parameters of the MPC NLP."""
+        return self._mpc.adjustable_params
+
+    def get_fixed_mpc_params(self) -> np.ndarray:
+        """Returns the fixed parameters of the (casadi) MPC NLP."""
+        return self._mpc.fixed_params
+
+    def update_adjustable_mpc_params(self, delta: np.ndarray) -> None:
+        """Updates the adjustable parameters of the MPC NLP."""
+        self._mpc.update_adjustable_params(delta)
+
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
 

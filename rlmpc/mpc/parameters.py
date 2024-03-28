@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from enum import Enum
@@ -103,6 +104,16 @@ class MidlevelMPCParams(IParams):
     reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
+    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
+    max_num_so_constr: int = 5  # maximum number of static obstacle constraints
+    max_num_do_constr_per_zone: int = 5  # maximum number of dynamic obstacle constraints
+
+    w_L2: float = 1e4  # slack variable weight L2 norm
+    w_L1: float = 1e2  # slack variable weight L1 norm
+    gamma: float = 0.9  # discount factor in RL setting
+    r_safe_so: float = 5.0  # safety distance radius to static obstacles
+
+    # Adjustable
     Q_p: np.ndarray = np.diag(
         [0.1, 0.1, 1.0]
     )  # path following cost matrix, position (x, y) and speed assignment (s_dot / path variable).
@@ -123,15 +134,7 @@ class MidlevelMPCParams(IParams):
     y_0_ot: float = 100.0
     d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
     w_colregs: np.ndarray = np.array([1.0, 1.0, 1.0])  # weights for the COLREGS potential functions
-
-    w_L2: float = 1e4  # slack variable weight L2 norm
-    w_L1: float = 1e2  # slack variable weight L1 norm
-    gamma: float = 0.9  # discount factor in RL setting
-    r_safe_so: float = 5.0  # safety distance radius to static obstacles
     r_safe_do: float = 10.0  # safety distance radius to dynamic obstacles
-    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
-    max_num_so_constr: int = 5  # maximum number of static obstacle constraints
-    max_num_do_constr_per_zone: int = 5  # maximum number of dynamic obstacle constraints
 
     @classmethod
     def from_dict(self, config_dict: dict):
@@ -184,3 +187,26 @@ class MidlevelMPCParams(IParams):
                 self.r_safe_do,
             ]
         )
+
+    def set_adjustable(self, adjustable: np.ndarray) -> None:
+        """Sets the adjustable parameters.
+
+        Args:
+            adjustable (np.ndarray): Array of adjustable parameters.
+        """
+        self.Q_p = np.diag(adjustable[:3])
+        self.alpha_app_course = adjustable[3:5]
+        self.alpha_app_speed = adjustable[5:7]
+        self.K_app_course = adjustable[7]
+        self.K_app_speed = adjustable[8]
+        self.K_fuel = adjustable[9]
+        self.alpha_cr = adjustable[10:12]
+        self.y_0_cr = adjustable[12]
+        self.alpha_ho = adjustable[13:15]
+        self.x_0_ho = adjustable[15]
+        self.alpha_ot = adjustable[16:18]
+        self.x_0_ot = adjustable[18]
+        self.y_0_ot = adjustable[19]
+        self.d_attenuation = adjustable[20]
+        self.w_colregs = adjustable[21:24]
+        self.r_safe_do = adjustable[24]

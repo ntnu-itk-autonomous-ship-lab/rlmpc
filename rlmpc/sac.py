@@ -95,6 +95,7 @@ class SACMPCActor(BasePolicy):
 
         action_dim = get_action_dim(self.action_space)
         self.log_std_dev = th.nn.Parameter(th.ones(1, action_dim) * log_std_init)
+        self.log_std = log_std_init
 
         # Save arguments to re-create object at loading
         self.use_sde = use_sde
@@ -123,6 +124,17 @@ class SACMPCActor(BasePolicy):
             )
         self.mpc = rlmpc.RLMPC(mpc_config)
         self.mpc_sensitivities = None
+        nx, nu = self.mpc.get_mpc_model_dims()
+        self.mpc_params = self.mpc.get_mpc_params()
+        n_samples = int(self.mpc_params.T / self.mpc_params.dt)
+        lookahead_sample = 3
+        # Indices for the RLMPC action a = [x_LD, y_LD, speed_0]
+        # where LD is the lookahead sample (3)
+        self.action_indices = [
+            nu * n_samples + lookahead_sample * nx,
+            nu * n_samples + (lookahead_sample * nx + 1),
+            nu * n_samples + (0 * nx + 3),
+        ]
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -808,9 +820,26 @@ class SAC(opa.OffPolicyAlgorithm):
             actor_losses.append(actor_loss.item())
 
             sens = self.policy.sensitivities()
-            dz_dp = sens.dr_dp()
 
-            # Optimize the actor, using MPC-sensitivities
+            # kernel/reparameterization trick
+            eps = th.randn_like(replay_data.actions)
+            cov = th.eye(replay_data.actions.shape[1]) * th.exp(th.Tensor([self.actor.log_std]))
+            cholesky_cov = th.linalg.cholesky(cov)
+            sampled_actions = replay_data.actions + (cholesky_cov @ eps.T).T
+            for b in range(batch_size):
+                actor_info = replay_data.infos[b][0]["actor_info"]
+                if not actor_info["optimal"]:
+                    continue
+
+                soln = actor_info["soln"]
+                p = actor_info["p"]
+                p_fixed = actor_info["p_fixed"]
+                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0)
+
+                dr_dz = sens.dr_dz(z, p_fixed, p).full()
+                dr_dp = sens.dr_dp(z, p_fixed, p).full()
+                dz_dp = -np.linalg.inv(dr_dz) @ dr_dp
+                da_dp = dz_dp[self.actor.action_indices, :]
 
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)

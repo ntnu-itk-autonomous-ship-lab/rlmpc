@@ -2,12 +2,10 @@ from pathlib import Path
 
 import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.paths as rl_dp
 import rlmpc.sac as sac_rlmpc
-import stable_baselines3.common.vec_env as sb3_vec_env
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
@@ -110,7 +108,7 @@ if __name__ == "__main__":
         buffer_size=100,
         learning_starts=0,
         batch_size=2,
-        train_freq=(6, "step"),
+        train_freq=(4, "step"),
         device="cpu",
     )
 

@@ -561,17 +561,11 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 # not be used in the next episode
                 if isinstance(next_obs, dict):
                     next_obs_ = infos[i]["terminal_observation"]
-                    # VecNormalize normalizes the terminal observation
-                    if self._vec_normalize_env is not None:
-                        next_obs_ = self._vec_normalize_env.unnormalize_obs(next_obs_)
                     # Replace next obs for the correct envs
                     for key in next_obs.keys():
                         next_obs[key][i] = next_obs_[key]
                 else:
                     next_obs[i] = infos[i]["terminal_observation"]
-                    # VecNormalize normalizes the terminal observation
-                    if self._vec_normalize_env is not None:
-                        next_obs[i] = self._vec_normalize_env.unnormalize_obs(next_obs[i, :])
 
         replay_buffer.add(
             obs,

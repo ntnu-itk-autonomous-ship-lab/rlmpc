@@ -36,7 +36,7 @@ class CasadiMPC:
         params: parameters.MidlevelMPCParams,
         solver_options: mpc_common.CasadiSolverOptions,
     ) -> None:
-        self._model = model
+        self.model = model
         self._params0: parameters.MidlevelMPCParams = params
         self._params: parameters.MidlevelMPCParams = params
 
@@ -127,6 +127,15 @@ class CasadiMPC:
     def params(self):
         return self._params
 
+    def update_adjustable_params(self, delta_p: np.ndarray) -> None:
+        """Updates the adjustable parameters in the MPC.
+
+        Args:
+            - delta_p (np.ndarray): Change in the adjustable parameters.
+        """
+        self._p_adjustable_values += delta_p
+        self.params.set_adjustable(self._p_adjustable_values)
+
     def get_adjustable_params(self) -> np.ndarray:
         """Returns the RL-tuneable parameters in the MPC.
 
@@ -136,6 +145,14 @@ class CasadiMPC:
         mdl_adjustable_params = np.array([])
         mpc_adjustable_params = self.params.adjustable()
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
+
+    def get_fixed_params(self) -> np.ndarray:
+        """Returns the fixed parameter values for the NLP problem.
+
+        Returns:
+            np.ndarray: Fixed parameter values for the NLP problem.
+        """
+        return self._p_fixed_values
 
     def _set_path_information(
         self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float]
@@ -185,8 +202,8 @@ class CasadiMPC:
 
         self._s = 0.001
         self._s_final_value = s_final
-        self._model.set_min_path_variable(self._s)
-        self._model.set_max_path_variable(s_final)  # margin
+        self.model.set_min_path_variable(self._s)
+        self.model.set_max_path_variable(s_final)  # margin
         print("Path information set. | s_final: ", s_final)
 
     def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int, p: Optional[np.ndarray] = None) -> np.ndarray:
@@ -203,7 +220,7 @@ class CasadiMPC:
             np.ndarray: Predicted states.
         """
         p = p = self._p_ship_mdl_values if p is None else p
-        X = self._model.erk4_n_step(xs, u, p, self._params.dt, N)
+        X = self.model.erk4_n_step(xs, u, p, self._params.dt, N)
         return X
 
     def _create_initial_warm_start(
@@ -227,7 +244,7 @@ class CasadiMPC:
         self._s_dot = self.compute_path_variable_derivative(self._s)
 
         n_colregs_zones = 3
-        nx, nu = self._model.dims()
+        nx, nu = self.model.dims()
         N = int(self._params.T / self._params.dt)
         inputs = np.zeros((nu, N))
 
@@ -271,7 +288,7 @@ class CasadiMPC:
 
         for i in range(n_attempts):
             inputs = np.tile(u_attempts[i], (N, 1)).T
-            warm_start_traj = self._model_prediction(xs_k, inputs, N + 1, p=v_disturbance)
+            warm_start_traj = self.model_prediction(xs_k, inputs, N + 1, p=v_disturbance)
             chi = warm_start_traj[2, :]
             chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
             warm_start_traj[2, :] = chi_unwrapped
@@ -345,7 +362,7 @@ class CasadiMPC:
             Tuple[np.ndarray, np.ndarray, np.ndarray, bool]: The new warm start, corresponding state and input trajectories, and a boolean indicating if the warm start was successful.
         """
         N = int(self._params.T / self._params.dt)
-        nx, nu = self._model.dims()
+        nx, nu = self.model.dims()
         Sigma_warm_start = np.concatenate(
             (Sigma_prev[:, n_shifts:], np.tile(Sigma_prev[:, -1], (n_shifts, 1)).T), axis=1
         )
@@ -366,7 +383,7 @@ class CasadiMPC:
 
         s_dot_shifted = X_prev[5, n_shifts]
         xs_init_mpc[4:] = np.array([s_shifted, s_dot_shifted])
-        X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1, p=v_disturbance)
+        X_warm_start = self.model_prediction(xs_init_mpc, U_warm_start, N + 1, p=v_disturbance)
         chi = X_warm_start[2, :].tolist()
         X_warm_start[2, :] = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
         w_warm_start = np.concatenate(
@@ -411,7 +428,7 @@ class CasadiMPC:
             - enc (senc.ENC): Electronic Navigational Chart object.
             - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
         """
-        _, nu = self._model.dims()
+        _, nu = self.model.dims()
         n_attempts = 6
         n_shifts = int(dt / self._params.dt)
         N = int(self._params.T / self._params.dt)
@@ -624,6 +641,9 @@ class CasadiMPC:
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
         output = {
             "soln": self._current_warmstart,
+            "optimal": stats["success"],
+            "p": self._p_adjustable_values,
+            "p_fixed": self._p_fixed_values,
             "trajectory": X,
             "inputs": U,
             "slacks": Sigma,
@@ -723,9 +743,9 @@ class CasadiMPC:
         approx_inf = 1e10
 
         # Ship model and path timing dynamics
-        nx, nu = self._model.dims()
-        xdot, x, u, p = self._model.as_casadi()
-        lbu_k, ubu_k, lbx_k, ubx_k = self._model.get_input_state_bounds()
+        nx, nu = self.model.dims()
+        xdot, x, u, p = self.model.as_casadi()
+        lbu_k, ubu_k, lbx_k, ubx_k = self.model.get_input_state_bounds()
 
         self._p_mdl = p
 
@@ -866,7 +886,7 @@ class CasadiMPC:
         p_fixed.append(r_safe_so)
         p_adjustable.append(r_safe_do)
 
-        ship_vertices = self._model.params().ship_vertices
+        ship_vertices = self.model.params().ship_vertices
 
         # Dynamic obstacle augmented state parameters (x, y, chi, U, length, width) * N + 1 for colregs situations GW, HO and OT
         nx_do = 6
@@ -1171,11 +1191,8 @@ class CasadiMPC:
             ["w"],
         )
 
-        Hu = csd.vertcat(*hu)
-        Hx = csd.vertcat(*hx)
-        Hs = csd.vertcat(*hs)
         G = g_eq
-        H = csd.vertcat(Hu, Hx, Hs, g_ineq)
+        H = csd.vertcat(g_ineq)
         self._nlp_eq = G
         self._nlp_ineq = H
         self._nlp_hess_lag = self._solver.get_function("nlp_hess_l")
@@ -1329,7 +1346,7 @@ class CasadiMPC:
         """
         assert len(state) == 6, "State must be of length 6."
         n_colregs_zones = 3
-        nx, nu = self._model.dims()
+        nx, nu = self.model.dims()
 
         adjustable_parameter_values = self.get_adjustable_params()
         fixed_parameter_values: list = []
@@ -1377,6 +1394,8 @@ class CasadiMPC:
         fixed_parameter_values.extend(do_parameter_values_ho)
         fixed_parameter_values.extend(do_parameter_values_ot)
 
+        self._p_fixed_values = np.array(fixed_parameter_values)
+
         return (
             np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0),
             np.array(do_parameter_values_cr),
@@ -1402,7 +1421,7 @@ class CasadiMPC:
         dt = self._params.dt
         for k in range(N + 1):
             s_dot_ref_k = self.compute_path_variable_derivative(s_ref_k)
-            # s_dot_ref_k = np.clip(s_dot_ref_k, 0.0, self._model.params().s_dot_max)
+            # s_dot_ref_k = np.clip(s_dot_ref_k, 0.0, self.model.params().s_dot_max)
             path_derivative_refs[k] = s_dot_ref_k
             path_variable_refs[k] = s_ref_k
             k1 = self.compute_path_variable_derivative(s_ref_k)
@@ -1525,10 +1544,6 @@ class CasadiMPC:
             ["jac:o0:i0", "jac:o0:i2", "jac:o0:i3"],
         )
 
-        # z contains all variables contained in a solution, i.e. decision variables and multipliers
-        _, nu = self._model.dims()
-        z = csd.vertcat(self._opt_vars, lamb, mu)
-
         d2lag_d2w_func = self._solver.get_function("nlp_hess_l")
 
         # Compute the lagrangian sensitivities wrt decision variables and parameters
@@ -1558,6 +1573,10 @@ class CasadiMPC:
         output_dict.update(
             {"dlag_dw": dlag_dw_func, "dlag_dp_f": dlag_dp_f_func, "dlag_dp": dlag_dp_func, "d2lag_d2w": d2lag_d2w_func}
         )
+
+        # z contains all variables contained in a solution, i.e. decision variables and multipliers
+        _, nu = self.model.dims()
+        z = csd.vertcat(self._opt_vars, lamb, mu)
 
         # Build KKT matrix
         R_kkt = csd.vertcat(
