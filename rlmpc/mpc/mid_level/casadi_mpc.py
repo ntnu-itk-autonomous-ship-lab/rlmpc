@@ -96,7 +96,7 @@ class CasadiMPC:
         self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
         self._speed_spl_coeffs: csd.MX = csd.MX.sym("speed_spl_coeffs", 0)
         self._speed_spl_coeffs_values: np.ndarray = np.array([])
-        self._s: float = 0.01
+        self._s: float = 0.001
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
         self._path_linestring: geo.LineString = geo.LineString()
@@ -183,6 +183,7 @@ class CasadiMPC:
             [x_spline, y_spline], [x_spline.c, y_spline.c], s_final
         )
 
+        self._s = 0.001
         self._s_final_value = s_final
         self._model.set_min_path_variable(self._s)
         self._model.set_max_path_variable(s_final)  # margin
@@ -206,7 +207,12 @@ class CasadiMPC:
         return X
 
     def _create_initial_warm_start(
-        self, xs: np.ndarray, dim_g: int, do_list, enc: senc.ENC, w: Optional[stoch.DisturbanceData] = None
+        self,
+        xs: np.ndarray,
+        dim_g: int,
+        do_list,
+        enc: senc.ENC,
+        v_disturbance: Optional[np.ndarray] = None,
     ) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
 
@@ -215,28 +221,10 @@ class CasadiMPC:
             - dim_g (int): Dimension/length of the constraints.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): ENC object containing the map info.
-            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
+            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
         """
         self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
         self._s_dot = self.compute_path_variable_derivative(self._s)
-
-        v_disturbance = np.zeros(2)
-        if w is not None and "speed" in w.currents:
-            v_current = np.array(
-                [
-                    w.currents["speed"] * np.cos(w.currents["direction"]),
-                    w.currents["speed"] * np.sin(w.currents["direction"]),
-                ]
-            )
-            v_disturbance = v_disturbance + v_current
-        if w is not None and "speed" in w.wind:
-            v_wind = np.array(
-                [
-                    w.wind["speed"] * np.cos(w.wind["direction"]),
-                    w.wind["speed"] * np.sin(w.wind["direction"]),
-                ]
-            )
-            v_disturbance = v_disturbance + v_wind
 
         n_colregs_zones = 3
         nx, nu = self._model.dims()
@@ -336,7 +324,7 @@ class CasadiMPC:
         n_shifts: int,
         do_list: list,
         enc: senc.ENC,
-        w: Optional[stoch.DisturbanceData] = None,
+        v_disturbance: Optional[np.ndarray] = np.array([0.0, 0.0]),
     ) -> Tuple[np.ndarray, bool]:
         """Creates a shifted warm start trajectory from the previous trajectory and the new control input,
         possibly with an offset start back in time.
@@ -351,7 +339,7 @@ class CasadiMPC:
             - n_shifts (int): Number of shifts to perform on the previous trajectory.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) with EN coordinates.
             - enc (senc.ENC): The ENC object containing the map.
-            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
+            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, bool]: The new warm start, corresponding state and input trajectories, and a boolean indicating if the warm start was successful.
@@ -368,24 +356,6 @@ class CasadiMPC:
         else:
             inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
             U_warm_start = np.concatenate((U_prev[:, n_shifts:-offset], inputs_past_N), axis=1)
-
-        v_disturbance = np.zeros(2)
-        if w is not None and "speed" in w.currents:
-            v_current = np.array(
-                [
-                    w.currents["speed"] * np.cos(w.currents["direction"]),
-                    w.currents["speed"] * np.sin(w.currents["direction"]),
-                ]
-            )
-            v_disturbance = v_disturbance + v_current
-        if w is not None and "speed" in w.wind:
-            v_wind = np.array(
-                [
-                    w.wind["speed"] * np.cos(w.wind["direction"]),
-                    w.wind["speed"] * np.sin(w.wind["direction"]),
-                ]
-            )
-            v_disturbance = v_disturbance + v_wind
 
         xs_init_mpc = np.zeros(nx)
         xs_init_mpc[:3] = xs[:3]
@@ -429,7 +399,7 @@ class CasadiMPC:
         dt: float,
         do_list: list,
         enc: senc.ENC,
-        w: Optional[stoch.DisturbanceData] = None,
+        v_disturbance: Optional[np.ndarray] = np.array([0.0, 0.0]),
     ) -> dict:
         """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
 
@@ -439,7 +409,7 @@ class CasadiMPC:
             - dt (float): Time to shift the warm start decision trajectory.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): Electronic Navigational Chart object.
-            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
+            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
         """
         _, nu = self._model.dims()
         n_attempts = 6
@@ -480,7 +450,16 @@ class CasadiMPC:
         success = False
         for i in range(n_attempts):
             w_warm_start, X_warm_start, U_warm_start, success = self._try_to_create_warm_start_solution(
-                xs, X_prev, U_prev, Sigma_prev, u_attempts[i], offsets[i], n_shifts, do_list_shifted, enc, w=w
+                xs,
+                X_prev,
+                U_prev,
+                Sigma_prev,
+                u_attempts[i],
+                offsets[i],
+                n_shifts,
+                do_list_shifted,
+                enc,
+                v_disturbance=v_disturbance,
             )
             if success:
                 break
@@ -503,7 +482,7 @@ class CasadiMPC:
         do_ot_list: list,
         so_list: list,
         enc: Optional[senc.ENC],
-        w: Optional[stoch.DisturbanceData] = None,
+        v_disturbance: Optional[np.ndarray] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
@@ -519,7 +498,7 @@ class CasadiMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List ofrelevant static obstacle Polygon objects.
             - enc (Optional[senc.ENC]): ENC object containing the map info.
-            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
+            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
             - prev_soln (Optional[dict], optional): Previous solution to use. Defaults to None.
@@ -531,7 +510,11 @@ class CasadiMPC:
         """
         if not self._initialized:
             self._current_warmstart = self._create_initial_warm_start(
-                xs, self._lbg.shape[0], do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc, w=w
+                xs,
+                self._lbg.shape[0],
+                do_list=do_cr_list + do_ho_list + do_ot_list,
+                enc=enc,
+                v_disturbance=v_disturbance,
             )
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc)
             self._xs_prev = xs
@@ -548,11 +531,15 @@ class CasadiMPC:
 
         if dt > 0.0:
             self._current_warmstart = self._shift_warm_start(
-                xs_unwrapped, self._current_warmstart, dt, do_list=do_cr_list + do_ho_list + do_ot_list, enc=enc, w=w
+                xs_unwrapped,
+                self._current_warmstart,
+                dt,
+                do_list=do_cr_list + do_ho_list + do_ot_list,
+                enc=enc,
+                v_disturbance=v_disturbance,
             )
 
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
-            self._current_warmstart,
             xs_unwrapped,
             None,
             do_cr_list,
@@ -562,7 +549,7 @@ class CasadiMPC:
             enc,
             perturb_nlp=perturb_nlp,
             perturb_sigma=perturb_sigma,
-            w=w,
+            v_disturbance=v_disturbance,
             **kwargs,
         )
 
@@ -634,7 +621,6 @@ class CasadiMPC:
         self._current_warmstart["f"] = cost_val
 
         self._t_prev = t
-        self._prev_inputs = U[:, 0]
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
         output = {
             "soln": self._current_warmstart,
@@ -727,6 +713,7 @@ class CasadiMPC:
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
         """
+        self._initialized = False
         self._set_path_information(nominal_path)
         self._min_depth = min_depth
         self._map_origin = map_origin
@@ -1310,7 +1297,6 @@ class CasadiMPC:
 
     def create_parameter_values(
         self,
-        warm_start: dict,
         state: np.ndarray,
         action: Optional[np.ndarray],
         do_cr_list: list,
@@ -1318,7 +1304,7 @@ class CasadiMPC:
         do_ot_list: list,
         so_list: list,
         enc: Optional[senc.ENC] = None,
-        w: Optional[stoch.DisturbanceData] = None,
+        v_disturbance: Optional[np.ndarray] = np.array([0.0, 0.0]),
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         **kwargs,
@@ -1326,7 +1312,6 @@ class CasadiMPC:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
         Args:
-            - warm_start (dict): Dictionary containing the warm start values for the decision variables.
             - state (np.ndarray): Current state of the system on the form (x, y, psi, u, v, r)^T.
             - action (np.ndarray, optional): Current action of the system on the form (r, a)^T.
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
@@ -1334,7 +1319,7 @@ class CasadiMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
-            - w (Optional[stoch.DisturbanceData]): Disturbance data object.
+            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
             - perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
@@ -1346,23 +1331,6 @@ class CasadiMPC:
         n_colregs_zones = 3
         nx, nu = self._model.dims()
 
-        v_disturbance = np.zeros(2)
-        if w is not None and "speed" in w.currents:
-            v_current = np.array(
-                [
-                    w.currents["speed"] * np.cos(w.currents["direction"]),
-                    w.currents["speed"] * np.sin(w.currents["direction"]),
-                ]
-            )
-            v_disturbance = v_disturbance + v_current
-        if w is not None and "speed" in w.wind:
-            v_wind = np.array(
-                [
-                    w.wind["speed"] * np.cos(w.wind["direction"]),
-                    w.wind["speed"] * np.sin(w.wind["direction"]),
-                ]
-            )
-            v_disturbance = v_disturbance + v_wind
         adjustable_parameter_values = self.get_adjustable_params()
         fixed_parameter_values: list = []
 

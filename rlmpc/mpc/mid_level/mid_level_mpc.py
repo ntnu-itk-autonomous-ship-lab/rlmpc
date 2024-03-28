@@ -130,7 +130,7 @@ class MidlevelMPC:
         do_ot_list: list,
         so_list: list,
         enc: senc.ENC,
-        w: Optional[stoch.DisturbanceData] = None,
+        v_disturbance: Optional[np.ndarray] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
@@ -146,7 +146,7 @@ class MidlevelMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): Electronic Navigational Chart object.
-            - w (Optional[stoch.DisturbanceData], optional): Disturbance data. Defaults to None.
+            - v_disturbance (Optional[np.ndarray], optional): Disturbance speed and direction in the North-East frame. Defaults to None.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - prev_soln (Optional[dict], optional): Previous solution to use as warm start. Defaults to None.
@@ -157,7 +157,7 @@ class MidlevelMPC:
         """
         if self._acados_enabled:
             mpc_soln = self._acados_mpc.plan(
-                t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, w, prev_soln, **kwargs
+                t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, v_disturbance, prev_soln, **kwargs
             )
         else:
             mpc_soln = self._casadi_mpc.plan(
@@ -170,7 +170,7 @@ class MidlevelMPC:
                 enc,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
-                w=w,
+                v_disturbance=v_disturbance,
                 prev_soln=prev_soln,
                 **kwargs
             )

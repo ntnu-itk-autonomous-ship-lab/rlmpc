@@ -91,6 +91,7 @@ class RLMPC(ci.ICOLAV):
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
+        self._ma_filter = stochasticity.MovingAverageFilter()
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
         self._dt_sim: float = 0.5  # get from scenario config, typically alway s0 .5
 
@@ -179,6 +180,7 @@ class RLMPC(ci.ICOLAV):
                 "yellow",
             )
         self._initialized = True
+        print("RL-MPC initialized!")
 
     def act(
         self,
@@ -206,7 +208,6 @@ class RLMPC(ci.ICOLAV):
             self._mpc_inputs = prev_soln["inputs"]
             self._t_prev = prev_soln["t_prev"]
             self._t_prev_mpc = prev_soln["t_prev_mpc"]
-            print(f"Len prev trajectory: {self._mpc_trajectory.shape[1]}")
             prev_soln = prev_soln["soln"]  # only propagate the previous MPC solver solution further
 
         _ = self.plan(
@@ -273,6 +274,8 @@ class RLMPC(ci.ICOLAV):
         if not self._initialized:
             self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
 
+        v_disturbance = self.compute_disturbance_velocity_estimate(w)
+
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
                 do_list, self._map_origin[1], self._map_origin[0]
@@ -309,6 +312,7 @@ class RLMPC(ci.ICOLAV):
             #     plotters.plot_dynamic_obstacles(
             #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
             #     )
+
             self._mpc_soln = self._mpc.plan(
                 t,
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
@@ -317,7 +321,7 @@ class RLMPC(ci.ICOLAV):
                 do_ot_list=do_ot_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
-                w=w,
+                v_disturbance=v_disturbance,
                 **kwargs,
             )
             N = int(self._mpc.params.T / self._mpc.params.dt)
@@ -347,10 +351,10 @@ class RLMPC(ci.ICOLAV):
         turn_rate_ref = self._mpc_inputs[0, 0]
 
         waypoints = np.column_stack((ownship_state[:2], np.array([x_ld, y_ld])))
-        if self._debug:
-            plotters.plot_waypoints(
-                waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
-            )
+        # if self._debug:
+        #     plotters.plot_waypoints(
+        #         waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
+        #     )
 
         speed_plan = np.array([ownship_state[3], speed_ref])
         self._references = self._los.compute_references(waypoints, speed_plan, None, ownship_state, t - self._t_prev)
@@ -361,6 +365,30 @@ class RLMPC(ci.ICOLAV):
             f"t: {t} | U_mpc: {self._references[3, 0]} | U: {csog_state[3]} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * csog_state[2] / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
         )
         return self._references
+
+    def compute_disturbance_velocity_estimate(self, w: Optional[stochasticity.DisturbanceData] = None) -> np.ndarray:
+        """Computes the disturbance velocity estimate for the given time.
+
+        Args:
+            w (Optional[stochasticity.DisturbanceData]): Stochastic disturbance data.
+
+        Returns:
+            np.ndarray: The disturbance velocity estimate.
+        """
+        v_disturbance = np.array([0.0, 0.0])
+        if w is None:
+            return v_disturbance
+        if "speed" in w.wind:
+            V_w = w.wind["speed"]
+            beta_w = w.wind["direction"]
+            v_w = np.array([V_w * np.cos(beta_w), V_w * np.sin(beta_w)])
+            v_disturbance += v_w
+        if "speed" in w.currents:
+            V_c = w.currents["speed"]
+            beta_c = w.currents["direction"]
+            v_c = np.array([V_c * np.cos(beta_c), V_c * np.sin(beta_c)])
+            v_disturbance += v_c
+        return self._ma_filter.update(v_disturbance)
 
     def build_sensitivities(self, tau: Optional[float] = None) -> mpc_common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function underlying the MPC NLP with respect to the decision variables and parameters.

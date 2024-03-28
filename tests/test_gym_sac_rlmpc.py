@@ -107,10 +107,10 @@ if __name__ == "__main__":
         env,
         verbose=1,
         policy_kwargs=policy_kwargs,
-        buffer_size=40,
+        buffer_size=100,
         learning_starts=0,
-        batch_size=8,
-        train_freq=(40, "step"),
+        batch_size=2,
+        train_freq=(6, "step"),
         device="cpu",
     )
 

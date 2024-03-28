@@ -15,15 +15,15 @@ colregs_handler:
   theta_ot_min: 112.5  # minimum bearing angle for OT situation
   theta_ot_max: 247.5  # maximum bearing angle for OT situation
   d_critical_so: 100.0 # critical distance threshold where stand-on duties are aborted
-  d_activation: 5000.0  # distance threshold for activation of COLREGS handler
-  t_cpa_entry: 400.0  # time to CPA threshold for entry into COLREGS situation
-  d_cpa_entry: 400.0  # distance to CPA threshold for entry into COLREGS situation
+  d_activation: 1000.0  # distance threshold for activation of COLREGS handler
+  t_cpa_entry: 120.0  # time to CPA threshold for entry into COLREGS situation
+  d_cpa_entry: 50.0  # distance to CPA threshold for entry into COLREGS situation
 
 midlevel_mpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
-    T: 100.0
+    T: 120.0
     dt: 5.0
     Q_p: [0.5, 1.0, 30.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
@@ -40,7 +40,7 @@ midlevel_mpc:
     x_0_ot: 300.0
     y_0_ot: 100.0
     d_attenuation: 500.0
-    w_colregs: [70.0, 70.0, 30.0]
+    w_colregs: [50.0, 50.0, 20.0]
 
     w_L2: 0.0
     w_L1: 12000.0

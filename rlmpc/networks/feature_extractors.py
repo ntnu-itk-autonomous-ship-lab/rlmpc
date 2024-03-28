@@ -56,14 +56,14 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         )
         self.vae.eval()
         self.vae.set_inference_mode(True)
-
         self.latent_dim = self.vae.latent_dim
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
-        z_e, _, _ = self.vae.encode(observations)
-        print(f"z_e shape: {z_e.shape}")
-        return z_e
+        with th.no_grad():
+            z_e, _, _ = self.vae.encode(observations)
+            # print(f"z_e shape: {z_e.shape}")
+            return z_e
 
 
 class PathRelativeNavigationNN(BaseFeaturesExtractor):
@@ -115,7 +115,7 @@ class TrackingGRU(BaseFeaturesExtractor):
         self.gru = nn.GRU(input_size=self.input_dim, hidden_size=features_dim, num_layers=num_layers, batch_first=True)
         self.hidden = self.init_hidden(batch_size)
 
-    def forward(self, observations: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+    def forward(self, observations: th.Tensor) -> Tuple[th.Tensor]:
         # Shift the last dimension to the middle
         observations = observations.permute(0, 2, 1)
         packed_seq = rnn_utils.pack_padded_sequence(
@@ -125,9 +125,8 @@ class TrackingGRU(BaseFeaturesExtractor):
         output, _ = rnn_utils.pad_packed_sequence(packed_output, batch_first=True)
 
         self.hidden = hidden
-        assert hidden == output[:, -1, :]
-        # Output is the last hidden state
-        return output[:, -1, :]
+        hidden_out = hidden.permute(1, 0, 2).reshape(-1, self.num_layers * self.hidden_dim)
+        return hidden_out
 
     def init_hidden(self, batch_size: int) -> th.Tensor:
         return th.zeros(self.num_layers, batch_size, self.hidden_dim)
@@ -158,7 +157,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = TrackingGRU(subspace, features_dim=30, num_layers=2, batch_size=batch_size)
+                extractors[key] = TrackingGRU(subspace, features_dim=30, num_layers=1, batch_size=batch_size)
                 total_concat_size += extractors[key].features_dim
             elif key == "DisturbanceObservation":
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])

@@ -9,25 +9,24 @@
 """
 
 import pathlib
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
 import rlmpc.buffers as rlmpc_buffers
 import rlmpc.common.paths as dp
+import rlmpc.mpc.common as mpc_common
 import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.off_policy_algorithm as opa
 import rlmpc.rlmpc as rlmpc
 import seacharts.enc as senc
 import stable_baselines3.common.noise as sb3_noise
-import stable_baselines3.common.vec_env as sb3_vec_env
-import stable_baselines3.sac.policies as sb3_sac_policies
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
 from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution, StateDependentNoiseDistribution
 from stable_baselines3.common.preprocessing import get_action_dim
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, CombinedExtractor, FlattenExtractor, create_mlp
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import (
     get_parameters_by_name,
@@ -36,7 +35,7 @@ from stable_baselines3.common.utils import (
     set_random_seed,
     update_learning_rate,
 )
-from stable_baselines3.sac.policies import Actor, BasePolicy, CnnPolicy, ContinuousCritic, MlpPolicy, MultiInputPolicy
+from stable_baselines3.sac.policies import BasePolicy, ContinuousCritic
 from torch.nn import functional as F
 
 SelfSAC = TypeVar("SelfSAC", bound="SAC")
@@ -465,6 +464,9 @@ class SACPolicyWithMPC(BasePolicy):
         # NOT USED IN SACMPC due to not actor NN
         return self.actor(observation, deterministic)
 
+    def sensitivities(self) -> mpc_common.NLPSensitivities:
+        return self.actor.mpc_sensitivities
+
     def predict_with_mpc(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
@@ -770,7 +772,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
             with th.no_grad():
                 # Select action according to policy
-                next_log_prob = self.actor.action_log_prob(
+                _, next_log_prob = self.actor.action_log_prob(
                     replay_data.next_observations, replay_data.next_actions, infos=replay_data.infos
                 )
                 # Compute the next Q values: min over all critics targets
@@ -804,6 +806,9 @@ class SAC(opa.OffPolicyAlgorithm):
             min_qf_pi, _ = th.min(q_values_pi, dim=1, keepdim=True)
             actor_loss = (ent_coef * log_prob - min_qf_pi).mean()
             actor_losses.append(actor_loss.item())
+
+            sens = self.policy.sensitivities()
+            dz_dp = sens.dr_dp()
 
             # Optimize the actor, using MPC-sensitivities
 

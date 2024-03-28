@@ -39,17 +39,17 @@ if __name__ == "__main__":
 
     npy = 100
     npx = 100
-    y = np.linspace(-1000, 1000, npy)
-    x = np.linspace(-1000, 1000, npx)
+    y = np.linspace(-500, 500, npy)
+    x = np.linspace(-500, 500, npx)
     Y, X = np.meshgrid(y, x, indexing="ij")
 
     alpha_cr = [0.01, 0.002]
-    y_0_cr = 400.0
+    y_0_cr = 200.0
     alpha_ho = [0.002, 0.01]
-    x_0_ho = 400.0
-    alpha_ot = [0.005, 0.01]
-    x_0_ot = 300.0
-    y_0_ot = 100.0
+    x_0_ho = 200.0
+    alpha_ot = [0.005, 0.02]
+    x_0_ot = 150.0
+    y_0_ot = 50.0
 
     # alpha_cr = np.array([1 / 500, 1 / 500])
     # y_0_cr = -500.0
@@ -98,8 +98,8 @@ if __name__ == "__main__":
     # ax1.set_ylabel("North [m]")
     # ax1.set_xlabel("East [m]")
     # ax1.set_zlabel(r"$h_{gw}(\bm{p}_{rel})$")
-    ship_length = 250
-    ship_width = 50
+    ship_length = 125
+    ship_width = 25
     fig2, ax2 = plt.subplots()
     pc2 = ax2.contourf(Y, X, cr_surface, cmap=colormap)
     gw_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_cr, ship_length, ship_width)
