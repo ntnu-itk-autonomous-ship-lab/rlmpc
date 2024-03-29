@@ -727,6 +727,8 @@ class SAC(opa.OffPolicyAlgorithm):
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
+        self.dQ_da = th.func.grad(self.critic, argnums=1)
+
     def initialize_mpc_actor(
         self,
         env: COLAVEnvironment,
@@ -840,6 +842,11 @@ class SAC(opa.OffPolicyAlgorithm):
                 dr_dp = sens.dr_dp(z, p_fixed, p).full()
                 dz_dp = -np.linalg.inv(dr_dz) @ dr_dp
                 da_dp = dz_dp[self.actor.action_indices, :]
+                d_log_pi_dp = cov @ (sampled_actions[b] - replay_data.actions[b]) @ da_dp.T
+                d_log_pi_da = cov @ (sampled_actions[b] - replay_data.actions[b])
+                df_repar_dp = da_dp
+                dQ_da = self.dQ_da(replay_data.observations[b], sampled_actions[b])
+                actor_grad_b = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
 
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)

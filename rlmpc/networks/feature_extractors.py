@@ -21,7 +21,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 if platform == "linux" or platform == "linux2":
     VAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/data/vae/")
 elif platform == "darwin":
-    VAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+    VAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/vae_models/")
 
 
 class PerceptionImageVAE(BaseFeaturesExtractor):

@@ -288,7 +288,7 @@ class CasadiMPC:
 
         for i in range(n_attempts):
             inputs = np.tile(u_attempts[i], (N, 1)).T
-            warm_start_traj = self.model_prediction(xs_k, inputs, N + 1, p=v_disturbance)
+            warm_start_traj = self._model_prediction(xs_k, inputs, N + 1, p=v_disturbance)
             chi = warm_start_traj[2, :]
             chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
             warm_start_traj[2, :] = chi_unwrapped
@@ -383,7 +383,7 @@ class CasadiMPC:
 
         s_dot_shifted = X_prev[5, n_shifts]
         xs_init_mpc[4:] = np.array([s_shifted, s_dot_shifted])
-        X_warm_start = self.model_prediction(xs_init_mpc, U_warm_start, N + 1, p=v_disturbance)
+        X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1, p=v_disturbance)
         chi = X_warm_start[2, :].tolist()
         X_warm_start[2, :] = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
         w_warm_start = np.concatenate(
