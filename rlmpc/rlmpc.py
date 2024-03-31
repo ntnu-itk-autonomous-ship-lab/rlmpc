@@ -224,7 +224,7 @@ class RLMPC(ci.ICOLAV):
         )
         mpc_output = self._mpc_soln
 
-        U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
+        U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
         lookahead_sample = 3  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
         x_ld = self._mpc_trajectory[0, lookahead_sample]
         y_ld = self._mpc_trajectory[1, lookahead_sample]
@@ -300,7 +300,7 @@ class RLMPC(ci.ICOLAV):
         if not self._initialized:
             self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
 
-        v_disturbance = self.compute_disturbance_velocity_estimate(w)
+        v_disturbance = np.zeros(2)  # self.compute_disturbance_velocity_estimate(w)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
@@ -387,8 +387,10 @@ class RLMPC(ci.ICOLAV):
         self._references[5, 0] = turn_rate_ref
         self._t_prev = t
         self._mpc_soln["t_prev"] = t
+        U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
+        chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
         print(
-            f"t: {t} | U_mpc: {self._references[3, 0]} | U: {csog_state[3]} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * csog_state[2] / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
+            f"t: {t} | U_mpc: {self._references[3, 0]} | U: {U} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * chi / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
         )
         return self._references
 

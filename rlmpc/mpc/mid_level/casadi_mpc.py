@@ -249,7 +249,8 @@ class CasadiMPC:
         inputs = np.zeros((nu, N))
 
         xs_k = np.zeros(nx)
-        xs_k[:3] = xs[:3]
+        xs_k[:2] = xs[:2]
+        xs_k[2] = xs[2] + np.arctan2(xs[4], xs[3])
         xs_k[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
         xs_k[4:] = np.array([self._s, self._s_dot])
 
@@ -375,7 +376,8 @@ class CasadiMPC:
             U_warm_start = np.concatenate((U_prev[:, n_shifts:-offset], inputs_past_N), axis=1)
 
         xs_init_mpc = np.zeros(nx)
-        xs_init_mpc[:3] = xs[:3]
+        xs_init_mpc[:2] = xs[:2]
+        xs_init_mpc[2] = xs[2] + np.arctan2(xs[4], xs[3])
         xs_init_mpc[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
         s_shifted = X_prev[
             4, n_shifts
@@ -538,9 +540,9 @@ class CasadiMPC:
             self._initialized = True
             self._prev_cost = np.inf
 
-        chi = xs[2]
+        psi = xs[2]
         xs_unwrapped = xs.copy()
-        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
+        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
         self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
         if prev_soln:

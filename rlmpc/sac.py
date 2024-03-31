@@ -9,6 +9,7 @@
 """
 
 import pathlib
+import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import colav_simulator.core.stochasticity as stochasticity
@@ -835,6 +836,7 @@ class SAC(opa.OffPolicyAlgorithm):
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
             min_qf_pi_sampled
             actor_grads = th.zeros((batch_size, self.actor.num_params))
+            t_now = time.time()
             for b in range(batch_size):
                 actor_info = replay_data.infos[b][0]["actor_info"]
                 if not actor_info["optimal"]:
@@ -856,7 +858,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
                 actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
-
+            print("Actor gradient computation time: ", time.time() - t_now)
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
                 # Copy running stats, see GH issue #996
