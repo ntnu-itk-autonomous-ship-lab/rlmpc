@@ -229,11 +229,9 @@ class RLMPC(ci.ICOLAV):
         x_ld = self._mpc_trajectory[0, lookahead_sample]
         y_ld = self._mpc_trajectory[1, lookahead_sample]
         speed_ref = self._mpc_trajectory[3, 0]
-        turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
+        # turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
 
-        action = np.array(
-            [x_ld - ownship_state[0], y_ld - ownship_state[1], turn_rate_ref - ownship_state[5], speed_ref - U]
-        )
+        action = np.array([x_ld - ownship_state[0], y_ld - ownship_state[1], speed_ref - U])
         return action, mpc_output
 
     def get_mpc_params(self) -> mpc_params.MidlevelMPCParams:

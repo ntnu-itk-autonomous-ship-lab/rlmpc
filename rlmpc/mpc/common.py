@@ -206,14 +206,14 @@ def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[cs
 
     Args:
         x (csd.MX): State vector.
-        p_ref (csd.MX): Reference path.
+        p_ref (csd.MX): Reference path [x, y, s_dot]
         Q_p (csd.MX): Path following cost weight vector.
         delta (csd.MX): Shape parameter for the Huber loss function.
 
     Returns:
         Tuple[csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, speed deviation cost.
     """
-    z = csd.vertcat(x[:2], x[5])  # [x, y, s_dot]
+    z = csd.vertcat(x[:2], x[5])
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
     path_dev_squared = (z[:2] - p_ref[:2]).T @ (z[:2] - p_ref[:2])
     path_dev_cost = 0.5 * Q_p[0] * huber_loss(path_dev_squared, Q_p[1])

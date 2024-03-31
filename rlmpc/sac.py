@@ -126,6 +126,7 @@ class SACMPCActor(BasePolicy):
         self.mpc_sensitivities = None
         nx, nu = self.mpc.get_mpc_model_dims()
         self.mpc_params = self.mpc.get_mpc_params()
+        self.num_params = self.mpc.get_adjustable_mpc_params().size
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         lookahead_sample = 3
         # Indices for the RLMPC action a = [x_LD, y_LD, speed_0]
@@ -727,7 +728,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
-        self.dQ_da = th.func.grad(self.critic, argnums=1)
+        self.dQ_da = th.func.grad(self.critic.forward, argnums=1)
 
     def initialize_mpc_actor(
         self,
@@ -823,11 +824,17 @@ class SAC(opa.OffPolicyAlgorithm):
 
             sens = self.policy.sensitivities()
 
-            # kernel/reparameterization trick
+            # reparameterization trick
             eps = th.randn_like(replay_data.actions)
             cov = th.eye(replay_data.actions.shape[1]) * th.exp(th.Tensor([self.actor.log_std]))
             cholesky_cov = th.linalg.cholesky(cov)
             sampled_actions = replay_data.actions + (cholesky_cov @ eps.T).T
+            sampled_actions = sampled_actions.requires_grad_(True)
+            self.critic.optimizer.zero_grad()
+            q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
+            min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
+            min_qf_pi_sampled
+            actor_grads = th.zeros((batch_size, self.actor.num_params))
             for b in range(batch_size):
                 actor_info = replay_data.infos[b][0]["actor_info"]
                 if not actor_info["optimal"]:
@@ -842,11 +849,13 @@ class SAC(opa.OffPolicyAlgorithm):
                 dr_dp = sens.dr_dp(z, p_fixed, p).full()
                 dz_dp = -np.linalg.inv(dr_dz) @ dr_dp
                 da_dp = dz_dp[self.actor.action_indices, :]
-                d_log_pi_dp = cov @ (sampled_actions[b] - replay_data.actions[b]) @ da_dp.T
+                da_dp = th.from_numpy(da_dp).float()
+                d_log_pi_dp = (cov @ (sampled_actions[b] - replay_data.actions[b]).reshape(-1, 1)).T @ da_dp
                 d_log_pi_da = cov @ (sampled_actions[b] - replay_data.actions[b])
                 df_repar_dp = da_dp
-                dQ_da = self.dQ_da(replay_data.observations[b], sampled_actions[b])
-                actor_grad_b = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
+
+                dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
+                actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
 
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
