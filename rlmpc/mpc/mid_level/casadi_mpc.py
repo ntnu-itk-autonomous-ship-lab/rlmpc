@@ -154,6 +154,14 @@ class CasadiMPC:
         """
         return self._p_fixed_values
 
+    def get_antigrounding_surface_functions(self) -> list:
+        """Returns the anti-grounding surface functions.
+
+        Returns:
+            list: List of anti-grounding surface functions.
+        """
+        return self._so_surfaces
+
     def _set_path_information(
         self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float]
     ) -> None:
@@ -851,7 +859,7 @@ class CasadiMPC:
         so_surfaces = []
         max_num_so_constr = self._params.max_num_so_constr
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-            so_surfaces = mapf.compute_surface_approximations_from_polygons(
+            so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
                 so_list, enc, safety_margins=[self._params.r_safe_so], map_origin=self._map_origin
             )[0]
             max_num_so_constr = min(len(so_surfaces), self._params.max_num_so_constr)

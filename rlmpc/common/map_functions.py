@@ -26,6 +26,7 @@ import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
+
 # import triangle as tr
 from osgeo import osr
 from scipy.interpolate import interp1d
@@ -965,7 +966,7 @@ def compute_surface_approximations_from_polygons(
     safety_margins: list = [0.0],
     map_origin: np.ndarray = np.array([0.0, 0.0]),
     show_plots: bool = False,
-) -> list:
+) -> Tuple[list, list]:
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
@@ -976,9 +977,10 @@ def compute_surface_approximations_from_polygons(
         - show_plots (bool, optional): Whether to show plots. Defaults to False.
 
     Returns:
-        - list: List of surface approximations for each polygon.
+        - Tuple[list, list]: List of casadi and scipy surface approximations for each polygon, respectively.
     """
     surfaces_list = []
+    scipy_surfaces_list = []
     cap_style = 2
     join_style = 2
     max_num_orig_surface_points = 100
@@ -992,6 +994,7 @@ def compute_surface_approximations_from_polygons(
     for d_safe in safety_margins:
         d_safe = d_safe + 0.1  # buffer to account for function slope not being infinite
         surfaces = []
+        scipy_surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
         for polygons, original_poly in polygons:
             original_polygon_boundary = geometry.LineString(original_poly.exterior.coords).buffer(
@@ -1008,7 +1011,7 @@ def compute_surface_approximations_from_polygons(
                     max_area_idx = np.argmax([poly.area for poly in relevant_coastline.geoms])
                     relevant_coastline = relevant_coastline.geoms[max_area_idx]
 
-                if enc is not None:
+                if enc is not None and show_plots:
                     translated_coastline = hf.translate_polygons([relevant_coastline], -map_origin[1], -map_origin[0])[
                         0
                     ]
@@ -1027,7 +1030,7 @@ def compute_surface_approximations_from_polygons(
                     max_area_idx = np.argmax([poly.area for poly in relevant_coastline_safety.geoms])
                     relevant_coastline_safety = relevant_coastline_safety.geoms[max_area_idx]
                 y_coastline_orig, x_coastline_orig = relevant_coastline_safety.exterior.coords.xy
-                if enc is not None:
+                if enc is not None and show_plots:
                     translated_coastline = hf.translate_polygons(
                         [relevant_coastline_safety], -map_origin[1], -map_origin[0]
                     )[0]
@@ -1068,7 +1071,7 @@ def compute_surface_approximations_from_polygons(
                             (ycoord + map_origin[1], xcoord + map_origin[0]), radius=0.5, color="blue", fill=False
                         )
 
-                if enc is not None:
+                if enc is not None and show_plots:
                     translated_coastline = hf.translate_polygons(
                         [relevant_coastline_safety], -map_origin[1], -map_origin[0]
                     )[0]
@@ -1253,6 +1256,7 @@ def compute_surface_approximations_from_polygons(
                 grad_rbf = csd.gradient(rbf_surface_func(x.reshape((1, 2))), x.reshape((1, 2)))
                 grad_rbf_func = csd.Function("grad_f", [x.reshape((1, 2))], [grad_rbf])
 
+                scipy_surfaces.append(rbf)
                 surfaces.append(rbf_surface_func)
 
                 if enc is not None and show_plots:
@@ -1277,7 +1281,8 @@ def compute_surface_approximations_from_polygons(
 
                 j += 1
         surfaces_list.append(surfaces)
-    return surfaces_list
+        scipy_surfaces_list.append(scipy_surfaces)
+    return surfaces_list, scipy_surfaces_list
 
 
 def point_is_within_distance_of_points_in_list(x: float, y: float, points: list, distance: float) -> bool:

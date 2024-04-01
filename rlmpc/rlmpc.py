@@ -251,7 +251,7 @@ class RLMPC(ci.ICOLAV):
         return self._mpc.model_dims
 
     def get_adjustable_mpc_params(self) -> np.ndarray:
-        """Returns the adjustable parameters of the MPC NLP."""
+        """Returns the adjustable parameters of the MPC."""
         return self._mpc.adjustable_params
 
     def get_fixed_mpc_params(self) -> np.ndarray:
@@ -259,7 +259,7 @@ class RLMPC(ci.ICOLAV):
         return self._mpc.fixed_params
 
     def update_adjustable_mpc_params(self, delta: np.ndarray) -> None:
-        """Updates the adjustable parameters of the MPC NLP."""
+        """Updates the adjustable parameters of the MPC."""
         self._mpc.update_adjustable_params(delta)
 
     def save_params(self, filename: Path) -> None:
@@ -309,7 +309,7 @@ class RLMPC(ci.ICOLAV):
             self._update_mpc_so_polygon_input(ownship_state, enc, self._debug)
 
             if self._debug:
-                plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
+                plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.T, self._mpc.params.dt)
                 ship_poly = mapf.create_ship_polygon(
                     ownship_state[0],
                     ownship_state[1],
@@ -512,6 +512,14 @@ class RLMPC(ci.ICOLAV):
             self._mpc_rel_polygons = translated_poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
         else:
             raise ValueError(f"Unknown static obstacle constraint type: {self._mpc.params.so_constr_type}")
+
+    def get_mpc_antigrounding_surface_functions(self) -> list:
+        """Returns the surface interpolation functions for the anti-grounding constraints.
+
+        Returns:
+            list: List of interpolation functions.
+        """
+        return self._mpc.get_antigrounding_surface_functions()
 
     def _update_mpc_so_polygon_input(
         self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False

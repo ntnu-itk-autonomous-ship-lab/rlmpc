@@ -5,6 +5,7 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.paths as rl_dp
+import rlmpc.rewards as rewards
 import rlmpc.sac as sac_rlmpc
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
@@ -68,15 +69,21 @@ if __name__ == "__main__":
             "relative_tracking_observation",
             "navigation_3dof_state_observation",
             "tracking_observation",
+            "ground_truth_tracking_observation",
             "disturbance_observation",
             "time_observation",
         ]
     }
+
+    rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
+
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "max_number_of_episodes": 1,
         "action_sampling_time": 1.0 / 0.2,  # from rlmpc.yaml config file
+        "rewarder_class": rewards.MPCRewarder,
+        "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
@@ -138,12 +145,3 @@ if __name__ == "__main__":
         save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
 
     print("done")
-
-    # Vil kunne
-    # 1: lese inn mappe med AIS data som kan parses til ScenarioConfig-objekter med n_episodes og moglegheit for å adde randomgenererte båtar
-    # 2: Generere/hente ut shapefiler for alle kart for alle scenario-config objekt som skal brukast
-    # 3: Simulere n_episodar for kvart scenario, der own-ship har random starttilstand og sluttilstand, og alle andre båtar har AIS-trajectory eller varierande random trajectory. Skal kunne velge random control policy eller spesifikk feks RLRRTMPC policy.
-    # 4: Legg til moglegheit for å terminere simuleringa viss OS kræsjer
-    # 5: Lagre simuleringsdata (s_k, a_k, r_k+1, s_k+1, done_k+1) for alle episodar, og lagre i ein mappe med navn som er unikt for scenarioet.
-    # 6: Last opp eller direkte bruk simuleringsdata i ein replay buffer for å trene policyen til konvergens.
-    # 7: Test trent policy på testdata frå tilsvarande scenario (samme geografi som brukt i trening) og lagre resultatet i ein mappe med navn som er unikt for scenarioet.

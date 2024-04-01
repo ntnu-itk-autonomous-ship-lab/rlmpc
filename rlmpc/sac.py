@@ -322,6 +322,11 @@ class SACMPCActor(BasePolicy):
         self.mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
         self.mpc_sensitivities = self.mpc.build_sensitivities()
 
+    def update_params(self, step: th.Tensor) -> None:
+        """Update the parameters of the actor policy (if any)."""
+        step = step.numpy()
+        self.mpc.update_adjustable_mpc_params(step)
+
 
 class SACPolicyWithMPC(BasePolicy):
     """
@@ -815,16 +820,6 @@ class SAC(opa.OffPolicyAlgorithm):
             critic_loss.backward()
             self.critic.optimizer.step()
 
-            # Compute actor loss
-            # Alternative: actor_loss = th.mean(log_prob - qf1_pi)
-            # Min over all critic networks
-            q_values_pi = th.cat(self.critic(replay_data.observations, actions_pi), dim=1)
-            min_qf_pi, _ = th.min(q_values_pi, dim=1, keepdim=True)
-            actor_loss = (ent_coef * log_prob - min_qf_pi).mean()
-            actor_losses.append(actor_loss.item())
-
-            sens = self.policy.sensitivities()
-
             # reparameterization trick
             eps = th.randn_like(replay_data.actions)
             cov = th.eye(replay_data.actions.shape[1]) * th.exp(th.Tensor([self.actor.log_std]))
@@ -834,9 +829,9 @@ class SAC(opa.OffPolicyAlgorithm):
             self.critic.optimizer.zero_grad()
             q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
-            min_qf_pi_sampled
             actor_grads = th.zeros((batch_size, self.actor.num_params))
             t_now = time.time()
+            sens = self.policy.sensitivities()
             for b in range(batch_size):
                 actor_info = replay_data.infos[b][0]["actor_info"]
                 if not actor_info["optimal"]:
@@ -859,6 +854,8 @@ class SAC(opa.OffPolicyAlgorithm):
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
                 actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
             print("Actor gradient computation time: ", time.time() - t_now)
+            self.actor.update_params(actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))
+
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
                 # Copy running stats, see GH issue #996

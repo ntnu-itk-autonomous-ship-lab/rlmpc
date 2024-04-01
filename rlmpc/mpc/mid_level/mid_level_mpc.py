@@ -138,6 +138,14 @@ class MidlevelMPC:
         """
         return self._casadi_mpc.build_sensitivities(tau)
 
+    def get_antigrounding_surface_functions(self) -> list:
+        """Returns the anti-grounding surface functions.
+
+        Returns:
+            - list: List of anti-grounding surface functions.
+        """
+        return self._casadi_mpc.get_antigrounding_surface_functions()
+
     def plan(
         self,
         t: float,

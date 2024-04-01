@@ -1,0 +1,39 @@
+
+
+trajectory_tracking:
+  rho_path_dev: 0.5
+  rho_speed_dev: 10.0
+colreg:
+  alpha_cr: [0.03, 0.003]
+  y_0_cr: 400.0
+  alpha_ho: [0.003, 0.03]
+  x_0_ho: 400.0
+  alpha_ot: [0.005, 0.01]
+  x_0_ot: 300.0
+  y_0_ot: 100.0
+  d_attenuation: 500.0
+  w_colregs: [50.0, 50.0, 20.0]
+  colregs_handler:
+    theta_critical_ot: 45.0  # contact angle threshold for OT situation
+    theta_critical_ho: 13.0 # contact and bearing angle threshold for HO situation
+    theta_critical_cr: -13.0   # contact and bearing angle threshold for CR situation
+    theta_ot_min: 112.5  # minimum bearing angle for OT situation
+    theta_ot_max: 247.5  # maximum bearing angle for OT situation
+    d_critical_so: 100.0 # critical distance threshold where stand-on duties are aborted
+    d_activation: 1000.0  # distance threshold for activation of COLREGS handler
+    t_cpa_entry: 120.0  # time to CPA threshold for entry into COLREGS situation
+    d_cpa_entry: 50.0  # distance to CPA threshold for entry into COLREGS situation
+readily_apparent_maneuvering:
+  alpha_app_course: [112.5, 0.00006]
+  alpha_app_speed: [8.0, 0.00025]
+  K_app_course: 15.0
+  K_app_speed: 10.0
+  r_max: 6.0
+  a_max: 0.11
+collision_avoidance:
+  rho_colav: 100.0
+  r_safe: 30.0
+anti_grounding:
+  reference_traj_bbox_buffer: 200.0
+  rho_anti_grounding: 100.0
+  r_safe: 5.0

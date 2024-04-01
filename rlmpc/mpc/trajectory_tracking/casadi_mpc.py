@@ -469,7 +469,7 @@ class CasadiMPC:
         b_so_constr = csd.MX.sym("b_so_constr", 0)
         so_surfaces = []
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-            so_surfaces = mapf.compute_surface_approximations_from_polygons(
+            so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
                 so_list, enc, safety_margins=[self._params.d_safe_so], map_origin=self._map_origin
             )[0]
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
