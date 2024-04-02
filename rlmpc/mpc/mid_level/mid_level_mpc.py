@@ -111,6 +111,7 @@ class MidlevelMPC:
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
         min_depth: int = 5,
+        tau: Optional[float] = None,
     ) -> None:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
@@ -121,10 +122,19 @@ class MidlevelMPC:
             - enc (senc.ENC): ENC object containing information about the ENC.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
+            - tau (Optional[float], optional): Barrier parameter for the primal-dual interior point formulation used in the casadi nlp. Defaults to None.
         """
-        self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth)
+        self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, tau)
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
+
+    def set_action_indices(self, action_indices: list):
+        """Sets the indices of the action variables in the decision vector.
+
+        Args:
+            - action_indices (list): List of indices of the action variables in the decision vector.
+        """
+        self._casadi_mpc.set_action_indices(action_indices)
 
     def build_sensitivities(self, tau: Optional[float] = None) -> common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function with respect to the decision variables and parameters.
@@ -155,7 +165,6 @@ class MidlevelMPC:
         do_ot_list: list,
         so_list: list,
         enc: senc.ENC,
-        v_disturbance: Optional[np.ndarray] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
@@ -171,7 +180,6 @@ class MidlevelMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): Electronic Navigational Chart object.
-            - v_disturbance (Optional[np.ndarray], optional): Disturbance speed and direction in the North-East frame. Defaults to None.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - prev_soln (Optional[dict], optional): Previous solution to use as warm start. Defaults to None.
@@ -182,7 +190,7 @@ class MidlevelMPC:
         """
         if self._acados_enabled:
             mpc_soln = self._acados_mpc.plan(
-                t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, v_disturbance, prev_soln, **kwargs
+                t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, prev_soln, **kwargs
             )
         else:
             mpc_soln = self._casadi_mpc.plan(
@@ -195,7 +203,6 @@ class MidlevelMPC:
                 enc,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
-                v_disturbance=v_disturbance,
                 prev_soln=prev_soln,
                 **kwargs
             )

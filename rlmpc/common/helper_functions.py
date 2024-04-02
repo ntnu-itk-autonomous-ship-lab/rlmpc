@@ -26,6 +26,7 @@ import rlmpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
+import shapely.ops as ops
 import torch
 import torchvision
 import tqdm
@@ -572,14 +573,14 @@ def plot_surface_approximation_stuff(
     #     enc.save_image(name="enc_island_polygon", path=save_path, extension="pdf")
     #     enc.save_image(name="enc_island_polygon", path=save_path, scale=2.0)
 
-    # if polygon_index == 8:
-    #     polygon_diff = ops.split(
-    #         relevant_coastline_safety.buffer(10.0, cap_style=cap_style, join_style=join_style),
-    #         geometry.LineString(original_polygon.exterior.coords),
-    #     )
-    #     geom = polygon_diff.geoms[1]
-    #     translated_geom = translate_polygons([geom], -map_origin[1], -map_origin[0])[0]
-    #     enc.draw_polygon(translated_geom, color="black", fill=False)
+    if polygon_index == 8:
+        polygon_diff = ops.split(
+            relevant_coastline_safety.buffer(10.0, cap_style=cap_style, join_style=join_style),
+            geometry.LineString(original_polygon.exterior.coords),
+        )
+        geom = polygon_diff.geoms[1]
+        translated_geom = translate_polygons([geom], -map_origin[1], -map_origin[0])[0]
+        enc.draw_polygon(translated_geom, color="black", fill=False)
 
     y_poly_safety, x_poly_safety = polygon_safety.exterior.coords.xy
 

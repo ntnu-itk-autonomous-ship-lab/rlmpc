@@ -180,7 +180,7 @@ class RLMPC(ci.ICOLAV):
                 "yellow",
             )
         self._initialized = True
-        print("RL-MPC initialized!")
+        # print("RL-MPC initialized!")
 
     def act(
         self,
@@ -262,6 +262,14 @@ class RLMPC(ci.ICOLAV):
         """Updates the adjustable parameters of the MPC."""
         self._mpc.update_adjustable_params(delta)
 
+    def set_action_indices(self, action_indices: list):
+        """Sets the indices of the action variables used for calculating the sensitivity da_dp.
+
+        Args:
+            action_indices (list): List of indices of the action variables in the decision vector.
+        """
+        self._mpc.set_action_indices(action_indices)
+
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
 
@@ -309,7 +317,7 @@ class RLMPC(ci.ICOLAV):
             self._update_mpc_so_polygon_input(ownship_state, enc, self._debug)
 
             if self._debug:
-                plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.T, self._mpc.params.dt)
+                plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
                 ship_poly = mapf.create_ship_polygon(
                     ownship_state[0],
                     ownship_state[1],
@@ -347,7 +355,6 @@ class RLMPC(ci.ICOLAV):
                 do_ot_list=do_ot_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
-                v_disturbance=v_disturbance,
                 **kwargs,
             )
             N = int(self._mpc.params.T / self._mpc.params.dt)

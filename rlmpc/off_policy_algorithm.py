@@ -77,7 +77,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         tau: float = 0.005,
         gamma: float = 0.99,
         train_freq: Union[int, Tuple[int, str]] = (50, "step"),
-        gradient_steps: int = 1,
+        gradient_steps: int = 2,
         action_noise: Optional[sb3_noise.ActionNoise] = None,
         replay_buffer_class: Optional[Type[rlmpc_buffers.ReplayBuffer]] = None,
         replay_buffer_kwargs: Optional[Dict[str, Any]] = None,

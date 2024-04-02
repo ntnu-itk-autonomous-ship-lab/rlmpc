@@ -1,7 +1,7 @@
 name: "rlmpc_scenario_cr_ss"
 save_scenario: False
 t_start: 0.0
-t_end: 150.0
+t_end: 200.0
 dt_sim: 0.5
 utm_zone: 33
 map_size: [1500.0, 1500.0]
@@ -16,9 +16,9 @@ n_random_ships: 1
 episode_generation:
   n_episodes: 5
   n_constant_os_state_episodes: 1
-  n_constant_os_plan_episodes: 20
+  n_constant_os_plan_episodes: 1
   n_constant_do_state_episodes: 1
-  n_plans_per_do_state: 5
+  n_plans_per_do_state: 1
   n_constant_disturbance_episodes: 10
   delta_uniform_position_sample: 20
 rl_action_type: "continuous_relative_autopilot_reference_action"
@@ -41,7 +41,7 @@ stochasticity:
     sigma_direction: 0.005
   wind:
     constant: True
-    initial_speed: 0.0
+    # initial_speed: 0.0
     initial_direction: 90.0
     speed_range: [0.0, 1.0]
     direction_range: [-360.0, 360.0]

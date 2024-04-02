@@ -603,7 +603,8 @@ class AcadosMPC:
             elif self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
                 so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
                     so_list, enc, safety_margins=[self._params.d_safe_so], map_origin=self._map_origin
-                )[0]
+                )
+                so_surfaces = so_surfaces[0]
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:

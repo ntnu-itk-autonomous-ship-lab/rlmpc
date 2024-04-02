@@ -25,17 +25,16 @@ import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
-from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution, StateDependentNoiseDistribution
+from stable_baselines3.common.distributions import (
+    SquashedDiagGaussianDistribution, StateDependentNoiseDistribution)
 from stable_baselines3.common.preprocessing import get_action_dim
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import (
-    get_parameters_by_name,
-    get_schedule_fn,
-    polyak_update,
-    set_random_seed,
-    update_learning_rate,
-)
+from stable_baselines3.common.type_aliases import (GymEnv, MaybeCallback,
+                                                   Schedule)
+from stable_baselines3.common.utils import (get_parameters_by_name,
+                                            get_schedule_fn, polyak_update,
+                                            set_random_seed,
+                                            update_learning_rate)
 from stable_baselines3.sac.policies import BasePolicy, ContinuousCritic
 from torch.nn import functional as F
 
@@ -135,7 +134,7 @@ class SACMPCActor(BasePolicy):
         self.action_indices = [
             nu * n_samples + lookahead_sample * nx,
             nu * n_samples + (lookahead_sample * nx + 1),
-            nu * n_samples + (0 * nx + 3),
+            nu * n_samples + (lookahead_sample * nx + 3),
         ]
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
@@ -320,11 +319,13 @@ class SACMPCActor(BasePolicy):
         w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
 
         self.mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
+        self.mpc.set_action_indices(self.action_indices)
         self.mpc_sensitivities = self.mpc.build_sensitivities()
+        print("SAC MPC Actor initialized!")
 
     def update_params(self, step: th.Tensor) -> None:
         """Update the parameters of the actor policy (if any)."""
-        step = step.numpy()
+        step = step.detach().cpu().numpy()
         self.mpc.update_adjustable_mpc_params(step)
 
 
@@ -734,8 +735,6 @@ class SAC(opa.OffPolicyAlgorithm):
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
-        self.dQ_da = th.func.grad(self.critic.forward, argnums=1)
-
     def initialize_mpc_actor(
         self,
         env: COLAVEnvironment,
@@ -804,7 +803,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 # add entropy term
                 next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
                 # td error + entropy term
-                target_q_values = replay_data.rewards + (1 - replay_data.dones) * self.gamma * next_q_values
+                target_q_values = replay_data.rewards + (1.0 - replay_data.dones) * self.gamma * next_q_values
 
             # Get current Q-values estimates for each critic network
             # using action from the replay buffer
@@ -826,10 +825,15 @@ class SAC(opa.OffPolicyAlgorithm):
             cholesky_cov = th.linalg.cholesky(cov)
             sampled_actions = replay_data.actions + (cholesky_cov @ eps.T).T
             sampled_actions = sampled_actions.requires_grad_(True)
-            self.critic.optimizer.zero_grad()
+
+            with th.no_grad():
+                _, log_prob_sampled = self.actor.action_log_prob(replay_data.observations, sampled_actions, infos=None)
+
             q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
+
             actor_grads = th.zeros((batch_size, self.actor.num_params))
+            actor_losses = th.zeros((batch_size, 1))
             t_now = time.time()
             sens = self.policy.sensitivities()
             for b in range(batch_size):
@@ -840,7 +844,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 soln = actor_info["soln"]
                 p = actor_info["p"]
                 p_fixed = actor_info["p_fixed"]
-                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0)
+                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0, dtype=np.float32)
 
                 dr_dz = sens.dr_dz(z, p_fixed, p).full()
                 dr_dp = sens.dr_dp(z, p_fixed, p).full()
@@ -850,9 +854,10 @@ class SAC(opa.OffPolicyAlgorithm):
                 d_log_pi_dp = (cov @ (sampled_actions[b] - replay_data.actions[b]).reshape(-1, 1)).T @ da_dp
                 d_log_pi_da = cov @ (sampled_actions[b] - replay_data.actions[b])
                 df_repar_dp = da_dp
-
+                #
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
                 actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
+                actor_losses[b] = ent_coef * log_prob_sampled[b] - min_qf_pi_sampled[b]
             print("Actor gradient computation time: ", time.time() - t_now)
             self.actor.update_params(actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))
 
@@ -865,7 +870,10 @@ class SAC(opa.OffPolicyAlgorithm):
 
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
-        self.logger.record("train/actor_loss", np.mean(actor_losses))
+        self.logger.record("train/actor_loss", actor_losses.clone().detach().mean().numpy())
+        self.logger.record(
+            "train/actor_grad_norm", np.linalg.norm(np.mean(actor_grads.clone().detach().numpy(), axis=0), ord=2)
+        )
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))

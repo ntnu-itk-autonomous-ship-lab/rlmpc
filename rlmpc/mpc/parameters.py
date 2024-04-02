@@ -123,7 +123,6 @@ class MidlevelMPCParams(IParams):
     alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
     K_app_course: float = 0.5  # turn rate penalty
     K_app_speed: float = 0.6  # speed deviation penalty
-    K_fuel: float = 1.0  # fuel penalty
 
     alpha_cr: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
     y_0_cr: float = 100.0
@@ -174,7 +173,6 @@ class MidlevelMPCParams(IParams):
                 *self.alpha_app_speed.flatten().tolist(),
                 self.K_app_course,
                 self.K_app_speed,
-                self.K_fuel,
                 *self.alpha_cr.tolist(),
                 self.y_0_cr,
                 *self.alpha_ho.tolist(),
@@ -194,19 +192,18 @@ class MidlevelMPCParams(IParams):
         Args:
             adjustable (np.ndarray): Array of adjustable parameters.
         """
-        self.Q_p = np.diag(adjustable[:3])
-        self.alpha_app_course = adjustable[3:5]
-        self.alpha_app_speed = adjustable[5:7]
-        self.K_app_course = adjustable[7]
-        self.K_app_speed = adjustable[8]
-        self.K_fuel = adjustable[9]
-        self.alpha_cr = adjustable[10:12]
-        self.y_0_cr = adjustable[12]
-        self.alpha_ho = adjustable[13:15]
-        self.x_0_ho = adjustable[15]
-        self.alpha_ot = adjustable[16:18]
-        self.x_0_ot = adjustable[18]
-        self.y_0_ot = adjustable[19]
-        self.d_attenuation = adjustable[20]
-        self.w_colregs = adjustable[21:24]
-        self.r_safe_do = adjustable[24]
+        self.Q_p = np.clip(np.diag(adjustable[:3]), np.diag([1e-6, 1e-6, 1e-6]), np.diag([1e3, 1e3, 1e3]))
+        self.alpha_app_course = np.clip(adjustable[3:5], np.array([1e-6, 1e-6]), np.array([1e3, 1e3]))
+        self.alpha_app_speed = np.clip(adjustable[5:7], np.array([1e-6, 1e-6]), np.array([1e3, 1e3]))
+        self.K_app_course = np.clip(adjustable[7], 0.00001, 1e3)
+        self.K_app_speed = np.clip(adjustable[8], 0.00001, 1e3)
+        self.alpha_cr = np.clip(adjustable[9:11], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+        self.y_0_cr = np.clip(adjustable[11], -1e4, 1e4)
+        self.alpha_ho = np.clip(adjustable[12:14], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+        self.x_0_ho = np.clip(adjustable[14], -1e4, 1e4)
+        self.alpha_ot = np.clip(adjustable[15:17], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+        self.x_0_ot = np.clip(adjustable[17], -1e4, 1e4)
+        self.y_0_ot = np.clip(adjustable[18], -1e4, 1e4)
+        self.d_attenuation = np.clip(adjustable[19], 1.0, 1e4)
+        self.w_colregs = np.clip(adjustable[20:23], np.array([1e-6, 1e-6, 1e-6]), np.array([1e4, 1e4, 1e4]))
+        self.r_safe_do = np.clip(adjustable[23], 1.0, 1e4)

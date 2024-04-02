@@ -1046,10 +1046,10 @@ def compute_surface_approximations_from_polygons(
 
                 # Tuning parameter
                 orig_point_spacing = max(10.0, arc_length[-1] / max_num_orig_surface_points)
-                if show_plots:
-                    print(
-                        f"Polygon {j}: Relevant coastline arc length: {arc_length[-1]} | distance spacing: {orig_point_spacing}"
-                    )
+                # if show_plots:
+                #     print(
+                #         f"Polygon {j}: Relevant coastline arc length: {arc_length[-1]} | distance spacing: {orig_point_spacing}"
+                #     )
 
                 y_surface_points = list(y_coastline_interp(np.arange(0, arc_length[-1], orig_point_spacing)))
                 x_surface_points = list(x_coastline_interp(np.arange(0, arc_length[-1], orig_point_spacing)))
@@ -1066,7 +1066,7 @@ def compute_surface_approximations_from_polygons(
 
                     x_surface_data_points.append(xcoord)
                     y_surface_data_points.append(ycoord)
-                    if enc is not None:
+                    if enc is not None and show_plots:
                         enc.draw_circle(
                             (ycoord + map_origin[1], xcoord + map_origin[0]), radius=0.5, color="blue", fill=False
                         )
@@ -1085,10 +1085,10 @@ def compute_surface_approximations_from_polygons(
                 x_surface_points_before_buffering = x_surface_data_points.copy()
                 y_surface_points_before_buffering = y_surface_data_points.copy()
                 mask_surface_data_points = [1.0] * len(y_surface_data_points)
-                if show_plots:
-                    print(
-                        f"n_surface_points before: {len(y_coastline_orig)} | after interpolation: {n_surface_data_points}"
-                    )
+                # if show_plots:
+                #     print(
+                #         f"n_surface_points before: {len(y_coastline_orig)} | after interpolation: {n_surface_data_points}"
+                #     )
 
                 # Add buffer points just outside the relevant polygon coastline, where the mask is zero or negative (no collision)
                 buffer_distance = 0.1
@@ -1137,8 +1137,8 @@ def compute_surface_approximations_from_polygons(
                     break
                 x_surface_data_points.extend(x_buffer_points)
                 y_surface_data_points.extend(y_buffer_points)
-                if show_plots:
-                    print(f"n_surface_points after buffer points: {len(y_surface_data_points)}")
+                # if show_plots:
+                #     print(f"n_surface_points after buffer points: {len(y_surface_data_points)}")
 
                 ## Add more buffer points further away from the relevant polygon coastline, where the mask is zero or negative (no collision)
                 buffer_distance = 100.0
@@ -1220,15 +1220,16 @@ def compute_surface_approximations_from_polygons(
                     x_buffer_points.append(xcoord)
                     y_buffer_points.append(ycoord)
                     mask_surface_data_points.append(surface_value_at_outlier_points)
-                    if enc is not None:
+                    if enc is not None and show_plots:
                         enc.draw_circle(
                             (ycoord + map_origin[1], xcoord + map_origin[0]), radius=1.0, color="black", fill=False
                         )
                 x_surface_data_points.extend(x_buffer_points)
                 y_surface_data_points.extend(y_buffer_points)
+                # if show_plots:
+                #     print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
                 if show_plots:
-                    print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
-                print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
+                    print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
                 smoothing = 7.5
 
                 rbf = scipyintp.RBFInterpolator(
@@ -1259,7 +1260,7 @@ def compute_surface_approximations_from_polygons(
                 scipy_surfaces.append(rbf)
                 surfaces.append(rbf_surface_func)
 
-                if enc is not None and show_plots:
+                if False:  # enc is not None and show_plots:
                     hf.plot_surface_approximation_stuff(
                         radial_basis_function=rbf_surface_func,
                         radial_basis_function_gradient=grad_rbf_func,

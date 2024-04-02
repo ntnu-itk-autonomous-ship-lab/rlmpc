@@ -1,3 +1,4 @@
+import platform
 from pathlib import Path
 
 import colav_simulator.scenario_generator as cs_sg
@@ -11,6 +12,7 @@ import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
 from rlmpc.networks.feature_extractors import CombinedExtractor
+from stable_baselines3.common.callbacks import CallbackList, EvalCallback, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.evaluation import evaluate_policy
 
 # Depending on your OS, you might need to change these paths
@@ -44,6 +46,14 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
 
 
 if __name__ == "__main__":
+    if platform.system() == "Unix":
+        base_dir = Path("/home/doctor/machine_learning/rlmpc/")
+    elif platform.system() == "Darwin":
+        base_dir = Path("/Users/trtengesdal/machine_learning/rlmpc/")
+    log_dir = base_dir / "logs"
+    model_dir = base_dir / "models"
+    best_model_dir = model_dir / "best_model"
+
     scenario_choice = 0
     if scenario_choice == 0:
         scenario_name = "rlmpc_scenario_cr_ss"
@@ -52,12 +62,12 @@ if __name__ == "__main__":
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
 
-    scenario_generator = cs_sg.ScenarioGenerator(seed=0)
+    # scenario_generator = cs_sg.ScenarioGenerator(seed=2)
     # scenario_data = scenario_generator.generate(
     #     config_file=config_file,
     #     new_load_of_map_data=False,
     #     save_scenario=True,
-    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
+    #     save_scenario_folder=rl_dp.scenarios / "test_data" / scenario_name,
     #     show_plots=True,
     #     episode_idx_save_offset=0,
     # )
@@ -93,7 +103,20 @@ if __name__ == "__main__":
         "seed": 15,
     }
     env = gym.make(id=env_id, **env_config)
-    # env.reset(seed=1)
+    env_config.update(
+        {"scenario_file_folder": rl_dp.scenarios / "test_data" / scenario_name, "seed": 100, "test_mode": True}
+    )
+    eval_env = gym.make(id=env_id, **env_config)
+    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
+    eval_callback = EvalCallback(
+        eval_env,
+        eval_freq=5,
+        callback_after_eval=stop_train_callback,
+        best_model_save_path=best_model_dir,
+        deterministic=True,
+        render=True,
+        verbose=1,
+    )
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
@@ -110,13 +133,15 @@ if __name__ == "__main__":
     model = sac_rlmpc.SAC(
         policy,
         env,
-        verbose=1,
         policy_kwargs=policy_kwargs,
         buffer_size=100,
         learning_starts=0,
         batch_size=2,
-        train_freq=(4, "step"),
+        gradient_steps=2,
+        train_freq=(2, "step"),
         device="cpu",
+        tensorboard_log=log_dir,
+        verbose=1,
     )
 
     model.learn(total_timesteps=100, progress_bar=True)

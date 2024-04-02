@@ -1,5 +1,6 @@
 
 scenarios/training_data
+scenarios/test_data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

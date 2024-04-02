@@ -101,6 +101,8 @@ class CasadiMPC:
         self._s_final_value: float = 0.0
         self._path_linestring: geo.LineString = geo.LineString()
 
+        self._action_indices = [0, 1, 2]
+
         # debugging functions
         self._p_path = csd.MX.sym("p_path", 0)
         self._p_rate = csd.MX.sym("p_rate", 0)
@@ -127,14 +129,18 @@ class CasadiMPC:
     def params(self):
         return self._params
 
+    def set_action_indices(self, action_indices: list):
+        self._action_indices = action_indices
+
     def update_adjustable_params(self, delta_p: np.ndarray) -> None:
         """Updates the adjustable parameters in the MPC.
 
         Args:
             - delta_p (np.ndarray): Change in the adjustable parameters.
         """
-        self._p_adjustable_values += delta_p
-        self.params.set_adjustable(self._p_adjustable_values)
+        p_adjustable_values = self._p_adjustable_values + delta_p
+        self.params.set_adjustable(p_adjustable_values)
+        self._p_adjustable_values = self.params.adjustable()
 
     def get_adjustable_params(self) -> np.ndarray:
         """Returns the RL-tuneable parameters in the MPC.
@@ -234,22 +240,20 @@ class CasadiMPC:
     def _create_initial_warm_start(
         self,
         xs: np.ndarray,
-        dim_g: int,
         do_list,
         enc: senc.ENC,
-        v_disturbance: Optional[np.ndarray] = None,
     ) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
 
         Args:
             - xs (np.ndarray): Initial state of the system (x, y, psi, u, v, r)^T.
-            - dim_g (int): Dimension/length of the constraints.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): ENC object containing the map info.
-            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
         """
         self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
         self._s_dot = self.compute_path_variable_derivative(self._s)
+
+        dim_g = self._lbg.shape[0]
 
         n_colregs_zones = 3
         nx, nu = self.model.dims()
@@ -297,7 +301,7 @@ class CasadiMPC:
 
         for i in range(n_attempts):
             inputs = np.tile(u_attempts[i], (N, 1)).T
-            warm_start_traj = self._model_prediction(xs_k, inputs, N + 1, p=v_disturbance)
+            warm_start_traj = self._model_prediction(xs_k, inputs, N + 1, p=self._p_ship_mdl_values)
             chi = warm_start_traj[2, :]
             chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
             warm_start_traj[2, :] = chi_unwrapped
@@ -350,7 +354,6 @@ class CasadiMPC:
         n_shifts: int,
         do_list: list,
         enc: senc.ENC,
-        v_disturbance: Optional[np.ndarray] = np.array([0.0, 0.0]),
     ) -> Tuple[np.ndarray, bool]:
         """Creates a shifted warm start trajectory from the previous trajectory and the new control input,
         possibly with an offset start back in time.
@@ -365,7 +368,6 @@ class CasadiMPC:
             - n_shifts (int): Number of shifts to perform on the previous trajectory.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) with EN coordinates.
             - enc (senc.ENC): The ENC object containing the map.
-            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, bool]: The new warm start, corresponding state and input trajectories, and a boolean indicating if the warm start was successful.
@@ -393,7 +395,7 @@ class CasadiMPC:
 
         s_dot_shifted = X_prev[5, n_shifts]
         xs_init_mpc[4:] = np.array([s_shifted, s_dot_shifted])
-        X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1, p=v_disturbance)
+        X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1, p=self._p_ship_mdl_values)
         chi = X_warm_start[2, :].tolist()
         X_warm_start[2, :] = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
         w_warm_start = np.concatenate(
@@ -426,7 +428,6 @@ class CasadiMPC:
         dt: float,
         do_list: list,
         enc: senc.ENC,
-        v_disturbance: Optional[np.ndarray] = np.array([0.0, 0.0]),
     ) -> dict:
         """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
 
@@ -436,7 +437,6 @@ class CasadiMPC:
             - dt (float): Time to shift the warm start decision trajectory.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): Electronic Navigational Chart object.
-            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
         """
         _, nu = self.model.dims()
         n_attempts = 6
@@ -486,7 +486,6 @@ class CasadiMPC:
                 n_shifts,
                 do_list_shifted,
                 enc,
-                v_disturbance=v_disturbance,
             )
             if success:
                 break
@@ -509,7 +508,6 @@ class CasadiMPC:
         do_ot_list: list,
         so_list: list,
         enc: Optional[senc.ENC],
-        v_disturbance: Optional[np.ndarray] = None,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
@@ -525,7 +523,6 @@ class CasadiMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List ofrelevant static obstacle Polygon objects.
             - enc (Optional[senc.ENC]): ENC object containing the map info.
-            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
             - prev_soln (Optional[dict], optional): Previous solution to use. Defaults to None.
@@ -538,10 +535,8 @@ class CasadiMPC:
         if not self._initialized:
             self._current_warmstart = self._create_initial_warm_start(
                 xs,
-                self._lbg.shape[0],
                 do_list=do_cr_list + do_ho_list + do_ot_list,
                 enc=enc,
-                v_disturbance=v_disturbance,
             )
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc)
             self._xs_prev = xs
@@ -563,12 +558,10 @@ class CasadiMPC:
                 dt,
                 do_list=do_cr_list + do_ho_list + do_ot_list,
                 enc=enc,
-                v_disturbance=v_disturbance,
             )
 
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
             xs_unwrapped,
-            None,
             do_cr_list,
             do_ho_list,
             do_ot_list,
@@ -576,7 +569,6 @@ class CasadiMPC:
             enc,
             perturb_nlp=perturb_nlp,
             perturb_sigma=perturb_sigma,
-            v_disturbance=v_disturbance,
             **kwargs,
         )
 
@@ -652,8 +644,8 @@ class CasadiMPC:
         output = {
             "soln": self._current_warmstart,
             "optimal": stats["success"],
-            "p": self._p_adjustable_values,
-            "p_fixed": self._p_fixed_values,
+            "p": self._p_adjustable_values.astype(np.float32),
+            "p_fixed": self._p_fixed_values.astype(np.float32),
             "trajectory": X,
             "inputs": U,
             "slacks": Sigma,
@@ -717,6 +709,7 @@ class CasadiMPC:
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
         min_depth: int = 5,
+        tau: float | None = None,
     ) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
@@ -742,7 +735,11 @@ class CasadiMPC:
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
+            - tau (float, optional): Primal-dual Interior point method barrier parameter. Defaults to None
         """
+        if tau is not None:
+            self._solver_options.mu_target = tau
+
         self._initialized = False
         self._set_path_information(nominal_path)
         self._min_depth = min_depth
@@ -779,7 +776,7 @@ class CasadiMPC:
         self._nlp_perturbation = csd.MX.sym("nlp_perturbation", nu, 1)
         p_fixed.append(self._nlp_perturbation)
 
-        p_fixed.append(self._p_mdl)  # env disturbance velocity
+        p_fixed.append(self._p_mdl)
 
         # Initial state constraint
         x_0 = csd.MX.sym("x_0_constr", nx, 1)
@@ -797,10 +794,6 @@ class CasadiMPC:
         )
         Sigma_bx.append(sigma_bx_k)
 
-        # Add the initial action u_0 as parameter, relevant for the Q-function approximator
-        u_0 = csd.MX.sym("u_0_constr", nu, 1)
-        p_fixed.append(u_0)
-
         # Path following, speed deviation, chattering and fuel cost parameters
         dim_Q_p = self._params.Q_p.shape[0]
         Q_p_vec = csd.MX.sym("Q_vec", dim_Q_p, 1)
@@ -808,7 +801,6 @@ class CasadiMPC:
         alpha_app_speed = csd.MX.sym("alpha_app_speed", 2, 1)
         K_app_course = csd.MX.sym("K_app_course", 1, 1)
         K_app_speed = csd.MX.sym("K_app_speed", 1, 1)
-        K_fuel = csd.MX.sym("K_fuel", 1, 1)
 
         path_derivative_refs_list = []
         for k in range(N + 1):
@@ -827,7 +819,6 @@ class CasadiMPC:
         p_adjustable.append(alpha_app_speed)
         p_adjustable.append(K_app_course)
         p_adjustable.append(K_app_speed)
-        p_adjustable.append(K_fuel)
 
         # COLREGS cost parameters
         alpha_cr = csd.MX.sym("alpha_cr", 2, 1)
@@ -860,8 +851,9 @@ class CasadiMPC:
         max_num_so_constr = self._params.max_num_so_constr
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
             so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
-                so_list, enc, safety_margins=[self._params.r_safe_so], map_origin=self._map_origin
-            )[0]
+                so_list, enc, safety_margins=[self._params.r_safe_so], map_origin=self._map_origin, show_plots=True
+            )
+            so_surfaces = so_surfaces[0]
             max_num_so_constr = min(len(so_surfaces), self._params.max_num_so_constr)
             self._so_surfaces = so_surfaces
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
@@ -926,7 +918,7 @@ class CasadiMPC:
         )
 
         # Cost function
-        J = self._nlp_perturbation.T @ u_0
+        J = 0.0
 
         so_constr_list = []
         do_constr_list = []
@@ -936,6 +928,9 @@ class CasadiMPC:
         erk4 = integrators.ERK4(x=x, p=csd.vertcat(u, self._p_mdl), ode=xdot, quad=csd.vertcat([]), h=dt)
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
+            if k == 0:
+                J += self._nlp_perturbation.T @ u_k
+
             U.append(u_k)
             hu.append(lbu_k - u_k)  # lbu <= u_k
             hu.append(u_k - ubu_k)  # u_k <= ubu
@@ -1040,14 +1035,22 @@ class CasadiMPC:
 
             x_k_end, _, _, _, _, _, _, _ = erk4(x_k, csd.vertcat(u_k, self._p_mdl))
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
+            X.append(x_k)
+            g_eq_list.append(x_k_end - x_k)
+
             sigma_bx_k = csd.MX.sym(
                 "sigma_bx_" + str(k + 1),
                 n_bx_slacks,
                 1,
             )
             Sigma_bx.append(sigma_bx_k)
-            X.append(x_k)
-            g_eq_list.append(x_k_end - x_k)
+
+        J *= dt
+
+        # -1 - sigma <= x <= 1 + sigma
+        # sigma = 1 =>
+        # -1 - sigma - x <= 0
+        # x - 1 - sigma <= 0
 
         # Terminal costs and constraints
         hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
@@ -1325,13 +1328,11 @@ class CasadiMPC:
     def create_parameter_values(
         self,
         state: np.ndarray,
-        action: Optional[np.ndarray],
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
         so_list: list,
         enc: Optional[senc.ENC] = None,
-        v_disturbance: Optional[np.ndarray] = np.array([0.0, 0.0]),
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         **kwargs,
@@ -1340,13 +1341,11 @@ class CasadiMPC:
 
         Args:
             - state (np.ndarray): Current state of the system on the form (x, y, psi, u, v, r)^T.
-            - action (np.ndarray, optional): Current action of the system on the form (r, a)^T.
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of static obstacles.
             - enc (Optional[senc.ENC]): Electronic Navigation Chart (ENC) object.
-            - v_disturbance (Optional[np.ndarray]): Disturbance speed and direction in the North-East frame. Defaults to None.
             - perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
@@ -1366,25 +1365,18 @@ class CasadiMPC:
             d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
         fixed_parameter_values.extend(d.flatten().tolist())  # d
 
-        fixed_parameter_values.extend(v_disturbance.flatten())
-
         state_aug = np.zeros((nx, 1))
         U = np.sqrt(state[3] ** 2 + state[4] ** 2)
         state_aug[0:2] = state[0:2].reshape((2, 1))
-        state_aug[2] = state[2]
+        state_aug[2] = state[2] + np.arctan2(state[4], state[3])
         state_aug[3] = U
-
-        if action is None:
-            action = np.zeros((nu, 1))
 
         # augmented path dynamics due to the integrated path timing model with velocity assignment
         state_aug[4:] = np.array([self._s, self._s_dot]).reshape((2, 1))
         fixed_parameter_values.extend(state_aug.flatten().tolist())  # x0
-        fixed_parameter_values.extend(action.flatten().tolist())  # u0
 
         path_parameter_values, _, _ = self._create_path_parameter_values()
         fixed_parameter_values.extend(path_parameter_values)
-
         fixed_parameter_values.append(self._params.gamma)
 
         so_parameter_values = self._update_so_parameter_values(so_list, state, enc)
@@ -1521,13 +1513,14 @@ class CasadiMPC:
         return self._p_fixed_so_values
 
     def build_sensitivities(
-        self, tau: Optional[float] = None, second_order: Optional[bool] = False
+        self, tau: Optional[float] = None, second_order: Optional[bool] = False, generate_c_code: Optional[bool] = False
     ) -> mpc_common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function with respect to the decision variables and parameters.
 
         Args:
             - tau (Optional[float]): Barrier parameter. Defaults to None.
             - second_order (Optional[bool]): Whether or not to generate second order sensitivities (for the stochastic policy gradient case)
+            - generate_c_code (Optional[bool]): Whether or not to generate C code for the sensitivities. Defaults to False.
 
         Returns:
             - mpc_common.NLPSensitivities: Class containing the sensitivity functions necessary for
@@ -1584,6 +1577,8 @@ class CasadiMPC:
             {"dlag_dw": dlag_dw_func, "dlag_dp_f": dlag_dp_f_func, "dlag_dp": dlag_dp_func, "d2lag_d2w": d2lag_d2w_func}
         )
 
+        # grad of the lag wrt par check = 0
+
         # z contains all variables contained in a solution, i.e. decision variables and multipliers
         _, nu = self.model.dims()
         z = csd.vertcat(self._opt_vars, lamb, mu)
@@ -1594,27 +1589,43 @@ class CasadiMPC:
             G,
             csd.diag(mu) @ H + tau,
         )
-
+        # check kkt conditions after
         # # Generate sensitivity of the KKT matrix
         r_func = csd.Function("kkt_matrix_func", [z, self._p_fixed, self._p_adjustable], [R_kkt])
         dr_func = r_func.factory(
             "kkt_matrix_derivative_func", ["i0", "i1", "i2"], ["jac:o0:i0", "jac:o0:i1", "jac:o0:i2"]
         )
         [dr_dz, dr_dp_f, dr_dp] = dr_func(z, self._p_fixed, self._p_adjustable)
-        dR_dz_func = csd.Function("dR_dz_func", [z, self._p_fixed, self._p_adjustable], [dr_dz])
-        dr_dp_func = csd.Function("dr_dp_func", [z, self._p_fixed, self._p_adjustable], [dr_dp])
-        dr_dp_f_func = csd.Function("dr_dp_f_func", [z, self._p_fixed, self._p_adjustable], [dr_dp_f])
-        output_dict.update({"dr_dz": dR_dz_func, "dr_dp": dr_dp_func, "dr_dp_f": dr_dp_f_func})
 
         # Generate sensitivity of the optimal solution using the implicit function theorem, with respect to the parameters and
         # the perturbation (if using stochastic policies)
-        # dz_dp = -csd.inv(dr_dz) @ dr_dp
-        # dz_dp_func = csd.Function("dz_dp_func", [z, self._p_fixed, self._p_adjustable], [dz_dp])
-        # dz_dp_f = -csd.inv(dr_dz) @ dr_dp_f
-        # dz_dp_f_func = csd.Function("dz_dp_f_func", [z, self._p_fixed, self._p_adjustable], [dz_dp_f])
+        dz_dp = -csd.inv(dr_dz) @ dr_dp
+        da_dp = dz_dp[self._action_indices, :]
+
+        dR_dz_func = csd.Function("dR_dz_func", [z, self._p_fixed, self._p_adjustable], [dr_dz])
+        dr_dp_func = csd.Function("dr_dp_func", [z, self._p_fixed, self._p_adjustable], [dr_dp])
+        dr_dp_f_func = csd.Function("dr_dp_f_func", [z, self._p_fixed, self._p_adjustable], [dr_dp_f])
+        dz_dp_func = csd.Function("dz_dp_func", [z, self._p_fixed, self._p_adjustable], [dz_dp])
+        da_dp_func = csd.Function("da_dp_func", [z, self._p_fixed, self._p_adjustable], [da_dp])
+        output_dict.update(
+            {
+                "dr_dz": dR_dz_func,
+                "dr_dp": dr_dp_func,
+                "dr_dp_f": dr_dp_f_func,
+                "dz_dp": dz_dp_func,
+                "da_dp": da_dp_func,
+            }
+        )
+        # check how small the determinant of dr_dz isd
+
+        # if generate_c_code:
+        #     dr_dp_func.generate('dr_dp_func.c')
+        #     C = csd.Importer('dr_dp_func.c', 'shell')
 
         if not second_order:
-            return mpc_common.NLPSensitivities.from_dict(output_dict)
+            sens = mpc_common.NLPSensitivities.from_dict(output_dict)
+            self._sensitivities = sens
+            return sens
 
         # Generate sensitivity of z_bar (contains perturbation as first element, with u0 as a fixed parameter)
         # with respect to the parameters and the perturbation (if using stochastic policies)
@@ -1741,10 +1752,9 @@ class CasadiMPC:
         #     "dz_bar_dpi_da_func", [z_bar, p_fixed_bar, self._p_adjustable], [dz_bar_dpi_da]
         # )
         # dz_bar_dp_da.append(dz_bar_dpi_da_func)
-        sensitivities = mpc_common.NLPSensitivities.from_dict(output_dict)
-        if tau == self._solver_options.mu_target:
-            self._sensitivities = sensitivities
-        return sensitivities
+        sens = mpc_common.NLPSensitivities.from_dict(output_dict)
+        self._sensitivities = sens
+        return sens
 
     def plot_cost_function_values(
         self,
@@ -1928,12 +1938,13 @@ class CasadiMPC:
             X_do_ho[:, k] = X_do_ho_k
             X_do_ot[:, k] = X_do_ot_k
 
-        min_do_dist = np.zeros(X.shape[1])
-        for k in range(X.shape[1]):
-            d_0i_cr = np.linalg.norm(X[0:2, k] - X_do_cr[0:2, k])
-            d_0i_ho = np.linalg.norm(X[0:2, k] - X_do_ho[0:2, k])
-            d_0i_ot = np.linalg.norm(X[0:2, k] - X_do_ot[0:2, k])
-            min_do_dist[k] = np.min([d_0i_cr, d_0i_ho, d_0i_ot])
+        min_do_dist = 100000.0 * np.ones(X.shape[1])
+        if nx_do_total > 0:
+            for k in range(X.shape[1]):
+                d_0i_cr = np.linalg.norm(X[0:2, k] - X_do_cr[0:2, k])
+                d_0i_ho = np.linalg.norm(X[0:2, k] - X_do_ho[0:2, k])
+                d_0i_ot = np.linalg.norm(X[0:2, k] - X_do_ot[0:2, k])
+                min_do_dist[k] = np.min([d_0i_cr, d_0i_ho, d_0i_ot])
 
         fig = plt.figure(figsize=(12, 8))
         axes = fig.subplot_mosaic(
@@ -2034,11 +2045,11 @@ class CasadiMPC:
         g_eq_jac_rank = np.linalg.matrix_rank(g_eq_jac)
         max_g_eq_jac_rank = g_eq_jac.shape[1] if g_eq_jac.shape[1] < g_eq_jac.shape[0] else g_eq_jac.shape[0]
         g_ineq_jac_rank = 0
-        max_ineq_jac_rank = 0
+        max_g_ineq_jac_rank = 0
         if g_ineq_vals.size > 0:
             g_ineq_jac = self._inequality_constraints_jacobian(soln["x"], parameter_values).full()
             g_ineq_jac_rank = np.linalg.matrix_rank(g_ineq_jac)
-            max_ineq_jac_rank = (
+            max_g_ineq_jac_rank = (
                 g_ineq_jac.shape[1] if g_ineq_jac.shape[1] < g_ineq_jac.shape[0] else g_ineq_jac.shape[0]
             )
 
@@ -2060,5 +2071,5 @@ class CasadiMPC:
             arg_max_so_constr, max_so_constr = np.argmax(so_constr_vals), np.max(so_constr_vals)
 
         print(
-            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank}"
+            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank}"
         )

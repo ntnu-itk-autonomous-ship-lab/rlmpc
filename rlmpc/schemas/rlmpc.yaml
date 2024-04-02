@@ -100,9 +100,6 @@ midlevel_mpc:
         K_app_speed:
           required: True
           type: float
-        K_fuel:
-          required: True
-          type: float
 
         alpha_cr:
           required: True

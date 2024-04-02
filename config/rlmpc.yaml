@@ -23,14 +23,13 @@ midlevel_mpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
-    T: 120.0
+    T: 15.0
     dt: 5.0
     Q_p: [0.5, 1.0, 30.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.00025]
     K_app_course: 15.0
     K_app_speed: 10.0
-    K_fuel: 1.0
 
     alpha_cr: [0.03, 0.003]
     y_0_cr: 400.0
@@ -39,17 +38,17 @@ midlevel_mpc:
     alpha_ot: [0.005, 0.01]
     x_0_ot: 300.0
     y_0_ot: 100.0
-    d_attenuation: 500.0
+    d_attenuation: 300.0
     w_colregs: [50.0, 50.0, 20.0]
 
     w_L2: 0.0
     w_L1: 12000.0
-    r_safe_so: 15.0
+    r_safe_so: 10.0
     r_safe_do: 30.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 12
-    max_num_do_constr_per_zone: 3 # per shooting node in the mpc
+    max_num_so_constr: 0
+    max_num_do_constr_per_zone: 0 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
       draft: 2.0
@@ -69,11 +68,11 @@ midlevel_mpc:
       solver_tol: 0.000001
       print_level: 5
       print_time: 0
-      mu_target: 0.00000001
+      mu_target: 0.0000001 # start higher
       mu_init: 0.1
-      acceptable_tol: 0.0001
+      acceptable_tol: 0.0001 # harder to "compute good gradient steps" for mpc-parameterizations
       acceptable_obj_change_tol: 1000_000_000_000.0
-      max_iter: 2000
+      max_iter: 1000
       warm_start_init_point: "yes"
       verbose: False
       jit: False

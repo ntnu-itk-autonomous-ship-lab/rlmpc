@@ -113,18 +113,18 @@ class TrackingGRU(BaseFeaturesExtractor):
         self.hidden_dim = features_dim
         self.num_layers = num_layers
         self.gru = nn.GRU(input_size=self.input_dim, hidden_size=features_dim, num_layers=num_layers, batch_first=True)
-        self.hidden = self.init_hidden(batch_size)
 
     def forward(self, observations: th.Tensor) -> Tuple[th.Tensor]:
-        # Shift the last dimension to the middle
+        batch_size = observations.shape[0]
+        hidden = th.zeros(self.num_layers, batch_size, self.hidden_dim)
+
         observations = observations.permute(0, 2, 1)
         packed_seq = rnn_utils.pack_padded_sequence(
             observations, [len(obs) for obs in observations], batch_first=True, enforce_sorted=False
         )
-        packed_output, hidden = self.gru(packed_seq, self.hidden)
+        packed_output, hidden = self.gru(packed_seq, hidden)
         output, _ = rnn_utils.pad_packed_sequence(packed_output, batch_first=True)
 
-        self.hidden = hidden
         hidden_out = hidden.permute(1, 0, 2).reshape(-1, self.num_layers * self.hidden_dim)
         return hidden_out
 
