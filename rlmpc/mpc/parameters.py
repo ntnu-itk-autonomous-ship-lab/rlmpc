@@ -192,11 +192,11 @@ class MidlevelMPCParams(IParams):
         Args:
             adjustable (np.ndarray): Array of adjustable parameters.
         """
-        self.Q_p = np.clip(np.diag(adjustable[:3]), np.diag([1e-6, 1e-6, 1e-6]), np.diag([1e3, 1e3, 1e3]))
-        self.alpha_app_course = np.clip(adjustable[3:5], np.array([1e-6, 1e-6]), np.array([1e3, 1e3]))
-        self.alpha_app_speed = np.clip(adjustable[5:7], np.array([1e-6, 1e-6]), np.array([1e3, 1e3]))
-        self.K_app_course = np.clip(adjustable[7], 0.00001, 1e3)
-        self.K_app_speed = np.clip(adjustable[8], 0.00001, 1e3)
+        self.Q_p = np.clip(np.diag(adjustable[:3]), np.diag([1e-4, 1e-4, 1e-4]), np.diag([1e3, 1e3, 1e3]))
+        self.alpha_app_course = np.clip(adjustable[3:5], np.array([1e-6, 0.000001]), np.array([1e3, 1.0]))
+        self.alpha_app_speed = np.clip(adjustable[5:7], np.array([1.0, 0.00001]), np.array([1e3, 1.0]))
+        self.K_app_course = np.clip(adjustable[7], 0.001, 1e3)
+        self.K_app_speed = np.clip(adjustable[8], 0.001, 1e3)
         self.alpha_cr = np.clip(adjustable[9:11], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
         self.y_0_cr = np.clip(adjustable[11], -1e4, 1e4)
         self.alpha_ho = np.clip(adjustable[12:14], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
@@ -205,5 +205,5 @@ class MidlevelMPCParams(IParams):
         self.x_0_ot = np.clip(adjustable[17], -1e4, 1e4)
         self.y_0_ot = np.clip(adjustable[18], -1e4, 1e4)
         self.d_attenuation = np.clip(adjustable[19], 1.0, 1e4)
-        self.w_colregs = np.clip(adjustable[20:23], np.array([1e-6, 1e-6, 1e-6]), np.array([1e4, 1e4, 1e4]))
+        self.w_colregs = np.clip(adjustable[20:23], np.array([1e-4, 1e-4, 1e-4]), np.array([1e4, 1e4, 1e4]))
         self.r_safe_do = np.clip(adjustable[23], 1.0, 1e4)

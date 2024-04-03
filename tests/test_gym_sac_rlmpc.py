@@ -134,34 +134,38 @@ if __name__ == "__main__":
         policy,
         env,
         policy_kwargs=policy_kwargs,
-        buffer_size=100,
+        buffer_size=1000,
         learning_starts=0,
-        batch_size=2,
-        gradient_steps=2,
+        batch_size=1,
+        gradient_steps=1,
         train_freq=(2, "step"),
         device="cpu",
         tensorboard_log=log_dir,
         verbose=1,
     )
 
-    model.learn(total_timesteps=100, progress_bar=True)
+    total_timesteps = 100
+    model.learn(total_timesteps=total_timesteps, progress_bar=True, callback=CallbackList([eval_callback]))
     mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
     print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 
     record = True
     if record:
-        video_path = rl_dp.animations / "demo.mp4"
+        video_path = rl_dp.animations / "test_sac_rlmpc.mp4"
         env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
 
-    env.reset(seed=1)
-    frames = []
-    for i in range(250):
-        obs, reward, terminated, truncated, info = env.step(np.array([-0.2, 0.0]))
+    n_episodes = 1
+    for i in range(n_episodes):
+        obs, _ = env.reset(seed=1)
+        done = False
+        frames = []
+        while not done:
+            action = model.predict_with_mpc(obs)
+            obs, reward, terminated, truncated, info = env.step(action)
 
-        frames.append(env.render())
+            frames.append(env.render())
 
-        if terminated or truncated:
-            env.reset()
+            done = terminated or truncated
 
     env.close()
 

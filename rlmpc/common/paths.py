@@ -16,6 +16,7 @@ data = root / "data"
 animations = root / "animations"
 figures = root / "figures"
 acados_code_gen = root / "acados_code_gen"
+casadi_code_gen = root / "casadi_code_gen"
 scenarios = root / "scenarios"
 
 schemas = package / "schemas"

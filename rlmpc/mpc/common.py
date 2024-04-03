@@ -8,6 +8,8 @@
     Author: Trym Tengesdal
 """
 
+import pathlib
+import time
 from dataclasses import asdict, dataclass, field
 from typing import List, Optional, Tuple
 
@@ -172,6 +174,26 @@ class NLPSensitivities:
             d2r_dadz_j_bar=input_dict["d2r_dadz_j_bar"] if "d2r_dadz_j_bar" in input_dict else None,
         )
         return output
+
+    def generate_c_functions(self, only_da_dp: bool = True, path: Optional[pathlib.Path] = None) -> None:
+        """Generates C code for the casadi sensitivity functions. SLOW Shit"""
+        if path is None:
+            path = dp.casadi_code_gen
+        assert only_da_dp, "Only da_dp codegen is implemented for now"
+        if only_da_dp:
+            t_now = time.time()
+            # path_str  = str(path / "da_dp.c")
+            # self.da_dp.generate("da_dp.c", {"main": True})
+            C = csd.Importer("da_dp.c", "shell")
+            self.da_dp = csd.external("da_dp", C)
+            print(f"Time to generate da_dp: {time.time() - t_now}")
+            return
+
+        for attr in self.__dict__.keys():
+            if isinstance(getattr(self, attr), csd.Function):
+                getattr(self, attr).generate(dp.casadi_code_gen / (attr + ".c"))
+                C = csd.Importer(dp.casadi_code_gen / (attr + ".c"), "shell")
+                setattr(self, attr, csd.external(dp.casadi_code_gen / (attr + ".c"), C))
 
 
 def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:

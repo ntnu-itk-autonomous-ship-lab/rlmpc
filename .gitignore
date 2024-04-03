@@ -1,6 +1,7 @@
 
 scenarios/training_data
 scenarios/test_data
+casadi_code_gen
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

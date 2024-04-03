@@ -294,7 +294,7 @@ class CasadiMPC:
         if self._so_surfaces:
             max_num_so_constr = len(self._so_surfaces) if self._params.max_num_so_constr > 0 else 0
 
-        n_bx_slacks = len(self._idx_bx_constr)
+        n_bx_slacks = len(self._idx_slacked_bx_constr)
         slacks = np.zeros(
             (n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone) * (N + 1)
         )
@@ -785,8 +785,8 @@ class CasadiMPC:
         g_eq_list.append(x_0 - x_k)
         p_fixed.append(x_0)
 
-        self._idx_bx_constr = np.array([0, 1, 2, 3])
-        n_bx_slacks = self._idx_bx_constr.shape[0]
+        self._idx_slacked_bx_constr = np.array([0, 1, 2, 3, 4, 5])
+        n_bx_slacks = self._idx_slacked_bx_constr.shape[0]
         sigma_bx_k = csd.MX.sym(
             "sigma_bx_0",
             n_bx_slacks,
@@ -936,8 +936,12 @@ class CasadiMPC:
             hu.append(u_k - ubu_k)  # u_k <= ubu
             hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
             hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= inf
-            hx.append(lbx_k[self._idx_bx_constr] - x_k[self._idx_bx_constr] - sigma_bx_k)  # lbx - sigma_bx <= x_k
-            hx.append(x_k[self._idx_bx_constr] - sigma_bx_k - ubx_k[self._idx_bx_constr])  # x_k <= ubx + sigma_bx
+            hx.append(
+                lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bx_k
+            )  # lbx - sigma_bx <= x_k
+            hx.append(
+                x_k[self._idx_slacked_bx_constr] - sigma_bx_k - ubx_k[self._idx_slacked_bx_constr]
+            )  # x_k <= ubx + sigma_bx
 
             slack_penalty_cost = W_bx.T @ sigma_bx_k
 
@@ -1047,16 +1051,15 @@ class CasadiMPC:
 
         J *= dt
 
-        # -1 - sigma <= x <= 1 + sigma
-        # sigma = 1 =>
-        # -1 - sigma - x <= 0
-        # x - 1 - sigma <= 0
-
         # Terminal costs and constraints
         hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
         hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= 1e12 = inf
-        hx.append(lbx_k[self._idx_bx_constr] - x_k[self._idx_bx_constr] - sigma_bx_k)  # lbx - sigma_bx <= x_k
-        hx.append(x_k[self._idx_bx_constr] - sigma_bx_k - ubx_k[self._idx_bx_constr])  # x_k <= ubx + sigma_bx
+        hx.append(
+            lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bx_k
+        )  # lbx - sigma_bx <= x_k
+        hx.append(
+            x_k[self._idx_slacked_bx_constr] - sigma_bx_k - ubx_k[self._idx_slacked_bx_constr]
+        )  # x_k <= ubx + sigma_bx
         slack_penalty_cost = W_bx.T @ sigma_bx_k
         if max_num_so_constr > 0:
             sigma_so_k = csd.MX.sym(
@@ -1383,7 +1386,7 @@ class CasadiMPC:
         fixed_parameter_values.extend(so_parameter_values)
 
         max_num_so_constr = min(len(self._so_surfaces), self._params.max_num_so_constr)
-        n_bx_slacks = len(self._idx_bx_constr)
+        n_bx_slacks = len(self._idx_slacked_bx_constr)
         slack_size = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
         W = self._params.w_L1 * np.ones(slack_size)
         fixed_parameter_values.extend(W.tolist())
@@ -1625,6 +1628,7 @@ class CasadiMPC:
         if not second_order:
             sens = mpc_common.NLPSensitivities.from_dict(output_dict)
             self._sensitivities = sens
+            # self._sensitivities.generate_c_functions(only_da_dp=True)
             return sens
 
         # Generate sensitivity of z_bar (contains perturbation as first element, with u0 as a fixed parameter)
@@ -2056,6 +2060,11 @@ class CasadiMPC:
         nlp_hess = self._nlp_hess_lag(soln["x"], parameter_values, 1.0, lam_g).full()
         nlp_hess_rank = np.linalg.matrix_rank(nlp_hess)
 
+        dlag_dw = self._sensitivities.dlag_dw(
+            soln["x"], soln["lam_g"], self._p_fixed_values, self._p_adjustable_values
+        ).full()
+        dlag_dw_norm = np.linalg.norm(dlag_dw, ord=2)
+
         arg_max_box_constr = np.argmax(g_ineq_bx_vals)
         max_box_constr = np.max(g_ineq_bx_vals)
 
@@ -2071,5 +2080,5 @@ class CasadiMPC:
             arg_max_so_constr, max_so_constr = np.argmax(so_constr_vals), np.max(so_constr_vals)
 
         print(
-            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank}"
+            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
         )

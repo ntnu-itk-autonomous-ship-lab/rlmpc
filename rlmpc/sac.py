@@ -25,16 +25,17 @@ import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
-from stable_baselines3.common.distributions import (
-    SquashedDiagGaussianDistribution, StateDependentNoiseDistribution)
+from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution, StateDependentNoiseDistribution
 from stable_baselines3.common.preprocessing import get_action_dim
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.type_aliases import (GymEnv, MaybeCallback,
-                                                   Schedule)
-from stable_baselines3.common.utils import (get_parameters_by_name,
-                                            get_schedule_fn, polyak_update,
-                                            set_random_seed,
-                                            update_learning_rate)
+from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
+from stable_baselines3.common.utils import (
+    get_parameters_by_name,
+    get_schedule_fn,
+    polyak_update,
+    set_random_seed,
+    update_learning_rate,
+)
 from stable_baselines3.sac.policies import BasePolicy, ContinuousCritic
 from torch.nn import functional as F
 
@@ -846,20 +847,17 @@ class SAC(opa.OffPolicyAlgorithm):
                 p_fixed = actor_info["p_fixed"]
                 z = np.concatenate((soln["x"], soln["lam_g"]), axis=0, dtype=np.float32)
 
-                dr_dz = sens.dr_dz(z, p_fixed, p).full()
-                dr_dp = sens.dr_dp(z, p_fixed, p).full()
-                dz_dp = -np.linalg.inv(dr_dz) @ dr_dp
-                da_dp = dz_dp[self.actor.action_indices, :]
+                da_dp = sens.da_dp(z, p_fixed, p).full()
                 da_dp = th.from_numpy(da_dp).float()
                 d_log_pi_dp = (cov @ (sampled_actions[b] - replay_data.actions[b]).reshape(-1, 1)).T @ da_dp
                 d_log_pi_da = cov @ (sampled_actions[b] - replay_data.actions[b])
                 df_repar_dp = da_dp
-                #
+
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
                 actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
                 actor_losses[b] = ent_coef * log_prob_sampled[b] - min_qf_pi_sampled[b]
             print("Actor gradient computation time: ", time.time() - t_now)
-            self.actor.update_params(actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))
+            self.actor.update_params(-actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))
 
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
