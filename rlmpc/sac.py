@@ -106,6 +106,7 @@ class SACMPCActor(BasePolicy):
         self.use_expln = use_expln
         self.full_std = full_std
         self.clip_mean = clip_mean
+        self.infeasible_solutions: int = 0
 
         action_dim = get_action_dim(self.action_space)
         if self.use_sde:
@@ -267,6 +268,8 @@ class SACMPCActor(BasePolicy):
                 w=w,
                 prev_soln=state[b][0]["actor_info"] if state is not None else None,
             )
+            if not info["success"]:
+                self.infeasible_solutions += 1
             unnormalized_actions[b, :] = action
             normalized_actions[b, :] = self.action_type.normalize(action)
             actor_infos[b] = info
@@ -735,6 +738,11 @@ class SAC(opa.OffPolicyAlgorithm):
             # this will throw an error if a malformed string (different from 'auto')
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
+
+    def custom_save(self, path: pathlib.Path) -> None:
+        """Saves the model parameters (NN critic and MPC actor)"""
+        super().save(path)
+        self.policy.actor.mpc.save_params(path)
 
     def initialize_mpc_actor(
         self,

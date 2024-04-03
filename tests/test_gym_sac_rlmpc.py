@@ -1,3 +1,4 @@
+import argparse
 import platform
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import rlmpc.sac as sac_rlmpc
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
+from rlmpc.common.callbacks import CollectStatisticsCallback
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3.common.callbacks import CallbackList, EvalCallback, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.evaluation import evaluate_policy
@@ -45,7 +47,7 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
     )
 
 
-if __name__ == "__main__":
+def main():
     if platform.system() == "Unix":
         base_dir = Path("/home/doctor/machine_learning/rlmpc/")
     elif platform.system() == "Darwin":
@@ -102,11 +104,13 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "seed": 15,
     }
+    total_training_timesteps = 100
     env = gym.make(id=env_id, **env_config)
     env_config.update(
         {"scenario_file_folder": rl_dp.scenarios / "test_data" / scenario_name, "seed": 100, "test_mode": True}
     )
     eval_env = gym.make(id=env_id, **env_config)
+
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
         eval_env,
@@ -115,6 +119,16 @@ if __name__ == "__main__":
         best_model_save_path=best_model_dir,
         deterministic=True,
         render=True,
+        verbose=1,
+    )
+    stats_callback = CollectStatisticsCallback(
+        env,
+        total_timesteps=total_training_timesteps,
+        log_dir=log_dir,
+        experiment_name="test",
+        save_stats_freq=100,
+        save_agent_model_freq=100,
+        log_stats_freq=100,
         verbose=1,
     )
 
@@ -140,12 +154,15 @@ if __name__ == "__main__":
         gradient_steps=1,
         train_freq=(2, "step"),
         device="cpu",
-        tensorboard_log=log_dir,
+        tensorboard_log=str(log_dir),
         verbose=1,
     )
 
-    total_timesteps = 100
-    model.learn(total_timesteps=total_timesteps, progress_bar=True, callback=CallbackList([eval_callback]))
+    model.learn(
+        total_timesteps=total_training_timesteps,
+        progress_bar=True,
+        callback=CallbackList([stats_callback, eval_callback]),
+    )
     mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
     print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 
@@ -174,3 +191,8 @@ if __name__ == "__main__":
         save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
 
     print("done")
+
+
+if __name__ == "__main__":
+
+    main()
