@@ -54,11 +54,11 @@ class COLREGSHandlerParams:
     def to_dict(self) -> dict:
         """Converts the parameters to a dictionary."""
         output = asdict(self)
-        output["theta_critical_ot"] = np.rad2deg(output["theta_critical_ot"])
-        output["theta_critical_ho"] = np.rad2deg(output["theta_critical_ho"])
-        output["theta_critical_cr"] = np.rad2deg(output["theta_critical_cr"])
-        output["theta_ot_min"] = np.rad2deg(output["theta_ot_min"])
-        output["theta_ot_max"] = np.rad2deg(output["theta_ot_max"])
+        output["theta_critical_ot"] = float(np.rad2deg(output["theta_critical_ot"]))
+        output["theta_critical_ho"] = float(np.rad2deg(output["theta_critical_ho"]))
+        output["theta_critical_cr"] = float(np.rad2deg(output["theta_critical_cr"]))
+        output["theta_ot_min"] = float(np.rad2deg(output["theta_ot_min"]))
+        output["theta_ot_max"] = float(np.rad2deg(output["theta_ot_max"]))
         return output
 
 

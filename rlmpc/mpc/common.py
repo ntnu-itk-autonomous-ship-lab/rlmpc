@@ -108,6 +108,9 @@ class SolverConfig:
         config = SolverConfig(acados=config_dict["acados"], casadi=CasadiSolverOptions.from_dict(config_dict["casadi"]))
         return config
 
+    def to_dict(self):
+        return {"acados": self.acados, "casadi": self.casadi.to_dict()}
+
 
 @dataclass
 class NLPSensitivities:

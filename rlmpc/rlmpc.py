@@ -53,14 +53,22 @@ class RLMPCParams:
         )
         return config
 
-    def save(self, filename: Path) -> None:
+    def save(self, file: Path) -> None:
         """Saves the parameters to a YAML file.
 
         Args:
-            filename (Path): Path to the YAML file.
+            file (Path): Path to the YAML file.
         """
-        param_dict = asdict(self)
-        yaml.dump(param_dict, filename)
+        param_dict = {
+            "mpc": self.mpc.to_dict(),
+            "los": self.los.to_dict(),
+            "colregs_handler": self.colregs_handler.to_dict(),
+            "ship_length": self.ship_length,
+            "ship_width": self.ship_width,
+            "ship_draft": self.ship_draft,
+        }
+        with file.open(mode="w") as f:
+            yaml.dump(param_dict, f)
 
     @classmethod
     def from_file(cls, filename: Path):
@@ -175,7 +183,7 @@ class RLMPC(ci.ICOLAV):
                 alpha=0.4,
             )
             plotters.plot_trajectory(
-                nominal_trajectory[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
+                nominal_trajectory[:2, :],
                 enc,
                 "yellow",
             )
@@ -225,7 +233,7 @@ class RLMPC(ci.ICOLAV):
         mpc_output = self._mpc_soln
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
-        lookahead_sample = 3  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
+        lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
         x_ld = self._mpc_trajectory[0, lookahead_sample]
         y_ld = self._mpc_trajectory[1, lookahead_sample]
         speed_ref = self._mpc_trajectory[3, 0]
@@ -373,25 +381,15 @@ class RLMPC(ci.ICOLAV):
             self._mpc_soln["inputs"] = self._mpc_inputs
             self._mpc_soln["t_prev_mpc"] = t
 
-        else:
-            self._mpc_trajectory = self._mpc_trajectory[:, 1:]
-            self._mpc_inputs = self._mpc_inputs[:, 1:]
+        lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
+        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, lookahead_sample]))
+        speed_plan = np.array([self._mpc_trajectory[3, lookahead_sample], self._mpc_trajectory[3, lookahead_sample]])
+        if self._debug:
+            plotters.plot_waypoints(
+                waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
+            )
 
-        lookahead_sample = 3  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
-        x_ld = self._mpc_trajectory[0, lookahead_sample]
-        y_ld = self._mpc_trajectory[1, lookahead_sample]
-        speed_ref = self._mpc_trajectory[3, lookahead_sample]
-        turn_rate_ref = self._mpc_inputs[0, 0]
-
-        waypoints = np.column_stack((ownship_state[:2], np.array([x_ld, y_ld])))
-        # if self._debug:
-        #     plotters.plot_waypoints(
-        #         waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
-        #     )
-
-        speed_plan = np.array([ownship_state[3], speed_ref])
         self._references = self._los.compute_references(waypoints, speed_plan, None, ownship_state, t - self._t_prev)
-        self._references[5, 0] = turn_rate_ref
         self._t_prev = t
         self._mpc_soln["t_prev"] = t
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)

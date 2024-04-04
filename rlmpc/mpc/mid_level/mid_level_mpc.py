@@ -38,7 +38,6 @@ class Config:
     mpc: mpc_parameters.MidlevelMPCParams = mpc_parameters.MidlevelMPCParams()
     solver_options: common.SolverConfig = common.SolverConfig()
     model: Type[models.MPCModel] = models.KinematicCSOGWithAccelerationAndPathtimingParams()
-    path_timing: models.DoubleIntegratorParams = models.DoubleIntegratorParams()
 
     @classmethod
     def from_dict(self, config_dict: dict):
@@ -58,6 +57,14 @@ class Config:
             model=model,
         )
         return config
+
+    def to_dict(self):
+        return {
+            "enable_acados": self.enable_acados,
+            "params": self.mpc.to_dict(),
+            "solver_options": self.solver_options.to_dict(),
+            "model": self.model.params().to_dict(),
+        }
 
 
 class MidlevelMPC:

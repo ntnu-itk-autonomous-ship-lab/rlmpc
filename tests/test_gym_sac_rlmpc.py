@@ -1,6 +1,7 @@
 import argparse
 import platform
 from pathlib import Path
+from typing import Tuple
 
 import colav_simulator.scenario_generator as cs_sg
 import gymnasium as gym
@@ -12,10 +13,11 @@ import rlmpc.sac as sac_rlmpc
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rlmpc.common.callbacks import CollectStatisticsCallback
+from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback
 from rlmpc.networks.feature_extractors import CombinedExtractor
-from stable_baselines3.common.callbacks import CallbackList, EvalCallback, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
@@ -47,14 +49,25 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
     )
 
 
-def main():
+def create_data_dirs() -> Tuple[Path, Path, Path, Path]:
     if platform.system() == "Unix":
-        base_dir = Path("/home/doctor/machine_learning/rlmpc/")
+        base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
     elif platform.system() == "Darwin":
-        base_dir = Path("/Users/trtengesdal/machine_learning/rlmpc/")
+        base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
     best_model_dir = model_dir / "best_model"
+    if not log_dir.exists():
+        log_dir.mkdir(parents=True)
+    if not model_dir.exists():
+        model_dir.mkdir(parents=True)
+    if not best_model_dir.exists():
+        best_model_dir.mkdir(parents=True)
+    return base_dir, log_dir, model_dir, best_model_dir
+
+
+def main():
+    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs()
 
     scenario_choice = 0
     if scenario_choice == 0:
@@ -109,7 +122,7 @@ def main():
     env_config.update(
         {"scenario_file_folder": rl_dp.scenarios / "test_data" / scenario_name, "seed": 100, "test_mode": True}
     )
-    eval_env = gym.make(id=env_id, **env_config)
+    eval_env = Monitor(gym.make(id=env_id, **env_config))
 
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
@@ -123,8 +136,7 @@ def main():
     )
     stats_callback = CollectStatisticsCallback(
         env,
-        total_timesteps=total_training_timesteps,
-        log_dir=log_dir,
+        log_dir=base_dir,
         experiment_name="test",
         save_stats_freq=100,
         save_agent_model_freq=100,
@@ -134,13 +146,15 @@ def main():
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
+    actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
+    # norm_std_dev =
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
         "critic_arch": [256, 128, 32],
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "use_sde": False,
-        "log_std_init": -3.0,
+        "std_init": actor_noise_std_dev,
         "use_expln": False,
         "clip_mean": 2.0,
     }
@@ -188,11 +202,9 @@ def main():
 
     save_gif = True
     if save_gif:
-        save_frames_as_gif(frames, rl_dp.animations / "demo2.gif")
-
+        save_frames_as_gif(frames, rl_dp.animations / "test_sac_rlmpc.gif")
     print("done")
 
 
 if __name__ == "__main__":
-
     main()

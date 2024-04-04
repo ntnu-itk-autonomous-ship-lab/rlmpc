@@ -13,7 +13,6 @@ from typing import Optional, Tuple
 import casadi as csd
 import colav_simulator.common.map_functions as cs_mapf
 import colav_simulator.common.plotters as cs_plotters
-import colav_simulator.core.stochasticity as stoch
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.helper_functions as hf
@@ -46,6 +45,7 @@ class CasadiMPC:
         self._prev_cost: float = np.inf
         self._so_surfaces: list = []
 
+        self._sensitivities: mpc_common.NLPSensitivities = None
         self._nlp_perturbation: csd.MX = csd.MX.sym("nlp_perturbation", 0)
 
         self._cost_function: csd.MX = csd.MX.sym("cost_function", 0)
@@ -2060,9 +2060,11 @@ class CasadiMPC:
         nlp_hess = self._nlp_hess_lag(soln["x"], parameter_values, 1.0, lam_g).full()
         nlp_hess_rank = np.linalg.matrix_rank(nlp_hess)
 
-        dlag_dw = self._sensitivities.dlag_dw(
-            soln["x"], soln["lam_g"], self._p_fixed_values, self._p_adjustable_values
-        ).full()
+        dlag_dw = np.zeros(2)
+        if self._sensitivities is not None:
+            dlag_dw = self._sensitivities.dlag_dw(
+                soln["x"], soln["lam_g"], self._p_fixed_values, self._p_adjustable_values
+            ).full()
         dlag_dw_norm = np.linalg.norm(dlag_dw, ord=2)
 
         arg_max_box_constr = np.argmax(g_ineq_bx_vals)

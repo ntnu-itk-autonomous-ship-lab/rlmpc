@@ -135,7 +135,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
         self._convert_train_freq()
-        self._num_timesteps: int = 0
+        self.num_timesteps: int = 0
         self._episode_num: int = 0
 
         # Update policy keyword arguments
@@ -214,9 +214,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             observation=observation, state=actor_info, deterministic=False
         )
 
-        # Add noise to the action (improve exploration)
-        if action_noise is not None:
-            normalized_actions = np.clip(normalized_actions + action_noise(), -1.0, 1.0)
+        # # Add noise to the action (improve exploration)
+        # if action_noise is not None:
+        #     normalized_actions = np.clip(normalized_actions + action_noise(), -1.0, 1.0)
 
         # We store the normalized action in the buffer
         actions = normalized_actions
@@ -371,7 +371,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         callback.on_training_start(locals(), globals())
 
-        while self._num_timesteps < total_timesteps:
+        while self.num_timesteps < total_timesteps:
             rollout = self.collect_rollouts(
                 self.env,
                 train_freq=self.train_freq,
@@ -385,7 +385,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             if rollout.continue_training is False:
                 break
 
-            if self._num_timesteps > 0 and self._num_timesteps > self.learning_starts:
+            if self.num_timesteps > 0 and self.num_timesteps > self.learning_starts:
                 # If no `gradient_steps` is specified,
                 # do as many gradients steps as steps performed during the rollout
                 gradient_steps = self.gradient_steps if self.gradient_steps >= 0 else rollout.episode_timesteps
@@ -469,7 +469,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     self._last_dones,
                     self._last_infos,
                 )
-                self._num_timesteps += env.num_envs
+                self.num_timesteps += env.num_envs
                 num_collected_steps += 1
 
             next_obs, rewards, dones, infos = env.step(actions)
@@ -495,7 +495,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
 
-            self._update_current_progress_remaining(self._num_timesteps, self._total_timesteps)
+            self._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
 
             for idx, done in enumerate(dones):
                 if done:
