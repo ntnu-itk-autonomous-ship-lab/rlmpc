@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Tuple
 
 import colav_simulator.scenario_generator as cs_sg
+import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
@@ -101,11 +102,13 @@ def main():
     }
 
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
-
+    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "max_number_of_episodes": 1,
+        "simulator_config": training_sim_config,
         "action_sampling_time": 1.0 / 0.2,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
@@ -120,7 +123,13 @@ def main():
     total_training_timesteps = 100
     env = gym.make(id=env_id, **env_config)
     env_config.update(
-        {"scenario_file_folder": rl_dp.scenarios / "test_data" / scenario_name, "seed": 100, "test_mode": True}
+        {
+            "scenario_file_folder": rl_dp.scenarios / "test_data" / scenario_name,
+            "seed": 100,
+            "test_mode": True,
+            "simulator_config": eval_sim_config,
+            "reload_map": False,
+        }
     )
     eval_env = Monitor(gym.make(id=env_id, **env_config))
 
@@ -128,6 +137,7 @@ def main():
     eval_callback = EvalCallback(
         eval_env,
         eval_freq=5,
+        n_eval_episodes=1,
         callback_after_eval=stop_train_callback,
         best_model_save_path=best_model_dir,
         deterministic=True,

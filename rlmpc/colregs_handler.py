@@ -71,6 +71,7 @@ class COLREGSHandler:
         self._do_cr_list: list = []
         self._do_ho_list: list = []
         self._do_ot_list: list = []
+        self._already_removed_labels: list = []
 
     def handle(self, xs: np.ndarray, do_list: list) -> Tuple[list, list, list]:
         """Handles the current situation with own-ship state xs and list of dynamic obstacles in do_list.

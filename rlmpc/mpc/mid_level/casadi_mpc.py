@@ -630,7 +630,7 @@ class CasadiMPC:
 
         # self.print_solution_info(soln, parameter_values, stats, t_solve)
         # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
-        # self.plot_solution_trajectory(X, U, Sigma)
+        # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
         # mpc_common.plot_casadi_solver_stats(stats, show_plots)
 
         self._current_warmstart["x"] = self._decision_variables(U, X, Sigma)

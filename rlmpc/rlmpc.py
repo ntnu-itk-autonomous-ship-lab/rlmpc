@@ -80,6 +80,7 @@ class RLMPCParams:
         Returns:
             RLMPCParams: The parameters.
         """
+        assert filename.exists(), f"File {filename} does not exist"
         with open(filename, "r") as f:
             config_dict = yaml.safe_load(f)
         return cls.from_dict(config_dict)
