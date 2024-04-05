@@ -333,7 +333,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 soln = actor_info["soln"]
                 p = actor_info["p"]
                 p_fixed = actor_info["p_fixed"]
-                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0, dtype=np.float32)
+                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
 
                 da_dp = sens.da_dp(z, p_fixed, p).full()
                 da_dp = th.from_numpy(da_dp).float()

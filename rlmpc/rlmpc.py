@@ -97,6 +97,8 @@ class RLMPC(ci.ICOLAV):
         elif isinstance(config, Path):
             self._config = cp.extract(RLMPCParams, config, dp.rlmpc_schema)
 
+        self._lookahead_sample: int = 3
+
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
@@ -124,6 +126,10 @@ class RLMPC(ci.ICOLAV):
         self._speed_plan: np.ndarray = np.array([])
         self._enc: Optional[senc.ENC] = None
         self._nominal_path = None
+
+    @property
+    def lookahead_sample(self) -> int:
+        return self._lookahead_sample
 
     def get_nominal_path(
         self,
@@ -169,25 +175,7 @@ class RLMPC(ci.ICOLAV):
             min_depth=self._min_depth,
         )
         if self._debug:
-            nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-            nominal_trajectory = nominal_trajectory + np.array(
-                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-            ).reshape(9, 1)
-            plotters.plot_waypoints(
-                waypoints[:2, :],
-                draft=1.0,
-                enc=enc,
-                color="orange",
-                point_buffer=3.0,
-                disk_buffer=6.0,
-                hole_buffer=3.0,
-                alpha=0.4,
-            )
-            plotters.plot_trajectory(
-                nominal_trajectory[:2, :],
-                enc,
-                "yellow",
-            )
+            self.plot_path(enc)
         self._initialized = True
         # print("RL-MPC initialized!")
 
@@ -217,7 +205,6 @@ class RLMPC(ci.ICOLAV):
             self._mpc_inputs = prev_soln["inputs"]
             self._t_prev = prev_soln["t_prev"]
             self._t_prev_mpc = prev_soln["t_prev_mpc"]
-            prev_soln = prev_soln["soln"]  # only propagate the previous MPC solver solution further
 
         _ = self.plan(
             t,
@@ -234,9 +221,9 @@ class RLMPC(ci.ICOLAV):
         mpc_output = self._mpc_soln
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
-        lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
-        x_ld = self._mpc_trajectory[0, lookahead_sample]
-        y_ld = self._mpc_trajectory[1, lookahead_sample]
+        # self.lookahead_sample = 3  # 5s=dt_mpc between each sample, => 5 * 5.0 * 2.0 = 50.0 => for 2m/s speed, 50m ahead
+        x_ld = self._mpc_trajectory[0, self.lookahead_sample]
+        y_ld = self._mpc_trajectory[1, self.lookahead_sample]
         speed_ref = self._mpc_trajectory[3, 0]
         # turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
 
@@ -297,6 +284,29 @@ class RLMPC(ci.ICOLAV):
         """
         self._config = RLMPCParams.from_file(filename)
 
+    def plot_path(self, enc: senc.ENC) -> None:
+        """Plot the nominal path."""
+        enc.start_display()
+        nominal_trajectory = self._ktp.compute_reference_trajectory(2.0)
+        nominal_trajectory = nominal_trajectory + np.array(
+            [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        ).reshape(9, 1)
+        plotters.plot_waypoints(
+            self._waypoints[:2, :],
+            draft=1.0,
+            enc=enc,
+            color="orange",
+            point_buffer=3.0,
+            disk_buffer=6.0,
+            hole_buffer=3.0,
+            alpha=0.4,
+        )
+        plotters.plot_trajectory(
+            nominal_trajectory[:2, :],
+            enc,
+            "yellow",
+        )
+
     def plan(
         self,
         t: float,
@@ -316,8 +326,6 @@ class RLMPC(ci.ICOLAV):
         assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
         if not self._initialized:
             self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
-
-        v_disturbance = np.zeros(2)  # self.compute_disturbance_velocity_estimate(w)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
@@ -381,10 +389,12 @@ class RLMPC(ci.ICOLAV):
             self._mpc_soln["trajectory"] = self._mpc_trajectory
             self._mpc_soln["inputs"] = self._mpc_inputs
             self._mpc_soln["t_prev_mpc"] = t
-
-        lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
-        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, lookahead_sample]))
-        speed_plan = np.array([self._mpc_trajectory[3, lookahead_sample], self._mpc_trajectory[3, lookahead_sample]])
+        #
+        # lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
+        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, self.lookahead_sample]))
+        speed_plan = np.array(
+            [self._mpc_trajectory[3, self.lookahead_sample], self._mpc_trajectory[3, self.lookahead_sample]]
+        )
         if self._debug:
             plotters.plot_waypoints(
                 waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4

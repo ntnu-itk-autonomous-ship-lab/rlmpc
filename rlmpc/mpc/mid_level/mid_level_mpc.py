@@ -189,7 +189,7 @@ class MidlevelMPC:
             - enc (senc.ENC): Electronic Navigational Chart object.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
-            - prev_soln (Optional[dict], optional): Previous solution to use as warm start. Defaults to None.
+            - prev_soln (Optional[dict], optional): Previous solution info to use as warm start. Defaults to None.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:

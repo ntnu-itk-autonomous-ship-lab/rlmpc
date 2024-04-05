@@ -9,7 +9,6 @@
 """
 
 import pathlib
-import time
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import colav_simulator.core.stochasticity as stochasticity
@@ -18,7 +17,6 @@ import rlmpc.buffers as rlmpc_buffers
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
 import rlmpc.networks.feature_extractors as rlmpc_fe
-import rlmpc.off_policy_algorithm as opa
 import rlmpc.rlmpc as rlmpc
 import seacharts.enc as senc
 import stable_baselines3.common.noise as sb3_noise
@@ -113,7 +111,7 @@ class SACMPCActor(BasePolicy):
         self.mpc_params = self.mpc.get_mpc_params()
         self.num_params = self.mpc.get_adjustable_mpc_params().size
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
-        lookahead_sample = 3
+        lookahead_sample = self.mpc.lookahead_sample
         # Indices for the RLMPC action a = [x_LD, y_LD, speed_0]
         # where LD is the lookahead sample (3)
         self.action_indices = [
@@ -247,6 +245,7 @@ class SACMPCActor(BasePolicy):
         actor_infos = [{} for _ in range(batch_size)]
         for idx in range(batch_size):
             t, ownship_state, do_list, w = self.extract_observation_features(observation, idx)
+            w.print()
             prev_soln = state[idx] if state is not None else None
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
 

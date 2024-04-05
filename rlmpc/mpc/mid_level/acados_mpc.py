@@ -382,7 +382,6 @@ class AcadosMPC:
         nominal_trajectory: np.ndarray,
         nominal_inputs: Optional[np.ndarray],
         xs: np.ndarray,
-        do_list: list,
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
@@ -431,43 +430,57 @@ class AcadosMPC:
         self._acados_ocp.cost.cost_type = "EXTERNAL"
         self._acados_ocp.cost.cost_type_e = "EXTERNAL"
 
-        dim_Q = 2
-        Qscaling = np.eye(2)
-        if not self._params.path_following:  # trajectory tracking
-            dim_Q = nx
-            Qscaling = np.eye(dim_Q)
-            # Qscaling = np.diag(
-            #     [
-            #         1.0 / (self._map_bbox[3] - self._map_bbox[1]) ** 2,
-            #         1.0 / (self._map_bbox[2] - self._map_bbox[0]) ** 2,
-            #         1.0 / (2.0 * np.pi) ** 2,
-            #         1.0 / max_speed**2,
-            #         1.0 / (0.6 * max_speed) ** 2,
-            #         1.0 / (2.0 * max_turn_rate) ** 2,
-            #     ]
-            # )
-        R_vec = csd.MX.sym("R_vec", nu * nu, 1)
-        Q_vec = csd.MX.sym("Q_vec", dim_Q * dim_Q, 1)
-        Qmtrx = (
-            hf.casadi_matrix_from_vector(
-                Q_vec,
-                dim_Q,
-                dim_Q,
-            )
-            @ Qscaling
-        )
-        self._p_adjustable = csd.vertcat(self._p_adjustable, Q_vec, R_vec)
-        self._num_adjustable_params += dim_Q * dim_Q + nu * nu
+        n_colregs_zones = 3
+        p_fixed, p_adjustable = [], []  # NLP parameters
 
-        x_ref = csd.MX.sym("x_ref", dim_Q)
-        u_ref = csd.MX.sym("u_ref", nu)
+        # Path following, speed deviation, chattering and fuel cost parameters
+        dim_Q_p = self._params.Q_p.shape[0]
+        Q_p_vec = csd.MX.sym("Q_vec", dim_Q_p, 1)
+        alpha_app_course = csd.MX.sym("alpha_app_course", 2, 1)
+        alpha_app_speed = csd.MX.sym("alpha_app_speed", 2, 1)
+        K_app_course = csd.MX.sym("K_app_course", 1, 1)
+        K_app_speed = csd.MX.sym("K_app_speed", 1, 1)
+
+        path_derivative_refs_list = []
+        for k in range(N + 1):
+            s_dot_ref_k = csd.MX.sym("s_ref_" + str(k), 1, 1)
+            path_derivative_refs_list.append(s_dot_ref_k)
+        p_fixed.append(self._x_path_coeffs)
+        p_fixed.append(self._y_path_coeffs)
+        p_fixed.append(self._speed_spl_coeffs)
+        p_fixed.append(csd.vertcat(*path_derivative_refs_list))
+
         gamma = csd.MX.sym("gamma", 1)
-        self._acados_ocp.model.cost_expr_ext_cost = gamma * (
-            (x[0:dim_Q] - x_ref).T @ Qmtrx @ (x[0:dim_Q] - x_ref)
-        )  # + (u - u_ref).T @ Rmtrx @ (u - u_ref))
-        self._acados_ocp.model.cost_expr_ext_cost_e = gamma * (x[0:dim_Q] - x_ref).T @ Qmtrx @ (x[0:dim_Q] - x_ref)
-        self._p_fixed = csd.vertcat(x_ref, u_ref, gamma)
-        self._num_fixed_params += dim_Q + nu + 1
+        p_fixed.append(gamma)
+
+        p_adjustable.append(Q_p_vec)
+        p_adjustable.append(alpha_app_course)
+        p_adjustable.append(alpha_app_speed)
+        p_adjustable.append(K_app_course)
+        p_adjustable.append(K_app_speed)
+
+        # COLREGS cost parameters
+        alpha_cr = csd.MX.sym("alpha_cr", 2, 1)
+        y_0_cr = csd.MX.sym("y_0_cr", 1, 1)
+        alpha_ho = csd.MX.sym("alpha_ho", 2, 1)
+        x_0_ho = csd.MX.sym("x_0_ho", 1, 1)
+        alpha_ot = csd.MX.sym("alpha_ot", 2, 1)
+        x_0_ot = csd.MX.sym("x_0_ot", 1, 1)
+        y_0_ot = csd.MX.sym("y_0_ot", 1, 1)
+        d_attenuation = csd.MX.sym("d_attenuation", 1, 1)
+        colregs_weights = csd.MX.sym("colregs_weights", 3, 1)
+
+        p_adjustable.append(alpha_cr)
+        p_adjustable.append(y_0_cr)
+        p_adjustable.append(alpha_ho)
+        p_adjustable.append(x_0_ho)
+        p_adjustable.append(alpha_ot)
+        p_adjustable.append(x_0_ot)
+        p_adjustable.append(y_0_ot)
+        p_adjustable.append(d_attenuation)
+        p_adjustable.append(colregs_weights)
+
+        max_num_so_constr = self._params.max_num_so_constr
 
         approx_inf = 1e6
         lbu, ubu, lbx, ubx = self._model.get_input_state_bounds()

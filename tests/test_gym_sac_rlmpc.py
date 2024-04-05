@@ -51,7 +51,7 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
 
 
 def create_data_dirs() -> Tuple[Path, Path, Path, Path]:
-    if platform.system() == "Unix":
+    if platform.system() == "Linux":
         base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
     elif platform.system() == "Darwin":
         base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
@@ -78,14 +78,15 @@ def main():
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
 
-    # scenario_generator = cs_sg.ScenarioGenerator(seed=2)
+    # scenario_generator = cs_sg.ScenarioGenerator(seed=105, config_file=rl_dp.config / "scenario_generator.yaml")
     # scenario_data = scenario_generator.generate(
     #     config_file=config_file,
     #     new_load_of_map_data=False,
     #     save_scenario=True,
-    #     save_scenario_folder=rl_dp.scenarios / "test_data" / scenario_name,
+    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
     #     show_plots=True,
     #     episode_idx_save_offset=0,
+    #     delete_existing_files=False,
     # )
 
     observation_type = {
@@ -113,11 +114,12 @@ def main():
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
-        "render_update_rate": 0.5,
+        "render_update_rate": 1.0,
         "observation_type": observation_type,
         "action_type": "continuous_relative_los_reference_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
+        "id_number": "training_env1",
         "seed": 15,
     }
     total_training_timesteps = 100
@@ -129,6 +131,7 @@ def main():
             "test_mode": True,
             "simulator_config": eval_sim_config,
             "reload_map": False,
+            "id_number": "eval_env1",
         }
     )
     eval_env = Monitor(gym.make(id=env_id, **env_config))

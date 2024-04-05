@@ -23,12 +23,12 @@ midlevel_mpc:
   params:
     rate: 0.2
     reference_traj_bbox_buffer: 200.0
-    T: 120.0
+    T: 100.0
     dt: 5.0
     Q_p: [0.2, 1.0, 30.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.00025]
-    K_app_course: 35.0
+    K_app_course: 20.0
     K_app_speed: 25.0
 
     alpha_cr: [0.03, 0.003]
@@ -72,7 +72,7 @@ midlevel_mpc:
       mu_init: 0.1
       acceptable_tol: 0.0001 # harder to "compute good gradient steps" for mpc-parameterizations
       acceptable_obj_change_tol: 1000_000_000_000.0
-      max_iter: 1000
+      max_iter: 300
       warm_start_init_point: "yes"
       verbose: False
       jit: False

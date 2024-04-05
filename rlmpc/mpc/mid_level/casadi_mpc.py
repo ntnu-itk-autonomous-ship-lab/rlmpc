@@ -101,6 +101,7 @@ class CasadiMPC:
         self._s_final_value: float = 0.0
         self._path_linestring: geo.LineString = geo.LineString()
 
+        self._idx_slacked_bx_constr: np.ndarray = np.array([])
         self._action_indices = [0, 1, 2]
 
         # debugging functions
@@ -250,6 +251,7 @@ class CasadiMPC:
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
             - enc (senc.ENC): ENC object containing the map info.
         """
+        self._t_prev = 0.0
         self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
         self._s_dot = self.compute_path_variable_derivative(self._s)
 
@@ -542,15 +544,20 @@ class CasadiMPC:
             self._xs_prev = xs
             self._initialized = True
             self._prev_cost = np.inf
+            self._t_prev = t
+
+        if prev_soln:
+            self._current_warmstart = prev_soln["soln"]
+            self._t_prev = prev_soln["t_prev"]
+            self._xs_prev = prev_soln["trajectory"][:, 0] - np.array(
+                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+            )
 
         psi = xs[2]
         xs_unwrapped = xs.copy()
         xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
         self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
-        if prev_soln:
-            self._current_warmstart = prev_soln
-
         if dt > 0.0:
             self._current_warmstart = self._shift_warm_start(
                 xs_unwrapped,
@@ -606,14 +613,15 @@ class CasadiMPC:
         # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
 
         if not stats["success"]:
-            mpc_common.plot_casadi_solver_stats(stats, True)
-            self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
-            self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
+            # mpc_common.plot_casadi_solver_stats(stats, True)
+            # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
+            # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
             if stats["return_status"] == "Maximum_Iterations_Exceeded":
                 # Use solution unless it is infeasible, then use previous solution.
                 g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
                 g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full().flatten()
                 if dt > 0.0 and np.any(np.abs(g_eq_vals) > 1e-6) or np.any(g_ineq_vals > 1e-6):
+                    print("WARNING: Infeasible solution found. Using previous solution.")
                     soln = self._current_warmstart
                     soln["f"] = self._prev_cost
                     cost_val = self._prev_cost
@@ -2081,6 +2089,8 @@ class CasadiMPC:
         if so_constr_vals.size > 0:
             arg_max_so_constr, max_so_constr = np.argmax(so_constr_vals), np.max(so_constr_vals)
 
+        return_status = self._solver.stats()["return_status"]
+        n_iters = self._solver.stats()["iter_count"]
         print(
-            f"Mid-level COLAV: \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
+            f"Mid-level COLAV: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
         )

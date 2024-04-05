@@ -79,8 +79,8 @@ class CollectStatisticsCallback(BaseCallback):
 
             self.logger.record("mpc/infeasible_solutions", self.model.actor.infeasible_solutions)
             frame = self.vec_env.render()
-            if frame is not None:
-                self.logger.record("env/frame", sb3_Image(frame, "HW"))
+            # if frame is not None:
+            #     self.logger.record("env/frame", sb3_Image(frame, "HW"))
 
         if np.sum(done_array).item() > 0:
             self.n_episodes += np.sum(done_array).item()
@@ -278,7 +278,7 @@ class EvalCallback(EventCallback):
                 if self.verbose >= 1:
                     print("New best mean reward!")
                 if self.best_model_save_path is not None:
-                    self.model.save(os.path.join(self.best_model_save_path, "best_model"))
+                    self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
                 self.best_mean_reward = mean_reward
                 # Trigger callback on new best model, if needed
                 if self.callback_on_new_best is not None:
@@ -287,6 +287,8 @@ class EvalCallback(EventCallback):
             # Trigger callback after every evaluation, if needed
             if self.callback is not None:
                 continue_training = continue_training and self._on_event()
+
+            print(f"Done evaluating policy. | mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
         return continue_training
 
@@ -440,7 +442,6 @@ def evaluate_mpc_policy(
         assert mean_reward > reward_threshold, (
             "Mean reward below threshold: " f"{mean_reward:.2f} < {reward_threshold:.2f}"
         )
-    print(f"Done evaluating policy. | mean_reward: {mean_reward:.2f} | std_reward: {std_reward:.2f}")
     if return_episode_rewards:
         return episode_rewards, episode_lengths
     return mean_reward, std_reward
