@@ -1012,6 +1012,7 @@ def compute_surface_approximations_from_polygons(
                     relevant_coastline = relevant_coastline.geoms[max_area_idx]
 
                 if enc is not None and show_plots:
+                    enc.start_display()
                     translated_coastline = hf.translate_polygons([relevant_coastline], -map_origin[1], -map_origin[0])[
                         0
                     ]

@@ -447,8 +447,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             if env.envs[0].unwrapped.time == 0.0:
                 self.policy.initialize_mpc_actor(env.envs[0])
 
-            last_actor_solution_len = len(self._last_actor_info[0].get("soln", [])) if self._last_actor_info[0] else 0
-            print("len_last_solution:", last_actor_solution_len)
             actions, buffer_actions, actor_infos = self._sample_action(
                 learning_starts,
                 observation=self._current_obs,

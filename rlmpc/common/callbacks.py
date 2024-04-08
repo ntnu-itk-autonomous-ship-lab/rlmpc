@@ -108,6 +108,7 @@ class EvalCallback(EventCallback):
 
     Args:
         - eval_env (Union[COLAVEnvironment, VecEnv]): The environment used for initialization
+        - eval_model (Optional[BaseAlgorithm], optional): The model to evaluate. If not specified, uses the model associated with the callback.
         - callback_on_new_best (Optional[BaseCallback], optional): Callback to trigger
             when there is a new best model according to the ``mean_reward``
         - callback_after_eval (Optional[BaseCallback], optional): Callback to trigger after every evaluation
@@ -127,6 +128,7 @@ class EvalCallback(EventCallback):
     def __init__(
         self,
         eval_env: Union[COLAVEnvironment, VecEnv],
+        eval_model: Optional["type_aliases.PolicyPredictor"] = None,
         callback_on_new_best: Optional[BaseCallback] = None,
         callback_after_eval: Optional[BaseCallback] = None,
         n_eval_episodes: int = 5,
@@ -158,6 +160,7 @@ class EvalCallback(EventCallback):
             eval_env = DummyVecEnv([lambda: eval_env])
 
         self.eval_env = eval_env
+        self.eval_model = eval_model
         self.best_model_save_path = best_model_save_path
         # Logs will be written in ``evaluations.npz``
         if log_path is not None:
@@ -220,8 +223,13 @@ class EvalCallback(EventCallback):
             # Reset success rate buffer
             self._is_success_buffer = []
 
+            if self.eval_model is not None:
+                self.eval_model.transfer_mpc_parameters(self.model)
+            else:
+                self.eval_model = self.model
+
             episode_rewards, episode_lengths = evaluate_mpc_policy(
-                self.model,
+                self.eval_model,
                 self.eval_env,
                 n_eval_episodes=self.n_eval_episodes,
                 render=self.render,

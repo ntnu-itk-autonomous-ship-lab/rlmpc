@@ -163,6 +163,17 @@ class MidlevelMPC:
         """
         return self._casadi_mpc.get_antigrounding_surface_functions()
 
+    def set_params(self, params: mpc_parameters.MidlevelMPCParams) -> None:
+        """Sets the parameters of the mid-level MPC.
+
+        Args:
+            - params (mpc_parameters.MidlevelMPCParams): Parameters of the mid-level MPC.
+        """
+        self._params = params
+        self._casadi_mpc.set_params(params)
+        if self._acados_enabled and ACADOS_COMPATIBLE:
+            self._acados_mpc.set_params(params)
+
     def plan(
         self,
         t: float,

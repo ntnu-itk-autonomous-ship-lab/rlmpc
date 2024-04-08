@@ -16,6 +16,7 @@ import numpy as np
 import rlmpc.buffers as rlmpc_buffers
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
+import rlmpc.mpc.parameters as mpc_params
 import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.rlmpc as rlmpc
 import seacharts.enc as senc
@@ -111,14 +112,25 @@ class SACMPCActor(BasePolicy):
         self.mpc_params = self.mpc.get_mpc_params()
         self.num_params = self.mpc.get_adjustable_mpc_params().size
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
-        lookahead_sample = self.mpc.lookahead_sample
+        # lookahead_sample = self.mpc.lookahead_sample
         # Indices for the RLMPC action a = [x_LD, y_LD, speed_0]
         # where LD is the lookahead sample (3)
+        # self.action_indices = [
+        #     nu * n_samples + lookahead_sample * nx,
+        #     nu * n_samples + (lookahead_sample * nx + 1),
+        #     nu * n_samples + (lookahead_sample * nx + 3),
+        # ]
+
+        # second option, sequence of course and speed refs
         self.action_indices = [
-            nu * n_samples + lookahead_sample * nx,
-            nu * n_samples + (lookahead_sample * nx + 1),
-            nu * n_samples + (lookahead_sample * nx + 3),
+            nu * n_samples + (1 * nx) + 2,  # chi 1
+            nu * n_samples + (1 * nx) + 3,  # speed 1
+            nu * n_samples + (2 * nx) + 2,  # chi 2
+            nu * n_samples + (2 * nx) + 3,  # speed 2
         ]
+
+    def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:
+        self.mpc.set_mpc_params(params)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()

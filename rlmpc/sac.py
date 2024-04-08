@@ -8,6 +8,7 @@
     Author: Trym Tengesdal
 """
 
+import copy
 import pathlib
 import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
@@ -229,6 +230,11 @@ class SAC(opa.OffPolicyAlgorithm):
         env: COLAVEnvironment,
     ) -> None:
         self.policy.initialize_mpc_actor(env)
+
+    def transfer_mpc_parameters(self, model) -> None:
+        assert hasattr(model, "actor") and hasattr(model.actor, "mpc")
+        params = copy.deepcopy(model.actor.mpc.get_mpc_params())
+        self.actor.set_mpc_params(params)
 
     def _create_aliases(self) -> None:
         self.actor: SACMPCActor = self.policy.actor

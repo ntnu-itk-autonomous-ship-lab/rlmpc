@@ -36,7 +36,6 @@ class CasadiMPC:
         solver_options: mpc_common.CasadiSolverOptions,
     ) -> None:
         self.model = model
-        self._params0: parameters.MidlevelMPCParams = params
         self._params: parameters.MidlevelMPCParams = params
 
         self._solver_options: mpc_common.CasadiSolverOptions = solver_options
@@ -126,10 +125,6 @@ class CasadiMPC:
         self._inequality_constraints_jacobian: csd.Function = csd.Function("inequality_constraints_jacobian", [], [])
         self._box_inequality_constraints: csd.Function = csd.Function("box_inequality_constraints", [], [])
 
-    @property
-    def params(self):
-        return self._params
-
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
 
@@ -140,8 +135,8 @@ class CasadiMPC:
             - delta_p (np.ndarray): Change in the adjustable parameters.
         """
         p_adjustable_values = self._p_adjustable_values + delta_p
-        self.params.set_adjustable(p_adjustable_values)
-        self._p_adjustable_values = self.params.adjustable()
+        self._params.set_adjustable(p_adjustable_values)
+        self._p_adjustable_values = self._params.adjustable()
 
     def get_adjustable_params(self) -> np.ndarray:
         """Returns the RL-tuneable parameters in the MPC.
@@ -150,7 +145,7 @@ class CasadiMPC:
             np.ndarray: Array of parameters.
         """
         mdl_adjustable_params = np.array([])
-        mpc_adjustable_params = self.params.adjustable()
+        mpc_adjustable_params = self._params.adjustable()
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
     def get_fixed_params(self) -> np.ndarray:
@@ -221,6 +216,48 @@ class CasadiMPC:
         self.model.set_max_path_variable(s_final)  # margin
         print("Path information set. | s_final: ", s_final)
 
+        _, path_var_derivative_refs, _ = self._create_path_parameter_values()
+        Q_p_vec = self._params.Q_p.diagonal().flatten()
+        self._p_path_values = np.array(
+            [
+                *self._x_path_coeffs_values.tolist(),
+                *self._y_path_coeffs_values.tolist(),
+                *self._x_dot_path_coeffs_values.tolist(),
+                *self._y_dot_path_coeffs_values.tolist(),
+                *path_var_derivative_refs.tolist(),
+                *Q_p_vec.tolist(),
+            ]
+        )
+        self._p_rate_values = np.array(
+            [
+                *self._params.alpha_app_course.tolist(),
+                *self._params.alpha_app_speed.tolist(),
+                self._params.K_app_course,
+                self._params.K_app_speed,
+            ]
+        )
+        self._p_colregs_values = np.array(
+            [
+                *self._params.alpha_cr.tolist(),
+                self._params.y_0_cr,
+                *self._params.alpha_ho.tolist(),
+                self._params.x_0_ho,
+                *self._params.alpha_ot.tolist(),
+                self._params.x_0_ot,
+                self._params.y_0_ot,
+                self._params.d_attenuation,
+                *self._params.w_colregs.tolist(),
+            ]
+        )
+
+    def set_params(self, params: parameters.MidlevelMPCParams) -> None:
+        """Sets the parameters of the mid-level MPC.
+
+        Args:
+            - params (parameters.MidlevelMPCParams): Parameters of the mid-level MPC.
+        """
+        self._params = params
+
     def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int, p: Optional[np.ndarray] = None) -> np.ndarray:
         """Euler prediction of the ship model and path timing model, concatenated.
 
@@ -268,10 +305,11 @@ class CasadiMPC:
         xs_k[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
         xs_k[4:] = np.array([self._s, self._s_dot])
 
-        n_attempts = 9
+        n_attempts = 10
         success = False
         u_attempts = [
             np.array([0.0, 0.0, 0.0]),
+            np.array([0.0, -0.1, -0.1]),
             np.array([-0.02, 0.0, 0.0]),
             np.array([0.02, 0.0, 0.0]),
             np.array([-0.01, -0.03, 0.0]),
@@ -320,7 +358,7 @@ class CasadiMPC:
                 disable_bbox_check=True,
             )
 
-            if min_dist_so > self._params.r_safe_so and min_dist_do > 0.8 * self._params.r_safe_do:
+            if min_dist_so > self._params.r_safe_so:  # and min_dist_do > 0.8 * self._params.r_safe_do:
                 success = True
                 break
 
@@ -441,7 +479,7 @@ class CasadiMPC:
             - enc (senc.ENC): Electronic Navigational Chart object.
         """
         _, nu = self.model.dims()
-        n_attempts = 6
+        n_attempts = 9
         n_shifts = int(dt / self._params.dt)
         N = int(self._params.T / self._params.dt)
         U_prev, X_prev, Sigma_prev = self._decision_trajectories(prev_warm_start["x"])
@@ -450,14 +488,20 @@ class CasadiMPC:
         Sigma_prev = Sigma_prev.full()
         offsets = [
             0,
-            int(0.3 * N),
-            int(0.3 * N),
+            0,
+            0,
+            0,
+            int(0.2 * N),
+            int(0.2 * N),
             int(0.5 * N),
             int(0.5 * N),
             int(0.7 * N),
         ]
         u_attempts = [
             U_prev[:, -1],
+            np.array([0.0, -0.1, -0.1]),
+            np.array([0.04, -0.1, -0.1]),
+            np.array([-0.04, -0.1, -0.1]),
             np.array([0.04, -0.06, 0.0]),
             np.array([-0.04, -0.06, 0.0]),
             np.array([0.04, -0.06, 0.0]),
@@ -637,8 +681,8 @@ class CasadiMPC:
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
 
         # self.print_solution_info(soln, parameter_values, stats, t_solve)
-        # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
         # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
+        # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
         # mpc_common.plot_casadi_solver_stats(stats, show_plots)
 
         self._current_warmstart["x"] = self._decision_variables(U, X, Sigma)
@@ -816,7 +860,8 @@ class CasadiMPC:
             path_derivative_refs_list.append(s_dot_ref_k)
         p_fixed.append(self._x_path_coeffs)
         p_fixed.append(self._y_path_coeffs)
-        p_fixed.append(self._speed_spl_coeffs)
+        p_fixed.append(self._x_dot_path_coeffs)
+        p_fixed.append(self._y_dot_path_coeffs)
         p_fixed.append(csd.vertcat(*path_derivative_refs_list))
 
         gamma = csd.MX.sym("gamma", 1)
@@ -911,7 +956,8 @@ class CasadiMPC:
         self._p_path = csd.vertcat(
             self._x_path_coeffs,
             self._y_path_coeffs,
-            self._speed_spl_coeffs,
+            self._x_dot_path_coeffs,
+            self._y_dot_path_coeffs,
             csd.vertcat(*path_derivative_refs_list),
             Q_p_vec,
         )
@@ -984,7 +1030,22 @@ class CasadiMPC:
             path_following_cost, path_dev_cost, path_dot_dev_cost = mpc_common.path_following_cost_huber(
                 x_k, path_ref_k, Q_p_vec
             )
-            speed_dev_cost = Q_p_vec[2] * (x_k[3] - self._speed_spline(x_k[4], self._speed_spl_coeffs)) ** 2
+
+            x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
+            y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
+            speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
+            speed_dev_cost = 2.0 * Q_p_vec[2] * (x_k[3] - speed_ref_k) ** 2
+
+            if k > 0:
+                x_k_test = np.array([0.0, 0.0, 0.0, 5.0, 295.0, 0.0])
+
+                # sdc1 = (
+                #     0.5
+                #     * self._params.Q_p[2, 2]
+                #     * (x_k_test[3] - self._speed_spline(x_k_test[4], self._speed_spl_coeffs_values)) ** 2
+                # )
+
+                sdc2 = self._speed_dev_cost(x_k_test, self._p_path_values)
 
             rate_cost, course_rate_cost, speed_rate_cost = mpc_common.rate_cost(
                 u_k[0],
@@ -1017,7 +1078,7 @@ class CasadiMPC:
                 + rate_cost
                 + colregs_cost
                 + slack_penalty_cost
-                + u_k.T @ np.diag([0.0001, 0.0001, 0.0001]) @ u_k
+                + u_k.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u_k
             )
             if k == 0:
                 self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
@@ -1095,7 +1156,13 @@ class CasadiMPC:
         s_dot_ref_k = path_derivative_refs_list[-1]
         path_ref_k = csd.vertcat(x_path_k, y_path_k, s_dot_ref_k)
         path_following_cost, _, _ = mpc_common.path_following_cost_huber(x_k, path_ref_k, Q_p_vec)
-        speed_dev_cost = Q_p_vec[2] * (x_k[3] - self._speed_spline(x_k[4], self._speed_spl_coeffs)) ** 2
+
+        x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
+        y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
+        speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
+        speed_dev_cost = 2.0 * Q_p_vec[2] * (x_k[3] - speed_ref_k) ** 2
+
+        # speed_dev_cost = 0.5 * Q_p_vec[2] * (x_k[3] - self._speed_spline(x_k[4], self._speed_spl_coeffs)) ** 2
 
         J += gamma**N * (path_following_cost + speed_dev_cost + slack_penalty_cost)
 
@@ -1425,7 +1492,8 @@ class CasadiMPC:
         path_parameter_values = []
         path_parameter_values.extend(self._x_path_coeffs_values.tolist())
         path_parameter_values.extend(self._y_path_coeffs_values.tolist())
-        path_parameter_values.extend(self._speed_spl_coeffs_values.tolist())
+        path_parameter_values.extend(self._x_dot_path_coeffs_values.tolist())
+        path_parameter_values.extend(self._y_dot_path_coeffs_values.tolist())
 
         N = int(self._params.T / self._params.dt)
         path_derivative_refs = np.zeros(N + 1)
@@ -1792,6 +1860,7 @@ class CasadiMPC:
         path_dev_cost = np.zeros(X.shape[1])
         path_dot_dev_cost = np.zeros(X.shape[1])
         speed_dev_cost = np.zeros(X.shape[1])
+        speed_dev_cost2 = np.zeros(X.shape[1])
         course_rate_cost = np.zeros(X.shape[1])
         speed_rate_cost = np.zeros(X.shape[1])
         crossing_cost = np.zeros(X.shape[1])
@@ -1801,36 +1870,6 @@ class CasadiMPC:
         nx_do = 6
         _, path_var_derivative_refs, _ = self._create_path_parameter_values()
         Q_p_vec = self._params.Q_p.diagonal().flatten()
-        p_path_values = np.array(
-            [
-                *self._x_path_coeffs_values.tolist(),
-                *self._y_path_coeffs_values.tolist(),
-                *self._speed_spl_coeffs_values.tolist(),
-                *path_var_derivative_refs.tolist(),
-                *Q_p_vec.tolist(),
-            ]
-        )
-        p_rate_values = np.array(
-            [
-                *self._params.alpha_app_course.tolist(),
-                *self._params.alpha_app_speed.tolist(),
-                self._params.K_app_course,
-                self._params.K_app_speed,
-            ]
-        )
-        p_colregs_values = np.array(
-            [
-                *self._params.alpha_cr.tolist(),
-                self._params.y_0_cr,
-                *self._params.alpha_ho.tolist(),
-                self._params.x_0_ho,
-                *self._params.alpha_ot.tolist(),
-                self._params.x_0_ot,
-                self._params.y_0_ot,
-                self._params.d_attenuation,
-                *self._params.w_colregs.tolist(),
-            ]
-        )
 
         nx_do_total = nx_do * self._params.max_num_do_constr_per_zone
         X_do_cr = np.zeros((nx_do_total, X.shape[1]))
@@ -1845,18 +1884,23 @@ class CasadiMPC:
             X_do_ot[:, k] = X_do_ot_k
 
         for k in range(X.shape[1]):
-            path_dev_cost[k] = self._path_dev_cost(X[:, k], p_path_values)
+            path_dev_cost[k] = self._path_dev_cost(X[:, k], self._p_path_values)
             path_dot_dev_cost[k] = Q_p_vec[2] * (X[5, k] - path_var_derivative_refs[k]) ** 2
-            speed_dev_cost[k] = self._speed_dev_cost(X[:, k], p_path_values)
+            speed_dev_cost[k] = self._speed_dev_cost(X[:, k], self._p_path_values)
+            # speed_dev_cost2[k] = (
+            #     0.5
+            #     * self._params.Q_p[2, 2]
+            #     * (X[3, k] - self._speed_spline(X[4, k], self._speed_spl_coeffs_values)) ** 2
+            # )
             if nx_do_total > 0:
-                crossing_cost[k] = self._crossing_cost(X[:, k], X_do_cr, p_colregs_values)
-                head_on_cost[k] = self._head_on_cost(X[:, k], X_do_ho, p_colregs_values)
-                overtaking_cost[k] = self._overtaking_cost(X[:, k], X_do_ot, p_colregs_values)
+                crossing_cost[k] = self._crossing_cost(X[:, k], X_do_cr, self._p_colregs_values)
+                head_on_cost[k] = self._head_on_cost(X[:, k], X_do_ho, self._p_colregs_values)
+                overtaking_cost[k] = self._overtaking_cost(X[:, k], X_do_ot, self._p_colregs_values)
                 colregs_cost[k] = crossing_cost[k] + head_on_cost[k] + overtaking_cost[k]
 
         for k in range(U.shape[1]):
-            course_rate_cost[k] = self._course_rate_cost(U[:, k], p_rate_values)
-            speed_rate_cost[k] = self._speed_rate_cost(U[:, k], p_rate_values)
+            course_rate_cost[k] = self._course_rate_cost(U[:, k], self._p_rate_values)
+            speed_rate_cost[k] = self._speed_rate_cost(U[:, k], self._p_rate_values)
 
         fig = plt.figure(figsize=(12, 8))
         axes = fig.subplot_mosaic(
@@ -1879,7 +1923,7 @@ class CasadiMPC:
         axes["s_dot_cost"].set_xlabel("k")
         axes["s_dot_cost"].legend()
 
-        axes["speed_dev_cost"].plot(speed_dev_cost, label=r"$U_{ref}(\omega) - U$ cost")
+        axes["speed_dev_cost"].plot(speed_dev_cost, label=r"$U_d(\omega) - U$ cost")
         axes["speed_dev_cost"].set_ylabel("cost")
         axes["speed_dev_cost"].set_xlabel("k")
         axes["speed_dev_cost"].legend()
@@ -1935,7 +1979,7 @@ class CasadiMPC:
             y_dot_path = self._y_dot_path(X[4, k], self._y_dot_path_coeffs_values)
             speed_refs[k] = self._speed_spline(path_var_refs[k], self._speed_spl_coeffs_values)
             mpc_speed_refs[k] = self._speed_spline(X[4, k], self._speed_spl_coeffs_values)
-            # mpc_speed_refs[k] = X[5, k] * np.sqrt(x_dot_path**2 + y_dot_path**2)
+            mpc_speed_refs2[k] = X[5, k] * np.sqrt(x_dot_path**2 + y_dot_path**2)
 
         nx_do = 6
         nx_do_total = nx_do * self._params.max_num_do_constr_per_zone
@@ -2009,7 +2053,8 @@ class CasadiMPC:
         axes["turn_rate"].legend()
 
         axes["speed"].plot(X[3, :], color="b", label=r"$U$")
-        axes["speed"].plot(mpc_speed_refs, color="r", label=r"$U_{d}(\omega)$")
+        axes["speed"].plot(mpc_speed_refs2, color="r", label=r"$U_{d}(\omega)$")
+        # axes["speed"].plot(mpc_speed_refs2, color="k", label=r"$U_{d}(\omega)$ nr 2")
         axes["speed"].plot(speed_refs, color="g", linestyle="--", label=r"$U_{ref}$")
         axes["speed"].set_ylabel("[m/s]")
         # axes["speed"].set_xlabel("k")

@@ -19,7 +19,9 @@ import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
 import rlmpc.mpc.models as models
 import rlmpc.mpc.parameters as parameters
+import scipy.interpolate as interp
 import seacharts.enc as senc
+import shapely.geometry as geo
 from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
 from acados_template.acados_ocp_solver import AcadosOcpSolver
 
@@ -32,9 +34,8 @@ class AcadosMPC:
         self._acados_ocp.solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self._model = model
 
-        self._params0: parameters.MidlevelMPCParams = params
         self._params: parameters.MidlevelMPCParams = params
-
+        self._so_surfaces: list = []
         self._x_warm_start: np.ndarray = np.array([])
         self._u_warm_start: np.ndarray = np.array([])
         self._initialized = False
@@ -45,72 +46,166 @@ class AcadosMPC:
         self._p_adjustable: csd.MX = csd.MX.sym("p_adjustable", 0)
         self._p: csd.MX = csd.vertcat(self._p_fixed, self._p_adjustable)
 
-        self._p_fixed_so_values: np.ndarray = np.zeros(0)
+        self._p_fixed_values: np.ndarray = np.zeros(0)
         self._p_adjustable_values: np.ndarray = np.zeros(0)
         self._p_mdl_values: np.ndarray = np.zeros(0)
         self._num_fixed_params: int = 0
         self._num_adjustable_params: int = 0
 
-        self._static_obstacle_constraints: csd.Function = csd.Function("static_obstacle_constraints", [], [])
-        self._dynamic_obstacle_constraints: csd.Function = csd.Function("dynamic_obstacle_constraints", [], [])
-        self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
-        self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
-
         self._min_depth: int = 5
         self._t_prev: float = 0.0
         self._xs_prev: np.ndarray = np.array([])
 
-    @property
-    def params(self):
-        return self._params
+        self._x_path: csd.Function = csd.Function("x_path", [], [])
+        self._x_path_coeffs: csd.MX = csd.MX.sym("x_path_coeffs", 0)
+        self._x_path_coeffs_values: np.ndarray = np.array([])
+        self._x_dot_path: csd.Function = csd.Function("x_dot_path", [], [])
+        self._x_dot_path_coeffs: csd.MX = csd.MX.sym("x_dot_path_coeffs", 0)
+        self._x_dot_path_coeffs_values: np.ndarray = np.array([])
 
-    def update_adjustable_params(self, params: list) -> None:
-        """Updates the RL-tuneable parameters in the NMPC.
+        self._y_path: csd.Function = csd.Function("y_path", [], [])
+        self._y_path_coeffs: csd.MX = csd.MX.sym("y_path_coeffs", 0)
+        self._y_path_coeffs_values: np.ndarray = np.array([])
+        self._y_dot_path: csd.Function = csd.Function("y_dot_path", [], [])
+        self._y_dot_path_coeffs: csd.MX = csd.MX.sym("y_dot_path_coeffs", 0)
+        self._y_dot_path_coeffs_values: np.ndarray = np.array([])
+
+        self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
+        self._speed_spl_coeffs: csd.MX = csd.MX.sym("speed_spl_coeffs", 0)
+        self._speed_spl_coeffs_values: np.ndarray = np.array([])
+        self._s: float = 0.001
+        self._s_dot: float = 0.0
+        self._s_final_value: float = 0.0
+        self._path_linestring: geo.LineString = geo.LineString()
+
+        self._idx_slacked_bx_constr: np.ndarray = np.array([])
+        self._action_indices = [0, 1, 2]
+
+        # debugging functions
+        self._p_path = csd.MX.sym("p_path", 0)
+        self._p_rate = csd.MX.sym("p_rate", 0)
+        self._p_colregs = csd.MX.sym("p_colregs", 0)
+        self._path_dev_cost = csd.Function("path_dev_cost", [], [])
+        self._path_dot_dev_cost = csd.Function("path_dot_dev_cost", [], [])
+        self._speed_dev_cost = csd.Function("speed_dev_cost", [], [])
+        self._course_rate_cost = csd.Function("course_rate_cost", [], [])
+        self._speed_rate_cost = csd.Function("speed_rate_cost", [], [])
+        self._crossing_cost = csd.Function("crossing_cost", [], [])
+        self._head_on_cost = csd.Function("head_on_cost", [], [])
+        self._overtaking_cost = csd.Function("overtaking_cost", [], [])
+        self._decision_trajectories: csd.Function = csd.Function("decision_trajectories", [], [])
+        self._decision_variables: csd.Function = csd.Function("decision_variables", [], [])
+        self._static_obstacle_constraints: csd.Function = csd.Function("static_obstacle_constraints", [], [])
+        self._dynamic_obstacle_constraints: csd.Function = csd.Function("dynamic_obstacle_constraints", [], [])
+        self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
+        self._equality_constraints_jacobian: csd.Function = csd.Function("equality_constraints_jacobian", [], [])
+        self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
+        self._inequality_constraints_jacobian: csd.Function = csd.Function("inequality_constraints_jacobian", [], [])
+        self._box_inequality_constraints: csd.Function = csd.Function("box_inequality_constraints", [], [])
+
+    def set_params(self, params: parameters.MidlevelMPCParams) -> None:
+        """Sets the parameters of the mid-level MPC.
 
         Args:
-            params (list): List of parameters to update. The order of the parameters are:
-                - Q
-                - R
-                - d_safe_so
-                - d_safe_do
-
-        Returns:
-            - list: List of newly updated parameters.
+            - params (parameters.MidlevelMPCParams): Parameters of the mid-level MPC.
         """
-        nx = self._acados_ocp.model.x.size()[0]
-        nu = self._acados_ocp.model.u.size()[0]
-        if self._params.path_following:
-            dim_Q = 2
-        else:
-            dim_Q = nx
-        self._params.Q = np.reshape(params[0 : dim_Q * dim_Q], (dim_Q, dim_Q))
-        self._params.R = np.reshape(params[dim_Q * dim_Q : dim_Q * dim_Q + nu * nu], (nu, nu))
-        self._params.d_safe_so = params[dim_Q * dim_Q + nu * nu]
-        self._params.d_safe_do = params[dim_Q * dim_Q + nu * nu + 1]
+        self._params = params
+
+    def update_adjustable_params(self, delta_p: np.ndarray) -> None:
+        """Updates the adjustable parameters in the MPC.
+
+        Args:
+            - delta_p (np.ndarray): Change in the adjustable parameters.
+        """
+        p_adjustable_values = self._p_adjustable_values + delta_p
+        self._params.set_adjustable(p_adjustable_values)
+        self._p_adjustable_values = self._params.adjustable()
 
     def get_adjustable_params(self) -> np.ndarray:
-        """Returns the RL-tuneable parameters in the NMPC.
+        """Returns the RL-tuneable parameters in the MPC.
 
         Returns:
-            np.ndarray: Array of parameters. The order of the parameters are:
-                - model parameters (if any)
-                - Q (flattened)
-                - R (flattened)
-                - d_safe_so
-                - d_safe_do
+            np.ndarray: Array of parameters.
         """
         mdl_adjustable_params = np.array([])
-        if isinstance(self._model, models.KinematicCSOG):
-            mdl_params = self._model.params()
-            mdl_adjustable_params = np.concatenate((mdl_params.T_chi, mdl_params.T_U))
-        mpc_adjustable_params = np.concatenate(
-            (
-                self._params.Q.flatten(),
-                self._params.R.flatten(),
-                np.array([self._params.d_safe_so, self._params.d_safe_do]),
-            )
-        )
+        mpc_adjustable_params = self._params.adjustable()
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
+
+    def get_fixed_params(self) -> np.ndarray:
+        """Returns the fixed parameter values for the NLP problem.
+
+        Returns:
+            np.ndarray: Fixed parameter values for the NLP problem.
+        """
+        return self._p_fixed_values
+
+    def get_antigrounding_surface_functions(self) -> list:
+        """Returns the anti-grounding surface functions.
+
+        Returns:
+            list: List of anti-grounding surface functions.
+        """
+        return self._so_surfaces
+
+    def _set_path_information(
+        self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float]
+    ) -> None:
+        """Sets the path information for the MPC.
+
+        Args:
+            - nominal_path (Tuple[interp.BSpline, interp.BSpline, inter.PchipInterpolator, interp.BSpline, float]): Tuple containing the nominal path splines in x, y, heading and the nominal speed reference. The last element is the path length.
+        """
+        x_spline, y_spline, _, speed_spline, s_final = nominal_path
+        s = csd.MX.sym("s", 1)
+        x_path_coeffs = csd.MX.sym("x_path_coeffs", x_spline.c.shape[0])
+        x_path = csd.bspline(s, x_path_coeffs, [[*x_spline.t]], [x_spline.k], 1, {})
+        self._x_path = csd.Function("x_path", [s, x_path_coeffs], [x_path])
+        self._x_path_coeffs_values = x_spline.c
+        self._x_path_coeffs = x_path_coeffs
+
+        x_spline_der = x_spline.derivative()
+        x_dot_path_coeffs = csd.MX.sym("x_dot_path_coeffs", x_spline_der.c.shape[0])
+        x_dot_path = csd.bspline(s, x_dot_path_coeffs, [[*x_spline_der.t]], [x_spline_der.k], 1, {})
+        self._x_dot_path = csd.Function("x_dot_path", [s, x_dot_path_coeffs], [x_dot_path])
+        self._x_dot_path_coeffs_values = x_spline_der.c
+        self._x_dot_path_coeffs = x_dot_path_coeffs
+
+        y_path_coeffs = csd.MX.sym("y_path_coeffs", y_spline.c.shape[0])
+        y_path = csd.bspline(s, y_path_coeffs, [[*y_spline.t]], [y_spline.k], 1, {})
+        self._y_path = csd.Function("y_path", [s, y_path_coeffs], [y_path])
+        self._y_path_coeffs_values = y_spline.c
+        self._y_path_coeffs = y_path_coeffs
+
+        y_spline_der = y_spline.derivative()
+        y_dot_path_coeffs = csd.MX.sym("y_dot_path_coeffs", y_spline_der.c.shape[0])
+        y_dot_path = csd.bspline(s, y_dot_path_coeffs, [[*y_spline_der.t]], [y_spline_der.k], 1, {})
+        self._y_dot_path = csd.Function("y_dot_path", [s, y_dot_path_coeffs], [y_dot_path])
+        self._y_dot_path_coeffs_values = y_spline_der.c
+        self._y_dot_path_coeffs = y_dot_path_coeffs
+
+        self._speed_spl_coeffs_values = speed_spline.c
+        speed_spl_coeffs = csd.MX.sym("speed_spl_coeffs", speed_spline.c.shape[0])
+        speed_spl = csd.bspline(s, speed_spl_coeffs, [[*speed_spline.t]], [speed_spline.k], 1, {})
+        self._speed_spline = csd.Function("speed_spline", [s, speed_spl_coeffs], [speed_spl])
+        self._speed_spl_coeffs = speed_spl_coeffs
+
+        self._path_linestring = mapf.create_path_linestring_from_splines(
+            [x_spline, y_spline], [x_spline.c, y_spline.c], s_final
+        )
+
+        self._s = 0.001
+        self._s_final_value = s_final
+        self.model.set_min_path_variable(self._s)
+        self.model.set_max_path_variable(s_final)  # margin
+        print("Path information set. | s_final: ", s_final)
+
+    def set_params(self, params: parameters.MidlevelMPCParams) -> None:
+        """Sets the parameters of the mid-level MPC.
+
+        Args:
+            - params (parameters.MidlevelMPCParams): Parameters of the mid-level MPC.
+        """
+        self._params = params
 
     def _set_initial_warm_start(self, nominal_trajectory: np.ndarray, nominal_inputs: Optional[np.ndarray]) -> None:
         """Sets the initial warm start state (and input) trajectory for the NMPC.
@@ -544,10 +639,7 @@ class AcadosMPC:
         self._acados_ocp.model.p = csd.vertcat(self._p_adjustable, self._p_fixed)
         self._acados_ocp.dims.np = self._acados_ocp.model.p.size()[0]
 
-        self._p_fixed_so_values = self._create_fixed_so_parameter_values(nominal_trajectory, xs, so_list, enc)
-        self._acados_ocp.parameter_values = self.create_parameter_values(
-            nominal_trajectory, nominal_inputs, xs, do_list, so_list, 0, enc
-        )
+        self._acados_ocp.parameter_values = self.create_parameter_values(xs, do_list, so_list, 0, enc)
 
         solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
         self._acados_ocp.code_export_directory = dp.acados_code_gen.as_posix()

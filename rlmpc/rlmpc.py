@@ -7,12 +7,12 @@
     Author: Trym Tengesdal
 """
 
-from dataclasses import asdict, dataclass
+import copy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import colav_simulator.common.map_functions as mapf
-import colav_simulator.common.math_functions as mf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
 import colav_simulator.common.plotters as plotters
 import colav_simulator.core.colav.colav_interface as ci
@@ -152,7 +152,9 @@ class RLMPC(ci.ICOLAV):
         the OCP"""
         self._waypoints = waypoints
         self._speed_plan = speed_plan
-        self._enc = enc
+        enc.close_display()
+        self._enc = copy.deepcopy(enc)
+        self._enc.start_display()
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
@@ -165,7 +167,7 @@ class RLMPC(ci.ICOLAV):
             speed_plan=speed_plan,
             arc_length_parameterization=True,
         )
-        self._setup_mpc_static_obstacle_input(ownship_csog_state, enc, self._debug, **kwargs)
+        self._setup_mpc_static_obstacle_input(ownship_csog_state, self._enc, self._debug, **kwargs)
         self._mpc.construct_ocp(
             nominal_path=self._nominal_path,
             xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
@@ -175,7 +177,7 @@ class RLMPC(ci.ICOLAV):
             min_depth=self._min_depth,
         )
         if self._debug:
-            self.plot_path(enc)
+            self.plot_path(self._enc)
         self._initialized = True
         # print("RL-MPC initialized!")
 
@@ -221,13 +223,21 @@ class RLMPC(ci.ICOLAV):
         mpc_output = self._mpc_soln
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
-        # self.lookahead_sample = 3  # 5s=dt_mpc between each sample, => 5 * 5.0 * 2.0 = 50.0 => for 2m/s speed, 50m ahead
-        x_ld = self._mpc_trajectory[0, self.lookahead_sample]
-        y_ld = self._mpc_trajectory[1, self.lookahead_sample]
-        speed_ref = self._mpc_trajectory[3, 0]
-        # turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
+        chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # heading / SOG
 
-        action = np.array([x_ld - ownship_state[0], y_ld - ownship_state[1], speed_ref - U])
+        # # self.lookahead_sample = 3  # 5s=dt_mpc between each sample, => 5 * 5.0 * 2.0 = 50.0 => for 2m/s speed, 50m ahead
+        # x_ld = self._mpc_trajectory[0, self.lookahead_sample]
+        # y_ld = self._mpc_trajectory[1, self.lookahead_sample]
+        # speed_ref = self._mpc_trajectory[3, 0]
+        # # turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
+
+        # action = np.array([x_ld - ownship_state[0], y_ld - ownship_state[1], speed_ref - U])
+
+        chi_1 = self._mpc_trajectory[2, 1]  # starting from 1 since the first sample is the current state
+        chi_2 = self._mpc_trajectory[2, 2]
+        U_1 = self._mpc_trajectory[3, 1]
+        U_2 = self._mpc_trajectory[3, 2]
+        action = np.array([chi_1 - chi, U_1 - U, chi_2 - chi, U_2 - U])
         return action, mpc_output
 
     def get_mpc_params(self) -> mpc_params.MidlevelMPCParams:
@@ -265,6 +275,14 @@ class RLMPC(ci.ICOLAV):
             action_indices (list): List of indices of the action variables in the decision vector.
         """
         self._mpc.set_action_indices(action_indices)
+
+    def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:
+        """Sets the MPC parameters.
+
+        Args:
+            params (mpc_params.MidlevelMPCParams): The MPC parameters.
+        """
+        self._mpc.set_params(params)
 
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
@@ -395,10 +413,10 @@ class RLMPC(ci.ICOLAV):
         speed_plan = np.array(
             [self._mpc_trajectory[3, self.lookahead_sample], self._mpc_trajectory[3, self.lookahead_sample]]
         )
-        if self._debug:
-            plotters.plot_waypoints(
-                waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
-            )
+        # if self._debug:
+        #     plotters.plot_waypoints(
+        #         waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
+        #     )
 
         self._references = self._los.compute_references(waypoints, speed_plan, None, ownship_state, t - self._t_prev)
         self._t_prev = t
