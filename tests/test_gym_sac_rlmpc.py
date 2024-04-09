@@ -114,7 +114,7 @@ def main():
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
-        "action_sampling_time": 1.0 / 0.2,  # from rlmpc.yaml config file
+        "action_sampling_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
@@ -163,9 +163,9 @@ def main():
         policy_kwargs=policy_kwargs,
         buffer_size=1000,
         learning_starts=0,
-        batch_size=1,
+        batch_size=8,
         gradient_steps=1,
-        train_freq=(2, "step"),
+        train_freq=(5, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
         verbose=1,
@@ -175,7 +175,7 @@ def main():
     eval_callback = EvalCallback(
         eval_env,
         copy.deepcopy(model),
-        eval_freq=5,
+        eval_freq=200,
         n_eval_episodes=1,
         callback_after_eval=stop_train_callback,
         best_model_save_path=best_model_dir,

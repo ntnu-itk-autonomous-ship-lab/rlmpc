@@ -10,11 +10,13 @@
 import platform
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, Type
+from typing import Any, Optional, Tuple, Type
 
-import colav_simulator.core.stochasticity as stoch
+import colav_simulator.common.map_functions as cs_mapf
+import colav_simulator.common.plotters as cs_plotters
 import numpy as np
 import rlmpc.common.config_parsing as cp
+import rlmpc.common.map_functions as mapf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as common
 import rlmpc.mpc.mid_level.casadi_mpc as casadi_mpc
@@ -110,6 +112,84 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.update_adjustable_params(delta)
 
+    def _create_initial_warm_start(self, xs: np.ndarray, do_list: list, enc: senc.ENC) -> dict:
+        """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
+
+        Args:
+            - xs (np.ndarray): Initial state of the system (x, y, psi, u, v, r)^T.
+            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
+            - enc (senc.ENC): ENC object containing the map info.
+        """
+        s_start = mapf.find_closest_arclength_to_point(xs[:2], self._casadi_mpc.path_linestring)
+        s_dot_start = self._casadi_mpc.compute_path_variable_derivative(s_start)
+
+        nx, nu = self._casadi_mpc.model.dims()
+        N = int(self._params.T / self._params.dt)
+        inputs = np.zeros((nu, N))
+
+        xs_k = np.zeros(nx)
+        xs_k[:2] = xs[:2]
+        xs_k[2] = xs[2] + np.arctan2(xs[4], xs[3])
+        xs_k[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
+        xs_k[4:] = np.array([s_start, s_dot_start])
+
+        n_attempts = 10
+        success = False
+        u_attempts = [
+            np.array([0.0, 0.0, 0.0]),
+            np.array([0.0, -0.1, -0.1]),
+            np.array([-0.02, 0.0, 0.0]),
+        ]
+        do_list_shifted = []
+        for do in do_list:
+            do_state = do[1]
+            do_state_shifted = do_state.copy()
+            do_state_shifted[0] = do_state[1] + self._casadi_mpc.map_origin[1]
+            do_state_shifted[1] = do_state[0] + self._casadi_mpc.map_origin[0]
+            do_state_shifted[2] = do_state[3]
+            do_state_shifted[3] = do_state[2]
+            do_shifted = (do[0], do_state_shifted, do[2], do[3], do[4])
+            do_list_shifted.append(do_shifted)
+
+        for i in range(n_attempts):
+            inputs = np.tile(u_attempts[i], (N, 1)).T
+            warm_start_traj = self._casadi_mpc.model_prediction(xs_k, inputs, N + 1, p=np.array([]))
+            chi = warm_start_traj[2, :]
+            chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
+            warm_start_traj[2, :] = chi_unwrapped
+            positions = np.array(
+                [
+                    warm_start_traj[1, :] + self._casadi_mpc.map_origin[1],
+                    warm_start_traj[0, :] + self._casadi_mpc.map_origin[0],
+                ]
+            )
+            min_dist_do, min_dist_so, _, _ = cs_mapf.compute_minimum_distance_to_collision_and_grounding(
+                positions,
+                do_list_shifted,
+                enc,
+                self._params.T + self._params.dt,
+                self._params.dt,
+                self._casadi_mpc.min_depth,
+                disable_bbox_check=True,
+            )
+
+            if min_dist_so > self._params.r_safe_so:  # and min_dist_do > 0.8 * self._params.r_safe_do:
+                success = True
+                break
+
+        if not success:
+            print("WARNING: Could not create an initially feasible warm start solution!")
+
+        warm_start = {
+            "X": warm_start_traj,
+            "U": inputs,
+        }
+        shifted_ws_traj = warm_start_traj + np.array(
+            [self._casadi_mpc.map_origin[0], self._casadi_mpc.map_origin[1], 0.0, 0.0, 0.0, 0.0]
+        ).reshape(nx, 1)
+        cs_plotters.plot_trajectory(shifted_ws_traj, enc, "orange")
+        return warm_start
+
     def construct_ocp(
         self,
         nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
@@ -174,6 +254,13 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.set_params(params)
 
+    def decision_trajectories(self, solution: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        U, X, Sigma = self._casadi_mpc.extract_trajectories(solution)
+        return U, X, Sigma
+
+    def decision_variables(self, U: np.ndarray, X: np.ndarray, Sigma: np.ndarray) -> dict:
+        return self._casadi_mpc.decision_variables(U, X, Sigma)
+
     def plan(
         self,
         t: float,
@@ -183,6 +270,7 @@ class MidlevelMPC:
         do_ot_list: list,
         so_list: list,
         enc: senc.ENC,
+        warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
@@ -198,9 +286,10 @@ class MidlevelMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): Electronic Navigational Chart object.
+            - warm_start (Optional[dict]): Warm start solution to use before the next iteration.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
-            - prev_soln (Optional[dict], optional): Previous solution info to use as warm start. Defaults to None.
+            - prev_soln (Optional[dict], optional): Previous solution info to use before the next iteration. Defaults to None.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
@@ -219,6 +308,7 @@ class MidlevelMPC:
                 do_ot_list,
                 so_list,
                 enc,
+                warm_start,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
                 prev_soln=prev_soln,

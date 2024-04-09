@@ -24,7 +24,7 @@ import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
-from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution, StateDependentNoiseDistribution
+from stable_baselines3.common.distributions import DiagGaussianDistribution, StateDependentNoiseDistribution
 from stable_baselines3.common.preprocessing import get_action_dim
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import Schedule
@@ -103,7 +103,7 @@ class SACMPCActor(BasePolicy):
         self.infeasible_solutions: int = 0
 
         action_dim = get_action_dim(self.action_space)
-        self.action_dist = SquashedDiagGaussianDistribution(action_dim).proba_distribution(
+        self.action_dist = DiagGaussianDistribution(action_dim).proba_distribution(
             th.zeros(action_dim), log_std=self.log_std_init
         )
         self.mpc = rlmpc.RLMPC(mpc_config)
@@ -195,14 +195,14 @@ class SACMPCActor(BasePolicy):
     def action_log_prob(
         self,
         obs: rlmpc_buffers.TensorDict,
-        action: Optional[th.Tensor] = None,
+        actions: Optional[th.Tensor] = None,
         infos: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[th.Tensor, th.Tensor]:
         """Computes the log probability of the policy distribution for the given observation.
 
         Args:
-            obs (th.Tensor): Observation
-            action (th.Tensor): (MPC) Action for the given observation
+            obs (th.Tensor): Observations
+            actions (th.Tensor): (MPC) Actions for the given observation
             infos (Optional[List[Dict[str, Any]]], optional): Additional information. Defaults to None.
 
         Returns:
@@ -216,16 +216,19 @@ class SACMPCActor(BasePolicy):
         # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
         #
         # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
-        if action is None:
-            unnorm_actions, norm_actions, actor_infos = self.predict_with_mpc(obs, state=infos, deterministic=False)
-            action = norm_actions
-        if isinstance(action, np.ndarray):
-            action = th.from_numpy(action)
+        assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
+        if infos is not None:
+            # Extract mean of the policy distribution = MPC action for the given observation
+            norm_mpc_actions = np.array([info[0]["actor_info"]["norm_mpc_action"] for info in infos])
+            norm_mpc_actions = th.from_numpy(norm_mpc_actions)
 
-        mean_actions, log_std, kwargs = self.get_adhoc_action_dist_params(obs, action)
+        if isinstance(actions, np.ndarray):
+            actions = th.from_numpy(actions)
 
-        # return action and associated gaussian log prob if an ad hoc stochastic policy is used
-        return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
+        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_mpc_actions, log_std=self.log_std)
+        log_prob = self.action_dist.log_prob(actions)
+
+        return log_prob
 
     def _convert_obs_tensor_to_numpy(self, obs: Dict[str, th.Tensor]) -> Dict[str, np.ndarray]:
         return {k: v.cpu().numpy() for k, v in obs.items()}
@@ -260,10 +263,14 @@ class SACMPCActor(BasePolicy):
             w.print()
             prev_soln = state[idx] if state is not None else None
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
-
             norm_action = self.action_type.normalize(action)
+            info.update({"unnorm_mpc_action": action, "norm_mpc_action": norm_action})
+
             if not deterministic:
-                norm_action = self.action_dist.actions_from_params(th.from_numpy(norm_action), self.log_std).numpy()
+                self.action_dist = self.action_dist.proba_distribution(
+                    mean_actions=th.from_numpy(norm_action), log_std=self.log_std
+                )
+                norm_action = self.action_dist.get_actions()
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
 
@@ -291,7 +298,6 @@ class SACMPCActor(BasePolicy):
         unnorm_obs_b = self.observation_type.unnormalize(obs_b)
         ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
         disturbance_vector = unnorm_obs_b["DisturbanceObservation"].flatten()
-
         max_num_do = do_arr.shape[1]
         do_list = []
         for i in range(max_num_do):
@@ -299,9 +305,10 @@ class SACMPCActor(BasePolicy):
                 cov = do_arr[6:, i].reshape(4, 4)
                 do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
 
+        ownship_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
         w = stochasticity.DisturbanceData()
-        w.currents = {"speed": disturbance_vector[0], "direction": disturbance_vector[1]}
-        w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3]}
+        w.currents = {"speed": disturbance_vector[0], "direction": (disturbance_vector[1] + ownship_course)}
+        w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3] + ownship_course}
         return t, ownship_state, do_list, w
 
     def initialize(

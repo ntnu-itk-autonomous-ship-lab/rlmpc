@@ -77,6 +77,7 @@ class CasadiMPC:
         self._t_prev: float = 0.0
         self._xs_prev: np.ndarray = np.array([])
         self._min_depth: int = 5
+        self._ns: int = 0
 
         self._x_path: csd.Function = csd.Function("x_path", [], [])
         self._x_path_coeffs: csd.MX = csd.MX.sym("x_path_coeffs", 0)
@@ -115,8 +116,8 @@ class CasadiMPC:
         self._crossing_cost = csd.Function("crossing_cost", [], [])
         self._head_on_cost = csd.Function("head_on_cost", [], [])
         self._overtaking_cost = csd.Function("overtaking_cost", [], [])
-        self._decision_trajectories: csd.Function = csd.Function("decision_trajectories", [], [])
-        self._decision_variables: csd.Function = csd.Function("decision_variables", [], [])
+        self.decision_trajectories: csd.Function = csd.Function("decision_trajectories", [], [])
+        self.decision_variables: csd.Function = csd.Function("decision_variables", [], [])
         self._static_obstacle_constraints: csd.Function = csd.Function("static_obstacle_constraints", [], [])
         self._dynamic_obstacle_constraints: csd.Function = csd.Function("dynamic_obstacle_constraints", [], [])
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
@@ -163,6 +164,22 @@ class CasadiMPC:
             list: List of anti-grounding surface functions.
         """
         return self._so_surfaces
+
+    @property
+    def path_linestring(self) -> geo.LineString:
+        return self._path_linestring
+
+    @property
+    def map_origin(self) -> np.ndarray:
+        return self._map_origin
+
+    @property
+    def so_surfaces(self) -> list:
+        return self._so_surfaces
+
+    @property
+    def min_depth(self) -> int:
+        return self._min_depth
 
     def _set_path_information(
         self, nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float]
@@ -258,7 +275,7 @@ class CasadiMPC:
         """
         self._params = params
 
-    def _model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int, p: Optional[np.ndarray] = None) -> np.ndarray:
+    def model_prediction(self, xs: np.ndarray, u: np.ndarray, N: int, p: Optional[np.ndarray] = None) -> np.ndarray:
         """Euler prediction of the ship model and path timing model, concatenated.
 
         Args:
@@ -278,7 +295,7 @@ class CasadiMPC:
     def _create_initial_warm_start(
         self,
         xs: np.ndarray,
-        do_list,
+        do_list: list,
         enc: senc.ENC,
     ) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
@@ -341,7 +358,7 @@ class CasadiMPC:
 
         for i in range(n_attempts):
             inputs = np.tile(u_attempts[i], (N, 1)).T
-            warm_start_traj = self._model_prediction(xs_k, inputs, N + 1, p=self._p_ship_mdl_values)
+            warm_start_traj = self.model_prediction(xs_k, inputs, N + 1, p=self._p_ship_mdl_values)
             chi = warm_start_traj[2, :]
             chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
             warm_start_traj[2, :] = chi_unwrapped
@@ -435,7 +452,7 @@ class CasadiMPC:
 
         s_dot_shifted = X_prev[5, n_shifts]
         xs_init_mpc[4:] = np.array([s_shifted, s_dot_shifted])
-        X_warm_start = self._model_prediction(xs_init_mpc, U_warm_start, N + 1, p=self._p_ship_mdl_values)
+        X_warm_start = self.model_prediction(xs_init_mpc, U_warm_start, N + 1, p=self._p_ship_mdl_values)
         chi = X_warm_start[2, :].tolist()
         X_warm_start[2, :] = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
         w_warm_start = np.concatenate(
@@ -482,7 +499,7 @@ class CasadiMPC:
         n_attempts = 9
         n_shifts = int(dt / self._params.dt)
         N = int(self._params.T / self._params.dt)
-        U_prev, X_prev, Sigma_prev = self._decision_trajectories(prev_warm_start["x"])
+        U_prev, X_prev, Sigma_prev = self.decision_trajectories(prev_warm_start["x"])
         X_prev = X_prev.full()
         U_prev = U_prev.full()
         Sigma_prev = Sigma_prev.full()
@@ -553,7 +570,8 @@ class CasadiMPC:
         do_ho_list: list,
         do_ot_list: list,
         so_list: list,
-        enc: Optional[senc.ENC],
+        enc: senc.ENC,
+        warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
@@ -568,7 +586,8 @@ class CasadiMPC:
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List ofrelevant static obstacle Polygon objects.
-            - enc (Optional[senc.ENC]): ENC object containing the map info.
+            - enc (senc.ENC): ENC object containing the map info.
+            - warm_start (dict): Warm start solution to use.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
             - prev_soln (Optional[dict], optional): Previous solution to use. Defaults to None.
@@ -579,18 +598,22 @@ class CasadiMPC:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
         if not self._initialized:
-            self._current_warmstart = self._create_initial_warm_start(
-                xs,
-                do_list=do_cr_list + do_ho_list + do_ot_list,
-                enc=enc,
-            )
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc)
             self._xs_prev = xs
             self._initialized = True
             self._prev_cost = np.inf
             self._t_prev = t
+            N = int(self._params.T / self._params.dt)
+            Sigma = np.zeros((self._ns * (N + 1), 1))
+            X = warm_start["X"]
+            U = warm_start["U"]
+            w = np.concatenate((U.T.flatten(), X.T.flatten(), Sigma.T.flatten()))
+            lam_x = np.zeros(w.shape[0])
+            lam_g = np.zeros(self._lbg.shape[0])
+            self._current_warmstart = {"x": w, "lam_x": lam_x, "lam_g": lam_g}
 
         if prev_soln:
+            # warm start is embedded in the previous solution in this case
             self._current_warmstart = prev_soln["soln"]
             self._t_prev = prev_soln["t_prev"]
             self._xs_prev = prev_soln["trajectory"][:, 0] - np.array(
@@ -602,14 +625,14 @@ class CasadiMPC:
         xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
         self._xs_prev = xs_unwrapped
         dt = t - self._t_prev
-        if dt > 0.0:
-            self._current_warmstart = self._shift_warm_start(
-                xs_unwrapped,
-                self._current_warmstart,
-                dt,
-                do_list=do_cr_list + do_ho_list + do_ot_list,
-                enc=enc,
-            )
+        # if dt > 0.0:
+        #     self._current_warmstart = self._shift_warm_start(
+        #         xs_unwrapped,
+        #         self._current_warmstart,
+        #         dt,
+        #         do_list=do_cr_list + do_ho_list + do_ot_list,
+        #         enc=enc,
+        #     )
 
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
             xs_unwrapped,
@@ -624,7 +647,7 @@ class CasadiMPC:
         )
 
         # Check initial start feasibility wrt equality and inequality constraints:
-        U_ws, X_ws, _ = self._decision_trajectories(self._current_warmstart["x"])
+        U_ws, X_ws, _ = self.decision_trajectories(self._current_warmstart["x"])
         w_sub_ws = np.concatenate((U_ws.full().T.flatten(), X_ws.full().T.flatten()))
         g_eq_vals = self._equality_constraints(w_sub_ws, parameter_values).full().flatten()
         g_ineq_vals = self._inequality_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
@@ -650,7 +673,7 @@ class CasadiMPC:
         lam_x = soln["lam_x"].full()
         lam_g = soln["lam_g"].full()
         lam_p = soln["lam_p"].full()
-        U, X, Sigma = self._extract_trajectories(soln)
+        U, X, Sigma = self.extract_trajectories(soln)
         w_sub = np.concatenate((U.T.flatten(), X.T.flatten()))
         self.print_solution_info(soln, parameter_values, stats, t_solve)
         # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
@@ -685,7 +708,7 @@ class CasadiMPC:
         # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
         # mpc_common.plot_casadi_solver_stats(stats, show_plots)
 
-        self._current_warmstart["x"] = self._decision_variables(U, X, Sigma)
+        self._current_warmstart["x"] = self.decision_variables(U, X, Sigma)
         self._current_warmstart["lam_x"] = lam_x
         self._current_warmstart["lam_g"] = lam_g
         self._current_warmstart["lam_p"] = lam_p
@@ -712,7 +735,7 @@ class CasadiMPC:
         }
         return output
 
-    def _extract_trajectories(self, soln: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def extract_trajectories(self, soln: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Extracts the optimal inputs, trajectory and slacks from the solution dictionary.
 
         Args:
@@ -721,7 +744,7 @@ class CasadiMPC:
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray]: Optimal inputs, trajectory and slacks.
         """
-        U, X, Sigma = self._decision_trajectories(soln["x"])
+        U, X, Sigma = self.decision_trajectories(soln["x"])
         X = X.full()
         U = U.full()
         Sigma = Sigma.full()
@@ -1179,6 +1202,8 @@ class CasadiMPC:
 
         hs = hs_bx + hs_so + hs_do
 
+        self._ns = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+
         g_ineq_list = [*hu, *hx, *hs, *g_ineq_list]
 
         # Vectorize and finalize the NLP
@@ -1259,7 +1284,7 @@ class CasadiMPC:
         self._box_inequality_constraints = csd.Function(
             "box_inequality_constraints", [self._opt_vars, self._p], [csd.vertcat(*hu, *hx, *hs)], ["w", "p"], ["g_bx"]
         )
-        self._decision_trajectories = csd.Function(
+        self.decision_trajectories = csd.Function(
             "decision_trajectories",
             [self._opt_vars],
             [
@@ -1270,7 +1295,7 @@ class CasadiMPC:
             ["w"],
             ["U", "X", "Sigma"],
         )
-        self._decision_variables = csd.Function(
+        self.decision_variables = csd.Function(
             "decision_variables",
             [
                 csd.reshape(csd.vertcat(*U), nu, -1),
@@ -2088,7 +2113,7 @@ class CasadiMPC:
             stats (dict): NLP solver statistics.
             t_solve (float): NLP solver runtime.
         """
-        U, X, Sigma = self._extract_trajectories(soln)
+        U, X, Sigma = self.extract_trajectories(soln)
         lam_g = soln["lam_g"]
         cost_val = soln["f"].full()[0][0]
 

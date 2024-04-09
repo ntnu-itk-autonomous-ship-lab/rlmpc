@@ -29,9 +29,11 @@ import rlmpc.common.set_generator as sg
 import rlmpc.mpc.common as mpc_common
 import rlmpc.mpc.mid_level.mid_level_mpc as mlmpc
 import rlmpc.mpc.parameters as mpc_params
+import rrt_star_lib
 import scipy.interpolate as interp
 import seacharts.enc as senc
 import yaml
+from colav_simulator.behavior_generator import RRTConfig
 from shapely import strtree
 
 
@@ -39,6 +41,7 @@ from shapely import strtree
 class RLMPCParams:
     mpc: mlmpc.Config
     los: guidances.LOSGuidanceParams
+    rrtstar: RRTConfig
     colregs_handler: ch.COLREGSHandlerParams
     ship_length: float = 8.0
     ship_width: float = 3.0
@@ -50,6 +53,7 @@ class RLMPCParams:
             mpc=mlmpc.Config.from_dict(config_dict["midlevel_mpc"]),
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
             colregs_handler=ch.COLREGSHandlerParams.from_dict(config_dict["colregs_handler"]),
+            rrtstar=RRTConfig.from_dict(config_dict["rrtstar"]),
         )
         return config
 
@@ -63,6 +67,7 @@ class RLMPCParams:
             "mpc": self.mpc.to_dict(),
             "los": self.los.to_dict(),
             "colregs_handler": self.colregs_handler.to_dict(),
+            "rrtstar": self.rrtstar.to_dict(),
             "ship_length": self.ship_length,
             "ship_width": self.ship_width,
             "ship_draft": self.ship_draft,
@@ -105,7 +110,7 @@ class RLMPC(ci.ICOLAV):
         self._ma_filter = stochasticity.MovingAverageFilter()
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
         self._dt_sim: float = 0.5  # get from scenario config, typically alway s0 .5
-
+        self._rrtstar = None
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
         self._initialized: bool = False
@@ -121,6 +126,8 @@ class RLMPC(ci.ICOLAV):
         self._original_poly_list: list = []
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
+
+        self._goal_state: np.ndarray = np.array([])
 
         self._waypoints: np.ndarray = np.array([])
         self._speed_plan: np.ndarray = np.array([])
@@ -176,6 +183,27 @@ class RLMPC(ci.ICOLAV):
             map_origin=self._map_origin,
             min_depth=self._min_depth,
         )
+
+        self._goal_state = np.array([waypoints[0, -1], waypoints[1, -1], 0.0, 0.0, 0.0, 0.0])
+        bbox = mapf.create_bbox_from_points(self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=100.0)
+        relevant_hazards = mapf.extract_hazards_within_bounding_box(
+            self._rel_polygons, bbox, self._enc, show_plots=False
+        )
+        planning_cdt = mapf.create_safe_sea_triangulation(
+            self._enc,
+            vessel_min_depth=5,
+            bbox=bbox,
+            show_plots=False,
+        )
+        self._rrtstar = rrt_star_lib.RRTStar(
+            los=self._config.rrtstar.los, model=self._config.rrtstar.model, params=self._config.rrtstar.params
+        )
+        self._rrtstar.transfer_bbox(bbox)
+        self._rrtstar.transfer_enc_hazards(relevant_hazards[0])
+        self._rrtstar.transfer_safe_sea_triangulation(planning_cdt)
+        self._rrtstar.set_goal_state(self._goal_state.tolist())
+        self._rrtstar.reset(0)
+
         if self._debug:
             self.plot_path(self._enc)
         self._initialized = True
@@ -382,6 +410,36 @@ class RLMPC(ci.ICOLAV):
             #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
             #     )
 
+            terminal_mpc_state = self._mpc_trajectory[:, -1]
+            start_state = [
+                terminal_mpc_state[0],
+                terminal_mpc_state[1],
+                terminal_mpc_state[2],
+                terminal_mpc_state[3],
+                0.0,
+                0.0,
+            ]
+            self._rrtstar.reset(0)
+            rrt_soln = self._rrtstar.grow_towards_goal(
+                ownship_state=start_state,
+                U_d=start_state[3],
+                initialized=False,
+                return_on_first_solution=True,
+            )
+            rrt_waypoints, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
+            rrt_trajectory[4:, :] = np.tile(self._mpc_trajectory[4:, -1], (1, rrt_trajectory.shape[1]))
+            rrt_inputs[2, :] = np.tile(self._mpc_inputs[2, -1], (1, rrt_inputs.shape[1]))
+
+            # plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
+            plotters.plot_trajectory(rrt_trajectory, enc, color="green")
+            warm_start = {"X": rrt_trajectory, "U": rrt_inputs, "waypoints": rrt_waypoints, "times": rrt_times}
+            if "prev_soln" in kwargs:
+                U, X, Sigma = self._mpc.decision_trajectories(kwargs["prev_soln"]["soln"])
+                U = np.concatenate((U[:, 1:], rrt_inputs[:, 0]), axis=1)
+                X = np.concatenate((X[:, 1:], rrt_trajectory[:, 1]), axis=1)
+                Sigma = np.concatenate((Sigma[:, 1:], np.zeros((Sigma.shape[0], 1))), axis=1)
+                w = self._mpc.decision_variables(U, X, Sigma)
+
             self._mpc_soln = self._mpc.plan(
                 t,
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
@@ -390,6 +448,7 @@ class RLMPC(ci.ICOLAV):
                 do_ot_list=do_ot_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
+                warm_start=warm_start,
                 **kwargs,
             )
             N = int(self._mpc.params.T / self._mpc.params.dt)
