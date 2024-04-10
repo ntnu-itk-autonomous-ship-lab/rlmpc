@@ -77,7 +77,7 @@ class CasadiMPC:
         self._t_prev: float = 0.0
         self._xs_prev: np.ndarray = np.array([])
         self._min_depth: int = 5
-        self._ns: int = 0
+        self.ns: int = 0
 
         self._x_path: csd.Function = csd.Function("x_path", [], [])
         self._x_path_coeffs: csd.MX = csd.MX.sym("x_path_coeffs", 0)
@@ -125,6 +125,7 @@ class CasadiMPC:
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
         self._inequality_constraints_jacobian: csd.Function = csd.Function("inequality_constraints_jacobian", [], [])
         self._box_inequality_constraints: csd.Function = csd.Function("box_inequality_constraints", [], [])
+        self.dim_g = 0
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
@@ -604,7 +605,7 @@ class CasadiMPC:
             self._prev_cost = np.inf
             self._t_prev = t
             N = int(self._params.T / self._params.dt)
-            Sigma = np.zeros((self._ns * (N + 1), 1))
+            Sigma = np.zeros((self.ns * (N + 1), 1))
             X = warm_start["X"]
             U = warm_start["U"]
             w = np.concatenate((U.T.flatten(), X.T.flatten(), Sigma.T.flatten()))
@@ -1202,7 +1203,7 @@ class CasadiMPC:
 
         hs = hs_bx + hs_so + hs_do
 
-        self._ns = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        self.ns = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
 
         g_ineq_list = [*hu, *hx, *hs, *g_ineq_list]
 
@@ -1217,6 +1218,7 @@ class CasadiMPC:
         ubg_ineq = [0.0] * g_ineq.shape[0]
         self._lbg = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg = np.concatenate((ubg_eq, ubg_ineq), axis=0)
+        self.dim_g = self._lbg.shape[0]
 
         self._p_fixed = csd.vertcat(*p_fixed)
         self._p_adjustable = csd.vertcat(*p_adjustable)

@@ -112,6 +112,29 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.update_adjustable_params(delta)
 
+    def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
+        """Computes the path variable and its derivative from the current state.
+
+        Args:
+            xs (np.ndarray): State of the system on the form [x, y, psi, u, v, r]^T.
+
+        Returns:
+            Tuple[float, float]: Path variable and its derivative.
+        """
+        s = mapf.find_closest_arclength_to_point(xs[:2], self._casadi_mpc.path_linestring)
+        if s < 0.000001:
+            s = 0.000001
+        s_dot = self._casadi_mpc.compute_path_variable_derivative(s)
+        return s, s_dot
+
+    def dims(self) -> Tuple[int, int, int, int]:
+        """Get the input, state and slack dimensions of the (casadi) MPC model.
+
+        Returns:
+            Tuple[int, int, int, int]: Input, state, slacks and g func dimensions.
+        """
+        return self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.dim_g
+
     def _create_initial_warm_start(self, xs: np.ndarray, do_list: list, enc: senc.ENC) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
 
@@ -215,6 +238,20 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
 
+    def model_prediction(self, xs: np.ndarray, U: np.ndarray, N: int, p: np.ndarray = np.array([])) -> np.ndarray:
+        """Predicts the state trajectory of the system using the model.
+
+        Args:
+            - xs (np.ndarray): Initial state of the system.
+            - U (np.ndarray): Decision variables.
+            - N (int): Prediction horizon.
+            - p (np.ndarray, optional): Parameters of the model. Defaults to np.array([]).
+
+        Returns:
+            - np.ndarray: Predicted state trajectory of the system.
+        """
+        return self._casadi_mpc.model_prediction(xs, U, N, p)
+
     def set_action_indices(self, action_indices: list):
         """Sets the indices of the action variables in the decision vector.
 
@@ -258,7 +295,7 @@ class MidlevelMPC:
         U, X, Sigma = self._casadi_mpc.extract_trajectories(solution)
         return U, X, Sigma
 
-    def decision_variables(self, U: np.ndarray, X: np.ndarray, Sigma: np.ndarray) -> dict:
+    def decision_variables(self, U: np.ndarray, X: np.ndarray, Sigma: np.ndarray) -> np.ndarray:
         return self._casadi_mpc.decision_variables(U, X, Sigma)
 
     def plan(
@@ -289,7 +326,6 @@ class MidlevelMPC:
             - warm_start (Optional[dict]): Warm start solution to use before the next iteration.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
-            - prev_soln (Optional[dict], optional): Previous solution info to use before the next iteration. Defaults to None.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
@@ -311,7 +347,6 @@ class MidlevelMPC:
                 warm_start,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
-                prev_soln=prev_soln,
                 **kwargs
             )
         return mpc_soln

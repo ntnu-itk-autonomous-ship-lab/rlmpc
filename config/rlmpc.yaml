@@ -24,11 +24,11 @@ rrtstar:
       max_nodes: 1000
       max_iter: 10000
       max_time: 3.0
-      iter_between_direct_goal_growth: 100
+      iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
-      goal_radius: 200.0
-      step_size: 5.0
-      min_steering_time: 5.0
+      goal_radius: 500.0
+      step_size: 2.5
+      min_steering_time: 2.0
       max_steering_time: 30.0
       steering_acceptance_radius: 5.0
       gamma: 2000.0
