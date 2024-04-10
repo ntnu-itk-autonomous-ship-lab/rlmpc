@@ -601,40 +601,20 @@ class CasadiMPC:
         if not self._initialized:
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc)
             self._xs_prev = xs
-            self._initialized = True
             self._prev_cost = np.inf
             self._t_prev = t
-            N = int(self._params.T / self._params.dt)
-            Sigma = np.zeros((self.ns * (N + 1), 1))
-            X = warm_start["X"]
-            U = warm_start["U"]
-            w = np.concatenate((U.T.flatten(), X.T.flatten(), Sigma.T.flatten()))
-            lam_x = np.zeros(w.shape[0])
-            lam_g = np.zeros(self._lbg.shape[0])
-            self._current_warmstart = {"x": w, "lam_x": lam_x, "lam_g": lam_g}
 
-        if prev_soln:
+        if "xs_prev" in warm_start:
             # warm start is embedded in the previous solution in this case
-            self._current_warmstart = prev_soln["soln"]
-            self._t_prev = prev_soln["t_prev"]
             self._xs_prev = prev_soln["trajectory"][:, 0] - np.array(
                 [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
             )
 
-        psi = xs[2]
+        chi = xs[2]
         xs_unwrapped = xs.copy()
-        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
+        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
         self._xs_prev = xs_unwrapped
-        dt = t - self._t_prev
-        # if dt > 0.0:
-        #     self._current_warmstart = self._shift_warm_start(
-        #         xs_unwrapped,
-        #         self._current_warmstart,
-        #         dt,
-        #         do_list=do_cr_list + do_ho_list + do_ot_list,
-        #         enc=enc,
-        #     )
-
+        self._current_warmstart = warm_start
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
             xs_unwrapped,
             do_cr_list,

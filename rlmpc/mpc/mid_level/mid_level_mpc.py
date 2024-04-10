@@ -133,7 +133,7 @@ class MidlevelMPC:
         Returns:
             Tuple[int, int, int, int]: Input, state, slacks and g func dimensions.
         """
-        return self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.dim_g
+        return *self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.dim_g
 
     def _create_initial_warm_start(self, xs: np.ndarray, do_list: list, enc: senc.ENC) -> dict:
         """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
@@ -311,7 +311,7 @@ class MidlevelMPC:
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -347,6 +347,6 @@ class MidlevelMPC:
                 warm_start,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
-                **kwargs
+                **kwargs,
             )
         return mpc_soln

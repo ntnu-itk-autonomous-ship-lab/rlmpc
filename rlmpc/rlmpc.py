@@ -471,11 +471,7 @@ class RLMPC(ci.ICOLAV):
         Returns:
             Dict[str, np.ndarray]: Warm start dictionary containing the trajectory, inputs, waypoints and times.
         """
-        start_state = (
-            self._mpc_trajectory[:, -1] + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0])
-            if self._mpc_trajectory.size > 0
-            else ownship_state
-        )
+        start_state = self._mpc_trajectory[:, -1] if self._mpc_trajectory.size > 0 else ownship_state
         start_state[4:] = np.zeros(2)
         self._rrtstar.reset(0)
         self._rrtstar.set_goal_state(self._goal_state.tolist())
@@ -488,9 +484,11 @@ class RLMPC(ci.ICOLAV):
         rrt_waypoints, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
         plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
         plotters.plot_trajectory(rrt_trajectory, enc, color="magenta")
-        if self._config.rrtstar.params.step_size < self._config.mpc.params.dt:
-            step = int(self._config.mpc.params.dt / self._config.rrtstar.params.step_size)
-            rrt_trajectory = rrt_trajectory[:, ::step]
+        if self._config.rrtstar.params.step_size < self._mpc.params.dt:
+            step = int(self._mpc.params.dt / self._config.rrtstar.params.step_size)
+            rrt_trajectory = rrt_trajectory[:, ::step] - np.array(
+                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+            ).reshape(6, 1)
             rrt_inputs = rrt_inputs[:, ::step]
             rrt_times = rrt_times[::step]
 
@@ -504,17 +502,25 @@ class RLMPC(ci.ICOLAV):
         num_rrt_samples = rrt_trajectory.shape[1]
 
         N = int(self._mpc.params.T / self._mpc.params.dt)
-        mpc_model_traj = self._mpc.model_prediction(ownship_state, rrt_inputs, num_rrt_samples)
-        rrt_trajectory[4:, :] = mpc_model_traj[4:, :]
+        assert N + 1 < num_rrt_samples, "RRT solution is too short for the MPC"
+        rrt_trajectory = rrt_trajectory[:, : N + 1]
+        rrt_inputs = rrt_inputs[:, :N]
+        rrt_times = rrt_times[:N]
 
-        warm_start = {"X": rrt_trajectory, "U": rrt_inputs, "waypoints": rrt_waypoints, "times": rrt_times}
+        # Add path timing dynamics to warm start trajectory
+        mpc_model_traj = self._mpc.model_prediction(ownship_state, rrt_inputs, N + 1)
+        rrt_trajectory[4:, :] = mpc_model_traj[4:, :]
 
         _, _, ns, dim_g = self._mpc.dims()
         soln = self._mpc_soln["soln"] if "soln" in self._mpc_soln else None
-        soln = kwargs["prev_soln"]["soln"] if "prev_soln" in kwargs else soln
+        is_prev_soln = "prev_soln" in kwargs and kwargs["prev_soln"]
+        soln = kwargs["prev_soln"]["soln"] if is_prev_soln else None
 
+        warm_start = {}
         if soln:
             U, X, Sigma = self._mpc.decision_trajectories(kwargs["prev_soln"]["soln"])
+            if is_prev_soln:
+                warm_start.update({"xs_prev": X[:, 0], "u_prev": U[:, 0], "sigma_prev": Sigma[:, 0]})
             U = np.concatenate((U[:, 1:], rrt_inputs[:, 0]), axis=1)
             X = np.concatenate((X[:, 1:], rrt_trajectory[:, 1]), axis=1)
             Sigma = np.concatenate((Sigma[:, 1:], np.zeros((Sigma.shape[0], 1))), axis=1)
@@ -526,12 +532,12 @@ class RLMPC(ci.ICOLAV):
         else:
             U = rrt_inputs[:, :N]
             X = rrt_trajectory[:, : N + 1]
-            Sigma = np.zeros(ns * (N + 1), 1)
+            Sigma = np.zeros((ns, N + 1))
             w = self._mpc.decision_variables(rrt_inputs, rrt_trajectory, Sigma)
             lam_g = np.zeros((dim_g, 1))
             lam_x = [0.0] * w.shape[0]
 
-        warm_start = {"w": w, "lam_g": lam_g, "lam_x": lam_x, "X": X, "U": U, "Sigma": Sigma}
+        warm_start = {"x": w, "lam_g": lam_g, "lam_x": lam_x, "X": X, "U": U, "Sigma": Sigma}
         return warm_start
 
     def compute_disturbance_velocity_estimate(self, w: Optional[stochasticity.DisturbanceData] = None) -> np.ndarray:
