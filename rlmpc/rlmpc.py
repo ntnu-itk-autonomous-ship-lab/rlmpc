@@ -168,7 +168,7 @@ class RLMPC(ci.ICOLAV):
         ownship_csog_state[3] = state_copy[2]
         ownship_csog_state[3] = ownship_state[3]
         speed_plan[-1] = 0.0
-        self._map_origin = ownship_csog_state[:2]
+        self._map_origin = ownship_state[:2]
         self._nominal_path = self._ktp.compute_splines(
             waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
             speed_plan=speed_plan,
@@ -438,6 +438,10 @@ class RLMPC(ci.ICOLAV):
             self._mpc_soln["trajectory"] = self._mpc_trajectory
             self._mpc_soln["inputs"] = self._mpc_inputs
             self._mpc_soln["t_prev_mpc"] = t
+            self._mpc_soln["xs_prev"] = ownship_state - np.array(
+                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+            )
+            self._mpc_soln["u_prev"] = self._mpc_inputs[:, 0]
         #
         # lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
         waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, self.lookahead_sample]))
@@ -462,7 +466,7 @@ class RLMPC(ci.ICOLAV):
     def create_mpc_warm_start(
         self, ownship_state: np.ndarray, enc: senc.ENC, **kwargs
     ) -> Optional[Dict[str, np.ndarray]]:
-        """Creates a warm start for the MPC by growing an RRT towards the goal state.
+        """Creates a warm start for the MPC by growing an RRT from the terminal MPC state towards the goal state. If t == 0, the RRT is grown from the current ownship state.
 
         Args:
             ownship_state (np.ndarray): Ownship state on the form [x, y, psi, u, v, r]^T.
@@ -471,69 +475,65 @@ class RLMPC(ci.ICOLAV):
         Returns:
             Dict[str, np.ndarray]: Warm start dictionary containing the trajectory, inputs, waypoints and times.
         """
+        nx, nu, ns, dim_g = self._mpc.dims()
+        prev_soln = self._mpc_soln if "soln" in self._mpc_soln else None
+        is_prev_soln = True if "prev_soln" in kwargs and kwargs["prev_soln"] else False
+        prev_soln = kwargs["prev_soln"] if is_prev_soln else None
+
         start_state = self._mpc_trajectory[:, -1] if self._mpc_trajectory.size > 0 else ownship_state
-        start_state[4:] = np.zeros(2)
+        start_state = prev_soln["trajectory"][:, -1] if is_prev_soln else start_state
         self._rrtstar.reset(0)
         self._rrtstar.set_goal_state(self._goal_state.tolist())
+        start_state[4:] = np.array([0.0, 0.0])
         rrt_soln = self._rrtstar.grow_towards_goal(
             ownship_state=start_state.tolist(),
             U_d=start_state[3],
             initialized=False,
             return_on_first_solution=True,
         )
-        rrt_waypoints, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
+        _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
         plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
         plotters.plot_trajectory(rrt_trajectory, enc, color="magenta")
-        if self._config.rrtstar.params.step_size < self._mpc.params.dt:
-            step = int(self._mpc.params.dt / self._config.rrtstar.params.step_size)
-            rrt_trajectory = rrt_trajectory[:, ::step] - np.array(
-                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
-            ).reshape(6, 1)
-            rrt_inputs = rrt_inputs[:, ::step]
-            rrt_times = rrt_times[::step]
-
-        path_var, path_var_dot = self._mpc.compute_path_variable_info(
-            rrt_trajectory[:4, 0] - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0])
-        )
-        rrt_trajectory[4:, :] = np.tile(np.array([path_var, path_var_dot]).reshape(2, 1), (1, rrt_trajectory.shape[1]))
-
-        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((3, 1))
-        rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
-        num_rrt_samples = rrt_trajectory.shape[1]
+        rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
 
         N = int(self._mpc.params.T / self._mpc.params.dt)
-        assert N + 1 < num_rrt_samples, "RRT solution is too short for the MPC"
-        rrt_trajectory = rrt_trajectory[:, : N + 1]
-        rrt_inputs = rrt_inputs[:, :N]
-        rrt_times = rrt_times[:N]
+        if self._config.rrtstar.params.step_size < self._mpc.params.dt:
+            step = int(self._mpc.params.dt / self._config.rrtstar.params.step_size)
+            rrt_trajectory = rrt_trajectory[:, ::step][:, : N + 1]
+            rrt_times = rrt_times[::step][: N + 1]
+            num_rrt_samples = rrt_trajectory.shape[1]
+            rrt_inputs = rrt_inputs[:, ::step][:, : num_rrt_samples - 1]
+
+        path_var, path_var_dot = self._mpc.compute_path_variable_info(rrt_trajectory[:4, 0])
+        rrt_trajectory[4:, :] = np.tile(np.array([path_var, path_var_dot]).reshape(2, 1), (1, rrt_trajectory.shape[1]))
+
+        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
+        last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
+        rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
 
         # Add path timing dynamics to warm start trajectory
-        mpc_model_traj = self._mpc.model_prediction(ownship_state, rrt_inputs, N + 1)
+        mpc_model_traj = self._mpc.model_prediction(rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1])
         rrt_trajectory[4:, :] = mpc_model_traj[4:, :]
 
-        _, _, ns, dim_g = self._mpc.dims()
-        soln = self._mpc_soln["soln"] if "soln" in self._mpc_soln else None
-        is_prev_soln = "prev_soln" in kwargs and kwargs["prev_soln"]
-        soln = kwargs["prev_soln"]["soln"] if is_prev_soln else None
-
         warm_start = {}
-        if soln:
-            U, X, Sigma = self._mpc.decision_trajectories(kwargs["prev_soln"]["soln"])
-            if is_prev_soln:
-                warm_start.update({"xs_prev": X[:, 0], "u_prev": U[:, 0], "sigma_prev": Sigma[:, 0]})
-            U = np.concatenate((U[:, 1:], rrt_inputs[:, 0]), axis=1)
-            X = np.concatenate((X[:, 1:], rrt_trajectory[:, 1]), axis=1)
+        if prev_soln:
+            U, X, Sigma = self._mpc.decision_trajectories(prev_soln["soln"])
+            warm_start.update(
+                {"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"], "sigma_prev": Sigma[:, 0]}
+            )
+            U = np.concatenate((U[:, 1:], rrt_inputs[:, 0].reshape(nu, 1)), axis=1)
+            X = np.concatenate((X[:, 1:], rrt_trajectory[:, 1].reshape(nx, 1)), axis=1)
             Sigma = np.concatenate((Sigma[:, 1:], np.zeros((Sigma.shape[0], 1))), axis=1)
             w = self._mpc.decision_variables(U, X, Sigma)
-            lam_g = kwargs["prev_soln"]["soln"]["lam_g"]
-            lam_g = np.concatenate((lam_g[1:], lam_g[-1]), axis=1)
-            lam_x = kwargs["prev_soln"]["soln"]["lam_x"]
-            lam_x = np.concatenate((lam_x[1:], lam_x[-1]), axis=1)
+            lam_g = prev_soln["soln"]["lam_g"]
+            lam_g = np.concatenate((lam_g[1:], lam_g[-1].reshape(1, 1)))
+            lam_x = prev_soln["soln"]["lam_x"]
+            lam_x = np.concatenate((lam_x[1:], lam_x[-1].reshape(1, 1)))
         else:
             U = rrt_inputs[:, :N]
             X = rrt_trajectory[:, : N + 1]
             Sigma = np.zeros((ns, N + 1))
-            w = self._mpc.decision_variables(rrt_inputs, rrt_trajectory, Sigma)
+            w = self._mpc.decision_variables(U, X, Sigma)
             lam_g = np.zeros((dim_g, 1))
             lam_x = [0.0] * w.shape[0]
 

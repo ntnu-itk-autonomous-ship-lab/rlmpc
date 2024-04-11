@@ -122,6 +122,8 @@ class CasadiMPC:
         self._dynamic_obstacle_constraints: csd.Function = csd.Function("dynamic_obstacle_constraints", [], [])
         self._equality_constraints: csd.Function = csd.Function("equality_constraints", [], [])
         self._equality_constraints_jacobian: csd.Function = csd.Function("equality_constraints_jacobian", [], [])
+        self._state_box_inequality_constraints: csd.Function = csd.Function("state_box_inequality_constraints", [], [])
+        self._input_box_inequality_constraints: csd.Function = csd.Function("input_box_inequality_constraints", [], [])
         self._inequality_constraints: csd.Function = csd.Function("inequality_constraints", [], [])
         self._inequality_constraints_jacobian: csd.Function = csd.Function("inequality_constraints_jacobian", [], [])
         self._box_inequality_constraints: csd.Function = csd.Function("box_inequality_constraints", [], [])
@@ -228,7 +230,7 @@ class CasadiMPC:
             [x_spline, y_spline], [x_spline.c, y_spline.c], s_final
         )
 
-        self._s = 0.001
+        self._s = 0.000000001
         self._s_final_value = s_final
         self.model.set_min_path_variable(self._s)
         self.model.set_max_path_variable(s_final)  # margin
@@ -292,276 +294,6 @@ class CasadiMPC:
         p = p = self._p_ship_mdl_values if p is None else p
         X = self.model.erk4_n_step(xs, u, p, self._params.dt, N)
         return X
-
-    def _create_initial_warm_start(
-        self,
-        xs: np.ndarray,
-        do_list: list,
-        enc: senc.ENC,
-    ) -> dict:
-        """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
-
-        Args:
-            - xs (np.ndarray): Initial state of the system (x, y, psi, u, v, r)^T.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
-            - enc (senc.ENC): ENC object containing the map info.
-        """
-        self._t_prev = 0.0
-        self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
-        self._s_dot = self.compute_path_variable_derivative(self._s)
-
-        dim_g = self._lbg.shape[0]
-
-        n_colregs_zones = 3
-        nx, nu = self.model.dims()
-        N = int(self._params.T / self._params.dt)
-        inputs = np.zeros((nu, N))
-
-        xs_k = np.zeros(nx)
-        xs_k[:2] = xs[:2]
-        xs_k[2] = xs[2] + np.arctan2(xs[4], xs[3])
-        xs_k[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
-        xs_k[4:] = np.array([self._s, self._s_dot])
-
-        n_attempts = 10
-        success = False
-        u_attempts = [
-            np.array([0.0, 0.0, 0.0]),
-            np.array([0.0, -0.1, -0.1]),
-            np.array([-0.02, 0.0, 0.0]),
-            np.array([0.02, 0.0, 0.0]),
-            np.array([-0.01, -0.03, 0.0]),
-            np.array([0.01, -0.03, 0.0]),
-            np.array([0.0, -0.03, 0.0]),
-            np.array([-0.02, -0.1, -0.1]),
-            np.array([0.02, -0.1, -0.1]),
-            np.array([0.0, -0.1, -0.1]),
-        ]
-        do_list_shifted = []
-        for do in do_list:
-            do_state = do[1]
-            do_state_shifted = do_state.copy()
-            do_state_shifted[0] = do_state[1] + self._map_origin[1]
-            do_state_shifted[1] = do_state[0] + self._map_origin[0]
-            do_state_shifted[2] = do_state[3]
-            do_state_shifted[3] = do_state[2]
-            do_shifted = (do[0], do_state_shifted, do[2], do[3], do[4])
-            do_list_shifted.append(do_shifted)
-
-        max_num_so_constr = self._params.max_num_so_constr
-        if self._so_surfaces:
-            max_num_so_constr = len(self._so_surfaces) if self._params.max_num_so_constr > 0 else 0
-
-        n_bx_slacks = len(self._idx_slacked_bx_constr)
-        slacks = np.zeros(
-            (n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone) * (N + 1)
-        )
-
-        for i in range(n_attempts):
-            inputs = np.tile(u_attempts[i], (N, 1)).T
-            warm_start_traj = self.model_prediction(xs_k, inputs, N + 1, p=self._p_ship_mdl_values)
-            chi = warm_start_traj[2, :]
-            chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
-            warm_start_traj[2, :] = chi_unwrapped
-            positions = np.array(
-                [warm_start_traj[1, :] + self._map_origin[1], warm_start_traj[0, :] + self._map_origin[0]]
-            )
-            min_dist_do, min_dist_so, _, _ = cs_mapf.compute_minimum_distance_to_collision_and_grounding(
-                positions,
-                do_list_shifted,
-                enc,
-                self._params.T + self._params.dt,
-                self._params.dt,
-                self._min_depth,
-                disable_bbox_check=True,
-            )
-
-            if min_dist_so > self._params.r_safe_so:  # and min_dist_do > 0.8 * self._params.r_safe_do:
-                success = True
-                break
-
-        if not success:
-            print("WARNING: Could not create an initially feasible warm start solution!")
-
-        decision_variables = np.concatenate(
-            (
-                inputs.T.flatten(),
-                warm_start_traj.T.flatten(),
-                slacks.T.flatten(),
-            )
-        )
-        warm_start = {
-            "x": decision_variables.tolist(),
-            "lam_x": np.zeros(decision_variables.shape[0]).tolist(),
-            "lam_g": np.zeros(dim_g).tolist(),
-        }
-        # shifted_ws_traj = warm_start_traj + np.array(
-        #     [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
-        # ).reshape(nx, 1)
-        # cs_plotters.plot_trajectory(shifted_ws_traj, enc, "orange")
-        return warm_start
-
-    def _try_to_create_warm_start_solution(
-        self,
-        xs: np.ndarray,
-        X_prev: np.ndarray,
-        U_prev: np.ndarray,
-        Sigma_prev: np.ndarray,
-        u_mod: np.ndarray,
-        offset: int,
-        n_shifts: int,
-        do_list: list,
-        enc: senc.ENC,
-    ) -> Tuple[np.ndarray, bool]:
-        """Creates a shifted warm start trajectory from the previous trajectory and the new control input,
-        possibly with an offset start back in time.
-        Args:
-            - xs (np.ndarray): Current state of the ownship.
-            - X_prev (np.ndarray): The previous trajectory.
-            - U_prev (np.ndarray): The previous control inputs.
-            - Sigma_prev (np.ndarray): The previous slack variables.
-            - u_mod (np.ndarray): The new control input to apply at the end of the previous trajectory.
-            - offset (int): The offset from the last sample in the previous trajectory, to apply the modified input vector.
-            - dt (float): Time step
-            - n_shifts (int): Number of shifts to perform on the previous trajectory.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) with EN coordinates.
-            - enc (senc.ENC): The ENC object containing the map.
-
-        Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray, bool]: The new warm start, corresponding state and input trajectories, and a boolean indicating if the warm start was successful.
-        """
-        N = int(self._params.T / self._params.dt)
-        nx, nu = self.model.dims()
-        Sigma_warm_start = np.concatenate(
-            (Sigma_prev[:, n_shifts:], np.tile(Sigma_prev[:, -1], (n_shifts, 1)).T), axis=1
-        )
-
-        if offset == 0:
-            inputs_past_N = np.tile(u_mod, (n_shifts, 1)).T
-            U_warm_start = np.concatenate((U_prev[:, n_shifts:], inputs_past_N), axis=1)
-        else:
-            inputs_past_N = np.tile(u_mod, (n_shifts + offset, 1)).T
-            U_warm_start = np.concatenate((U_prev[:, n_shifts:-offset], inputs_past_N), axis=1)
-
-        xs_init_mpc = np.zeros(nx)
-        xs_init_mpc[:2] = xs[:2]
-        xs_init_mpc[2] = xs[2] + np.arctan2(xs[4], xs[3])
-        xs_init_mpc[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
-        s_shifted = X_prev[
-            4, n_shifts
-        ]  #         self._s = mapf.find_closest_arclength_to_point(xs[:2], self._path_linestring)
-
-        s_dot_shifted = X_prev[5, n_shifts]
-        xs_init_mpc[4:] = np.array([s_shifted, s_dot_shifted])
-        X_warm_start = self.model_prediction(xs_init_mpc, U_warm_start, N + 1, p=self._p_ship_mdl_values)
-        chi = X_warm_start[2, :].tolist()
-        X_warm_start[2, :] = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
-        w_warm_start = np.concatenate(
-            (U_warm_start.T.flatten(), X_warm_start.T.flatten(), Sigma_warm_start.T.flatten())
-        )
-
-        positions = X_warm_start[:2, :] + self._map_origin.reshape(2, 1)
-        positions[0, :] = X_warm_start[1, :] + self._map_origin[1]
-        positions[1, :] = X_warm_start[0, :] + self._map_origin[0]
-        min_dist_do, min_dist_so, _, _ = cs_mapf.compute_minimum_distance_to_collision_and_grounding(
-            positions,
-            do_list,
-            enc,
-            self._params.T + self._params.dt,
-            self._params.dt,
-            self._min_depth,
-            disable_bbox_check=True,
-        )
-        shifted_pos_traj = X_warm_start[:2, :] + np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1)
-        if min_dist_so <= self._params.r_safe_so or min_dist_do <= self._params.r_safe_do:
-            cs_plotters.plot_trajectory(shifted_pos_traj, enc, "black")
-            return w_warm_start, X_warm_start, U_warm_start, False
-        cs_plotters.plot_trajectory(shifted_pos_traj, enc, "pink")
-        return w_warm_start, X_warm_start, U_warm_start, True
-
-    def _shift_warm_start(
-        self,
-        xs: np.ndarray,
-        prev_warm_start: dict,
-        dt: float,
-        do_list: list,
-        enc: senc.ENC,
-    ) -> dict:
-        """Shifts the warm start decision trajectory [U, X, Sigma] dt units ahead.
-
-        Args:
-            - xs (np.ndarray): Current state of the ownship.
-            - prev_warm_start (dict): Warm start decision trajectory to shift.
-            - dt (float): Time to shift the warm start decision trajectory.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
-            - enc (senc.ENC): Electronic Navigational Chart object.
-        """
-        _, nu = self.model.dims()
-        n_attempts = 9
-        n_shifts = int(dt / self._params.dt)
-        N = int(self._params.T / self._params.dt)
-        U_prev, X_prev, Sigma_prev = self.decision_trajectories(prev_warm_start["x"])
-        X_prev = X_prev.full()
-        U_prev = U_prev.full()
-        Sigma_prev = Sigma_prev.full()
-        offsets = [
-            0,
-            0,
-            0,
-            0,
-            int(0.2 * N),
-            int(0.2 * N),
-            int(0.5 * N),
-            int(0.5 * N),
-            int(0.7 * N),
-        ]
-        u_attempts = [
-            U_prev[:, -1],
-            np.array([0.0, -0.1, -0.1]),
-            np.array([0.04, -0.1, -0.1]),
-            np.array([-0.04, -0.1, -0.1]),
-            np.array([0.04, -0.06, 0.0]),
-            np.array([-0.04, -0.06, 0.0]),
-            np.array([0.04, -0.06, 0.0]),
-            np.array([-0.04, -0.15, 0.0]),
-            np.array([0.0, -0.15, 0.0]),
-        ]
-
-        do_list_shifted = []
-        for do in do_list:
-            do_state = do[1]
-            do_state_shifted = do_state.copy()
-            do_state_shifted[0] = do_state[1] + self._map_origin[1]
-            do_state_shifted[1] = do_state[0] + self._map_origin[0]
-            do_state_shifted[2] = do_state[3]
-            do_state_shifted[3] = do_state[2]
-            do_shifted = (do[0], do_state_shifted, do[2], do[3], do[4])
-            do_list_shifted.append(do_shifted)
-
-        success = False
-        for i in range(n_attempts):
-            w_warm_start, X_warm_start, U_warm_start, success = self._try_to_create_warm_start_solution(
-                xs,
-                X_prev,
-                U_prev,
-                Sigma_prev,
-                u_attempts[i],
-                offsets[i],
-                n_shifts,
-                do_list_shifted,
-                enc,
-            )
-            if success:
-                break
-
-        if not success:
-            print("WARNING: Could not create a feasible warm start solution!")
-        new_warm_start = prev_warm_start
-        new_warm_start["x"] = w_warm_start.tolist()
-
-        self._s = X_warm_start[4, 0]
-        self._s_dot = X_warm_start[5, 0]
-        return new_warm_start
 
     def plan(
         self,
@@ -630,14 +362,37 @@ class CasadiMPC:
         # Check initial start feasibility wrt equality and inequality constraints:
         U_ws, X_ws, _ = self.decision_trajectories(self._current_warmstart["x"])
         w_sub_ws = np.concatenate((U_ws.full().T.flatten(), X_ws.full().T.flatten()))
+        g_state_box_ineq_vals = (
+            self._state_box_inequality_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
+        )
+        g_input_box_ineq_vals = self._input_box_inequality_constraints(w_sub_ws, parameter_values).full().flatten()
         g_eq_vals = self._equality_constraints(w_sub_ws, parameter_values).full().flatten()
-        g_ineq_vals = self._inequality_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
+        g_do_constr_vals = (
+            self._dynamic_obstacle_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
+        )
+        g_so_constr_vals = (
+            self._static_obstacle_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
+        )
         if np.any(np.abs(g_eq_vals) > 1e-6):
             print(
                 f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6)}!"
             )
-        if np.any(g_ineq_vals > 1e-6):
-            print(f"Warm start is infeasible wrt inequality constraints at row: {np.argwhere(g_ineq_vals > 1e-6)}!")
+        if np.any(g_state_box_ineq_vals > 1e-6):
+            print(
+                f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_state_box_ineq_vals > 1e-6)}!"
+            )
+        if np.any(g_input_box_ineq_vals > 1e-6):
+            print(
+                f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_input_box_ineq_vals > 1e-6)}!"
+            )
+        if np.any(g_do_constr_vals > 1e-6):
+            print(
+                f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6)}!"
+            )
+        if np.any(g_so_constr_vals > 1e-6):
+            print(
+                f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6)}!"
+            )
 
         t_start = time.time()
         soln = self._solver(
@@ -1266,6 +1021,20 @@ class CasadiMPC:
         self._box_inequality_constraints = csd.Function(
             "box_inequality_constraints", [self._opt_vars, self._p], [csd.vertcat(*hu, *hx, *hs)], ["w", "p"], ["g_bx"]
         )
+        self._state_box_inequality_constraints = csd.Function(
+            "state_box_inequality_constraints",
+            [self._opt_vars, self._p],
+            [csd.vertcat(*hx)],
+            ["w", "p"],
+            ["g_x_bx"],
+        )
+        self._input_box_inequality_constraints = csd.Function(
+            "input_box_inequality_constraints",
+            [w_sub, self._p],
+            [csd.vertcat(*hu)],
+            ["w_sub", "p"],
+            ["g_u_bx"],
+        )
         self.decision_trajectories = csd.Function(
             "decision_trajectories",
             [self._opt_vars],
@@ -1457,6 +1226,7 @@ class CasadiMPC:
         state_aug[3] = U
 
         # augmented path dynamics due to the integrated path timing model with velocity assignment
+        self._s, self._s_dot = self.compute_path_variable_info(state)
         state_aug[4:] = np.array([self._s, self._s_dot]).reshape((2, 1))
         fixed_parameter_values.extend(state_aug.flatten().tolist())  # x0
 
@@ -1489,6 +1259,21 @@ class CasadiMPC:
             np.array(do_parameter_values_ho),
             np.array(do_parameter_values_ot),
         )
+
+    def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
+        """Computes the path variable and its derivative from the current state.
+
+        Args:
+            xs (np.ndarray): State of the system on the form [x, y, psi, u, v, r]^T.
+
+        Returns:
+            Tuple[float, float]: Path variable and its derivative.
+        """
+        s = mapf.find_closest_arclength_to_point(xs[:2], self.path_linestring)
+        if s < 0.000001:
+            s = 0.000001
+        s_dot = self.compute_path_variable_derivative(s)
+        return s, s_dot
 
     def _create_path_parameter_values(self) -> Tuple[list, np.ndarray, np.ndarray]:
         """Creates the parameter values for the path constraints.

@@ -27,10 +27,10 @@ rrtstar:
       iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
       goal_radius: 500.0
-      step_size: 2.5
-      min_steering_time: 2.0
+      step_size: 5.0
+      min_steering_time: 5.0
       max_steering_time: 30.0
-      steering_acceptance_radius: 5.0
+      steering_acceptance_radius: 10.0
       gamma: 2000.0
     model:
       csog:
@@ -53,7 +53,7 @@ rrtstar:
 
 midlevel_mpc:
   params:
-    rate: 0.5
+    rate: 0.2
     reference_traj_bbox_buffer: 200.0
     T: 80.0
     dt: 5.0
@@ -74,7 +74,7 @@ midlevel_mpc:
     w_colregs: [30.0, 30.0, 10.0]
 
     w_L2: 0.0
-    w_L1: 12000.0
+    w_L1: 20000.0
     r_safe_so: 10.0
     r_safe_do: 30.0
     gamma: 1.0

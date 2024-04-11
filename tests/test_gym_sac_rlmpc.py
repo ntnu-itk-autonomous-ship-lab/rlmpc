@@ -114,7 +114,7 @@ def main():
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
-        "action_sampling_time": 1.0 / 0.5,  # from rlmpc.yaml config file
+        "action_sampling_time": 1.0 / 0.2,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,

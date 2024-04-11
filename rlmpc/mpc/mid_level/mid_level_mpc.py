@@ -121,11 +121,7 @@ class MidlevelMPC:
         Returns:
             Tuple[float, float]: Path variable and its derivative.
         """
-        s = mapf.find_closest_arclength_to_point(xs[:2], self._casadi_mpc.path_linestring)
-        if s < 0.000001:
-            s = 0.000001
-        s_dot = self._casadi_mpc.compute_path_variable_derivative(s)
-        return s, s_dot
+        return self._casadi_mpc.compute_path_variable_info(xs)
 
     def dims(self) -> Tuple[int, int, int, int]:
         """Get the input, state and slack dimensions of the (casadi) MPC model.
@@ -134,84 +130,6 @@ class MidlevelMPC:
             Tuple[int, int, int, int]: Input, state, slacks and g func dimensions.
         """
         return *self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.dim_g
-
-    def _create_initial_warm_start(self, xs: np.ndarray, do_list: list, enc: senc.ENC) -> dict:
-        """Sets the initial warm start decision trajectory [U, X, Sigma] flattened for the NMPC.
-
-        Args:
-            - xs (np.ndarray): Initial state of the system (x, y, psi, u, v, r)^T.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
-            - enc (senc.ENC): ENC object containing the map info.
-        """
-        s_start = mapf.find_closest_arclength_to_point(xs[:2], self._casadi_mpc.path_linestring)
-        s_dot_start = self._casadi_mpc.compute_path_variable_derivative(s_start)
-
-        nx, nu = self._casadi_mpc.model.dims()
-        N = int(self._params.T / self._params.dt)
-        inputs = np.zeros((nu, N))
-
-        xs_k = np.zeros(nx)
-        xs_k[:2] = xs[:2]
-        xs_k[2] = xs[2] + np.arctan2(xs[4], xs[3])
-        xs_k[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
-        xs_k[4:] = np.array([s_start, s_dot_start])
-
-        n_attempts = 10
-        success = False
-        u_attempts = [
-            np.array([0.0, 0.0, 0.0]),
-            np.array([0.0, -0.1, -0.1]),
-            np.array([-0.02, 0.0, 0.0]),
-        ]
-        do_list_shifted = []
-        for do in do_list:
-            do_state = do[1]
-            do_state_shifted = do_state.copy()
-            do_state_shifted[0] = do_state[1] + self._casadi_mpc.map_origin[1]
-            do_state_shifted[1] = do_state[0] + self._casadi_mpc.map_origin[0]
-            do_state_shifted[2] = do_state[3]
-            do_state_shifted[3] = do_state[2]
-            do_shifted = (do[0], do_state_shifted, do[2], do[3], do[4])
-            do_list_shifted.append(do_shifted)
-
-        for i in range(n_attempts):
-            inputs = np.tile(u_attempts[i], (N, 1)).T
-            warm_start_traj = self._casadi_mpc.model_prediction(xs_k, inputs, N + 1, p=np.array([]))
-            chi = warm_start_traj[2, :]
-            chi_unwrapped = np.unwrap(np.concatenate(([xs_k[2]], chi)))[1:]
-            warm_start_traj[2, :] = chi_unwrapped
-            positions = np.array(
-                [
-                    warm_start_traj[1, :] + self._casadi_mpc.map_origin[1],
-                    warm_start_traj[0, :] + self._casadi_mpc.map_origin[0],
-                ]
-            )
-            min_dist_do, min_dist_so, _, _ = cs_mapf.compute_minimum_distance_to_collision_and_grounding(
-                positions,
-                do_list_shifted,
-                enc,
-                self._params.T + self._params.dt,
-                self._params.dt,
-                self._casadi_mpc.min_depth,
-                disable_bbox_check=True,
-            )
-
-            if min_dist_so > self._params.r_safe_so:  # and min_dist_do > 0.8 * self._params.r_safe_do:
-                success = True
-                break
-
-        if not success:
-            print("WARNING: Could not create an initially feasible warm start solution!")
-
-        warm_start = {
-            "X": warm_start_traj,
-            "U": inputs,
-        }
-        shifted_ws_traj = warm_start_traj + np.array(
-            [self._casadi_mpc.map_origin[0], self._casadi_mpc.map_origin[1], 0.0, 0.0, 0.0, 0.0]
-        ).reshape(nx, 1)
-        cs_plotters.plot_trajectory(shifted_ws_traj, enc, "orange")
-        return warm_start
 
     def construct_ocp(
         self,
