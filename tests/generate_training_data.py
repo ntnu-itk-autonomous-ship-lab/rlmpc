@@ -84,12 +84,12 @@ elif platform == "darwin":
 
 
 if __name__ == "__main__":
-    scenario_choice = 7
+    scenario_choice = 0
     if scenario_choice == -1:
         scenario_name = "crossing_give_way"
         config_file = cs_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 0:
-        scenario_name = "rlmpc_scenario_cr_ss"
+        scenario_name = "boknafjorden_generation_test"
         config_file = rl_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 1:
         scenario_name = "rlmpc_scenario_head_on_channel"
@@ -115,14 +115,14 @@ if __name__ == "__main__":
     # scen = scenario_generator.load_scenario_from_folder(
     #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
     # )
-    # scenario_data = scenario_generator.generate(
-    #     config_file=config_file,
-    #     new_load_of_map_data=False,
-    #     save_scenario=True,
-    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
-    #     show_plots=True,
-    #     episode_idx_save_offset=0,
-    # )
+    scenario_data = scenario_generator.generate(
+        config_file=config_file,
+        new_load_of_map_data=True,
+        save_scenario=True,
+        save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
+        show_plots=True,
+        episode_idx_save_offset=0,
+    )
 
     # Collect perception image data by executing random actions in N environments over the scenarios.
     observation_type = {

@@ -11,9 +11,16 @@ map_tolerance: 1
 map_buffer: 0
 new_load_of_map_data: False
 type: CR_SO
-n_random_ships: 1
+n_random_ships: 5
+episode_generation:
+  n_episodes: 100
+  n_constant_os_state_episodes: 1
+  n_constant_os_plan_episodes: 1
+  n_constant_do_state_episodes: 1
+  n_plans_per_do_state: 1
+  n_constant_disturbance_episodes: 10
+  delta_uniform_position_sample: 5
 #n_random_ships_range: [1, 2]
-n_episodes: 1
 stochasticity:
   currents:
     constant: True
