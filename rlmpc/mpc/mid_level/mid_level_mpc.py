@@ -10,11 +10,13 @@
 import platform
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, Type
+from typing import Any, Optional, Tuple, Type
 
-import colav_simulator.core.stochasticity as stoch
+import colav_simulator.common.map_functions as cs_mapf
+import colav_simulator.common.plotters as cs_plotters
 import numpy as np
 import rlmpc.common.config_parsing as cp
+import rlmpc.common.map_functions as mapf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as common
 import rlmpc.mpc.mid_level.casadi_mpc as casadi_mpc
@@ -110,6 +112,25 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.update_adjustable_params(delta)
 
+    def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
+        """Computes the path variable and its derivative from the current state.
+
+        Args:
+            xs (np.ndarray): State of the system on the form [x, y, psi, u, v, r]^T.
+
+        Returns:
+            Tuple[float, float]: Path variable and its derivative.
+        """
+        return self._casadi_mpc.compute_path_variable_info(xs)
+
+    def dims(self) -> Tuple[int, int, int, int]:
+        """Get the input, state and slack dimensions of the (casadi) MPC model.
+
+        Returns:
+            Tuple[int, int, int, int]: Input, state, slacks and g func dimensions.
+        """
+        return *self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.dim_g
+
     def construct_ocp(
         self,
         nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
@@ -134,6 +155,20 @@ class MidlevelMPC:
         self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, tau)
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
+
+    def model_prediction(self, xs: np.ndarray, U: np.ndarray, N: int, p: np.ndarray = np.array([])) -> np.ndarray:
+        """Predicts the state trajectory of the system using the model.
+
+        Args:
+            - xs (np.ndarray): Initial state of the system.
+            - U (np.ndarray): Decision variables.
+            - N (int): Prediction horizon.
+            - p (np.ndarray, optional): Parameters of the model. Defaults to np.array([]).
+
+        Returns:
+            - np.ndarray: Predicted state trajectory of the system.
+        """
+        return self._casadi_mpc.model_prediction(xs, U, N, p)
 
     def set_action_indices(self, action_indices: list):
         """Sets the indices of the action variables in the decision vector.
@@ -163,6 +198,24 @@ class MidlevelMPC:
         """
         return self._casadi_mpc.get_antigrounding_surface_functions()
 
+    def set_params(self, params: mpc_parameters.MidlevelMPCParams) -> None:
+        """Sets the parameters of the mid-level MPC.
+
+        Args:
+            - params (mpc_parameters.MidlevelMPCParams): Parameters of the mid-level MPC.
+        """
+        self._params = params
+        self._casadi_mpc.set_params(params)
+        if self._acados_enabled and ACADOS_COMPATIBLE:
+            self._acados_mpc.set_params(params)
+
+    def decision_trajectories(self, solution: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        U, X, Sigma = self._casadi_mpc.extract_trajectories(solution)
+        return U, X, Sigma
+
+    def decision_variables(self, U: np.ndarray, X: np.ndarray, Sigma: np.ndarray) -> np.ndarray:
+        return self._casadi_mpc.decision_variables(U, X, Sigma)
+
     def plan(
         self,
         t: float,
@@ -172,10 +225,11 @@ class MidlevelMPC:
         do_ot_list: list,
         so_list: list,
         enc: senc.ENC,
+        warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         prev_soln: Optional[dict] = None,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -187,9 +241,9 @@ class MidlevelMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - so_list (list): List of ALL static obstacle Polygon objects.
             - enc (senc.ENC): Electronic Navigational Chart object.
+            - warm_start (Optional[dict]): Warm start solution to use before the next iteration.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
-            - prev_soln (Optional[dict], optional): Previous solution to use as warm start. Defaults to None.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
@@ -208,9 +262,9 @@ class MidlevelMPC:
                 do_ot_list,
                 so_list,
                 enc,
+                warm_start,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
-                prev_soln=prev_soln,
-                **kwargs
+                **kwargs,
             )
         return mpc_soln

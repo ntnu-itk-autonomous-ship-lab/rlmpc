@@ -6,6 +6,7 @@
 
     Author: Trym Tengesdal, Scipy authors.
 """
+
 import casadi as csd
 import numpy as np
 
@@ -15,7 +16,7 @@ def linear(r: csd.MX) -> csd.MX:
 
 
 def thin_plate_spline(r: csd.MX) -> csd.MX:
-    return r**2 * csd.log(r)
+    return r**2 * csd.log(r + 1e-07)
 
 
 def cubic(r: csd.MX) -> csd.MX:

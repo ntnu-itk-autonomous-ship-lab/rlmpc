@@ -1,4 +1,5 @@
 import argparse
+import copy
 import platform
 from pathlib import Path
 from typing import Tuple
@@ -51,7 +52,7 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
 
 
 def create_data_dirs() -> Tuple[Path, Path, Path, Path]:
-    if platform.system() == "Unix":
+    if platform.system() == "Linux":
         base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
     elif platform.system() == "Darwin":
         base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
@@ -70,22 +71,26 @@ def create_data_dirs() -> Tuple[Path, Path, Path, Path]:
 def main():
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs()
 
-    scenario_choice = 0
+    scenario_choice = 2
     if scenario_choice == 0:
         scenario_name = "rlmpc_scenario_cr_ss"
         config_file = rl_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 1:
         scenario_name = "rlmpc_scenario_head_on_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
+    elif scenario_choice == 2:
+        scenario_name = "rlmpc_scenario_ho"
+        config_file = rl_dp.scenarios / "rlmpc_scenario_ho.yaml"
 
-    # scenario_generator = cs_sg.ScenarioGenerator(seed=2)
+    # scenario_generator = cs_sg.ScenarioGenerator(seed=114, config_file=rl_dp.config / "scenario_generator.yaml")
     # scenario_data = scenario_generator.generate(
     #     config_file=config_file,
     #     new_load_of_map_data=False,
     #     save_scenario=True,
-    #     save_scenario_folder=rl_dp.scenarios / "test_data" / scenario_name,
+    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
     #     show_plots=True,
     #     episode_idx_save_offset=0,
+    #     delete_existing_files=True,
     # )
 
     observation_type = {
@@ -113,11 +118,12 @@ def main():
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
-        "render_update_rate": 0.5,
+        "render_update_rate": 1.0,
         "observation_type": observation_type,
-        "action_type": "continuous_relative_los_reference_action",
+        "action_type": "relative_course_speed_reference_sequence_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
+        "identifier": "training_env1",
         "seed": 15,
     }
     total_training_timesteps = 100
@@ -129,35 +135,18 @@ def main():
             "test_mode": True,
             "simulator_config": eval_sim_config,
             "reload_map": False,
+            "identifier": "eval_env1",
         }
     )
     eval_env = Monitor(gym.make(id=env_id, **env_config))
 
-    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
-    eval_callback = EvalCallback(
-        eval_env,
-        eval_freq=5,
-        n_eval_episodes=1,
-        callback_after_eval=stop_train_callback,
-        best_model_save_path=best_model_dir,
-        deterministic=True,
-        render=True,
-        verbose=1,
-    )
-    stats_callback = CollectStatisticsCallback(
-        env,
-        log_dir=base_dir,
-        experiment_name="test",
-        save_stats_freq=100,
-        save_agent_model_freq=100,
-        log_stats_freq=100,
-        verbose=1,
-    )
-
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
-    actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    # norm_std_dev =
+    # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
+    actor_noise_std_dev = np.array(
+        [0.002, 0.002, 0.002, 0.002]
+    )  # normalized std dev for the action space [course, speed, course, speed]
+
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
         "critic_arch": [256, 128, 32],
@@ -174,11 +163,33 @@ def main():
         policy_kwargs=policy_kwargs,
         buffer_size=1000,
         learning_starts=0,
-        batch_size=1,
+        batch_size=8,
         gradient_steps=1,
-        train_freq=(2, "step"),
+        train_freq=(5, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
+        verbose=1,
+    )
+
+    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
+    eval_callback = EvalCallback(
+        eval_env,
+        copy.deepcopy(model),
+        eval_freq=200,
+        n_eval_episodes=1,
+        callback_after_eval=stop_train_callback,
+        best_model_save_path=best_model_dir,
+        deterministic=True,
+        render=True,
+        verbose=1,
+    )
+    stats_callback = CollectStatisticsCallback(
+        env,
+        log_dir=base_dir,
+        experiment_name="test",
+        save_stats_freq=100,
+        save_agent_model_freq=100,
+        log_stats_freq=100,
         verbose=1,
     )
 

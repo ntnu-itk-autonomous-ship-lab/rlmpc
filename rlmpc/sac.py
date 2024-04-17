@@ -8,6 +8,7 @@
     Author: Trym Tengesdal
 """
 
+import copy
 import pathlib
 import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
@@ -230,6 +231,11 @@ class SAC(opa.OffPolicyAlgorithm):
     ) -> None:
         self.policy.initialize_mpc_actor(env)
 
+    def transfer_mpc_parameters(self, model) -> None:
+        assert hasattr(model, "actor") and hasattr(model.actor, "mpc")
+        params = copy.deepcopy(model.actor.mpc.get_mpc_params())
+        self.actor.set_mpc_params(params)
+
     def _create_aliases(self) -> None:
         self.actor: SACMPCActor = self.policy.actor
         self.critic = self.policy.critic
@@ -254,8 +260,8 @@ class SAC(opa.OffPolicyAlgorithm):
                 self.actor.reset_noise()
 
             # Action by the current actor for the sampled state
-            actions_pi, log_prob = self.actor.action_log_prob(
-                replay_data.observations, replay_data.actions, replay_data.infos
+            log_prob = self.actor.action_log_prob(
+                replay_data.observations, actions=replay_data.actions, infos=replay_data.infos
             )
             log_prob = log_prob.reshape(-1, 1)
 
@@ -281,8 +287,8 @@ class SAC(opa.OffPolicyAlgorithm):
 
             with th.no_grad():
                 # Select action according to policy
-                _, next_log_prob = self.actor.action_log_prob(
-                    replay_data.next_observations, replay_data.next_actions, infos=replay_data.infos
+                next_log_prob = self.actor.action_log_prob(
+                    replay_data.next_observations, actions=replay_data.next_actions, infos=replay_data.infos
                 )
                 # Compute the next Q values: min over all critics targets
                 next_q_values = th.cat(
@@ -316,7 +322,9 @@ class SAC(opa.OffPolicyAlgorithm):
             sampled_actions = sampled_actions.requires_grad_(True)
 
             with th.no_grad():
-                _, log_prob_sampled = self.actor.action_log_prob(replay_data.observations, sampled_actions, infos=None)
+                log_prob_sampled = self.actor.action_log_prob(
+                    replay_data.observations, actions=sampled_actions, infos=replay_data.infos
+                )
 
             q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
@@ -333,7 +341,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 soln = actor_info["soln"]
                 p = actor_info["p"]
                 p_fixed = actor_info["p_fixed"]
-                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0, dtype=np.float32)
+                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
 
                 da_dp = sens.da_dp(z, p_fixed, p).full()
                 da_dp = th.from_numpy(da_dp).float()

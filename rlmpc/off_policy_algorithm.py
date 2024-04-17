@@ -473,6 +473,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 num_collected_steps += 1
 
             next_obs, rewards, dones, infos = env.step(actions)
+            env.render()
             self._last_obs = self._current_obs
             self._last_actions = actions
             self._last_actor_info = actor_infos

@@ -50,8 +50,8 @@ if __name__ == "__main__":
     a = np.linspace(-a_max, a_max, n)
     r = np.linspace(-r_max, r_max, n)
 
-    alpha_app = [112.5, 0.00006, 8.0, 0.00025]
-    K_app = [100.0, 100.0]
+    alpha_app = [112.5, 0.00006, 8.0, 0.001]
+    K_app = [20.0, 10.0]
 
     r_costs = np.zeros(n)
     a_costs = np.zeros(n)
@@ -63,7 +63,6 @@ if __name__ == "__main__":
         a_costs[i] = a_cost
 
     # Plot
-    fig, ax = plt.subplots(1, 1, figsize=(5, 3))
     fig = plt.figure(figsize=(12, 8))
     axes = fig.subplot_mosaic(
         [

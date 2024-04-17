@@ -7,12 +7,12 @@
     Author: Trym Tengesdal
 """
 
-from dataclasses import asdict, dataclass
+import copy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import colav_simulator.common.map_functions as mapf
-import colav_simulator.common.math_functions as mf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
 import colav_simulator.common.plotters as plotters
 import colav_simulator.core.colav.colav_interface as ci
@@ -29,9 +29,11 @@ import rlmpc.common.set_generator as sg
 import rlmpc.mpc.common as mpc_common
 import rlmpc.mpc.mid_level.mid_level_mpc as mlmpc
 import rlmpc.mpc.parameters as mpc_params
+import rrt_star_lib
 import scipy.interpolate as interp
 import seacharts.enc as senc
 import yaml
+from colav_simulator.behavior_generator import RRTConfig
 from shapely import strtree
 
 
@@ -39,6 +41,7 @@ from shapely import strtree
 class RLMPCParams:
     mpc: mlmpc.Config
     los: guidances.LOSGuidanceParams
+    rrtstar: RRTConfig
     colregs_handler: ch.COLREGSHandlerParams
     ship_length: float = 8.0
     ship_width: float = 3.0
@@ -50,6 +53,7 @@ class RLMPCParams:
             mpc=mlmpc.Config.from_dict(config_dict["midlevel_mpc"]),
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
             colregs_handler=ch.COLREGSHandlerParams.from_dict(config_dict["colregs_handler"]),
+            rrtstar=RRTConfig.from_dict(config_dict["rrtstar"]),
         )
         return config
 
@@ -63,6 +67,7 @@ class RLMPCParams:
             "mpc": self.mpc.to_dict(),
             "los": self.los.to_dict(),
             "colregs_handler": self.colregs_handler.to_dict(),
+            "rrtstar": self.rrtstar.to_dict(),
             "ship_length": self.ship_length,
             "ship_width": self.ship_width,
             "ship_draft": self.ship_draft,
@@ -97,13 +102,15 @@ class RLMPC(ci.ICOLAV):
         elif isinstance(config, Path):
             self._config = cp.extract(RLMPCParams, config, dp.rlmpc_schema)
 
+        self._lookahead_sample: int = 3
+
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
         self._ma_filter = stochasticity.MovingAverageFilter()
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
         self._dt_sim: float = 0.5  # get from scenario config, typically alway s0 .5
-
+        self._rrtstar = None
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
         self._initialized: bool = False
@@ -120,10 +127,16 @@ class RLMPC(ci.ICOLAV):
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
 
+        self._goal_state: np.ndarray = np.array([])
+
         self._waypoints: np.ndarray = np.array([])
         self._speed_plan: np.ndarray = np.array([])
         self._enc: Optional[senc.ENC] = None
         self._nominal_path = None
+
+    @property
+    def lookahead_sample(self) -> int:
+        return self._lookahead_sample
 
     def get_nominal_path(
         self,
@@ -146,20 +159,22 @@ class RLMPC(ci.ICOLAV):
         the OCP"""
         self._waypoints = waypoints
         self._speed_plan = speed_plan
-        self._enc = enc
+        enc.close_display()
+        self._enc = copy.deepcopy(enc)
+        self._enc.start_display()
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
         ownship_csog_state[3] = state_copy[2]
         ownship_csog_state[3] = ownship_state[3]
         speed_plan[-1] = 0.0
-        self._map_origin = ownship_csog_state[:2]
+        self._map_origin = ownship_state[:2]
         self._nominal_path = self._ktp.compute_splines(
             waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
             speed_plan=speed_plan,
             arc_length_parameterization=True,
         )
-        self._setup_mpc_static_obstacle_input(ownship_csog_state, enc, self._debug, **kwargs)
+        self._setup_mpc_static_obstacle_input(ownship_csog_state, self._enc, self._debug, **kwargs)
         self._mpc.construct_ocp(
             nominal_path=self._nominal_path,
             xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
@@ -168,26 +183,29 @@ class RLMPC(ci.ICOLAV):
             map_origin=self._map_origin,
             min_depth=self._min_depth,
         )
+
+        self._goal_state = np.array([waypoints[0, -1], waypoints[1, -1], 0.0, 0.0, 0.0, 0.0])
+        bbox = mapf.create_bbox_from_points(self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=200.0)
+        relevant_hazards = mapf.extract_hazards_within_bounding_box(
+            self._rel_polygons, bbox, self._enc, show_plots=True
+        )
+        planning_cdt = mapf.create_safe_sea_triangulation(
+            self._enc,
+            vessel_min_depth=5,
+            bbox=bbox,
+            show_plots=True,
+        )
+        self._rrtstar = rrt_star_lib.RRTStar(
+            los=self._config.rrtstar.los, model=self._config.rrtstar.model, params=self._config.rrtstar.params
+        )
+        self._rrtstar.reset(0)
+        self._rrtstar.transfer_bbox(bbox)
+        self._rrtstar.transfer_enc_hazards(relevant_hazards[0])
+        self._rrtstar.transfer_safe_sea_triangulation(planning_cdt)
+        self._rrtstar.set_goal_state(self._goal_state.tolist())
+
         if self._debug:
-            nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
-            nominal_trajectory = nominal_trajectory + np.array(
-                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-            ).reshape(9, 1)
-            plotters.plot_waypoints(
-                waypoints[:2, :],
-                draft=1.0,
-                enc=enc,
-                color="orange",
-                point_buffer=3.0,
-                disk_buffer=6.0,
-                hole_buffer=3.0,
-                alpha=0.4,
-            )
-            plotters.plot_trajectory(
-                nominal_trajectory[:2, :],
-                enc,
-                "yellow",
-            )
+            self.plot_path(self._enc)
         self._initialized = True
         # print("RL-MPC initialized!")
 
@@ -217,7 +235,6 @@ class RLMPC(ci.ICOLAV):
             self._mpc_inputs = prev_soln["inputs"]
             self._t_prev = prev_soln["t_prev"]
             self._t_prev_mpc = prev_soln["t_prev_mpc"]
-            prev_soln = prev_soln["soln"]  # only propagate the previous MPC solver solution further
 
         _ = self.plan(
             t,
@@ -234,13 +251,21 @@ class RLMPC(ci.ICOLAV):
         mpc_output = self._mpc_soln
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
-        lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
-        x_ld = self._mpc_trajectory[0, lookahead_sample]
-        y_ld = self._mpc_trajectory[1, lookahead_sample]
-        speed_ref = self._mpc_trajectory[3, 0]
-        # turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
+        chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # heading / SOG
 
-        action = np.array([x_ld - ownship_state[0], y_ld - ownship_state[1], speed_ref - U])
+        # # self.lookahead_sample = 3  # 5s=dt_mpc between each sample, => 5 * 5.0 * 2.0 = 50.0 => for 2m/s speed, 50m ahead
+        # x_ld = self._mpc_trajectory[0, self.lookahead_sample]
+        # y_ld = self._mpc_trajectory[1, self.lookahead_sample]
+        # speed_ref = self._mpc_trajectory[3, 0]
+        # # turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
+
+        # action = np.array([x_ld - ownship_state[0], y_ld - ownship_state[1], speed_ref - U])
+
+        chi_1 = self._mpc_trajectory[2, 1]  # starting from 1 since the first sample is the current state
+        chi_2 = self._mpc_trajectory[2, 2]
+        U_1 = self._mpc_trajectory[3, 1]
+        U_2 = self._mpc_trajectory[3, 2]
+        action = np.array([chi_1 - chi, U_1 - U, chi_2 - chi, U_2 - U])
         return action, mpc_output
 
     def get_mpc_params(self) -> mpc_params.MidlevelMPCParams:
@@ -279,6 +304,14 @@ class RLMPC(ci.ICOLAV):
         """
         self._mpc.set_action_indices(action_indices)
 
+    def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:
+        """Sets the MPC parameters.
+
+        Args:
+            params (mpc_params.MidlevelMPCParams): The MPC parameters.
+        """
+        self._mpc.set_params(params)
+
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
 
@@ -296,6 +329,29 @@ class RLMPC(ci.ICOLAV):
             filename (Path): Path to the YAML file.
         """
         self._config = RLMPCParams.from_file(filename)
+
+    def plot_path(self, enc: senc.ENC) -> None:
+        """Plot the nominal path."""
+        enc.start_display()
+        nominal_trajectory = self._ktp.compute_reference_trajectory(2.0)
+        nominal_trajectory = nominal_trajectory + np.array(
+            [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        ).reshape(9, 1)
+        plotters.plot_waypoints(
+            self._waypoints[:2, :],
+            draft=1.0,
+            enc=enc,
+            color="orange",
+            point_buffer=3.0,
+            disk_buffer=6.0,
+            hole_buffer=3.0,
+            alpha=0.4,
+        )
+        plotters.plot_trajectory(
+            nominal_trajectory[:2, :],
+            enc,
+            "yellow",
+        )
 
     def plan(
         self,
@@ -316,8 +372,6 @@ class RLMPC(ci.ICOLAV):
         assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
         if not self._initialized:
             self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
-
-        v_disturbance = np.zeros(2)  # self.compute_disturbance_velocity_estimate(w)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
@@ -356,6 +410,8 @@ class RLMPC(ci.ICOLAV):
             #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
             #     )
 
+            warm_start = self.create_mpc_warm_start(ownship_state, enc, **kwargs)
+
             self._mpc_soln = self._mpc.plan(
                 t,
                 xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
@@ -364,6 +420,7 @@ class RLMPC(ci.ICOLAV):
                 do_ot_list=do_ot_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
+                warm_start=warm_start,
                 **kwargs,
             )
             N = int(self._mpc.params.T / self._mpc.params.dt)
@@ -381,14 +438,20 @@ class RLMPC(ci.ICOLAV):
             self._mpc_soln["trajectory"] = self._mpc_trajectory
             self._mpc_soln["inputs"] = self._mpc_inputs
             self._mpc_soln["t_prev_mpc"] = t
-
-        lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
-        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, lookahead_sample]))
-        speed_plan = np.array([self._mpc_trajectory[3, lookahead_sample], self._mpc_trajectory[3, lookahead_sample]])
-        if self._debug:
-            plotters.plot_waypoints(
-                waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
+            self._mpc_soln["xs_prev"] = ownship_state - np.array(
+                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
             )
+            self._mpc_soln["u_prev"] = self._mpc_inputs[:, 0]
+        #
+        # lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
+        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, self.lookahead_sample]))
+        speed_plan = np.array(
+            [self._mpc_trajectory[3, self.lookahead_sample], self._mpc_trajectory[3, self.lookahead_sample]]
+        )
+        # if self._debug:
+        #     plotters.plot_waypoints(
+        #         waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
+        #     )
 
         self._references = self._los.compute_references(waypoints, speed_plan, None, ownship_state, t - self._t_prev)
         self._t_prev = t
@@ -399,6 +462,83 @@ class RLMPC(ci.ICOLAV):
             f"t: {t} | U_mpc: {self._references[3, 0]} | U: {U} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * chi / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
         )
         return self._references
+
+    def create_mpc_warm_start(
+        self, ownship_state: np.ndarray, enc: senc.ENC, **kwargs
+    ) -> Optional[Dict[str, np.ndarray]]:
+        """Creates a warm start for the MPC by growing an RRT from the terminal MPC state towards the goal state. If t == 0, the RRT is grown from the current ownship state.
+
+        Args:
+            ownship_state (np.ndarray): Ownship state on the form [x, y, psi, u, v, r]^T.
+            enc (senc.ENC): Electronic navigational chart.
+
+        Returns:
+            Dict[str, np.ndarray]: Warm start dictionary containing the trajectory, inputs, waypoints and times.
+        """
+        nx, nu, ns, dim_g = self._mpc.dims()
+        prev_soln = self._mpc_soln if "soln" in self._mpc_soln else None
+        is_prev_soln = True if "prev_soln" in kwargs and kwargs["prev_soln"] else False
+        prev_soln = kwargs["prev_soln"] if is_prev_soln else None
+
+        start_state = self._mpc_trajectory[:, -1] if self._mpc_trajectory.size > 0 else ownship_state
+        start_state = prev_soln["trajectory"][:, -1] if is_prev_soln else start_state
+        self._rrtstar.reset(0)
+        self._rrtstar.set_goal_state(self._goal_state.tolist())
+        start_state[4:] = np.array([0.0, 0.0])
+        rrt_soln = self._rrtstar.grow_towards_goal(
+            ownship_state=start_state.tolist(),
+            U_d=start_state[3],
+            initialized=False,
+            return_on_first_solution=True,
+        )
+        _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
+        plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
+        plotters.plot_trajectory(rrt_trajectory, enc, color="magenta")
+        rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
+
+        N = int(self._mpc.params.T / self._mpc.params.dt)
+        if self._config.rrtstar.params.step_size < self._mpc.params.dt:
+            step = int(self._mpc.params.dt / self._config.rrtstar.params.step_size)
+            rrt_trajectory = rrt_trajectory[:, ::step][:, : N + 1]
+            rrt_times = rrt_times[::step][: N + 1]
+            num_rrt_samples = rrt_trajectory.shape[1]
+            rrt_inputs = rrt_inputs[:, ::step][:, : num_rrt_samples - 1]
+
+        path_var, path_var_dot = self._mpc.compute_path_variable_info(rrt_trajectory[:4, 0])
+        rrt_trajectory[4:, :] = np.tile(np.array([path_var, path_var_dot]).reshape(2, 1), (1, rrt_trajectory.shape[1]))
+
+        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
+        last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
+        rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
+
+        # Add path timing dynamics to warm start trajectory
+        mpc_model_traj = self._mpc.model_prediction(rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1])
+        rrt_trajectory[4:, :] = mpc_model_traj[4:, :]
+
+        warm_start = {}
+        if prev_soln:
+            U, X, Sigma = self._mpc.decision_trajectories(prev_soln["soln"])
+            warm_start.update(
+                {"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"], "sigma_prev": Sigma[:, 0]}
+            )
+            U = np.concatenate((U[:, 1:], rrt_inputs[:, 0].reshape(nu, 1)), axis=1)
+            X = np.concatenate((X[:, 1:], rrt_trajectory[:, 1].reshape(nx, 1)), axis=1)
+            Sigma = np.concatenate((Sigma[:, 1:], np.zeros((Sigma.shape[0], 1))), axis=1)
+            w = self._mpc.decision_variables(U, X, Sigma)
+            lam_g = prev_soln["soln"]["lam_g"]
+            lam_g = np.concatenate((lam_g[1:], lam_g[-1].reshape(1, 1)))
+            lam_x = prev_soln["soln"]["lam_x"]
+            lam_x = np.concatenate((lam_x[1:], lam_x[-1].reshape(1, 1)))
+        else:
+            U = rrt_inputs[:, :N]
+            X = rrt_trajectory[:, : N + 1]
+            Sigma = np.zeros((ns, N + 1))
+            w = self._mpc.decision_variables(U, X, Sigma)
+            lam_g = np.zeros((dim_g, 1))
+            lam_x = [0.0] * w.shape[0]
+
+        warm_start = {"x": w, "lam_g": lam_g, "lam_x": lam_x, "X": X, "U": U, "Sigma": Sigma}
+        return warm_start
 
     def compute_disturbance_velocity_estimate(self, w: Optional[stochasticity.DisturbanceData] = None) -> np.ndarray:
         """Computes the disturbance velocity estimate for the given time.

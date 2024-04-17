@@ -279,8 +279,8 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
 
     xdot = U cos(chi)
     ydot = U sin(chi)
-    chidot = -1/T_chi * chi + r
-    Udot = -1/T_U * U + a
+    chidot = rr
+    Udot = a
     s_dot = s_dot
     s_ddot = u_p
 
@@ -300,7 +300,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self.setup_equations_of_motion()
 
         # Input and state bounds
-        U_min = self._params.U_min
+        U_min = -self._params.U_max
         U_max = self._params.U_max
         a_max = self._params.a_max
         r_max = self._params.r_max
@@ -310,7 +310,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         approx_inf = 1e10
         self.lbu = np.array([-r_max, -a_max, -approx_inf])
         self.ubu = np.array([r_max, a_max, approx_inf])
-        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, s_min, 0.0])
+        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -U_max, s_min, 0.0])
         self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, s_max, s_dot_max])
 
     def params(self) -> KinematicCSOGWithAccelerationAndPathtimingParams:
@@ -327,7 +327,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self._params.s_max = s_max
         self.ubx[4] = s_max
 
-    def setup_equations_of_motion(self):
+    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the kinematic model"""
         nx, nu = self.dims()
         x = csd.MX.sym("x", nx)
@@ -394,20 +394,11 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         soln = np.zeros((self.x.shape[0], N))
         xs_k = xs
         u_k = u[:, 0]
-        # K_p_s = 0.001
-        # K_d_s = 0.1
         for k in range(N):
             soln[:, k] = xs_k
             if N_u > 1 and k < N_u:
                 u_k = u[:, k]
 
-            U_k = xs_k[3]
-            if U_k < 1.0:
-                u_k[1] = 0.0
-            s_dot_k = xs_k[5]
-            if s_dot_k < 1.0:
-                u_k[2] = 0.0
-            # u_k[2] = K_p_s * (0.95 * self.ubx[4] - s_k) - K_d_s * s_dot_k
             k1 = self.dynamics(xs_k, u_k, p).full().flatten()
             k2 = self.dynamics(xs_k + 0.5 * dt * k1, u_k, p).full().flatten()
             k3 = self.dynamics(xs_k + 0.5 * dt * k2, u_k, p).full().flatten()
