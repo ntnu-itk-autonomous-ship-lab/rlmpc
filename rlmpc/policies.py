@@ -219,7 +219,7 @@ class SACMPCActor(BasePolicy):
         assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
         if infos is not None:
             # Extract mean of the policy distribution = MPC action for the given observation
-            norm_mpc_actions = np.array([info[0]["actor_info"]["norm_mpc_action"] for info in infos])
+            norm_mpc_actions = np.array([info[0]["actor_info"]["norm_mpc_action"] for info in infos], dtype=np.float32)
             norm_mpc_actions = th.from_numpy(norm_mpc_actions)
 
         if isinstance(actions, np.ndarray):

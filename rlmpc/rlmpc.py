@@ -159,6 +159,11 @@ class RLMPC(ci.ICOLAV):
         the OCP"""
         self._waypoints = waypoints
         self._speed_plan = speed_plan
+
+        self._mpc_soln: dict = {}
+        self._mpc_trajectory: np.ndarray = np.array([])
+        self._mpc_inputs: np.ndarray = np.array([])
+
         enc.close_display()
         self._enc = copy.deepcopy(enc)
         self._enc.start_display()
@@ -193,7 +198,7 @@ class RLMPC(ci.ICOLAV):
             self._enc,
             vessel_min_depth=5,
             bbox=bbox,
-            show_plots=True,
+            show_plots=False,
         )
         self._rrtstar = rrt_star_lib.RRTStar(
             los=self._config.rrtstar.los, model=self._config.rrtstar.model, params=self._config.rrtstar.params
@@ -423,17 +428,13 @@ class RLMPC(ci.ICOLAV):
                 warm_start=warm_start,
                 **kwargs,
             )
-            N = int(self._mpc.params.T / self._mpc.params.dt)
-            self._mpc_trajectory = self._mpc_soln["trajectory"][:, :N]
-            self._mpc_inputs = self._mpc_soln["inputs"][:, :N]
+            self._mpc_trajectory = self._mpc_soln["trajectory"]
+            self._mpc_inputs = self._mpc_soln["inputs"]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if self._debug:
                 plotters.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
 
-            # self._mpc_trajectory, self._mpc_inputs = hf.interpolate_solution(
-            #     self._mpc_trajectory, self._mpc_inputs, self._dt_sim, self._mpc.params.T, self._mpc.params.dt
-            # )
             self._t_prev_mpc = t
             self._mpc_soln["trajectory"] = self._mpc_trajectory
             self._mpc_soln["inputs"] = self._mpc_inputs
@@ -482,21 +483,35 @@ class RLMPC(ci.ICOLAV):
 
         start_state = self._mpc_trajectory[:, -1] if self._mpc_trajectory.size > 0 else ownship_state
         start_state = prev_soln["trajectory"][:, -1] if is_prev_soln else start_state
+        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
+        last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
+        path_var, path_var_dot = self._mpc.compute_path_variable_info(
+            start_state[:4] - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0])
+        )
+        nominal_speed_ref = float(self._nominal_path[3](path_var))
+
         self._rrtstar.reset(0)
         self._rrtstar.set_goal_state(self._goal_state.tolist())
-        start_state[4:] = np.array([0.0, 0.0])
+        start_state_copy = start_state.copy()
+        start_state_copy[4:] = np.array([0.0, 0.0])
         rrt_soln = self._rrtstar.grow_towards_goal(
-            ownship_state=start_state.tolist(),
-            U_d=start_state[3],
+            ownship_state=start_state_copy.tolist(),
+            U_d=nominal_speed_ref,
             initialized=False,
             return_on_first_solution=True,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
-        plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
-        plotters.plot_trajectory(rrt_trajectory, enc, color="magenta")
-        rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
 
         N = int(self._mpc.params.T / self._mpc.params.dt)
+        if rrt_trajectory.size == 0:
+            rrt_trajectory = self._mpc.model_prediction(start_state, last_mpc_input.reshape(nu, 1), N + 1)
+            rrt_times = np.arange(0, N + 1) * self._mpc.params.dt
+            rrt_inputs = np.tile(last_mpc_input.reshape(3, 1), (1, N))
+
+        # plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
+        plotters.plot_trajectory(rrt_trajectory, enc, color="yellow")
+        rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
+
         if self._config.rrtstar.params.step_size < self._mpc.params.dt:
             step = int(self._mpc.params.dt / self._config.rrtstar.params.step_size)
             rrt_trajectory = rrt_trajectory[:, ::step][:, : N + 1]
@@ -504,8 +519,22 @@ class RLMPC(ci.ICOLAV):
             num_rrt_samples = rrt_trajectory.shape[1]
             rrt_inputs = rrt_inputs[:, ::step][:, : num_rrt_samples - 1]
 
-        path_var, path_var_dot = self._mpc.compute_path_variable_info(rrt_trajectory[:4, 0])
-        rrt_trajectory[4:, :] = np.tile(np.array([path_var, path_var_dot]).reshape(2, 1), (1, rrt_trajectory.shape[1]))
+        if rrt_trajectory.shape[1] < N + 1:
+            # use model prediction to extend the trajectory
+            sample_diff = N + 1 - rrt_trajectory.shape[1]
+            model_traj = self._mpc.model_prediction(
+                rrt_trajectory[:, -1], rrt_inputs[:, -1].reshape(nu, 1), sample_diff + 1
+            )
+            rrt_trajectory = np.concatenate((rrt_trajectory, model_traj[:, 1:]), axis=1)
+            rrt_times = np.concatenate((rrt_times, rrt_times[-1] + np.arange(1, sample_diff + 1) * self._mpc.params.dt))
+            rrt_inputs = np.concatenate(
+                (rrt_inputs, np.tile(rrt_inputs[:, -1].reshape(nu, 1), (1, sample_diff))), axis=1
+            )
+
+        if prev_soln:
+            rrt_trajectory[4:, 0] = start_state[4:]
+        else:
+            rrt_trajectory[4:, 0] = np.array([path_var, path_var_dot])
 
         last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input

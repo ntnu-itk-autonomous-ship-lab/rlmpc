@@ -372,6 +372,16 @@ class SAC(opa.OffPolicyAlgorithm):
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
+        self.logger.dump
+        # log:
+        # #- mpc parameter evolution over steps
+        # - actor loss
+        # - actor gradient
+        # - critic loss
+        # - entropy coefficient loss
+        # - entropy coefficient
+        # - reward
+
     def learn(
         self: SelfSAC,
         total_timesteps: int,

@@ -90,8 +90,11 @@ class COLREGSHandler:
         """
 
         p_os = np.array([xs[0], xs[1]])
-        v_os = np.array([xs[2] * np.cos(xs[3]), xs[2] * np.sin(xs[3])])
+        v_os = np.array([xs[3] * np.cos(xs[2]), xs[3] * np.sin(xs[2])])
         for i, (ID, do_state, do_cov, length, width) in enumerate(do_list):
+            if ID in self._already_removed_labels:
+                continue
+
             p_do = do_state[0:2]
             v_do = do_state[2:]
             dist2do = float(np.linalg.norm(p_do - p_os))
@@ -105,6 +108,7 @@ class COLREGSHandler:
             if ID in self._do_labels and (do_passed_by or os_passed_by):
                 print(f"Removed DO{i} | do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
                 self._remove_do(ID)
+                self._already_removed_labels.append(ID)
                 continue
 
             if ID in self._do_labels and do_is_relevant:
@@ -173,7 +177,7 @@ class COLREGSHandler:
         Args:
             ID (int): ID of the dynamic obstacle to be removed.
         """
-        sit_idx, situation = self._get_do_situation(ID)
+        _, situation = self._get_do_situation(ID)
         if situation == COLREGSSituation.CRGW:
             for i, (do_ID, _, _, _, _) in enumerate(self._do_cr_list):
                 if ID == do_ID:
@@ -189,8 +193,14 @@ class COLREGSHandler:
                 if ID == do_ID:
                     self._do_ot_list.pop(i)
                     break
-        self._do_labels.remove(ID)
-        self._do_situations.pop(sit_idx)
+        for idx, do_ID in enumerate(self._do_labels):
+            if do_ID == ID:
+                self._do_labels.pop(idx)
+                break
+        for idx, (do_ID, _) in enumerate(self._do_situations):
+            if do_ID == ID:
+                self._do_situations.pop(idx)
+                break
 
     def _get_do_situation(self, ID: int) -> Tuple[int, COLREGSSituation]:
         """Returns the COLREGS situation of the dynamic obstacle with ID.

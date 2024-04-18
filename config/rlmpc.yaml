@@ -57,7 +57,7 @@ midlevel_mpc:
     reference_traj_bbox_buffer: 200.0
     T: 80.0
     dt: 5.0
-    Q_p: [0.1, 1.0, 20.0] # [0.3, 1.0, 15.0]
+    Q_p: [0.1, 1.0, 10.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.001]
     K_app_course: 20.0
@@ -71,7 +71,7 @@ midlevel_mpc:
     x_0_ot: 300.0
     y_0_ot: 100.0
     d_attenuation: 300.0
-    w_colregs: [30.0, 30.0, 10.0]
+    w_colregs: [50.0, 50.0, 30.0]
 
     w_L2: 0.0
     w_L1: 20000.0

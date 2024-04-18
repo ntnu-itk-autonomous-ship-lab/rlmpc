@@ -120,7 +120,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self._last_rewards: float = np.zeros(self.n_envs)
         self._last_dones: np.ndarray = np.zeros(self.n_envs, dtype=bool)
         self._last_infos: List[Dict[str, Any]] = [{} for _ in range(self.n_envs)]
-        self._current_obs: Union[np.ndarray, Dict[str, np.ndarray]] | None = None
+        self._current_obs: Union[np.ndarray, Dict[str, np.ndarray]] | None = self._last_obs
         self.learning_rate = learning_rate
         self.buffer_size: int = buffer_size
         self.batch_size: int = batch_size
@@ -442,9 +442,13 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         callback.on_rollout_start()
         continue_training = True
         action_count = 0
-        self._current_obs = self._last_obs
+        if self._current_obs is None:
+            self._current_obs = self._last_obs
+
         while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
             if env.envs[0].unwrapped.time == 0.0:
+                self._last_actor_info = [{} for _ in range(env.num_envs)]
+                action_count = 0
                 self.policy.initialize_mpc_actor(env.envs[0])
 
             actions, buffer_actions, actor_infos = self._sample_action(
@@ -500,6 +504,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             for idx, done in enumerate(dones):
                 if done:
+                    print(f"Rollout collection for episode {self._episode_num} finished")
                     # Update stats
                     num_collected_episodes += 1
                     self._episode_num += 1

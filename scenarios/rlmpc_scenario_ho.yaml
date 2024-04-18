@@ -19,22 +19,24 @@ episode_generation:
   n_constant_os_plan_episodes: 5
   n_constant_do_state_episodes: 1
   n_plans_per_do_state: 1
-  n_constant_disturbance_episodes: 100
+  n_constant_disturbance_episodes: 10
   delta_uniform_position_sample: 10
-rl_action_type: "continuous_relative_autopilot_reference_action"
-rl_observation_type:
-  dict_observation:
-    - "navigation_3dof_state_observation"
-    - "tracking_observation"
-    - "relative_tracking_observation"
-    - "disturbance_observation"
-    - "time_observation"
+rl:
+  action_type: "relative_course_speed_reference_sequence_action"
+  action_sample_time: 0.5
+  observation_type:
+    dict_observation:
+      - "path_relative_navigation_observation"
+      - "perception_image_observation"
+      - "navigation_3dof_state_observation"
+      - "ground_truth_tracking_observation"
+      - "disturbance_observation"
 stochasticity:
   currents:
     constant: True
-    initial_speed: 0.5
-    initial_direction: 179.0
-    speed_range: [0.0, 1.0]
+    # initial_speed: 0.5
+    # initial_direction: 179.0
+    speed_range: [0.0, 2.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001
     mu_direction: 0.00001
@@ -42,8 +44,8 @@ stochasticity:
     sigma_direction: 0.00001
   wind:
     constant: True
-    initial_direction: 90.0
-    speed_range: [0.0, 5.0]
+    # initial_direction: 90.0
+    speed_range: [0.0, 10.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001
     mu_direction: 0.00001

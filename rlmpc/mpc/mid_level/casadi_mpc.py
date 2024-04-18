@@ -375,23 +375,23 @@ class CasadiMPC:
         )
         if np.any(np.abs(g_eq_vals) > 1e-6):
             print(
-                f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6)}!"
+                f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6).flatten().T}!"
             )
         if np.any(g_state_box_ineq_vals > 1e-6):
             print(
-                f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_state_box_ineq_vals > 1e-6)}!"
+                f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_state_box_ineq_vals > 1e-6).flatten().T}!"
             )
         if np.any(g_input_box_ineq_vals > 1e-6):
             print(
-                f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_input_box_ineq_vals > 1e-6)}!"
+                f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_input_box_ineq_vals > 1e-6).flatten().T}!"
             )
         if np.any(g_do_constr_vals > 1e-6):
             print(
-                f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6)}!"
+                f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6).flatten().T}!"
             )
         if np.any(g_so_constr_vals > 1e-6):
             print(
-                f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6)}!"
+                f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6).flatten().T}!"
             )
 
         t_start = time.time()
@@ -423,7 +423,7 @@ class CasadiMPC:
                 # Use solution unless it is infeasible, then use previous solution.
                 g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
                 g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full().flatten()
-                if dt > 0.0 and np.any(np.abs(g_eq_vals) > 1e-6) or np.any(g_ineq_vals > 1e-6):
+                if np.any(np.abs(g_eq_vals) > 1e-6) or np.any(g_ineq_vals > 1e-6):
                     print("WARNING: Infeasible solution found. Using previous solution.")
                     soln = self._current_warmstart
                     soln["f"] = self._prev_cost
@@ -485,8 +485,6 @@ class CasadiMPC:
         U = U.full()
         Sigma = Sigma.full()
         chi = X[2, :]
-        chi = np.unwrap(np.concatenate(([chi[0]], chi)))[1:]
-        X[2, :] = chi
         return U, X, Sigma
 
     def compute_path_variable_derivative(self, s: float | csd.MX) -> float | csd.MX:
@@ -1653,6 +1651,7 @@ class CasadiMPC:
         path_dot_dev_cost = np.zeros(X.shape[1])
         speed_dev_cost = np.zeros(X.shape[1])
         speed_dev_cost2 = np.zeros(X.shape[1])
+        slack_cost = np.zeros(X.shape[1])
         course_rate_cost = np.zeros(X.shape[1])
         speed_rate_cost = np.zeros(X.shape[1])
         crossing_cost = np.zeros(X.shape[1])
@@ -1675,10 +1674,16 @@ class CasadiMPC:
             X_do_ho[:, k] = X_do_ho_k
             X_do_ot[:, k] = X_do_ot_k
 
+        n_colregs_zones = 3
+        max_num_so_constr = min(len(self._so_surfaces), self._params.max_num_so_constr)
+        n_bx_slacks = len(self._idx_slacked_bx_constr)
+        slack_size = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        W = self._params.w_L1 * np.ones(slack_size)
         for k in range(X.shape[1]):
             path_dev_cost[k] = self._path_dev_cost(X[:, k], self._p_path_values)
             path_dot_dev_cost[k] = Q_p_vec[2] * (X[5, k] - path_var_derivative_refs[k]) ** 2
             speed_dev_cost[k] = self._speed_dev_cost(X[:, k], self._p_path_values)
+            slack_cost[k] = Sigma[:, k].T @ W
             # speed_dev_cost2[k] = (
             #     0.5
             #     * self._params.Q_p[2, 2]
@@ -1703,6 +1708,7 @@ class CasadiMPC:
                 ["chi_rate_cost"],
                 ["U_rate_cost"],
                 ["colregs_cost"],
+                ["slack_cost"],
             ]
         )
         axes["p(s_k) - p_k"].plot(path_dev_cost, label=r"$p(s_k) - p_k$ cost")
@@ -1737,6 +1743,11 @@ class CasadiMPC:
         axes["colregs_cost"].set_ylabel("cost")
         axes["colregs_cost"].set_xlabel("k")
         axes["colregs_cost"].legend()
+
+        axes["slack_cost"].plot(slack_cost, label="slack cost")
+        axes["slack_cost"].set_ylabel("cost")
+        axes["slack_cost"].set_xlabel("k")
+        axes["slack_cost"].legend()
         plt.show(block=False)
 
     def plot_solution_trajectory(

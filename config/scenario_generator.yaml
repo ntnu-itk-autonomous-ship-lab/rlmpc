@@ -1,3 +1,4 @@
+
 verbose: True
 manual_episode_accept: False
 #scenario_files: ["head_on.yaml", "crossing_give_way.yaml", "crossing_stand_on.yaml", "overtaking.yaml", "overtaken.yaml"]
@@ -65,7 +66,7 @@ behavior_generator:
       K_i: 0.0
       max_cross_track_error_int: 1000.0
       cross_track_error_int_threshold: 30.0
-s  rrtstar:
+  rrtstar:
     params:
       max_nodes: 3000
       max_iter: 25000

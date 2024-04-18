@@ -58,8 +58,16 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
 
+    def display_image(self, image: th.Tensor) -> None:
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.imshow(image[0].numpy())
+        plt.show(block=False)
+
     def forward(self, observations: th.Tensor) -> th.Tensor:
         assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
+        # self.display_image(observations[0])
         with th.no_grad():
             z_e, _, _ = self.vae.encode(observations)
             # print(f"z_e shape: {z_e.shape}")
@@ -118,10 +126,14 @@ class TrackingGRU(BaseFeaturesExtractor):
         batch_size = observations.shape[0]
         hidden = th.zeros(self.num_layers, batch_size, self.hidden_dim)
 
+        # extract length of valid obstacle observations
+        seq_lengths = th.sum(observations[:, 0, :] < 0.9, dim=1)
+        seq_lengths[seq_lengths == 0] = 1
+        max_seq_length = seq_lengths.max().item()
+        observations = observations[:, :, :max_seq_length]
+
         observations = observations.permute(0, 2, 1)
-        packed_seq = rnn_utils.pack_padded_sequence(
-            observations, [len(obs) for obs in observations], batch_first=True, enforce_sorted=False
-        )
+        packed_seq = rnn_utils.pack_padded_sequence(observations, seq_lengths, batch_first=True, enforce_sorted=False)
         packed_output, hidden = self.gru(packed_seq, hidden)
         output, _ = rnn_utils.pad_packed_sequence(packed_output, batch_first=True)
 

@@ -51,11 +51,12 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
     )
 
 
-def create_data_dirs() -> Tuple[Path, Path, Path, Path]:
+def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     if platform.system() == "Linux":
         base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
     elif platform.system() == "Darwin":
         base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
+    base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
     best_model_dir = model_dir / "best_model"
@@ -69,7 +70,8 @@ def create_data_dirs() -> Tuple[Path, Path, Path, Path]:
 
 
 def main():
-    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs()
+    experiment_name = "test_sac_rlmpc"
+    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
 
     scenario_choice = 2
     if scenario_choice == 0:
@@ -85,7 +87,7 @@ def main():
     # scenario_generator = cs_sg.ScenarioGenerator(seed=114, config_file=rl_dp.config / "scenario_generator.yaml")
     # scenario_data = scenario_generator.generate(
     #     config_file=config_file,
-    #     new_load_of_map_data=False,
+    #     new_load_of_map_data=True,
     #     save_scenario=True,
     #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
     #     show_plots=True,
@@ -93,6 +95,8 @@ def main():
     #     delete_existing_files=True,
     # )
 
+    # map_size: [6000.0, 6000.0]
+    # map_origin_enu: [-33524.0, 6572500.0]
     observation_type = {
         "dict_observation": [
             "path_relative_navigation_observation",
@@ -114,7 +118,7 @@ def main():
         "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
         "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
-        "action_sampling_time": 1.0 / 0.2,  # from rlmpc.yaml config file
+        "action_sample_time": 1.0 / 0.2,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
@@ -127,7 +131,7 @@ def main():
         "seed": 15,
     }
     total_training_timesteps = 100
-    env = gym.make(id=env_id, **env_config)
+    env = Monitor(gym.make(id=env_id, **env_config))
     env_config.update(
         {
             "scenario_file_folder": rl_dp.scenarios / "test_data" / scenario_name,
@@ -149,7 +153,7 @@ def main():
 
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [256, 128, 32],
+        "critic_arch": [256, 128],
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "use_sde": False,
@@ -186,7 +190,7 @@ def main():
     stats_callback = CollectStatisticsCallback(
         env,
         log_dir=base_dir,
-        experiment_name="test",
+        experiment_name=experiment_name,
         save_stats_freq=100,
         save_agent_model_freq=100,
         log_stats_freq=100,
