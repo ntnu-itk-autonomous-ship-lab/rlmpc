@@ -419,7 +419,7 @@ class CasadiMPC:
             # mpc_common.plot_casadi_solver_stats(stats, True)
             # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
             # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
-            if stats["return_status"] == "Maximum_Iterations_Exceeded":
+            if stats["return_status"] in ["Maximum_Iterations_Exceeded", "Infeasible_Problem_Detected"]:
                 # Use solution unless it is infeasible, then use previous solution.
                 g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
                 g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full().flatten()
@@ -430,9 +430,6 @@ class CasadiMPC:
                     cost_val = self._prev_cost
                     lam_x = self._current_warmstart["lam_x"]
                     lam_g = self._current_warmstart["lam_g"]
-            elif stats["return_status"] == "Infeasible_Problem_Detected":
-                # Should not happen with slacks
-                raise RuntimeError("Infeasible solution found.")
 
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full()
@@ -661,10 +658,10 @@ class CasadiMPC:
         max_num_so_constr = self._params.max_num_so_constr
         if self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
             so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
-                so_list, enc, safety_margins=[self._params.r_safe_so], map_origin=self._map_origin, show_plots=True
+                so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=True
             )
             so_surfaces = so_surfaces[0]
-            max_num_so_constr = min(len(so_surfaces), self._params.max_num_so_constr)
+            # max_num_so_constr = min(len(so_surfaces), self._params.max_num_so_constr)
             self._so_surfaces = so_surfaces
         elif self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
             so_pars = csd.MX.sym(
@@ -1135,12 +1132,15 @@ class CasadiMPC:
             elif self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
                 assert so_surfaces is not None, "Parametric surfaces must be provided for this constraint type."
                 n_so = len(so_surfaces)
-                for j in range(n_so):
-                    so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
-                    # vertices = mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * r_safe_so + x_k[0:2]
-                    # vertices = vertices.reshape((-1, 2))
-                    # for i in range(vertices.shape[0]):
-                    #     so_constr_list.append(csd.vec(so_surfaces[j](vertices[i, :]) - sigma_k[j]))
+                for j in range(self._params.max_num_so_constr):
+                    if j < n_so:
+                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
+                        # vertices = mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * r_safe_so + x_k[0:2]
+                        # vertices = vertices.reshape((-1, 2))
+                        # for i in range(vertices.shape[0]):
+                        #     so_constr_list.append(csd.vec(so_surfaces[j](vertices[i, :]) - sigma_k[j]))
+                    else:
+                        so_constr_list.append(-sigma_k[j] - 1000.0)
         return so_constr_list
 
     def _create_dynamic_obstacle_constraint(
@@ -1235,7 +1235,9 @@ class CasadiMPC:
         so_parameter_values = self._update_so_parameter_values(so_list, state, enc)
         fixed_parameter_values.extend(so_parameter_values)
 
-        max_num_so_constr = min(len(self._so_surfaces), self._params.max_num_so_constr)
+        max_num_so_constr = (
+            self._params.max_num_so_constr
+        )  # min(len(self._so_surfaces), self._params.max_num_so_constr)
         n_bx_slacks = len(self._idx_slacked_bx_constr)
         slack_size = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
         W = self._params.w_L1 * np.ones(slack_size)

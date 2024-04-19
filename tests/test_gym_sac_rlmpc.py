@@ -19,6 +19,7 @@ from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 
 # Depending on your OS, you might need to change these paths
@@ -62,6 +63,13 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     best_model_dir = model_dir / "best_model"
     if not log_dir.exists():
         log_dir.mkdir(parents=True)
+    else:
+        # remove folders in log_dir
+        for file in log_dir.iterdir():
+            if file.is_dir():
+                for f in file.iterdir():
+                    f.unlink()
+                file.rmdir()
     if not model_dir.exists():
         model_dir.mkdir(parents=True)
     if not best_model_dir.exists():
@@ -76,26 +84,44 @@ def main():
     scenario_choice = 2
     if scenario_choice == 0:
         scenario_name = "rlmpc_scenario_cr_ss"
-        config_file = rl_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 1:
         scenario_name = "rlmpc_scenario_head_on_channel"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
     elif scenario_choice == 2:
         scenario_name = "rlmpc_scenario_ho"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_ho.yaml"
 
-    # scenario_generator = cs_sg.ScenarioGenerator(seed=114, config_file=rl_dp.config / "scenario_generator.yaml")
-    # scenario_data = scenario_generator.generate(
-    #     config_file=config_file,
-    #     new_load_of_map_data=True,
-    #     save_scenario=True,
-    #     save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
-    #     show_plots=True,
-    #     episode_idx_save_offset=0,
-    #     delete_existing_files=True,
-    # )
+    scenario_names = ["rlmpc_scenario_cr_ss", "rlmpc_scenario_ho"]
+    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
+    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    # map_size: [6000.0, 6000.0]
+    generate = False
+    if generate:
+        scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
+        for idx, name in enumerate(scenario_names):
+            scenario_generator.seed(idx + 1)
+            _ = scenario_generator.generate(
+                config_file=rl_dp.scenarios / (name + ".yaml"),
+                new_load_of_map_data=False if idx == 0 else False,
+                save_scenario=True,
+                save_scenario_folder=rl_dp.scenarios / "training_data" / name,
+                show_plots=True,
+                episode_idx_save_offset=0,
+                n_episodes=70,
+                delete_existing_files=True,
+            )
+
+            scenario_generator.seed(idx + 102)
+            _ = scenario_generator.generate(
+                config_file=rl_dp.scenarios / (name + ".yaml"),
+                new_load_of_map_data=False,
+                save_scenario=True,
+                save_scenario_folder=rl_dp.scenarios / "test_data" / name,
+                show_plots=True,
+                episode_idx_save_offset=0,
+                n_episodes=20,
+                delete_existing_files=True,
+            )
+
+    # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
     observation_type = {
         "dict_observation": [
@@ -115,8 +141,9 @@ def main():
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
-        "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 1,
+        "scenario_file_folder": training_scenario_folders,
+        "merge_loaded_scenario_episodes": True,
+        "max_number_of_episodes": 10,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.2,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -125,7 +152,7 @@ def main():
         "render_update_rate": 1.0,
         "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
-        "reload_map": False,
+        "reload_map": True,
         "show_loaded_scenario_data": False,
         "identifier": "training_env1",
         "seed": 15,
@@ -134,7 +161,9 @@ def main():
     env = Monitor(gym.make(id=env_id, **env_config))
     env_config.update(
         {
-            "scenario_file_folder": rl_dp.scenarios / "test_data" / scenario_name,
+            "max_number_of_episodes": 5,
+            "scenario_file_folder": test_scenario_folders,
+            "merge_loaded_scenario_episodes": True,
             "seed": 100,
             "test_mode": True,
             "simulator_config": eval_sim_config,
@@ -142,7 +171,7 @@ def main():
             "identifier": "eval_env1",
         }
     )
-    eval_env = Monitor(gym.make(id=env_id, **env_config))
+    eval_env = gym.make(id=env_id, **env_config)
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
@@ -191,15 +220,16 @@ def main():
         env,
         log_dir=base_dir,
         experiment_name=experiment_name,
-        save_stats_freq=100,
+        save_stats_freq=10,
         save_agent_model_freq=100,
-        log_stats_freq=100,
+        log_stats_freq=2,
         verbose=1,
     )
 
     model.learn(
         total_timesteps=total_training_timesteps,
         progress_bar=True,
+        log_interval=2,
         callback=CallbackList([stats_callback, eval_callback]),
     )
     mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)

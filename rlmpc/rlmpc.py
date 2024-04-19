@@ -197,8 +197,9 @@ class RLMPC(ci.ICOLAV):
         planning_cdt = mapf.create_safe_sea_triangulation(
             self._enc,
             vessel_min_depth=5,
+            buffer=self._mpc.params.r_safe_so,
             bbox=bbox,
-            show_plots=False,
+            show_plots=True,
         )
         self._rrtstar = rrt_star_lib.RRTStar(
             los=self._config.rrtstar.los, model=self._config.rrtstar.model, params=self._config.rrtstar.params
@@ -509,7 +510,7 @@ class RLMPC(ci.ICOLAV):
             rrt_inputs = np.tile(last_mpc_input.reshape(3, 1), (1, N))
 
         # plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
-        plotters.plot_trajectory(rrt_trajectory, enc, color="yellow")
+        plotters.plot_trajectory(rrt_trajectory, enc, color="black")
         rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
 
         if self._config.rrtstar.params.step_size < self._mpc.params.dt:
@@ -617,7 +618,7 @@ class RLMPC(ci.ICOLAV):
         """
         self._min_depth = mapf.find_minimum_depth(self._config.ship_draft, enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
-            self._min_depth, enc, show_plots=show_plots
+            self._min_depth, enc, buffer=self._mpc.params.r_safe_so, show_plots=show_plots
         )
         self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 

@@ -26,7 +26,6 @@ import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
-
 # import triangle as tr
 from osgeo import osr
 from scipy.interpolate import interp1d
@@ -1221,16 +1220,16 @@ def compute_surface_approximations_from_polygons(
                     x_buffer_points.append(xcoord)
                     y_buffer_points.append(ycoord)
                     mask_surface_data_points.append(surface_value_at_outlier_points)
-                    if enc is not None and show_plots:
-                        enc.draw_circle(
-                            (ycoord + map_origin[1], xcoord + map_origin[0]), radius=1.0, color="black", fill=False
-                        )
+                    # if enc is not None and show_plots:
+                    #     enc.draw_circle(
+                    #         (ycoord + map_origin[1], xcoord + map_origin[0]), radius=1.0, color="black", fill=False
+                    #     )
                 x_surface_data_points.extend(x_buffer_points)
                 y_surface_data_points.extend(y_buffer_points)
                 # if show_plots:
                 #     print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
-                if show_plots:
-                    print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
+                # if show_plots:
+                #     print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
                 smoothing = 7.5
 
                 rbf = scipyintp.RBFInterpolator(

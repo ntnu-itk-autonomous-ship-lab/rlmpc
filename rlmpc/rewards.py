@@ -262,6 +262,8 @@ class AntiGroundingRewarder(cs_reward.IReward):
         g_so = np.zeros(len(self._so_surfaces))
         for j, surface in enumerate(self._so_surfaces):
             g_so[j] = max(0.0, surface(p_os))
+            if g_so[j] > 0.0:
+                print(f"Dynamic obstacle {j} is too close to the ownship! g_so[i]={g_so[j]}.")
         grounding_cost = self._config.rho_anti_grounding * g_so.sum()
         return -grounding_cost
 
@@ -303,6 +305,8 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
         for i, do_tup in enumerate(do_list):
             g_do[i] = self.compute_dynamic_obstacle_constraint(do_tup)
             g_do[i] = max(0.0, g_do[i])
+            if g_do[i] > 0.0:
+                print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i]={g_do[i]}.")
 
         colav_cost = self._config.rho_colav * np.sum(g_do)
         return -colav_cost

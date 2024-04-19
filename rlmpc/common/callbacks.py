@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import gymnasium as gym
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from colav_simulator.gym.environment import COLAVEnvironment
 from colav_simulator.gym.logger import Logger as COLAVEnvironmentLogger
 from stable_baselines3.common import type_aliases
@@ -23,6 +25,187 @@ from stable_baselines3.common.logger import Logger as sb3_Logger
 from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecMonitor, is_vecenv_wrapped, sync_envs_normalization
 
 
+class RewardMeter:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.min_reward: float = 0.0
+        self.max_reward: float = 0.0
+        self.mean_reward: float = 0.0
+        self.total_reward: float = 0.0
+        self.count: int = 0
+
+    def update(self, reward: float):
+        self.min_reward = min(self.min_reward, reward)
+        self.max_reward = max(self.max_reward, reward)
+        self.mean_reward = (self.mean_reward * float(self.count) + reward) / (self.count + 1)
+        self.total_reward += reward
+        self.count += 1
+
+
+def report(env, report_dir: Path, lastn: int = 100) -> None:
+    try:
+        if not report_dir.exists():
+            report_dir.mkdir(parents=True, exist_ok=True)
+
+        history = env  # env.history
+        # if lastn >= len(history["episodes"]):
+        #    lastn = len(history["episodes"])
+        collisions = np.array(history["collision"])
+        no_collisions = collisions == 0
+        cross_track_errors = np.array(history["cross_track_error"])
+        progresses = np.array(history["progress"])
+        rewards = np.array(history["reward"])
+        timesteps = np.array(history["timesteps"])
+        durations = np.array(history["duration"])
+        pathlengths = np.array(history["pathlength"])
+        speeds = np.array(
+            [
+                _path_len / _duration if _duration > 0 else np.nan
+                for (_path_len, _duration) in zip(pathlengths, durations)
+            ]
+        )
+        infeasible_solution = np.array(history["infeasible_solution"])
+
+        with open(os.path.join(report_dir, "report.txt"), "w") as f:
+            # f.write('# PERFORMANCE METRICS (LAST {} EPISODES AVG.)\n'.format(lastn))
+            f.write("{:<30}{:<30}\n".format("Episodes", len(pathlengths)))
+            f.write("{:<30}{:<30.2f}\n".format("Avg. Reward", rewards.mean()))
+            f.write("{:<30}{:<30.2f}\n".format("Std. Reward", rewards.std()))
+            f.write("{:<30}{:<30}\n".format("Goals reached", progresses[progresses > 0.99].size))
+            f.write("{:<30}{:<30.2%}\n".format("Avg. Progress", progresses.mean()))
+            f.write("{:<30}{:<30.2f}\n".format("Avg. Collisions", collisions.mean()))
+            f.write("{:<30}{:<30.2%}\n".format("No Collisions", no_collisions.mean()))
+            f.write("{:<30}{:<30.2f}\n".format("Avg. Cross-Track Error", cross_track_errors.mean()))
+            f.write("{:<30}{:<30.2f}\n".format("Avg. Timesteps", timesteps.mean()))
+            f.write("{:<30}{:<30.2f}\n".format("Avg. Duration", durations.mean()))
+            f.write("{:<30}{:<30.2f}\n".format("Avg. Pathlength", pathlengths.mean()))
+            f.write("{:<30}{:<30.2f}\n".format("Avg. Speed", speeds.mean()))
+            if len(speeds) > 0:
+                f.write("{:<30}{:<30.2f}\n".format("Max. Speed", speeds.max()))
+            if len(infeasible_solution) > 0:
+                print("infeasible_solutions", infeasible_solution.sum())
+                f.write("{:<30}{:<30}\n".format("Infeasible Solutions", infeasible_solution.sum()))
+            else:
+                f.write("{:<30}{:<30}\n".format("Infeasible Solutions", 0))
+
+    except PermissionError as e:
+        print("Warning: Report files are open - could not update report: " + str(repr(e)))
+    except OSError as e:
+        print("Warning: Ignoring OSError: " + str(repr(e)))
+        # write stats to file
+
+        data = {
+            "rewards": rewards,
+            "progresses": progresses,
+            "cross_track_errors": cross_track_errors,
+            "timesteps": timesteps,
+            "durations": durations,
+            "collisions": collisions,
+            "goals_reached": progresses[progresses > 0.99].size,
+        }
+
+    df = pd.DataFrame(data)
+    df.to_csv(os.path.join(report_dir, "stats.csv"), index=False)
+
+    plt.style.use("ggplot")
+    plt.rc("font", family="serif")
+    # plt.rc('font', family='serif', serif='Times')
+    # plt.rc('text', usetex=True) #RAISES FILENOTFOUNDERROR
+    plt.rc("xtick", labelsize=8)
+    plt.rc("ytick", labelsize=8)
+    plt.rc("axes", labelsize=8)
+
+    # collisions = np.array([obj['collision'] for obj in env.history])
+    smoothed_collisions = gaussian_filter1d(collisions.astype(float), sigma=100)
+    plt.axis("scaled")
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot(collisions, color="blue", linewidth=0.5, alpha=0.2, label="Collisions")
+    ax.plot(smoothed_collisions, color="blue", linewidth=1, alpha=0.4)
+    ax.set_title("Collisions")
+    ax.set_ylabel(r"Collisions")
+    ax.set_xlabel(r"Episode")
+    ax.legend()
+    fig.savefig(os.path.join(report_dir, "collisions.pdf"), format="pdf", bbox_inches="tight")
+    plt.close(fig)
+
+    # cross_track_errors = np.array([obj['cross_track_error'] for obj in env.history])
+    smoothed_cross_track_errors = gaussian_filter1d(cross_track_errors, sigma=100)
+    plt.axis("scaled")
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot(cross_track_errors, color="blue", linewidth=0.5, alpha=0.2)
+    ax.plot(smoothed_cross_track_errors, color="blue", linewidth=1, alpha=0.4)
+    ax.set_ylabel(r"Avg. Cross-Track Error")
+    ax.set_xlabel(r"Episode")
+    # ax.legend()
+    fig.savefig(os.path.join(report_dir, "cross_track_error.pdf"), format="pdf", bbox_inches="tight")
+    plt.close(fig)
+
+    # rewards = np.array([obj['reward'] for obj in env.history])
+    smoothed_rewards = gaussian_filter1d(rewards, sigma=100)
+    plt.axis("scaled")
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot(rewards, color="blue", linewidth=0.5, alpha=0.2)
+    ax.plot(smoothed_rewards, color="blue", linewidth=1, alpha=0.4)
+    ax.set_ylabel(r"Reward")
+    ax.set_xlabel(r"Episode")
+    # ax.legend()
+    fig.savefig(os.path.join(report_dir, "reward.pdf"), format="pdf", bbox_inches="tight")
+    plt.close(fig)
+
+    # progresses = np.array([obj['progress'] for obj in env.history])
+    smoothed_progresses = gaussian_filter1d(progresses, sigma=100)
+    plt.axis("scaled")
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: "{:.0%}".format(y)))
+    ax.plot(progresses, color="blue", linewidth=0.5, alpha=0.2)
+    ax.plot(smoothed_progresses, color="blue", linewidth=1, alpha=0.4)
+    ax.set_ylabel(r"Progress [%]")
+    ax.set_xlabel(r"Episode")
+    # ax.legend()
+    fig.savefig(os.path.join(report_dir, "progress.pdf"), format="pdf", bbox_inches="tight")
+    plt.close(fig)
+
+    # timesteps = np.array([obj['timesteps'] for obj in env.history])
+    smoothed_timesteps = gaussian_filter1d(timesteps.astype(float), sigma=100)
+    plt.axis("scaled")
+    fig = plt.figure()
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot(timesteps, color="blue", linewidth=0.5, alpha=0.2)
+    ax.plot(smoothed_timesteps, color="blue", linewidth=1, alpha=0.4)
+    ax.set_ylabel(r"Timesteps")
+    ax.set_xlabel(r"Episode")
+    # ax.legend()
+    fig.savefig(os.path.join(report_dir, "timesteps.pdf"), format="pdf", bbox_inches="tight")
+    plt.close(fig)
+
+    plt.clf()
+
+
+# I. How is the agent doing?
+
+
+# Episode return -> care about this one most, and try to find sane baseline for your problem.
+# Episode length
+# Solve rate
+# Total environment steps
+# Training steps
+# Wall time -> tells you how fast you can progress or try new ideas.
+# Steps per second
+# State/Action value function
+# Policy entropy
+# KL divergence
+# Network weights/gradients/activations histograms -> Beware Dying ReLUs / Vanishing or Exploding gradients or activations.
+# Policy/Value/Quality/... heads losses
+# Average and standard deviation
+# Minimum/Maximum value -> inspecting extremes can help spot a bug.
+# Median
+# What other categories or metrics you observe that help you fix or improve your policy?
 class CollectStatisticsCallback(BaseCallback):
     def __init__(
         self,
@@ -55,8 +238,9 @@ class CollectStatisticsCallback(BaseCallback):
         self.envdata_save_path = log_dir / "envdata"
         self.n_episodes = 0
         self.vec_env = env
+        self.reward_meter = RewardMeter()
 
-        self.envdata_logger: COLAVEnvironmentLogger = COLAVEnvironmentLogger(log_dir, experiment_name)
+        self.envdata_logger: COLAVEnvironmentLogger = COLAVEnvironmentLogger(experiment_name, log_dir)
 
     def _init_callback(self) -> None:
         # Create folder if needed
@@ -75,7 +259,7 @@ class CollectStatisticsCallback(BaseCallback):
         )
 
         if self.num_timesteps % self.log_stats_freq == 0:
-            self.envdata_logger(self.vec_env)
+            # self.envdata_logger(self.vec_env)
 
             self.logger.record("mpc/infeasible_solutions", self.model.actor.infeasible_solutions)
             frame = self.vec_env.render()

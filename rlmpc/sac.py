@@ -332,6 +332,8 @@ class SAC(opa.OffPolicyAlgorithm):
             actor_grads = th.zeros((batch_size, self.actor.num_params))
             actor_losses = th.zeros((batch_size, 1))
             t_now = time.time()
+            # should take into account that the sens function can have different input size depending on the
+            # particular episode (number of constraints)
             sens = self.policy.sensitivities()
             for b in range(batch_size):
                 actor_info = replay_data.infos[b][0]["actor_info"]
@@ -372,7 +374,6 @@ class SAC(opa.OffPolicyAlgorithm):
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
-        self.logger.dump
         # log:
         # #- mpc parameter evolution over steps
         # - actor loss
