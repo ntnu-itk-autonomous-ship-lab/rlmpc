@@ -93,7 +93,7 @@ def main():
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = False
+    generate = True
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
@@ -152,7 +152,7 @@ def main():
         "render_update_rate": 1.0,
         "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
-        "reload_map": True,
+        "reload_map": False,
         "show_loaded_scenario_data": False,
         "identifier": "training_env1",
         "seed": 15,

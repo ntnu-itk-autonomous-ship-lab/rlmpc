@@ -126,6 +126,7 @@ class RLMPC(ci.ICOLAV):
         self._original_poly_list: list = []
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
+        self._disturbance_handles: list = []
 
         self._goal_state: np.ndarray = np.array([])
 
@@ -137,6 +138,12 @@ class RLMPC(ci.ICOLAV):
     @property
     def lookahead_sample(self) -> int:
         return self._lookahead_sample
+
+    def _clear_disturbance_handles(self) -> None:
+        if self._disturbance_handles:
+            for handle in self._disturbance_handles:
+                handle.remove()
+            self._disturbance_handles = []
 
     def get_nominal_path(
         self,
@@ -190,16 +197,16 @@ class RLMPC(ci.ICOLAV):
         )
 
         self._goal_state = np.array([waypoints[0, -1], waypoints[1, -1], 0.0, 0.0, 0.0, 0.0])
-        bbox = mapf.create_bbox_from_points(self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=200.0)
-        relevant_hazards = mapf.extract_hazards_within_bounding_box(
-            self._rel_polygons, bbox, self._enc, show_plots=True
-        )
+        bbox = mapf.create_bbox_from_points(self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=300.0)
         planning_cdt = mapf.create_safe_sea_triangulation(
             self._enc,
             vessel_min_depth=5,
             buffer=self._mpc.params.r_safe_so,
             bbox=bbox,
-            show_plots=True,
+            show_plots=False,
+        )
+        relevant_hazards = mapf.extract_hazards_within_bounding_box(
+            self._rel_polygons, bbox, self._enc, merge_hazards=True, show_plots=True
         )
         self._rrtstar = rrt_star_lib.RRTStar(
             los=self._config.rrtstar.los, model=self._config.rrtstar.model, params=self._config.rrtstar.params
@@ -335,6 +342,49 @@ class RLMPC(ci.ICOLAV):
             filename (Path): Path to the YAML file.
         """
         self._config = RLMPCParams.from_file(filename)
+
+    def visualize_disturbance(self, ddata: stochasticity.DisturbanceData | None) -> None:
+        """Visualizes the disturbance object.
+
+        Args:
+            disturbance (stoch.Disturbance | None): Disturbance object.
+        """
+        if ddata is None:
+            return
+
+        self._clear_disturbance_handles()
+
+        handles = []
+        if ddata.currents is not None and ddata.currents["speed"] > 0.0:
+            speed = ddata.currents["speed"]
+            handles.extend(
+                plotters.plot_disturbance(
+                    magnitude=90.0,
+                    direction=ddata.currents["direction"],
+                    name=f"current: {speed:.2f} m/s",
+                    enc=self._enc,
+                    color="white",
+                    linewidth=1.0,
+                    location="topright",
+                    text_location_offset=(0.0, 0.0),
+                )
+            )
+
+        if ddata.wind is not None and ddata.wind["speed"] > 0.0:
+            speed = ddata.wind["speed"]
+            handles.extend(
+                plotters.plot_disturbance(
+                    magnitude=90.0,
+                    direction=ddata.wind["direction"],
+                    name=f"wind: {speed:.2f} m/s",
+                    enc=self._enc,
+                    color="peru",
+                    linewidth=1.0,
+                    location="topright",
+                    text_location_offset=(0.0, -20.0),
+                )
+            )
+        self._disturbance_handles = handles
 
     def plot_path(self, enc: senc.ENC) -> None:
         """Plot the nominal path."""
@@ -499,7 +549,7 @@ class RLMPC(ci.ICOLAV):
             ownship_state=start_state_copy.tolist(),
             U_d=nominal_speed_ref,
             initialized=False,
-            return_on_first_solution=True,
+            return_on_first_solution=True if prev_soln else False,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
 
