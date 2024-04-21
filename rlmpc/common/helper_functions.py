@@ -35,6 +35,32 @@ from matplotlib import cm
 from scipy.interpolate import interp1d
 from scipy.stats import chi2
 
+plt.rcParams.update(
+    {
+        "pgf.texsystem": "pdflatex",
+        "font.family": "serif",
+        "text.usetex": True,
+        "pgf.rcfonts": False,
+        "pgf.preamble": "\n".join(
+            [
+                r"\usepackage{bm}",
+                r"\usepackage{amsmath}",
+                r"\usepackage{amssymb}",
+            ]
+        ),
+        "font.serif": ["Computer Modern Roman"],
+        "text.latex.preamble": "\n".join(
+            [
+                r"\usepackage{bm}",
+                r"\usepackage{amsmath}",
+                r"\usepackage{amssymb}",
+            ]
+        ),
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+    }
+)
+
 
 def make_grid_for_tensorboard(batch_images, reconstructed_images, semantic_masks, n_rows: int = 2) -> torch.Tensor:
     """Create grid of images to show in tensorboard.
@@ -708,14 +734,14 @@ def plot_surface_approximation_stuff(
     ax1.plot_surface(yY, xX, surface_points, cmap=cm.coolwarm)
     ax1.set_ylabel("North [m]")
     ax1.set_xlabel("East [m]")
-    ax1.set_zlabel(r"$h_j(\bm{\zeta})$")
+    # ax1.set_zlabel(r"$h_j(\bm{\zeta})$")
     # fig1.savefig("surface_approx.pdf", bbox_inches="tight", dpi=50)
 
     fig2, ax2 = plt.subplots()
     ax2.pcolormesh(yY, xX, surface_points, shading="gouraud")
     p = ax2.scatter(y_surface + map_origin[1], x_surface + map_origin[0], c=np.array(surface_data_point_mask), ec="k")
     cbar4 = fig2.colorbar(p)
-    cbar4.set_label(r"$h_j(\bm{\zeta})$")
+    # cbar4.set_label(r"$h_j(\bm{\zeta})$")
     ax2.set_xlabel("East [m]")
     ax2.set_ylabel("North [m]")
     # fig2.savefig("colormesh_island_polygon.pdf", bbox_inches="tight", dpi=50)

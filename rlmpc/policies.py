@@ -123,10 +123,10 @@ class SACMPCActor(BasePolicy):
 
         # second option, sequence of course and speed refs
         self.action_indices = [
-            nu * n_samples + (1 * nx) + 2,  # chi 1
-            nu * n_samples + (1 * nx) + 3,  # speed 1
-            nu * n_samples + (2 * nx) + 2,  # chi 2
-            nu * n_samples + (2 * nx) + 3,  # speed 2
+            int(nu * n_samples + (1 * nx) + 2),  # chi 2
+            int(nu * n_samples + (1 * nx) + 3),  # speed 2
+            int(nu * n_samples + (2 * nx) + 2),  # chi 3
+            int(nu * n_samples + (2 * nx) + 3),  # speed 3
         ]
 
     def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:

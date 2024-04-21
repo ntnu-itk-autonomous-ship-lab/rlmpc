@@ -65,13 +65,16 @@ class COLREGSHandlerParams:
 class COLREGSHandler:
     def __init__(self, params: COLREGSHandlerParams = COLREGSHandlerParams()) -> None:
         self._params = params
+        self.reset()
 
-        self._do_labels: list = []
-        self._do_situations: list = []
-        self._do_cr_list: list = []
-        self._do_ho_list: list = []
-        self._do_ot_list: list = []
-        self._already_removed_labels: list = []
+    def reset(self) -> None:
+        """Resets the COLREGS handler."""
+        self._do_labels = []
+        self._do_situations = []
+        self._do_cr_list = []
+        self._do_ho_list = []
+        self._do_ot_list = []
+        self._already_removed_labels = []
 
     def handle(self, xs: np.ndarray, do_list: list) -> Tuple[list, list, list]:
         """Handles the current situation with own-ship state xs and list of dynamic obstacles in do_list.

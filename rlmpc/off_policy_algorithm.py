@@ -160,7 +160,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
         state: Optional[Tuple[np.ndarray, ...] | Dict] = None,
         episode_start: Optional[np.ndarray] = None,
-        deterministic: bool = False,
+        deterministic: bool = True,
     ) -> Tuple[np.ndarray, List[Dict]]:
         """
         Get the policy action from an observation (and optional hidden state).

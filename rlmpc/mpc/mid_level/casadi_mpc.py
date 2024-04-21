@@ -373,23 +373,23 @@ class CasadiMPC:
         g_so_constr_vals = (
             self._static_obstacle_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
         )
-        if np.any(np.abs(g_eq_vals) > 1e-6):
+        if g_eq_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6).flatten().T}!"
             )
-        if np.any(g_state_box_ineq_vals > 1e-6):
+        if g_state_box_ineq_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_state_box_ineq_vals > 1e-6).flatten().T}!"
             )
-        if np.any(g_input_box_ineq_vals > 1e-6):
+        if g_input_box_ineq_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_input_box_ineq_vals > 1e-6).flatten().T}!"
             )
-        if np.any(g_do_constr_vals > 1e-6):
+        if g_do_constr_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6).flatten().T}!"
             )
-        if np.any(g_so_constr_vals > 1e-6):
+        if g_so_constr_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6).flatten().T}!"
             )
@@ -421,9 +421,10 @@ class CasadiMPC:
             # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
             if stats["return_status"] in ["Maximum_Iterations_Exceeded", "Infeasible_Problem_Detected"]:
                 # Use solution unless it is infeasible, then use previous solution.
-                g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
-                g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full().flatten()
-                if np.any(np.abs(g_eq_vals) > 1e-6) or np.any(g_ineq_vals > 1e-6):
+                g_eq_vals = self._equality_constraints(w_sub_ws, parameter_values).full().flatten()
+                g_do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full().flatten()
+                g_so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full().flatten()
+                if g_eq_vals.max() > 1e-6 or g_do_constr_vals.max() > 1e-6 or g_so_constr_vals.max() > 1e-6:
                     print("WARNING: Infeasible solution found. Using previous solution.")
                     soln = self._current_warmstart
                     soln["f"] = self._prev_cost
@@ -1016,6 +1017,7 @@ class CasadiMPC:
         self._box_inequality_constraints = csd.Function(
             "box_inequality_constraints", [self._opt_vars, self._p], [csd.vertcat(*hu, *hx, *hs)], ["w", "p"], ["g_bx"]
         )
+        self._g_state_box = hx
         self._state_box_inequality_constraints = csd.Function(
             "state_box_inequality_constraints",
             [self._opt_vars, self._p],
@@ -1023,6 +1025,7 @@ class CasadiMPC:
             ["w", "p"],
             ["g_x_bx"],
         )
+        self._g_input_box = hu
         self._input_box_inequality_constraints = csd.Function(
             "input_box_inequality_constraints",
             [w_sub, self._p],
@@ -1159,7 +1162,7 @@ class CasadiMPC:
             list: List of dynamic obstacle constraints at the current stage in the OCP.
         """
         do_constr_list = []
-        epsilon = 1e-12
+        epsilon = 1e-6
         n_do = int(X_do_k.shape[0] / nx_do)
         for i in range(n_do):
             x_aug_do_i = X_do_k[nx_do * i : nx_do * (i + 1)]
@@ -1677,7 +1680,7 @@ class CasadiMPC:
             X_do_ot[:, k] = X_do_ot_k
 
         n_colregs_zones = 3
-        max_num_so_constr = min(len(self._so_surfaces), self._params.max_num_so_constr)
+        max_num_so_constr = self._params.max_num_so_constr
         n_bx_slacks = len(self._idx_slacked_bx_constr)
         slack_size = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
         W = self._params.w_L1 * np.ones(slack_size)
@@ -1903,6 +1906,7 @@ class CasadiMPC:
         g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
         g_ineq_bx_vals = self._box_inequality_constraints(soln["x"], parameter_values).full()
 
+        g_eq_vals = self._equality_constraints(w_sub, parameter_values).full().flatten()
         g_eq_jac = self._equality_constraints_jacobian(w_sub, parameter_values).full()
         g_eq_jac_rank = np.linalg.matrix_rank(g_eq_jac)
         max_g_eq_jac_rank = g_eq_jac.shape[1] if g_eq_jac.shape[1] < g_eq_jac.shape[0] else g_eq_jac.shape[0]
@@ -1942,5 +1946,5 @@ class CasadiMPC:
         return_status = self._solver.stats()["return_status"]
         n_iters = self._solver.stats()["iter_count"]
         print(
-            f"Mid-level COLAV: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
+            f"Mid-level COLAV: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Equality constraints (max, argmax): ({g_eq_vals.max(), np.argmax(g_eq_vals)}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
         )

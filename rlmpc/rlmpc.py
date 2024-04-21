@@ -170,6 +170,7 @@ class RLMPC(ci.ICOLAV):
         self._mpc_soln: dict = {}
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
+        self._colregs_handler.reset()
 
         enc.close_display()
         self._enc = copy.deepcopy(enc)
@@ -265,20 +266,23 @@ class RLMPC(ci.ICOLAV):
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
         chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # heading / SOG
-
-        # # self.lookahead_sample = 3  # 5s=dt_mpc between each sample, => 5 * 5.0 * 2.0 = 50.0 => for 2m/s speed, 50m ahead
-        # x_ld = self._mpc_trajectory[0, self.lookahead_sample]
-        # y_ld = self._mpc_trajectory[1, self.lookahead_sample]
-        # speed_ref = self._mpc_trajectory[3, 0]
-        # # turn_rate_ref = 0.0  # self._mpc_inputs[0, 0]
-
-        # action = np.array([x_ld - ownship_state[0], y_ld - ownship_state[1], speed_ref - U])
-
         chi_1 = self._mpc_trajectory[2, 1]  # starting from 1 since the first sample is the current state
         chi_2 = self._mpc_trajectory[2, 2]
         U_1 = self._mpc_trajectory[3, 1]
         U_2 = self._mpc_trajectory[3, 2]
         action = np.array([chi_1 - chi, U_1 - U, chi_2 - chi, U_2 - U])
+
+        # double check action indices:
+        # nx, nu, ns, _ = self._mpc.dims()
+        # n_samples = self._mpc.params.T / self._mpc.params.dt
+        # action_indices = [
+        #     int(nu * n_samples + (1 * nx) + 2),  # chi 2
+        #     int(nu * n_samples + (1 * nx) + 3),  # speed 2
+        #     int(nu * n_samples + (2 * nx) + 2),  # chi 3
+        #     int(nu * n_samples + (2 * nx) + 3),  # speed 3
+        # ]
+        # action_vals = self._mpc_soln["soln"]["x"].full().flatten()[action_indices]
+
         return action, mpc_output
 
     def get_mpc_params(self) -> mpc_params.MidlevelMPCParams:
@@ -433,7 +437,6 @@ class RLMPC(ci.ICOLAV):
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
                 do_list, self._map_origin[1], self._map_origin[0]
             )
-            self._update_mpc_so_polygon_input(ownship_state, enc, self._debug)
 
             if self._debug:
                 plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
@@ -587,7 +590,7 @@ class RLMPC(ci.ICOLAV):
         else:
             rrt_trajectory[4:, 0] = np.array([path_var, path_var_dot])
 
-        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
+        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.array([0.0, 0.0, -0.04])
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
         rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
 
@@ -615,7 +618,7 @@ class RLMPC(ci.ICOLAV):
             Sigma = np.zeros((ns, N + 1))
             w = self._mpc.decision_variables(U, X, Sigma)
             lam_g = np.zeros((dim_g, 1))
-            lam_x = [0.0] * w.shape[0]
+            lam_x = np.zeros((w.shape[0], 1))
 
         warm_start = {"x": w, "lam_g": lam_g, "lam_x": lam_x, "X": X, "U": U, "Sigma": Sigma}
         return warm_start
@@ -747,27 +750,8 @@ class RLMPC(ci.ICOLAV):
         """
         return self._mpc.get_antigrounding_surface_functions()
 
-    def _update_mpc_so_polygon_input(
-        self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False
-    ) -> None:
-        """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.
-
-        Args:
-            - ownship_state (np.ndarray): The ownship state on the form [x, y, psi, u, v, r]^T.
-            - enc (Optional[senc.ENC]): ENC object containing the map info.
-            - show_plots (bool): Whether to show plots or not.
-        """
-        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            A_full, b_full = self._set_generator(ownship_state[0:2] - self._map_origin)
-            A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._mpc.params.max_num_so_constr)
-            if show_plots:
-                sg.plot_constraints(
-                    A_reduced, b_reduced, ownship_state[0:2] - self._map_origin, "black", enc, self._map_origin
-                )
-            self._mpc_rel_polygons = [A_reduced, b_reduced]
-
     def get_current_plan(self) -> np.ndarray:
-        return self._references
+        return self._mpc_trajectory
 
     def get_colav_data(self) -> dict:
         output = {}
@@ -775,8 +759,7 @@ class RLMPC(ci.ICOLAV):
             output = {
                 "time_of_last_plan": self._t_prev_mpc,
                 "mpc_soln": self._mpc_soln,
-                "mpc_trajectory": self._mpc_trajectory
-                + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1),
+                "mpc_trajectory": self._mpc_trajectory,
                 "mpc_inputs": self._mpc_inputs,
                 "params": self._config,
                 "t": self._t_prev,
@@ -795,7 +778,7 @@ class RLMPC(ci.ICOLAV):
             dict: Updated matplotlib handles.
         """
         if self._mpc_trajectory.size > 8:
-            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:2])
-            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:2])
+            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, ::2])
+            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, ::2])
 
         return plt_handles

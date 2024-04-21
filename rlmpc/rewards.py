@@ -206,10 +206,10 @@ class AntiGroundingRewarder(cs_reward.IReward):
         self._initialized: bool = False
 
     def create_so_surfaces(self):
-        self._map_origin = self._ownship.state[:2]
+        self._map_origin = self.env.ownship.state[:2]
         self._nominal_path = self._ktp.compute_splines(
-            waypoints=self._ownship.waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
-            speed_plan=self._ownship.speed_plan,
+            waypoints=self.env.ownship.waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
+            speed_plan=self.env.ownship.speed_plan,
             arc_length_parameterization=True,
         )
         self._setup_static_obstacle_input()
@@ -225,7 +225,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
 
     def _setup_static_obstacle_input(self) -> None:
         """Setup the static obstacle input for the anti-grounding rewarder."""
-        self._min_depth = mapf.find_minimum_depth(self._ownship.draft, self.env.enc)
+        self._min_depth = mapf.find_minimum_depth(self.env.ownship.draft, self.env.enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
             self._min_depth, self.env.enc, show_plots=self._show_plots
         )
@@ -258,7 +258,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
         if kwargs["num_steps"] == 0:
             self.create_so_surfaces()
-        p_os = (self._ownship.state[:2] - self._map_origin).reshape(1, 2)
+        p_os = (self.env.ownship.state[:2] - self._map_origin).reshape(1, 2)
         g_so = np.zeros(len(self._so_surfaces))
         for j, surface in enumerate(self._so_surfaces):
             g_so[j] = max(0.0, surface(p_os))
@@ -284,10 +284,10 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
         Returns:
             float: The dynamic obstacle constraint value.
         """
-        do_idx, do_state, do_cov, do_length, do_width = do_tuple
+        do_idx, do_state, do_length, do_width = do_tuple
         do_course = np.arctan2(do_state[3], do_state[2])
         Rchi_do_i = mf.Rmtrx2D(do_course)
-        p_diff_do_frame = Rchi_do_i.T @ (self._ownship.state[:2] - do_state[0:2])
+        p_diff_do_frame = Rchi_do_i.T @ (self.env.ownship.state[:2] - do_state[0:2])
         weights = np.diag(
             [
                 1.0 / (0.5 * do_length + self._config.r_safe) ** 2,
@@ -298,15 +298,14 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
         return np.log(1.0 + epsilon) - np.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
-        do_arr = state["GroundTruthTrackingObservation"]
-        do_list = cs_mhm.extract_do_list_from_do_array(do_arr)
-
+        do_list = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.dynamic_obstacles)
         g_do = np.zeros(len(do_list))
         for i, do_tup in enumerate(do_list):
+            d2do = np.linalg.norm(self.env.ownship.state[:2] - do_tup[1][:2])
             g_do[i] = self.compute_dynamic_obstacle_constraint(do_tup)
             g_do[i] = max(0.0, g_do[i])
             if g_do[i] > 0.0:
-                print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i]={g_do[i]}.")
+                print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}.")
 
         colav_cost = self._config.rho_colav * np.sum(g_do)
         return -colav_cost
@@ -317,14 +316,14 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
     def __init__(self, env: "COLAVEnvironment", config: ReadilyApparentManeuveringRewarderParams) -> None:
         super().__init__(env)
         self._config = config
-        self._config.r_max = self._ownship.max_turn_rate
+        self._config.r_max = self.env.ownship.max_turn_rate
         self.K_app = np.array([self._config.K_app_course, self._config.K_app_speed])
         self.alpha_app = np.concatenate([self._config.alpha_app_course, self._config.alpha_app_speed])
-        self._prev_speed = self._ownship.speed
+        self._prev_speed = self.env.ownship.speed
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
-        turn_rate = self._ownship.state[5]
-        speed = self._ownship.speed
+        turn_rate = self.env.ownship.state[5]
+        speed = self.env.ownship.speed
 
         acceleration = (speed - self._prev_speed) / self.env.dt_action
         rate_cost, _, _ = mpc_common.rate_cost(
@@ -350,12 +349,15 @@ class COLREGRewarder(cs_reward.IReward):
         self._nx_do = 6
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+        if self.env.time < 0.0001:
+            self._colregs_handler.reset()
+
         if kwargs["num_steps"] == 0:
-            self._map_origin = self._ownship.csog_state[:2]
+            self._map_origin = self.env.ownship.csog_state[:2]
 
         do_arr = state["GroundTruthTrackingObservation"]
         do_list = cs_mhm.extract_do_list_from_do_array(do_arr)
-        ownship_state = self._ownship.state
+        ownship_state = self.env.ownship.state
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
         )

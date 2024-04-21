@@ -89,27 +89,27 @@ def main():
     elif scenario_choice == 2:
         scenario_name = "rlmpc_scenario_ho"
 
-    scenario_names = ["rlmpc_scenario_cr_ss", "rlmpc_scenario_ho"]
+    scenario_names = ["rlmpc_scenario_ho"]  # ["rlmpc_scenario_cr_ss", "rlmpc_scenario_ho", "rlmpc_scenario_ms_channel"]
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = True
+    generate = False
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
-            scenario_generator.seed(idx + 1)
-            _ = scenario_generator.generate(
-                config_file=rl_dp.scenarios / (name + ".yaml"),
-                new_load_of_map_data=False if idx == 0 else False,
-                save_scenario=True,
-                save_scenario_folder=rl_dp.scenarios / "training_data" / name,
-                show_plots=True,
-                episode_idx_save_offset=0,
-                n_episodes=70,
-                delete_existing_files=True,
-            )
+            # scenario_generator.seed(idx + 1)
+            # _ = scenario_generator.generate(
+            #     config_file=rl_dp.scenarios / (name + ".yaml"),
+            #     new_load_of_map_data=False if idx == 0 else False,
+            #     save_scenario=True,
+            #     save_scenario_folder=rl_dp.scenarios / "training_data" / name,
+            #     show_plots=True,
+            #     episode_idx_save_offset=0,
+            #     n_episodes=100,
+            #     delete_existing_files=True,
+            # )
 
-            scenario_generator.seed(idx + 102)
+            scenario_generator.seed(idx + 105)
             _ = scenario_generator.generate(
                 config_file=rl_dp.scenarios / (name + ".yaml"),
                 new_load_of_map_data=False,
@@ -117,7 +117,7 @@ def main():
                 save_scenario_folder=rl_dp.scenarios / "test_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=20,
+                n_episodes=50,
                 delete_existing_files=True,
             )
 
@@ -145,7 +145,7 @@ def main():
         "merge_loaded_scenario_episodes": True,
         "max_number_of_episodes": 10,
         "simulator_config": training_sim_config,
-        "action_sample_time": 1.0 / 0.2,  # from rlmpc.yaml config file
+        "action_sample_time": 1.0 / 0.4,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
@@ -177,7 +177,7 @@ def main():
     policy = sac_rlmpc.SACPolicyWithMPC
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     actor_noise_std_dev = np.array(
-        [0.002, 0.002, 0.002, 0.002]
+        [0.001, 0.001, 0.001, 0.001]
     )  # normalized std dev for the action space [course, speed, course, speed]
 
     policy_kwargs = {
