@@ -597,6 +597,8 @@ class RLMPC(ci.ICOLAV):
         # Add path timing dynamics to warm start trajectory
         mpc_model_traj = self._mpc.model_prediction(rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1])
         rrt_trajectory[4:, :] = mpc_model_traj[4:, :]
+        chi = rrt_trajectory[2, :]
+        rrt_trajectory[2, :] = np.unwrap(chi)
 
         warm_start = {}
         if prev_soln:
