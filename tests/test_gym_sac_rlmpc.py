@@ -89,27 +89,27 @@ def main():
     elif scenario_choice == 2:
         scenario_name = "rlmpc_scenario_ho"
 
-    scenario_names = ["rlmpc_scenario_ho"]  # ["rlmpc_scenario_cr_ss", "rlmpc_scenario_ho", "rlmpc_scenario_ms_channel"]
+    scenario_names = ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
     generate = False
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
-        for idx, name in enumerate(scenario_names):
-            # scenario_generator.seed(idx + 1)
-            # _ = scenario_generator.generate(
-            #     config_file=rl_dp.scenarios / (name + ".yaml"),
-            #     new_load_of_map_data=False if idx == 0 else False,
-            #     save_scenario=True,
-            #     save_scenario_folder=rl_dp.scenarios / "training_data" / name,
-            #     show_plots=True,
-            #     episode_idx_save_offset=0,
-            #     n_episodes=100,
-            #     delete_existing_files=True,
-            # )
+        for idx, name in enumerate(scenario_names[2:]):
+            scenario_generator.seed(idx + 1)
+            _ = scenario_generator.generate(
+                config_file=rl_dp.scenarios / (name + ".yaml"),
+                new_load_of_map_data=False if idx == 0 else False,
+                save_scenario=True,
+                save_scenario_folder=rl_dp.scenarios / "training_data" / name,
+                show_plots=True,
+                episode_idx_save_offset=0,
+                n_episodes=75,
+                delete_existing_files=True,
+            )
 
-            scenario_generator.seed(idx + 105)
+            scenario_generator.seed(idx + 104)
             _ = scenario_generator.generate(
                 config_file=rl_dp.scenarios / (name + ".yaml"),
                 new_load_of_map_data=False,
@@ -117,7 +117,7 @@ def main():
                 save_scenario_folder=rl_dp.scenarios / "test_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=50,
+                n_episodes=40,
                 delete_existing_files=True,
             )
 
@@ -154,6 +154,7 @@ def main():
         "action_type": "relative_course_speed_reference_sequence_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
+        "shuffle_loaded_scenario_data": True,
         "identifier": "training_env1",
         "seed": 15,
     }
@@ -161,7 +162,7 @@ def main():
     env = Monitor(gym.make(id=env_id, **env_config))
     env_config.update(
         {
-            "max_number_of_episodes": 5,
+            "max_number_of_episodes": 2,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 100,
@@ -208,7 +209,7 @@ def main():
     eval_callback = EvalCallback(
         eval_env,
         copy.deepcopy(model),
-        eval_freq=200,
+        eval_freq=2,
         n_eval_episodes=1,
         callback_after_eval=stop_train_callback,
         best_model_save_path=best_model_dir,

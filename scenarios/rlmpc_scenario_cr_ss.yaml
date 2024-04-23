@@ -58,10 +58,10 @@ ship_list:
     # goal_csog_state: [6578500.0, -29300.0, 4.0, 0.0] #[6583580.0, -31824.0, 0.0, 0.0]
     random_generated: False
     tracker:
-      # kf:
-      #   P_0: [49.1, 49.1, 0.11, 0.11]
-      #   q: 1.0
-      god_tracker: ""
+      kf:
+        P_0: [49.1, 49.1, 0.11, 0.11]
+        q: 0.7
+      # god_tracker: ""
     sensors:
       - radar:
           max_range: 5000.0
@@ -94,17 +94,3 @@ ship_list:
         chi_error_int_threshold: 20.0
     model:
       telemetron: ''
-
-    # controller:
-    #   flsc:
-    #     K_p_u: 1.0
-    #     K_i_u: 0.005
-    #     K_p_chi: 1.0
-    #     K_d_chi: 3.0
-    #     K_i_chi: 0.02
-    #     max_speed_error_int: 0.5
-    #     speed_error_int_threshold: 0.5
-    #     max_chi_error_int: 15.0
-    #     chi_error_int_threshold: 15.0
-    # model:
-    #   rvgunnerus: ''

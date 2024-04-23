@@ -23,14 +23,16 @@ episode_generation:
   delta_uniform_position_sample: 10
 rl:
   action_type: "relative_course_speed_reference_sequence_action"
-  action_sample_time: 0.5
+  action_sample_time: 2.5
   observation_type:
     dict_observation:
       - "path_relative_navigation_observation"
       - "perception_image_observation"
+      - "relative_tracking_observation"
       - "navigation_3dof_state_observation"
       - "ground_truth_tracking_observation"
       - "disturbance_observation"
+      - "time_observation"
 stochasticity:
   currents:
     constant: True
@@ -45,7 +47,7 @@ stochasticity:
   wind:
     constant: True
     # initial_direction: 90.0
-    speed_range: [0.0, 10.0]
+    speed_range: [0.0, 5.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001
     mu_direction: 0.00001
@@ -60,7 +62,7 @@ ship_list:
     tracker:
       kf:
         P_0: [49.1, 49.1, 0.11, 0.11]
-        q: 0.5
+        q: 0.7
       # god_tracker: ""
     sensors:
       - radar:
@@ -95,16 +97,6 @@ ship_list:
     model:
       telemetron: ''
 
-K_p_u=2.0,
-        K_i_u=0.2,
-        K_p_chi=3.0,
-        K_d_chi=3.0,
-        K_i_chi=0.001,
-        max_speed_error_int=2.0,
-        speed_error_int_threshold=0.2,
-        max_chi_error_int=45.0 * np.pi / 180.0,
-        chi_error_int_threshold=5.0 * np.pi / 180.0,
-    )
     # controller:
     #   flsc:
     #     K_p_u: 1.0

@@ -17,6 +17,7 @@ import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
 import colav_simulator.common.plotters as plotters
 import colav_simulator.core.guidances as guidances
 import colav_simulator.gym.reward as cs_reward
+import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.colregs_handler as ch
 import rlmpc.common.helper_functions as hf
@@ -212,13 +213,14 @@ class AntiGroundingRewarder(cs_reward.IReward):
             speed_plan=self.env.ownship.speed_plan,
             arc_length_parameterization=True,
         )
+
         self._setup_static_obstacle_input()
-        _, self._so_surfaces = rl_mapf.compute_surface_approximations_from_polygons(
+        self._so_surfaces, _ = rl_mapf.compute_surface_approximations_from_polygons(
             self._rel_polygons,
             self.env.enc,
-            safety_margins=[self._config.r_safe],
+            safety_margins=[0.0],
             map_origin=self._map_origin,
-            show_plots=self._show_plots,
+            show_plots=False,
         )
         self._so_surfaces = self._so_surfaces[0]
         self._initialized = True
@@ -227,11 +229,11 @@ class AntiGroundingRewarder(cs_reward.IReward):
         """Setup the static obstacle input for the anti-grounding rewarder."""
         self._min_depth = mapf.find_minimum_depth(self.env.ownship.draft, self.env.enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
-            self._min_depth, self.env.enc, show_plots=self._show_plots
+            self._min_depth, self.env.enc, buffer=self._config.r_safe, show_plots=False
         )
         self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
-        nominal_trajectory = self._ktp.compute_reference_trajectory(dt=0.5)
+        nominal_trajectory = self._ktp.compute_reference_trajectory(dt=5.0)
         nominal_trajectory = nominal_trajectory + np.array(
             [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         ).reshape(9, 1)
@@ -244,7 +246,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
         )
         for poly_tuple in poly_tuple_list:
             self._rel_polygons.extend(poly_tuple[0])
-
+        self._polygons = self._rel_polygons
         translated_poly_tuple_list = []
         for polygons, original_polygon in poly_tuple_list:
             translated_poly_tuple_list.append(
@@ -255,6 +257,29 @@ class AntiGroundingRewarder(cs_reward.IReward):
             )
         self._rel_polygons = translated_poly_tuple_list
 
+    def plot_surfaces(self, npoints: int = 300):
+        """Plot surface interpolations of the static obstacles."""
+        ownship_state = self.env.ownship.state
+        fig, ax = plt.subplots()
+        center = ownship_state[:2] - np.array([self._map_origin[0], self._map_origin[1]])
+        npx = npoints
+        npy = npoints
+        x = np.linspace(center[0] - 150, center[0] + 150, npx)
+        y = np.linspace(center[1] - 150, center[1] + 150, npy)
+        z = np.zeros((npy, npx))
+        for idy, y_val in enumerate(y):
+            for idx, x_val in enumerate(x):
+                for surface in self._so_surfaces:
+                    surfval = min(1.0, surface(np.array([x_val, y_val]).reshape(1, 2)).full()[0][0])
+                    z[idy, idx] += max(0.0, surfval)
+        pc = ax.pcolormesh(x, y, z, shading="gouraud", rasterized=True)
+        ax.scatter(center[1], center[0], color="red", s=30, marker="x")
+        cbar = fig.colorbar(pc)
+        cbar.set_label("Surface value capped to +-1.0")
+        ax.set_xlabel("North [m]")
+        ax.set_ylabel("East [m]")
+        plt.show(block=False)
+
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
         if kwargs["num_steps"] == 0:
             self.create_so_surfaces()
@@ -263,7 +288,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
         for j, surface in enumerate(self._so_surfaces):
             g_so[j] = max(0.0, surface(p_os))
             if g_so[j] > 0.0:
-                print(f"Dynamic obstacle {j} is too close to the ownship! g_so[i]={g_so[j]}.")
+                print(f"Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]}.")
         grounding_cost = self._config.rho_anti_grounding * g_so.sum()
         return -grounding_cost
 
@@ -294,11 +319,12 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
                 1.0 / (0.5 * do_length + self._config.r_safe) ** 2,
             ],
         )
-        epsilon = 1e-8
+        epsilon = 1e-6
         return np.log(1.0 + epsilon) - np.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
-        do_list = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.dynamic_obstacles)
+        true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
+        do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0)
         g_do = np.zeros(len(do_list))
         for i, do_tup in enumerate(do_list):
             d2do = np.linalg.norm(self.env.ownship.state[:2] - do_tup[1][:2])
@@ -432,7 +458,8 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
         unnormalized_obs = self.env.observation_type.unnormalize(state)
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
-        tt_cost = self._config.rho_path_dev * path_obs[0] + self._config.rho_speed_dev * path_obs[1]
+        huber_loss = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
+        tt_cost = self._config.rho_path_dev * huber_loss + self._config.rho_speed_dev * path_obs[1] ** 2
         return -tt_cost
 
 
@@ -458,6 +485,9 @@ class MPCRewarder(cs_reward.IReward):
         r_colreg = self.colreg_rewarder(state, action, **kwargs)
         r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
+        print(
+            f"r_antigrounding: {r_antigrounding:.2f}, r_collision_avoidance: {r_collision_avoidance:.2f}, r_colreg: {r_colreg:.2f}, r_trajectory_tracking: {r_trajectory_tracking:.2f}, r_readily_apparent_maneuvering: {r_readily_apparent_maneuvering:.2f}"
+        )
         return (
             r_antigrounding + r_collision_avoidance + r_colreg + r_trajectory_tracking + r_readily_apparent_maneuvering
         )

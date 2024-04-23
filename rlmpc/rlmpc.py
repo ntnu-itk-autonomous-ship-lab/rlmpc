@@ -207,8 +207,9 @@ class RLMPC(ci.ICOLAV):
             show_plots=False,
         )
         relevant_hazards = mapf.extract_hazards_within_bounding_box(
-            self._rel_polygons, bbox, self._enc, merge_hazards=True, show_plots=True
+            self._rel_polygons, bbox, self._enc, show_plots=False
         )
+        self._hazards = relevant_hazards[0]
         self._rrtstar = rrt_star_lib.RRTStar(
             los=self._config.rrtstar.los, model=self._config.rrtstar.model, params=self._config.rrtstar.params
         )
@@ -220,8 +221,44 @@ class RLMPC(ci.ICOLAV):
 
         if self._debug:
             self.plot_path(self._enc)
+
+        os_poly = mapf.create_ship_polygon(
+            ownship_csog_state[0], ownship_csog_state[1], ownship_csog_state[2], 8.0, 3.0, 1.0, 1.0
+        )
+        self._enc.draw_polygon(os_poly, color="pink")
+        self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=5.0, color="black")
+
+        # self.plot_surfaces(ownship_state)
         self._initialized = True
         # print("RL-MPC initialized!")
+
+    def plot_hazards(self):
+        """Plot the grounding hazards."""
+        for poly in self._hazards:
+            self._enc.draw_polygon(poly, color="red", alpha=0.7)
+
+    def plot_surfaces(self, ownship_state: np.ndarray, npoints: int = 300):
+        """Plot surface interpolations of the static obstacles."""
+        so_surfaces = self._mpc.get_antigrounding_surface_functions()
+        fig, ax = plt.subplots()
+        center = ownship_state[:2] - np.array([self._map_origin[0], self._map_origin[1]])
+        npx = npoints
+        npy = npoints
+        x = np.linspace(center[0] - 150, center[0] + 150, npx)
+        y = np.linspace(center[1] - 150, center[1] + 150, npy)
+        z = np.zeros((npy, npx))
+        for idy, y_val in enumerate(y):
+            for idx, x_val in enumerate(x):
+                for surface in so_surfaces:
+                    surfval = min(1.0, surface(np.array([x_val, y_val]).reshape(1, 2)).full()[0][0])
+                    z[idy, idx] += max(0.0, surfval)
+        pc = ax.pcolormesh(x, y, z, shading="gouraud", rasterized=True)
+        ax.scatter(center[1], center[0], color="red", s=30, marker="x")
+        cbar = fig.colorbar(pc)
+        cbar.set_label("Surface value capped to +-1.0")
+        ax.set_xlabel("North [m]")
+        ax.set_ylabel("East [m]")
+        plt.show(block=False)
 
     def act(
         self,
@@ -265,13 +302,16 @@ class RLMPC(ci.ICOLAV):
         mpc_output = self._mpc_soln
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
-        chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # heading / SOG
-        chi_1 = self._mpc_trajectory[2, 1]  # starting from 1 since the first sample is the current state
-        chi_2 = self._mpc_trajectory[2, 2]
-        U_1 = self._mpc_trajectory[3, 1]
-        U_2 = self._mpc_trajectory[3, 2]
-        action = np.array([chi_1 - chi, U_1 - U, chi_2 - chi, U_2 - U])
+        chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # COg
+        chi_0_ref = self._mpc_trajectory[2, 1]  # starting from 1 since the first sample is the current state
+        chi_1_ref = self._mpc_trajectory[2, 2]
+        U_0_ref = self._mpc_trajectory[3, 1]
+        U_1_ref = self._mpc_trajectory[3, 2]
+        action = np.array([chi_0_ref - chi, U_0_ref - U, chi_1_ref - chi, U_1_ref - U])
 
+        print(
+            f"t: {t} | U_mpc: {U_0_ref} | U: {U} | chi_mpc: {180.0 * chi_0_ref / np.pi} | chi: {180.0 * chi / np.pi} | r_mpc: {0.0} | r: {ownship_state[5]}"
+        )
         # double check action indices:
         # nx, nu, ns, _ = self._mpc.dims()
         # n_samples = self._mpc.params.T / self._mpc.params.dt
@@ -513,9 +553,9 @@ class RLMPC(ci.ICOLAV):
         self._mpc_soln["t_prev"] = t
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
         chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
-        print(
-            f"t: {t} | U_mpc: {self._references[3, 0]} | U: {U} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * chi / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
-        )
+        # print(
+        #     f"t: {t} | U_mpc: {self._references[3, 0]} | U: {U} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * chi / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
+        # )
         return self._references
 
     def create_mpc_warm_start(
@@ -696,7 +736,7 @@ class RLMPC(ci.ICOLAV):
             # hf.plot_trajectory(waypoints, enc, color="green")
             plotters.plot_trajectory(nominal_trajectory, enc, color="yellow")
             for hazard in self._rel_polygons:
-                enc.draw_polygon(hazard, color="red", fill=False)
+                enc.draw_polygon(hazard, color="red", fill=True)
 
             ship_poly = mapf.create_ship_polygon(
                 ownship_state[0],

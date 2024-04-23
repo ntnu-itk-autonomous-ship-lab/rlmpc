@@ -714,8 +714,8 @@ def plot_surface_approximation_stuff(
         ax6.set_xlabel("East [m]")
         ax6.set_ylabel("North [m]")
 
-    buffer = 1.0
-    n_points = 50
+    buffer = 200.0
+    n_points = 100
     extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=n_points)
     extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=n_points)
 

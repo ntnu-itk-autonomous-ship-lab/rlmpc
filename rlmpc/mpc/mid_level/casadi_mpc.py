@@ -342,7 +342,7 @@ class CasadiMPC:
                 [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
             )
 
-        chi = xs[2]
+        chi = xs[2] + np.arctan2(xs[4], xs[3])
         xs_unwrapped = xs.copy()
         xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
         self._xs_prev = xs_unwrapped
@@ -1176,7 +1176,7 @@ class CasadiMPC:
             )
             # do_constr_list.append(1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame)
             do_constr_list.append(
-                csd.log(1.0 - sigma_k[i] + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+                csd.log(1.0 + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon) - sigma_k[i]
             )
         return do_constr_list
 
@@ -1223,7 +1223,7 @@ class CasadiMPC:
         state_aug = np.zeros((nx, 1))
         U = np.sqrt(state[3] ** 2 + state[4] ** 2)
         state_aug[0:2] = state[0:2].reshape((2, 1))
-        state_aug[2] = state[2] + np.arctan2(state[4], state[3])
+        state_aug[2] = state[2]  # chi
         state_aug[3] = U
 
         # augmented path dynamics due to the integrated path timing model with velocity assignment
@@ -1314,7 +1314,7 @@ class CasadiMPC:
         """Creates the parameter values for the dynamic obstacle constraints.
 
         Args:
-            state (np.ndarray): Current state of the system on the form (x, y, psi, u, v, r)^T.
+            state (np.ndarray): Current state of the system on the form (x, y, chi, u, v, r)^T.
             do_list (list): List of dynamic obstacles in a colregs zone.
 
         Returns:
@@ -1342,7 +1342,15 @@ class CasadiMPC:
                         ]
                     )
                 else:
-                    do_parameter_values.extend([csog_state[0] - 1e10, csog_state[1] - 1e10, 0.0, 0.0, 10.0, 2.0])
+                    do_parameter_values.extend([csog_state[0] - 1e5, csog_state[1] - 1e5, 0.0, 0.0, 10.0, 3.0])
+                    # sigma = np.zeros((self._params.max_num_do_constr_per_zone, 1))
+                    # do_constr = self._create_dynamic_obstacle_constraint(
+                    #     csog_state.reshape((-1, 1)),
+                    #     sigma,
+                    #     np.array([csog_state[0] - 1e5, csog_state[1] - 1e5, 0.0, 0.0, 10.0, 3.0]).reshape((-1, 1)),
+                    #     6,
+                    #     20.0,
+                    # )
         return do_parameter_values
 
     def _create_fixed_so_parameter_values(
@@ -1352,7 +1360,7 @@ class CasadiMPC:
 
         Args:
             - so_list (list): List of static obstacles.
-            - state (np.ndarray): Current state of the system on the form (x, y, psi, u, v, r)^T.
+            - state (np.ndarray): Current state of the system on the form (x, y, chi, u, v, r)^T.
             - enc (senc.ENC): Electronic Navigation Chart (ENC) object.
 
         Returns:

@@ -498,7 +498,7 @@ class EvalCallback(EventCallback):
 def evaluate_mpc_policy(
     model: "type_aliases.PolicyPredictor",
     env: Union[gym.Env, VecEnv],
-    n_eval_episodes: int = 10,
+    n_eval_episodes: int = 5,
     deterministic: bool = True,
     render: bool = False,
     callback: Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]] = None,
