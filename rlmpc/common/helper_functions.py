@@ -141,7 +141,7 @@ def create_los_based_trajectory(
         np.ndarray: Trajectory
     """
     model = sim_models.Telemetron()
-    controller = controllers.FLSH(model.params)
+    controller = controllers.FLSC(model.params)
     trajectory = []
     inputs = []
     xs_k = xs
