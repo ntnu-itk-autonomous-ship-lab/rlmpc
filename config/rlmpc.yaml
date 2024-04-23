@@ -53,15 +53,15 @@ rrtstar:
 
 midlevel_mpc:
   params:
-    rate: 0.4
+    rate: 0.2
     reference_traj_bbox_buffer: 200.0
-    T: 60.0
+    T: 80.0
     dt: 5.0
-    Q_p: [0.1, 1.0, 10.0] # [0.3, 1.0, 15.0]
+    Q_p: [0.1, 1.0, 5.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.001]
-    K_app_course: 20.0
-    K_app_speed: 20.0
+    K_app_course: 10.0
+    K_app_speed: 10.0
 
     alpha_cr: [0.03, 0.003]
     y_0_cr: 400.0

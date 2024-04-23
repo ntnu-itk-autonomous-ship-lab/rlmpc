@@ -166,7 +166,8 @@ class RLMPC(ci.ICOLAV):
         the OCP"""
         self._waypoints = waypoints
         self._speed_plan = speed_plan
-
+        self._speed_plan[self._speed_plan > 7.0] = 7.0
+        self._speed_plan[self._speed_plan < 2.0] = 2.0
         self._mpc_soln: dict = {}
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
@@ -575,7 +576,10 @@ class RLMPC(ci.ICOLAV):
         is_prev_soln = True if "prev_soln" in kwargs and kwargs["prev_soln"] else False
         prev_soln = kwargs["prev_soln"] if is_prev_soln else None
 
-        start_state = self._mpc_trajectory[:, -1] if self._mpc_trajectory.size > 0 else ownship_state
+        os_state_csog = ownship_state.copy()
+        os_state_csog[2] = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+        os_state_csog[3] = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
+        start_state = self._mpc_trajectory[:, -1] if self._mpc_trajectory.size > 0 else os_state_csog
         start_state = prev_soln["trajectory"][:, -1] if is_prev_soln else start_state
         last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
@@ -640,6 +644,8 @@ class RLMPC(ci.ICOLAV):
         chi = rrt_trajectory[2, :]
         rrt_trajectory[2, :] = np.unwrap(chi)
 
+        # 2s mellom kvar mpc iter
+        # 4s MPC step time => må shifte MPC trajectory 2s fram i tid
         warm_start = {}
         if prev_soln:
             U, X, Sigma = self._mpc.decision_trajectories(prev_soln["soln"])

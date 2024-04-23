@@ -333,6 +333,7 @@ class CasadiMPC:
         if not self._initialized:
             self._p_fixed_so_values = self._create_fixed_so_parameter_values(so_list, xs, enc)
             self._xs_prev = xs
+            self._xs_prev[2] = xs[2] + np.arctan2(xs[4], xs[3])
             self._prev_cost = np.inf
             self._t_prev = t
 
@@ -345,6 +346,10 @@ class CasadiMPC:
         chi = xs[2] + np.arctan2(xs[4], xs[3])
         xs_unwrapped = xs.copy()
         xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
+        xs_unwrapped[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
+        self._s, self._s_dot = self.compute_path_variable_info(xs_unwrapped)
+        xs_unwrapped[4] = self._s
+        xs_unwrapped[5] = self._s_dot
         self._xs_prev = xs_unwrapped
         self._current_warmstart = warm_start
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
@@ -394,6 +399,8 @@ class CasadiMPC:
                 f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6).flatten().T}!"
             )
 
+        print(f"Initial state constraint diff = {X_ws[:, 0].full().T - xs_unwrapped}")
+
         t_start = time.time()
         soln = self._solver(
             x0=self._current_warmstart["x"],
@@ -427,10 +434,17 @@ class CasadiMPC:
                 if g_eq_vals.max() > 1e-6 or g_do_constr_vals.max() > 1e-6 or g_so_constr_vals.max() > 1e-6:
                     print("WARNING: Infeasible solution found. Using previous solution.")
                     soln = self._current_warmstart
+                    U, X, Sigma = self.extract_trajectories(soln)
                     soln["f"] = self._prev_cost
                     cost_val = self._prev_cost
                     lam_x = self._current_warmstart["lam_x"]
                     lam_g = self._current_warmstart["lam_g"]
+        else:
+            self._current_warmstart["f"] = cost_val
+        self._current_warmstart["x"] = self.decision_variables(U, X, Sigma)
+        self._current_warmstart["lam_x"] = lam_x
+        self._current_warmstart["lam_g"] = lam_g
+        self._current_warmstart["lam_p"] = lam_p
 
         so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full()
         do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full()
@@ -441,12 +455,6 @@ class CasadiMPC:
         # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
         # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
         # mpc_common.plot_casadi_solver_stats(stats, show_plots)
-
-        self._current_warmstart["x"] = self.decision_variables(U, X, Sigma)
-        self._current_warmstart["lam_x"] = lam_x
-        self._current_warmstart["lam_g"] = lam_g
-        self._current_warmstart["lam_p"] = lam_p
-        self._current_warmstart["f"] = cost_val
 
         self._t_prev = t
         final_residuals = [stats["iterations"]["inf_du"][-1], stats["iterations"]["inf_pr"][-1]]
@@ -1195,7 +1203,7 @@ class CasadiMPC:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
         Args:
-            - state (np.ndarray): Current state of the system on the form (x, y, psi, u, v, r)^T.
+            - state (np.ndarray): Current state of the system on the form (x, y, chi, U, s, s_dot)^T.
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
@@ -1219,17 +1227,7 @@ class CasadiMPC:
         if perturb_nlp:
             d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
         fixed_parameter_values.extend(d.flatten().tolist())  # d
-
-        state_aug = np.zeros((nx, 1))
-        U = np.sqrt(state[3] ** 2 + state[4] ** 2)
-        state_aug[0:2] = state[0:2].reshape((2, 1))
-        state_aug[2] = state[2]  # chi
-        state_aug[3] = U
-
-        # augmented path dynamics due to the integrated path timing model with velocity assignment
-        self._s, self._s_dot = self.compute_path_variable_info(state)
-        state_aug[4:] = np.array([self._s, self._s_dot]).reshape((2, 1))
-        fixed_parameter_values.extend(state_aug.flatten().tolist())  # x0
+        fixed_parameter_values.extend(state.flatten().tolist())  # x0
 
         path_parameter_values, _, _ = self._create_path_parameter_values()
         fixed_parameter_values.extend(path_parameter_values)
@@ -1785,6 +1783,7 @@ class CasadiMPC:
         speed_refs = np.zeros(X.shape[1])
         mpc_speed_refs = np.zeros(X.shape[1])
         mpc_speed_refs2 = np.zeros(X.shape[1])
+        so_constr_values = np.zeros(X.shape[1])
         x_path = np.zeros(X.shape[1])
         y_path = np.zeros(X.shape[1])
         _, path_var_derivative_refs, path_var_refs = self._create_path_parameter_values()
@@ -1796,6 +1795,9 @@ class CasadiMPC:
             speed_refs[k] = self._speed_spline(path_var_refs[k], self._speed_spl_coeffs_values)
             mpc_speed_refs[k] = self._speed_spline(X[4, k], self._speed_spl_coeffs_values)
             mpc_speed_refs2[k] = X[5, k] * np.sqrt(x_dot_path**2 + y_dot_path**2)
+            for surf in self._so_surfaces:
+                surf_val = surf(X[:2, k].reshape((-1, 1)))
+                so_constr_values[k] += max(0.0, surf_val)
 
         nx_do = 6
         nx_do_total = nx_do * self._params.max_num_do_constr_per_zone
@@ -1887,6 +1889,7 @@ class CasadiMPC:
         axes["path_input"].legend()
 
         axes["min_do_dist"].semilogy(min_do_dist, color="b", label="min do dist")
+        axes["min_do_dist"].plot(so_constr_values, color="g", label="so constr values")
         axes["min_do_dist"].semilogy(self._params.r_safe_do * np.ones(X.shape[1]), color="r", label="r_safe_do")
         axes["min_do_dist"].set_ylabel("[m]")
         axes["min_do_dist"].set_xlabel("k")

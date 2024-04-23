@@ -145,7 +145,7 @@ def main():
         "merge_loaded_scenario_episodes": True,
         "max_number_of_episodes": 10,
         "simulator_config": training_sim_config,
-        "action_sample_time": 1.0 / 0.4,  # from rlmpc.yaml config file
+        "action_sample_time": 1.0 / 0.2,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
@@ -172,7 +172,7 @@ def main():
             "identifier": "eval_env1",
         }
     )
-    eval_env = gym.make(id=env_id, **env_config)
+    eval_env = Monitor(gym.make(id=env_id, **env_config))
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     policy = sac_rlmpc.SACPolicyWithMPC
@@ -195,9 +195,9 @@ def main():
         policy,
         env,
         policy_kwargs=policy_kwargs,
-        buffer_size=1000,
+        buffer_size=500,
         learning_starts=0,
-        batch_size=8,
+        batch_size=16,
         gradient_steps=1,
         train_freq=(5, "step"),
         device="cpu",
