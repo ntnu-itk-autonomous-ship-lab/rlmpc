@@ -145,7 +145,7 @@ def main():
         "merge_loaded_scenario_episodes": True,
         "max_number_of_episodes": 10,
         "simulator_config": training_sim_config,
-        "action_sample_time": 1.0 / 0.2,  # from rlmpc.yaml config file
+        "action_sample_time": 1.0 / 0.4,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,

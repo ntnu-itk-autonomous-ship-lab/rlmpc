@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import colav_simulator.common.map_functions as mapf
+import colav_simulator.common.math_functions as cs_mf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
 import colav_simulator.common.plotters as plotters
 import colav_simulator.core.colav.colav_interface as ci
@@ -254,7 +255,7 @@ class RLMPC(ci.ICOLAV):
                     surfval = min(1.0, surface(np.array([x_val, y_val]).reshape(1, 2)).full()[0][0])
                     z[idy, idx] += max(0.0, surfval)
         pc = ax.pcolormesh(x, y, z, shading="gouraud", rasterized=True)
-        ax.scatter(center[1], center[0], color="red", s=30, marker="x")
+        ax.scatter(center[0], center[1], color="red", s=30, marker="x")
         cbar = fig.colorbar(pc)
         cbar.set_label("Surface value capped to +-1.0")
         ax.set_xlabel("North [m]")
@@ -304,14 +305,23 @@ class RLMPC(ci.ICOLAV):
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
         chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # COg
-        chi_0_ref = self._mpc_trajectory[2, 1]  # starting from 1 since the first sample is the current state
-        chi_1_ref = self._mpc_trajectory[2, 2]
+        chi_0_ref = cs_mf.wrap_angle_to_pmpi(
+            self._mpc_trajectory[2, 1]
+        )  # starting from 1 since the first sample is the current state
+        chi_1_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
         U_0_ref = self._mpc_trajectory[3, 1]
         U_1_ref = self._mpc_trajectory[3, 2]
-        action = np.array([chi_0_ref - chi, U_0_ref - U, chi_1_ref - chi, U_1_ref - U])
+        action = np.array(
+            [
+                cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi),
+                U_0_ref - U,
+                cs_mf.wrap_angle_diff_to_pmpi(chi_1_ref, chi),
+                U_1_ref - U,
+            ]
+        )
 
         print(
-            f"t: {t} | U_mpc: {U_0_ref} | U: {U} | chi_mpc: {180.0 * chi_0_ref / np.pi} | chi: {180.0 * chi / np.pi} | r_mpc: {0.0} | r: {ownship_state[5]}"
+            f"t: {t} | U_mpc: {U_0_ref:.4f} | U: {U:.4f} | chi_mpc: {180.0 * chi_0_ref / np.pi:.4f} | chi: {180.0 * chi / np.pi:.4f} | chi_diff: {180.0 * cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi) / np.pi:.4f} | r_mpc: {0.0} | r: {ownship_state[5]:.4f}"
         )
         # double check action indices:
         # nx, nu, ns, _ = self._mpc.dims()
@@ -510,7 +520,7 @@ class RLMPC(ci.ICOLAV):
             #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
             #     )
 
-            warm_start = self.create_mpc_warm_start(ownship_state, enc, **kwargs)
+            warm_start = self.create_mpc_warm_start(t, ownship_state, enc, **kwargs)
 
             self._mpc_soln = self._mpc.plan(
                 t,
@@ -538,8 +548,7 @@ class RLMPC(ci.ICOLAV):
                 [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
             )
             self._mpc_soln["u_prev"] = self._mpc_inputs[:, 0]
-        #
-        # lookahead_sample = 4  # 5s=dt_mpc between each sample, => 30 * 0.5 = 15s => for 2m/s speed, 30m ahead
+
         waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, self.lookahead_sample]))
         speed_plan = np.array(
             [self._mpc_trajectory[3, self.lookahead_sample], self._mpc_trajectory[3, self.lookahead_sample]]
@@ -552,19 +561,15 @@ class RLMPC(ci.ICOLAV):
         self._references = self._los.compute_references(waypoints, speed_plan, None, ownship_state, t - self._t_prev)
         self._t_prev = t
         self._mpc_soln["t_prev"] = t
-        U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
-        chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
-        # print(
-        #     f"t: {t} | U_mpc: {self._references[3, 0]} | U: {U} | chi_mpc: {180.0 * self._references[2, 0] / np.pi} | chi: {180.0 * chi / np.pi} | r_mpc: {self._references[5, 0]} | r: {ownship_state[5]}"
-        # )
         return self._references
 
     def create_mpc_warm_start(
-        self, ownship_state: np.ndarray, enc: senc.ENC, **kwargs
+        self, t: float, ownship_state: np.ndarray, enc: senc.ENC, **kwargs
     ) -> Optional[Dict[str, np.ndarray]]:
         """Creates a warm start for the MPC by growing an RRT from the terminal MPC state towards the goal state. If t == 0, the RRT is grown from the current ownship state.
 
         Args:
+            t (float): Current time.
             ownship_state (np.ndarray): Ownship state on the form [x, y, psi, u, v, r]^T.
             enc (senc.ENC): Electronic navigational chart.
 
@@ -652,9 +657,19 @@ class RLMPC(ci.ICOLAV):
             warm_start.update(
                 {"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"], "sigma_prev": Sigma[:, 0]}
             )
-            U = np.concatenate((U[:, 1:], rrt_inputs[:, 0].reshape(nu, 1)), axis=1)
-            X = np.concatenate((X[:, 1:], rrt_trajectory[:, 1].reshape(nx, 1)), axis=1)
-            Sigma = np.concatenate((Sigma[:, 1:], np.zeros((Sigma.shape[0], 1))), axis=1)
+            X_comb = np.concatenate((X, rrt_trajectory[:, 1:]), axis=1)
+            U_comb = np.concatenate((U, rrt_inputs[:, 0:]), axis=1)
+            Sigma_comb = np.concatenate((Sigma, np.zeros((ns, rrt_trajectory[0, 1:].size))), axis=1)
+
+            dt_sim = t - self._t_prev_mpc
+            step = int(self._mpc.params.dt / dt_sim)
+            X_interp, U_interp, Sigma_interp = hf.interpolate_solution(
+                X_comb, U_comb, Sigma_comb, dt_sim, self._mpc.params.T + rrt_times[-1], self._mpc.params.dt
+            )
+
+            X = X_interp[:, ::step][:, : N + 1]
+            U = U_interp[:, ::step][:, :N]
+            Sigma = Sigma_interp[:, ::step][:, : N + 1]
             w = self._mpc.decision_variables(U, X, Sigma)
             lam_g = prev_soln["soln"]["lam_g"]
             lam_g = np.concatenate((lam_g[1:], lam_g[-1].reshape(1, 1)))
@@ -732,6 +747,7 @@ class RLMPC(ci.ICOLAV):
             self._geometry_tree,
             buffer=self._mpc.params.reference_traj_bbox_buffer,
             enc=enc,
+            clip_to_bbox=False,
             show_plots=self._debug,
         )
         for poly_tuple in poly_tuple_list:

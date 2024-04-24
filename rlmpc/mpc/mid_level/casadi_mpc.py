@@ -432,13 +432,14 @@ class CasadiMPC:
                 g_do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full().flatten()
                 g_so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full().flatten()
                 if g_eq_vals.max() > 1e-6 or g_do_constr_vals.max() > 1e-6 or g_so_constr_vals.max() > 1e-6:
-                    print("WARNING: Infeasible solution found. Using previous solution.")
+                    print("WARNING: Infeasible solution found. Using previous solution/warm start.")
                     soln = self._current_warmstart
                     U, X, Sigma = self.extract_trajectories(soln)
                     soln["f"] = self._prev_cost
                     cost_val = self._prev_cost
                     lam_x = self._current_warmstart["lam_x"]
                     lam_g = self._current_warmstart["lam_g"]
+
         else:
             self._current_warmstart["f"] = cost_val
         self._current_warmstart["x"] = self.decision_variables(U, X, Sigma)

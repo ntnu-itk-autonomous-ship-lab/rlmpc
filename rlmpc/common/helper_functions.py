@@ -172,41 +172,49 @@ def create_los_based_trajectory(
 
 
 def interpolate_solution(
-    trajectory: np.ndarray, inputs: np.ndarray, dt_sim: float, T_mpc: float, dt_mpc: float
-) -> Tuple[np.ndarray, np.ndarray]:
+    trajectory: np.ndarray, inputs: np.ndarray, slacks: Optional[np.ndarray], dt_sim: float, T_mpc: float, dt_mpc: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Interpolates the solution from the MPC to the time step in the simulation.
 
     Args:
         - trajectory (np.ndarray): The solution state trajectory.
         - inputs (np.ndarray): The solution input trajectory.
+        - slacks (Optional[np.ndarray]): The solution slack variable trajectory.
         - dt_sim (float): The simulation time step.
         - T_mpc (float): The MPC horizon.
         - dt_mpc (float): The MPC time step.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray]: The interpolated solution state trajectory and input trajectory.
+        Tuple[np.ndarray, np.ndarray]: The interpolated solution state trajectory, input trajectory and slack variable trajectory.
     """
     intp_trajectory = trajectory
     intp_inputs = inputs
+    intp_slacks = slacks
     if dt_mpc > dt_sim or dt_mpc < dt_sim:
         nx = trajectory.shape[0]
         nu = inputs.shape[0]
-        sim_times = np.arange(0.0, T_mpc, dt_sim)
-        mpc_times = np.arange(0.0, T_mpc, dt_mpc)
+        ns = slacks.shape[0]
+        sim_times = np.arange(0.0, T_mpc + dt_mpc, dt_sim)
+        mpc_times = np.arange(0.0, T_mpc + dt_mpc, dt_mpc)
         n_samples = len(sim_times)
         intp_trajectory = np.zeros((nx, n_samples))
-        intp_inputs = np.zeros((nu, n_samples))
+        intp_inputs = np.zeros((nu, n_samples - 1))
+        intp_slacks = np.zeros((ns, n_samples))
         for dim in range(nx):
             intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", fill_value="extrapolate")(
                 sim_times
             )
         for dim in range(nu):
-            intp_inputs[dim, :] = interp1d(mpc_times, inputs[dim, :], kind="linear", fill_value="extrapolate")(
+            intp_inputs[dim, :] = interp1d(mpc_times[:-1], inputs[dim, :], kind="linear", fill_value="extrapolate")(
+                sim_times[:-1]
+            )
+        for dim in range(ns):
+            intp_slacks[dim, :] = interp1d(mpc_times, slacks[dim, :], kind="linear", fill_value="extrapolate")(
                 sim_times
             )
 
-        return intp_trajectory, intp_inputs
-    return intp_trajectory, intp_inputs
+        return intp_trajectory, intp_inputs, intp_slacks
+    return intp_trajectory, intp_inputs, intp_slacks
 
 
 def shift_nominal_plan(

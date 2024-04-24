@@ -24,6 +24,7 @@ import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
+
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
@@ -1063,7 +1064,7 @@ def compute_surface_approximations_from_polygons(
                 #     )
 
                 # Add buffer points just outside the relevant polygon coastline, where the mask is zero or negative (no collision)
-                buffer_distance = 0.05
+                buffer_distance = 0.1
                 y_poly, x_poly = polygon.buffer(
                     d_safe + buffer_distance, cap_style=cap_style, join_style=join_style
                 ).exterior.coords.xy
@@ -1199,7 +1200,7 @@ def compute_surface_approximations_from_polygons(
                 #     print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
                 # if show_plots:
                 #     print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
-                smoothing = 0.1
+                smoothing = 5.0
 
                 rbf = scipyintp.RBFInterpolator(
                     np.array([x_surface_data_points, y_surface_data_points]).T,
