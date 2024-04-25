@@ -963,7 +963,7 @@ def compute_surface_approximations_from_polygons(
     bbox_poly = bbox_to_polygon(tuple(rel_bbox))
     j = 0
     for d_safe in safety_margins:
-        d_safe = d_safe + 0.4  # buffer to account for function slope not being infinite
+        d_safe = d_safe + 0.05  # buffer to account for function slope not being infinite
         surfaces = []
         scipy_surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
@@ -1166,7 +1166,7 @@ def compute_surface_approximations_from_polygons(
                     arc_length_extra_boundary,
                 ) = hf.create_arc_length_spline(x_buffered_boundary, y_buffered_boundary)
                 # Tuning parameter
-                extra_buffer_point_distance_spacing = max(50.0, 0.03 * arc_length_extra_boundary[-1])
+                extra_buffer_point_distance_spacing = max(20.0, 0.03 * arc_length_extra_boundary[-1])
                 y_extra_boundary = list(
                     y_extra_boundary_spline(
                         np.arange(0, arc_length_extra_boundary[-1], extra_buffer_point_distance_spacing)
@@ -1200,7 +1200,7 @@ def compute_surface_approximations_from_polygons(
                 #     print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
                 # if show_plots:
                 #     print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
-                smoothing = 5.0
+                smoothing = 10.0
 
                 rbf = scipyintp.RBFInterpolator(
                     np.array([x_surface_data_points, y_surface_data_points]).T,

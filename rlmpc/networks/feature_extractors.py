@@ -58,12 +58,23 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
 
+    def set_inference_mode(self, inference_mode: bool) -> None:
+        self.vae.set_inference_mode(inference_mode)
+
     def display_image(self, image: th.Tensor) -> None:
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots()
         ax.imshow(image[0].numpy())
         plt.show(block=False)
+
+    def reconstruct(self, observations: th.Tensor) -> th.Tensor:
+        with th.no_grad():
+            z = self.vae.encode(observations)[0]
+            recon_obs = self.vae.decode(z)
+            # self.display_image(reconstructed_image[0])
+            # self.display_image(recon_obs[0])
+            return recon_obs
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."

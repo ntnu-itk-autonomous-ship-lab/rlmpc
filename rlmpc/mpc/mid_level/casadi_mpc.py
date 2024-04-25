@@ -307,7 +307,6 @@ class CasadiMPC:
         warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
-        prev_soln: Optional[dict] = None,
         show_plots: bool = False,
         **kwargs,
     ) -> dict:
@@ -323,7 +322,6 @@ class CasadiMPC:
             - warm_start (dict): Warm start solution to use.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
-            - prev_soln (Optional[dict], optional): Previous solution to use. Defaults to None.
             - show_plots (bool, optional): Whether to show plots. Defaults to False.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
@@ -337,9 +335,9 @@ class CasadiMPC:
             self._prev_cost = np.inf
             self._t_prev = t
 
-        if "xs_prev" in warm_start:
+        if "X" in warm_start:
             # warm start is embedded in the previous solution in this case
-            self._xs_prev = prev_soln["trajectory"][:, 0] - np.array(
+            self._xs_prev = warm_start["X"][:, 0] - np.array(
                 [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
             )
 
@@ -399,7 +397,7 @@ class CasadiMPC:
                 f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6).flatten().T}!"
             )
 
-        print(f"Initial state constraint diff = {X_ws[:, 0].full().T - xs_unwrapped}")
+        print(f"Initial state constraint diff = {X_ws[:, 0].full().flatten() - xs_unwrapped}")
 
         t_start = time.time()
         soln = self._solver(

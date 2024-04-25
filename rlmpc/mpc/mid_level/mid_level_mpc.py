@@ -97,7 +97,7 @@ class MidlevelMPC:
 
     @property
     def params(self) -> mpc_parameters.MidlevelMPCParams:
-        return self._params
+        return self._casadi_mpc._params
 
     @property
     def adjustable_params(self) -> np.ndarray:
@@ -111,6 +111,7 @@ class MidlevelMPC:
         self._casadi_mpc.update_adjustable_params(delta)
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.update_adjustable_params(delta)
+        self._params = self._casadi_mpc._params
 
     def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
         """Computes the path variable and its derivative from the current state.

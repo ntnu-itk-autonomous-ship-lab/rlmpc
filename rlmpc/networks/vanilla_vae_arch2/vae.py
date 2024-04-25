@@ -66,7 +66,7 @@ class VAE(nn.Module):
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
 
-    def forward(self, img: th.Tensor) -> th.Tensor:
+    def forward(self, img: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a reconstructed image based on the input image.
 
         Args:
@@ -90,7 +90,7 @@ class VAE(nn.Module):
         img_recon = self.decoder(z_sampled)
         return img_recon, mean, logvars, z_sampled
 
-    def forward_test(self, image: th.Tensor) -> th.Tensor:
+    def forward_test(self, image: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a reconstructed image based on input image.
 
         Args:
@@ -114,7 +114,7 @@ class VAE(nn.Module):
         img_recon = self.decoder(z_sampled)
         return img_recon, mean, logvars, z_sampled
 
-    def encode(self, image: th.Tensor) -> th.Tensor:
+    def encode(self, image: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a latent vector based on input image.
 
         Args:

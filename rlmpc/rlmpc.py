@@ -136,10 +136,6 @@ class RLMPC(ci.ICOLAV):
         self._enc: Optional[senc.ENC] = None
         self._nominal_path = None
 
-    @property
-    def lookahead_sample(self) -> int:
-        return self._lookahead_sample
-
     def _clear_disturbance_handles(self) -> None:
         if self._disturbance_handles:
             for handle in self._disturbance_handles:
@@ -167,7 +163,7 @@ class RLMPC(ci.ICOLAV):
         the OCP"""
         self._waypoints = waypoints
         self._speed_plan = speed_plan
-        self._speed_plan[self._speed_plan > 7.0] = 7.0
+        self._speed_plan[self._speed_plan > 7.0] = 6.0
         self._speed_plan[self._speed_plan < 2.0] = 2.0
         self._mpc_soln: dict = {}
         self._mpc_trajectory: np.ndarray = np.array([])
@@ -228,7 +224,7 @@ class RLMPC(ci.ICOLAV):
             ownship_csog_state[0], ownship_csog_state[1], ownship_csog_state[2], 8.0, 3.0, 1.0, 1.0
         )
         self._enc.draw_polygon(os_poly, color="pink")
-        self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=5.0, color="black")
+        self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=1.0, color="black")
 
         # self.plot_surfaces(ownship_state)
         self._initialized = True
@@ -398,6 +394,10 @@ class RLMPC(ci.ICOLAV):
         """
         self._config = RLMPCParams.from_file(filename)
 
+    def close_enc_display(self) -> None:
+        """Closes the ENC display."""
+        self._enc.close_display()
+
     def visualize_disturbance(self, ddata: stochasticity.DisturbanceData | None) -> None:
         """Visualizes the disturbance object.
 
@@ -440,6 +440,10 @@ class RLMPC(ci.ICOLAV):
                 )
             )
         self._disturbance_handles = handles
+
+    @property
+    def mpc_params(self) -> mpc_params.MidlevelMPCParams:
+        return self._mpc.params
 
     def plot_path(self, enc: senc.ENC) -> None:
         """Plot the nominal path."""
@@ -490,6 +494,7 @@ class RLMPC(ci.ICOLAV):
             )
 
             if self._debug:
+                self._enc.start_display()
                 plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
                 ship_poly = mapf.create_ship_polygon(
                     ownship_state[0],
@@ -549,10 +554,8 @@ class RLMPC(ci.ICOLAV):
             )
             self._mpc_soln["u_prev"] = self._mpc_inputs[:, 0]
 
-        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, self.lookahead_sample]))
-        speed_plan = np.array(
-            [self._mpc_trajectory[3, self.lookahead_sample], self._mpc_trajectory[3, self.lookahead_sample]]
-        )
+        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, 3]))
+        speed_plan = np.array([self._mpc_trajectory[3, 3], self._mpc_trajectory[3, 3]])
         # if self._debug:
         #     plotters.plot_waypoints(
         #         waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
@@ -667,9 +670,10 @@ class RLMPC(ci.ICOLAV):
                 X_comb, U_comb, Sigma_comb, dt_sim, self._mpc.params.T + rrt_times[-1], self._mpc.params.dt
             )
 
-            X = X_interp[:, ::step][:, : N + 1]
-            U = U_interp[:, ::step][:, :N]
-            Sigma = Sigma_interp[:, ::step][:, : N + 1]
+            # shift the interpolated trajectory dt_sim forward in time
+            X = X_interp[:, 1::step][:, : N + 1]
+            U = U_interp[:, 1::step][:, :N]
+            Sigma = Sigma_interp[:, 1::step][:, : N + 1]
             w = self._mpc.decision_variables(U, X, Sigma)
             lam_g = prev_soln["soln"]["lam_g"]
             lam_g = np.concatenate((lam_g[1:], lam_g[-1].reshape(1, 1)))

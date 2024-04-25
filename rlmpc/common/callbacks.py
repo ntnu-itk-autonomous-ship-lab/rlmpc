@@ -16,13 +16,22 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import torch as th
+import torchvision.transforms.v2 as transforms_v2
 from colav_simulator.gym.environment import COLAVEnvironment
 from colav_simulator.gym.logger import Logger as COLAVEnvironmentLogger
 from stable_baselines3.common import type_aliases
 from stable_baselines3.common.callbacks import BaseCallback, EventCallback
 from stable_baselines3.common.logger import Image as sb3_Image
 from stable_baselines3.common.logger import Logger as sb3_Logger
-from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv, VecMonitor, is_vecenv_wrapped, sync_envs_normalization
+from stable_baselines3.common.vec_env import (
+    DummyVecEnv,
+    VecEnv,
+    VecMonitor,
+    VecVideoRecorder,
+    is_vecenv_wrapped,
+    sync_envs_normalization,
+)
 
 
 class RewardMeter:
@@ -242,6 +251,18 @@ class CollectStatisticsCallback(BaseCallback):
 
         self.envdata_logger: COLAVEnvironmentLogger = COLAVEnvironmentLogger(experiment_name, log_dir)
 
+        self.img_transform = transforms_v2.Compose(
+            [
+                transforms_v2.ToDtype(th.float32, scale=True),
+                transforms_v2.Resize((256, 256)),
+            ]
+        )
+        self.display_transform = transforms_v2.Compose(
+            [
+                transforms_v2.ToDtype(th.uint8, scale=True),
+            ]
+        )
+
     def _init_callback(self) -> None:
         # Create folder if needed
         if self.model_save_path is not None:
@@ -262,9 +283,46 @@ class CollectStatisticsCallback(BaseCallback):
             # self.envdata_logger(self.vec_env)
 
             self.logger.record("mpc/infeasible_solutions", self.model.actor.infeasible_solutions)
+            mpc_params = self.model.actor.mpc.mpc_params
+            self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
+            self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[2, 2])
+            self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
+            self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
+            self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
+            self.logger.record("mpc/alpha_app_course_0", mpc_params.alpha_app_course[0])
+            self.logger.record("mpc/alpha_app_course_1", mpc_params.alpha_app_course[1])
+            self.logger.record("mpc/alpha_app_speed_0", mpc_params.alpha_app_speed[0])
+            self.logger.record("mpc/alpha_app_speed_1", mpc_params.alpha_app_speed[1])
+            self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
+            self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
+            self.logger.record("mpc/alpha_cr_0", mpc_params.alpha_cr[0])
+            self.logger.record("mpc/alpha_cr_1", mpc_params.alpha_cr[1])
+            self.logger.record("mpc/y_0_cr", mpc_params.y_0_cr)
+            self.logger.record("mpc/alpha_ho_0", mpc_params.alpha_ho[0])
+            self.logger.record("mpc/alpha_ho_1", mpc_params.alpha_ho[1])
+            self.logger.record("mpc/x_0_ho", mpc_params.x_0_ho)
+            self.logger.record("mpc/alpha_ot_0", mpc_params.alpha_ot[0])
+            self.logger.record("mpc/alpha_ot_1", mpc_params.alpha_ot[1])
+            self.logger.record("mpc/x_0_ot", mpc_params.x_0_ot)
+            self.logger.record("mpc/y_0_ot", mpc_params.y_0_ot)
+
             frame = self.vec_env.render()
-            # if frame is not None:
-            #     self.logger.record("env/frame", sb3_Image(frame, "HW"))
+            if frame is not None:
+                pimg = th.from_numpy(self.model._current_obs["PerceptionImageObservation"])
+                pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
+                recon_frame = pvae.reconstruct(self.img_transform(pimg))
+
+                self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
+                self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
+
+            rel_tracking_obs = th.from_numpy(self.model._current_obs["RelativeTrackingObservation"])
+            trackinggru = self.model.critic.features_extractor.extractors["RelativeTrackingObservation"]
+            output = trackinggru(rel_tracking_obs)
+            self.logger.record("sac/trackinggru_output_min", output.min().item())
+            self.logger.record("sac/trackinggru_output_max", output.max().item())
+
+            # chi_d = self.model._
+            # self.logger.record("env/chi_d")
 
         if np.sum(done_array).item() > 0:
             self.n_episodes += np.sum(done_array).item()
@@ -302,6 +360,7 @@ class EvalCallback(EventCallback):
             will be saved. It will be updated at each evaluation. Defaults to None.
         - best_model_save_path (Optional[str], optional): Path to a folder where the best model
             according to performance on the eval env will be saved. Defaults to None.
+        - video_save_path (Optional[str], optional): Path to a folder where videos of the agent will be saved. Defaults to None.
         - deterministic (bool, optional): Whether the evaluation should use a stochastic or deterministic actions. Defaults to True.
         - render (bool, optional): Whether to render or not the environment during evaluation. Defaults to False.
         - verbose (int, optional): Verbosity level: 0 for no output, 1 for indicating information about evaluation results. Defaults to 1.
@@ -312,14 +371,14 @@ class EvalCallback(EventCallback):
     def __init__(
         self,
         eval_env: Union[COLAVEnvironment, VecEnv],
-        eval_model: Optional["type_aliases.PolicyPredictor"] = None,
+        log_path: Path,
         callback_on_new_best: Optional[BaseCallback] = None,
         callback_after_eval: Optional[BaseCallback] = None,
         n_eval_episodes: int = 5,
         eval_freq: int = 10000,
-        log_path: Optional[str] = None,
-        best_model_save_path: Optional[str] = None,
+        experiment_name: str = "eval",
         deterministic: bool = True,
+        record: bool = False,
         render: bool = False,
         verbose: int = 1,
         warn: bool = True,
@@ -337,19 +396,19 @@ class EvalCallback(EventCallback):
         self.last_mean_reward = -np.inf
         self.deterministic = deterministic
         self.render = render
+        self.record = record
         self.warn = warn
 
         # Convert to VecEnv for consistency
         if not isinstance(eval_env, VecEnv):
             eval_env = DummyVecEnv([lambda: eval_env])
 
+        self.experiment_name = experiment_name
         self.eval_env = eval_env
-        self.eval_model = eval_model
-        self.best_model_save_path = best_model_save_path
-        # Logs will be written in ``evaluations.npz``
-        if log_path is not None:
-            log_path = os.path.join(log_path, "evaluations")
+        self.best_model_save_path = log_path
         self.log_path = log_path
+        self.video_save_path = log_path / "eval_videos"
+
         self.evaluations_results = []
         self.evaluations_timesteps = []
         self.evaluations_length = []
@@ -362,11 +421,17 @@ class EvalCallback(EventCallback):
         if not isinstance(self.training_env, type(self.eval_env)):
             warnings.warn("Training and eval env are not of the same type" f"{self.training_env} != {self.eval_env}")
 
-        # Create folders if needed
-        if self.best_model_save_path is not None:
-            os.makedirs(self.best_model_save_path, exist_ok=True)
-        if self.log_path is not None:
-            os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        if not self.log_path.exists():
+            self.log_path.mkdir(parents=True, exist_ok=True)
+
+        if not self.video_save_path.exists():
+            self.video_save_path.mkdir(parents=True, exist_ok=True)
+        else:
+            # Clean the video folder
+            for file in self.video_save_path.iterdir():
+                file.unlink()
+        if not self.best_model_save_path.exists():
+            self.best_model_save_path.mkdir(parents=True, exist_ok=True)
 
         # Init callback called on new best model
         if self.callback_on_new_best is not None:
@@ -407,19 +472,19 @@ class EvalCallback(EventCallback):
             # Reset success rate buffer
             self._is_success_buffer = []
 
-            if self.eval_model is not None:
-                self.eval_model.transfer_mpc_parameters(self.model)
-            else:
-                self.eval_model = self.model
+            self.model.actor.mpc.close_enc_display()
 
             episode_rewards, episode_lengths = evaluate_mpc_policy(
-                self.eval_model,
+                self.model,
                 self.eval_env,
                 n_eval_episodes=self.n_eval_episodes,
                 render=self.render,
                 deterministic=self.deterministic,
                 return_episode_rewards=True,
                 warn=self.warn,
+                record=self.record,
+                record_path=self.video_save_path,
+                record_name=f"eval_{self.experiment_name}_{self.num_timesteps}",
                 callback=self._log_success_callback,
             )
 
@@ -435,7 +500,7 @@ class EvalCallback(EventCallback):
                     kwargs = dict(successes=self.evaluations_successes)
 
                 np.savez(
-                    self.log_path,
+                    self.log_path / f"eval_{self.experiment_name}_{self.num_timesteps}.npz",
                     timesteps=self.evaluations_timesteps,
                     results=self.evaluations_results,
                     ep_lengths=self.evaluations_length,
@@ -500,11 +565,14 @@ def evaluate_mpc_policy(
     env: Union[gym.Env, VecEnv],
     n_eval_episodes: int = 5,
     deterministic: bool = True,
-    render: bool = False,
+    render: bool = True,
     callback: Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]] = None,
     reward_threshold: Optional[float] = None,
-    return_episode_rewards: bool = False,
+    return_episode_rewards: bool = True,
     warn: bool = True,
+    record: bool = False,
+    record_path: Optional[Path] = None,
+    record_name: str = "eval_mpc_policy",
 ) -> Union[Tuple[float, float], Tuple[List[float], List[int]]]:
     """
     Custom version of the evaluate_policy function from stable_baselines3.common.evaluation.py.
@@ -539,6 +607,9 @@ def evaluate_mpc_policy(
             per episode will be returned instead of the mean.
         - warn (bool): If True (default), warns user about lack of a Monitor wrapper in the
             evaluation environment.
+        - record (bool): If True, records the evaluation episodes.
+        - record_path (Optional[Path]): Path to the folder where the videos will be recorded.
+        - record_name (str): Name of the video.
 
     Returns:
         - Union[Tuple[float, float], Tuple[List[float], List[int]]]: Mean reward per episode, std of reward per episode.
@@ -575,7 +646,14 @@ def evaluate_mpc_policy(
 
     current_rewards = np.zeros(n_envs)
     current_lengths = np.zeros(n_envs, dtype="int")
+    if record:
+        assert record_path is not None, "record_path must be provided if record is True."
+        if not record_path.exists():
+            record_path.mkdir(parents=True, exist_ok=True)
+        env = VecVideoRecorder(env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0)
+
     observations = env.reset()
+
     states = None
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     while (episode_counts < episode_count_targets).any():
@@ -590,9 +668,16 @@ def evaluate_mpc_policy(
         )
         states = actor_infos
 
+        # For plotting the predicted trajectory
+        for env_idx in range(env.num_envs):
+            env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
+                actor_infos[env_idx]["trajectory"]
+            )
+
         new_observations, rewards, dones, infos = env.step(normalized_actions)
         for actor_info, info in zip(actor_infos, infos):
             info.update({"actor_info": actor_info})
+
         current_rewards += rewards
         current_lengths += 1
         for i in range(n_envs):
@@ -607,6 +692,8 @@ def evaluate_mpc_policy(
                     callback(locals(), globals())
 
                 if dones[i]:
+                    actor_infos[i] = {}
+                    model.actor.mpc.close_enc_display()
                     if is_monitor_wrapped:
                         if "episode" in info.keys():
                             # Do not trust "done" with episode endings.
@@ -627,6 +714,8 @@ def evaluate_mpc_policy(
 
         if render:
             env.render()
+
+    env.close()
 
     mean_reward = np.mean(episode_rewards)
     std_reward = np.std(episode_rewards)

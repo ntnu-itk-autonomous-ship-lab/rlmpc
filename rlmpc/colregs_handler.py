@@ -114,7 +114,7 @@ class COLREGSHandler:
                 self._already_removed_labels.append(ID)
                 continue
 
-            if ID in self._do_labels and do_is_relevant:
+            if ID in self._do_labels:
                 self._update_do(ID, (ID, do_state, do_cov, length, width))
                 continue
 
