@@ -224,7 +224,7 @@ class RLMPC(ci.ICOLAV):
             ownship_csog_state[0], ownship_csog_state[1], ownship_csog_state[2], 8.0, 3.0, 1.0, 1.0
         )
         self._enc.draw_polygon(os_poly, color="pink")
-        self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=1.0, color="black")
+        self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=3.0, color="black")
 
         # self.plot_surfaces(ownship_state)
         self._initialized = True
@@ -604,15 +604,22 @@ class RLMPC(ci.ICOLAV):
             ownship_state=start_state_copy.tolist(),
             U_d=nominal_speed_ref,
             initialized=False,
-            return_on_first_solution=True if prev_soln else False,
+            return_on_first_solution=True,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
 
         N = int(self._mpc.params.T / self._mpc.params.dt)
-        if rrt_trajectory.size == 0:
-            rrt_trajectory = self._mpc.model_prediction(start_state, last_mpc_input.reshape(nu, 1), N + 1)
-            rrt_times = np.arange(0, N + 1) * self._mpc.params.dt
-            rrt_inputs = np.tile(last_mpc_input.reshape(3, 1), (1, N))
+        if rrt_trajectory.shape[1] < N + 1:
+            # use model prediction to extend the trajectory
+            sample_diff = N + 1 - rrt_trajectory.shape[1]
+            xs_init = rrt_trajectory[:, -1] if rrt_trajectory.size > 0 else start_state
+            u_init = rrt_inputs[:, -1] if rrt_inputs.size > 0 else last_mpc_input
+            model_traj = self._mpc.model_prediction(xs_init, u_init.reshape((nu, 1)), sample_diff + 1)
+            offset = 1 if rrt_times.size > 0 else 0
+            rrt_trajectory = np.concatenate((rrt_trajectory, model_traj[:, offset:]), axis=1)
+            t_init = rrt_times[-1] if rrt_times.size > 0 else 0.0
+            rrt_times = np.concatenate((rrt_times, t_init + np.arange(1, sample_diff + 1) * self._mpc.params.dt))
+            rrt_inputs = np.concatenate((rrt_inputs, np.tile(u_init.reshape(nu, 1), (1, sample_diff))), axis=1)
 
         # plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
         plotters.plot_trajectory(rrt_trajectory, enc, color="black")
@@ -624,18 +631,6 @@ class RLMPC(ci.ICOLAV):
             rrt_times = rrt_times[::step][: N + 1]
             num_rrt_samples = rrt_trajectory.shape[1]
             rrt_inputs = rrt_inputs[:, ::step][:, : num_rrt_samples - 1]
-
-        if rrt_trajectory.shape[1] < N + 1:
-            # use model prediction to extend the trajectory
-            sample_diff = N + 1 - rrt_trajectory.shape[1]
-            model_traj = self._mpc.model_prediction(
-                rrt_trajectory[:, -1], rrt_inputs[:, -1].reshape(nu, 1), sample_diff + 1
-            )
-            rrt_trajectory = np.concatenate((rrt_trajectory, model_traj[:, 1:]), axis=1)
-            rrt_times = np.concatenate((rrt_times, rrt_times[-1] + np.arange(1, sample_diff + 1) * self._mpc.params.dt))
-            rrt_inputs = np.concatenate(
-                (rrt_inputs, np.tile(rrt_inputs[:, -1].reshape(nu, 1), (1, sample_diff))), axis=1
-            )
 
         if prev_soln:
             rrt_trajectory[4:, 0] = start_state[4:]
@@ -762,7 +757,7 @@ class RLMPC(ci.ICOLAV):
             # hf.plot_trajectory(waypoints, enc, color="green")
             plotters.plot_trajectory(nominal_trajectory, enc, color="yellow")
             for hazard in self._rel_polygons:
-                enc.draw_polygon(hazard, color="red", fill=True)
+                enc.draw_polygon(hazard, color="red", fill=True, alpha=0.7)
 
             ship_poly = mapf.create_ship_polygon(
                 ownship_state[0],

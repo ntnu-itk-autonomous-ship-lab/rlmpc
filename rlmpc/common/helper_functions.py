@@ -17,8 +17,11 @@ import colav_simulator.core.controllers as controllers
 import colav_simulator.core.guidances as guidances
 import colav_simulator.core.integrators as sim_integrators
 import colav_simulator.core.models as sim_models
+import matplotlib
 import matplotlib.path as mpath
 import matplotlib.pyplot as plt
+
+matplotlib.use("Agg")
 import numpy as np
 import rlmpc.common.file_utils as fu
 import rlmpc.common.math_functions as mf

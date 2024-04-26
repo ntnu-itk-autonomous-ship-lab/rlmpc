@@ -74,7 +74,7 @@ midlevel_mpc:
     w_colregs: [70.0, 70.0, 30.0]
 
     w_L2: 0.0
-    w_L1: 20000.0
+    w_L1: 100000.0
     r_safe_so: 10.0
     r_safe_do: 20.0
     gamma: 1.0

@@ -78,7 +78,7 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
 
 
 def main():
-    experiment_name = "test_sac_rlmpc"
+    experiment_name = "sac_rlmpc"
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
 
     scenario_names = ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
@@ -88,9 +88,7 @@ def main():
     generate = False
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
-        for idx, name in enumerate(scenario_names[:3]):
-            if idx == 0:
-                continue
+        for idx, name in enumerate(scenario_names):
 
             scenario_generator.seed(idx + 2)
             _ = scenario_generator.generate(
@@ -200,14 +198,15 @@ def main():
         verbose=1,
     )
 
+    exp_name_str = "sac_rlmpc1"
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir,
         eval_freq=2,
-        n_eval_episodes=1,
+        n_eval_episodes=5,
         callback_after_eval=stop_train_callback,
-        experiment_name="sac_rlmpc1",
+        experiment_name=exp_name_str,
         deterministic=True,
         record=True,
         render=True,
@@ -216,7 +215,7 @@ def main():
     stats_callback = CollectStatisticsCallback(
         env,
         log_dir=base_dir,
-        experiment_name="sac_rlmpc1",
+        experiment_name=exp_name_str,
         save_stats_freq=10,
         save_agent_model_freq=100,
         log_stats_freq=2,
