@@ -77,6 +77,10 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     return base_dir, log_dir, model_dir, best_model_dir
 
 
+# optimize runtime?
+# fix enc display whiteness in training
+# upd scen gen to spawn obstacles along waypoints instead of only near init pos
+# add more scenarios
 def main():
     experiment_name = "sac_rlmpc"
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
@@ -188,11 +192,11 @@ def main():
         policy,
         env,
         policy_kwargs=policy_kwargs,
-        buffer_size=500,
+        buffer_size=700,
         learning_starts=0,
         batch_size=16,
         gradient_steps=1,
-        train_freq=(5, "step"),
+        train_freq=(100, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
         verbose=1,
@@ -203,7 +207,7 @@ def main():
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir,
-        eval_freq=2,
+        eval_freq=1000,
         n_eval_episodes=5,
         callback_after_eval=stop_train_callback,
         experiment_name=exp_name_str,
@@ -218,7 +222,7 @@ def main():
         experiment_name=exp_name_str,
         save_stats_freq=10,
         save_agent_model_freq=100,
-        log_stats_freq=2,
+        log_stats_freq=4,
         verbose=1,
     )
 

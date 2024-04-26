@@ -396,7 +396,8 @@ class RLMPC(ci.ICOLAV):
 
     def close_enc_display(self) -> None:
         """Closes the ENC display."""
-        self._enc.close_display()
+        if self._enc is not None:
+            self._enc.close_display()
 
     def visualize_disturbance(self, ddata: stochasticity.DisturbanceData | None) -> None:
         """Visualizes the disturbance object.
