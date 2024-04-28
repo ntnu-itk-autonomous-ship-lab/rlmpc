@@ -100,7 +100,11 @@ midlevel_mpc:
       solver_tol: 0.0000001
       print_level: 0
       print_time: 0
+<<<<<<< HEAD
       mu_target: 0.00001 # start higher
+=======
+      mu_target: 0.0000001 # start higher
+>>>>>>> 0dc21b3c650e6ffbeceab51e877ba8b24f70342f
       mu_init: 0.1
       acceptable_tol: 0.0000001 # harder to "compute good gradient steps" for mpc-parameterizations
       acceptable_obj_change_tol: 1000_000_000_000.0

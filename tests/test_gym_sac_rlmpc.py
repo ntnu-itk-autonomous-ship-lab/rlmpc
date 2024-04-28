@@ -77,6 +77,7 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     return base_dir, log_dir, model_dir, best_model_dir
 
 
+<<<<<<< HEAD
 # tuning:
 # horizon
 # tau/barrier param
@@ -85,6 +86,12 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
 # if ship gets too much off path/course it will just continue off course
 
 
+=======
+# optimize runtime?
+# fix enc display whiteness in training
+# upd scen gen to spawn obstacles along waypoints instead of only near init pos
+# add more scenarios
+>>>>>>> 0dc21b3c650e6ffbeceab51e877ba8b24f70342f
 def main():
     experiment_name = "sac_rlmpc"
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
@@ -196,7 +203,7 @@ def main():
         policy,
         env,
         policy_kwargs=policy_kwargs,
-        buffer_size=500,
+        buffer_size=700,
         learning_starts=0,
         batch_size=16,
         gradient_steps=1,
@@ -225,8 +232,8 @@ def main():
         log_dir=base_dir,
         experiment_name=exp_name_str,
         save_stats_freq=10,
-        save_agent_model_freq=1000,
-        log_stats_freq=2,
+        save_agent_model_freq=100,
+        log_stats_freq=4,
         verbose=1,
     )
 
