@@ -446,9 +446,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self._current_obs = self._last_obs
 
         while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
-            if env.envs[0].unwrapped.time == 0.0:
+            if env.envs[0].unwrapped.time < 0.0001:
                 self._last_actor_info = [{} for _ in range(env.num_envs)]
                 action_count = 0
+                self.policy.actor.mpc.close_enc_display()
                 self.policy.initialize_mpc_actor(env.envs[0])
 
             actions, buffer_actions, actor_infos = self._sample_action(
