@@ -24,7 +24,6 @@ import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
-
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
@@ -941,7 +940,7 @@ def compute_surface_approximations_from_polygons(
     """Computes smooth 2D surface approximations from the input polygon list.
 
     Args:
-        - polygons (list): List of shapely polygons
+        - polygons (list): List of tuples containing 1) Polygons inside a trajectory buffered region and 2) the original polygon in the map.
         - enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
         - safety_margins (Optional[list], optional): List of safety margins to buffer the polygon. Defaults to None.
         - map_origin (np.ndarray, optional): Map origin. Defaults to np.array([0.0, 0.0]).

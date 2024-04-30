@@ -260,7 +260,7 @@ class SACMPCActor(BasePolicy):
         actor_infos = [{} for _ in range(batch_size)]
         for idx in range(batch_size):
             t, ownship_state, do_list, w = self.extract_observation_features(observation, idx)
-            w.print()
+            # w.print()
             prev_soln = state[idx] if state is not None else None
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
             norm_action = self.action_type.normalize(action)

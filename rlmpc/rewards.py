@@ -200,6 +200,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
         super().__init__(env)
         self._config: AntiGroundingRewarderParams = config
         self._ktp: guidances.KinematicTrajectoryPlanner = guidances.KinematicTrajectoryPlanner()
+        self._polygons: list = []
         self._rel_polygons: list = []
         self._show_plots: bool = False
         self._so_surfaces: list = []
@@ -227,11 +228,13 @@ class AntiGroundingRewarder(cs_reward.IReward):
 
     def _setup_static_obstacle_input(self) -> None:
         """Setup the static obstacle input for the anti-grounding rewarder."""
+        self._polygons = []
+        self._rel_polygons = []
         self._min_depth = mapf.find_minimum_depth(self.env.ownship.draft, self.env.enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
             self._min_depth, self.env.enc, buffer=self._config.r_safe, show_plots=False
         )
-        self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+        self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
         nominal_trajectory = self._ktp.compute_reference_trajectory(dt=5.0)
         nominal_trajectory = nominal_trajectory + np.array(
@@ -245,8 +248,8 @@ class AntiGroundingRewarder(cs_reward.IReward):
             show_plots=self._show_plots,
         )
         for poly_tuple in poly_tuple_list:
-            self._rel_polygons.extend(poly_tuple[0])
-        self._polygons = self._rel_polygons
+            self._polygons.extend(poly_tuple[0])
+
         translated_poly_tuple_list = []
         for polygons, original_polygon in poly_tuple_list:
             translated_poly_tuple_list.append(
@@ -281,14 +284,18 @@ class AntiGroundingRewarder(cs_reward.IReward):
         plt.show(block=False)
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
-        if kwargs["num_steps"] == 0:
+        if self.env.time < 0.0001:
             self.create_so_surfaces()
         p_os = (self.env.ownship.state[:2] - self._map_origin).reshape(1, 2)
         g_so = np.zeros(len(self._so_surfaces))
         for j, surface in enumerate(self._so_surfaces):
-            g_so[j] = max(0.0, surface(p_os))
+            surf_val = surface(p_os).full()[0][0]
+            g_so[j] = np.clip(surf_val, 0.0, 1.0)
             if g_so[j] > 0.0:
-                print(f"Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]}.")
+                d2so = np.linalg.norm(
+                    mapf.compute_distance_vectors_to_grounding(self.env.ownship.state, self._min_depth, self.env.enc)
+                )
+                print(f"Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]} | d2so={d2so}.")
         grounding_cost = self._config.rho_anti_grounding * g_so.sum()
         return -grounding_cost
 
@@ -329,7 +336,7 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
         for i, do_tup in enumerate(do_list):
             d2do = np.linalg.norm(self.env.ownship.state[:2] - do_tup[1][:2])
             g_do[i] = self.compute_dynamic_obstacle_constraint(do_tup)
-            g_do[i] = max(0.0, g_do[i])
+            g_do[i] = np.clip(g_do[i], 0.0, 1.0)
             if g_do[i] > 0.0:
                 print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}.")
 
@@ -377,8 +384,6 @@ class COLREGRewarder(cs_reward.IReward):
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._colregs_handler.reset()
-
-        if kwargs["num_steps"] == 0:
             self._map_origin = self.env.ownship.csog_state[:2]
 
         do_arr = state["GroundTruthTrackingObservation"]

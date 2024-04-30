@@ -31,9 +31,9 @@ readily_apparent_maneuvering:
   r_max: 8.0
   a_max: 0.3
 collision_avoidance:
-  rho_colav: 10000.0
-  r_safe: 20.0
+  rho_colav: 1000.0
+  r_safe: 10.0
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
-  rho_anti_grounding: 10000.0
+  rho_anti_grounding: 1000.0
   r_safe: 10.0

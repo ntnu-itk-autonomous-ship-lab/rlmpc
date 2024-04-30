@@ -732,11 +732,14 @@ class RLMPC(ci.ICOLAV):
             - show_plots (bool): Whether to show plots or not.
             - **kwargs: Additional keyword arguments.
         """
+        self._rel_polygons = []
+        self._polygons = []
+        self._mpc_rel_polygons = []
         self._min_depth = mapf.find_minimum_depth(self._config.ship_draft, enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
             self._min_depth, enc, buffer=self._mpc.params.r_safe_so, show_plots=show_plots
         )
-        self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+        self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
         nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
         nominal_trajectory = nominal_trajectory + np.array(
@@ -751,13 +754,13 @@ class RLMPC(ci.ICOLAV):
             show_plots=self._debug,
         )
         for poly_tuple in poly_tuple_list:
-            self._rel_polygons.extend(poly_tuple[0])
+            self._polygons.extend(poly_tuple[0])
 
         if enc is not None and show_plots:
             enc.start_display()
             # hf.plot_trajectory(waypoints, enc, color="green")
             plotters.plot_trajectory(nominal_trajectory, enc, color="yellow")
-            for hazard in self._rel_polygons:
+            for hazard in self._polygons:
                 enc.draw_polygon(hazard, color="red", fill=True, alpha=0.7)
 
             ship_poly = mapf.create_ship_polygon(
@@ -774,9 +777,6 @@ class RLMPC(ci.ICOLAV):
             # enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
         # Translate the polygons to the origin of the map
-        translated_rel_polygons = hf.translate_polygons(
-            self._rel_polygons.copy(), self._map_origin[1], self._map_origin[0]
-        )
         translated_poly_tuple_list = []
         for polygons, original_polygon in poly_tuple_list:
             translated_poly_tuple_list.append(
@@ -785,26 +785,7 @@ class RLMPC(ci.ICOLAV):
                     hf.translate_polygons([original_polygon], self._map_origin[1], self._map_origin[0])[0],
                 )
             )
-        translated_enveloping_polygon = hf.translate_polygons(
-            [enveloping_polygon], self._map_origin[1], self._map_origin[0]
-        )[0]
-
-        # enc.save_image(name="enc_hazards", path=dp.figures, extension="pdf")
-        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.CIRCULAR:
-            self._mpc_rel_polygons = rl_mapf.compute_smallest_enclosing_circle_for_polygons(
-                translated_rel_polygons, enc, self._map_origin
-            )
-        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL:
-            self._mpc_rel_polygons = rl_mapf.compute_multi_ellipsoidal_approximations_from_polygons(
-                translated_poly_tuple_list, translated_enveloping_polygon, enc, self._map_origin
-            )
-        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            P1, P2 = mapf.create_point_list_from_polygons(translated_rel_polygons)
-            self._set_generator = sg.SetGenerator(P1, P2)
-        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
-            self._mpc_rel_polygons = translated_poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
-        else:
-            raise ValueError(f"Unknown static obstacle constraint type: {self._mpc.params.so_constr_type}")
+        self._mpc_rel_polygons = translated_poly_tuple_list
 
     def get_mpc_antigrounding_surface_functions(self) -> list:
         """Returns the surface interpolation functions for the anti-grounding constraints.

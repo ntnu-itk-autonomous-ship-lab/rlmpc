@@ -15,10 +15,9 @@ import rlmpc.sac as sac_rlmpc
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback
+from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_mpc_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
-from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 
@@ -77,7 +76,6 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     return base_dir, log_dir, model_dir, best_model_dir
 
 
-<<<<<<< HEAD
 # tuning:
 # horizon
 # tau/barrier param
@@ -86,12 +84,10 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
 # if ship gets too much off path/course it will just continue off course
 
 
-=======
 # optimize runtime?
 # fix enc display whiteness in training
 # upd scen gen to spawn obstacles along waypoints instead of only near init pos
 # add more scenarios
->>>>>>> 0dc21b3c650e6ffbeceab51e877ba8b24f70342f
 def main():
     experiment_name = "sac_rlmpc"
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
@@ -166,11 +162,10 @@ def main():
         "identifier": "training_env1",
         "seed": 15,
     }
-    total_training_timesteps = 100
     env = Monitor(gym.make(id=env_id, **env_config))
     env_config.update(
         {
-            "max_number_of_episodes": 2,
+            "max_number_of_episodes": 5,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 100,
@@ -236,40 +231,17 @@ def main():
         log_stats_freq=4,
         verbose=1,
     )
-
+    total_training_timesteps = 5000
     model.learn(
         total_timesteps=total_training_timesteps,
         progress_bar=True,
         log_interval=2,
         callback=CallbackList([stats_callback, eval_callback]),
     )
-    mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
+    mean_reward, std_reward = evaluate_mpc_policy(
+        model, eval_env, n_eval_episodes=10, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+    )
     print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
-
-    record = True
-    if record:
-        video_path = rl_dp.animations / "test_sac_rlmpc.mp4"
-        env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
-
-    n_episodes = 1
-    for i in range(n_episodes):
-        obs, _ = env.reset(seed=1)
-        done = False
-        frames = []
-        while not done:
-            action = model.predict_with_mpc(obs)
-            obs, reward, terminated, truncated, info = env.step(action)
-
-            frames.append(env.render())
-
-            done = terminated or truncated
-
-    env.close()
-
-    save_gif = True
-    if save_gif:
-        save_frames_as_gif(frames, rl_dp.animations / "test_sac_rlmpc.gif")
-    print("done")
 
 
 if __name__ == "__main__":
