@@ -379,12 +379,19 @@ class COLREGRewarder(cs_reward.IReward):
         self._debug: bool = False
         self._map_origin: np.ndarray = np.zeros(2)
         self._colregs_handler: ch.COLREGSHandler = ch.COLREGSHandler(config.colregs_handler)
-        self._nx_do = 6
+        self._nx_do: int = 6
+        self._all_polygons: list = []
+        self._r_safe: float = 10.0
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._colregs_handler.reset()
             self._map_origin = self.env.ownship.csog_state[:2]
+            self._min_depth = mapf.find_minimum_depth(self.env.ownship.draft, self.env.enc)
+            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
+                self._min_depth, self.env.enc, buffer=self._r_safe, show_plots=False
+            )
+            self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
         do_arr = state["GroundTruthTrackingObservation"]
         do_list = cs_mhm.extract_do_list_from_do_array(do_arr)
@@ -392,6 +399,15 @@ class COLREGRewarder(cs_reward.IReward):
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
         )
+        on_land_indices = []
+        for i, do_tup in enumerate(do_list):
+            p_do = do_tup[1][:2]
+            if mapf.point_in_polygon_list(p_do, self._all_polygons):
+                # print(f"Dynamic obstacle {i} is on land, i.e. not relevant")
+                on_land_indices.append(i)
+        translated_do_list = [
+            translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
+        ]
 
         csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         csog_state_cpy = csog_state.copy()

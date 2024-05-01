@@ -124,7 +124,8 @@ class RLMPC(ci.ICOLAV):
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
         self._mpc_rel_polygons: list = []
         self._rel_polygons: list = []
-        self._original_poly_list: list = []
+        self._polygons: list = []
+        self._all_polygons: list = []
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
         self._disturbance_handles: list = []
@@ -493,6 +494,15 @@ class RLMPC(ci.ICOLAV):
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
                 do_list, self._map_origin[1], self._map_origin[0]
             )
+            on_land_indices = []
+            for i, do_tup in enumerate(do_list):
+                p_do = do_tup[1][:2]
+                if mapf.point_in_polygon_list(p_do, self._all_polygons):
+                    # print(f"Dynamic obstacle {i} is on land, i.e. not relevant")
+                    on_land_indices.append(i)
+            translated_do_list = [
+                translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
+            ]
 
             if self._debug:
                 self._enc.start_display()
@@ -511,6 +521,7 @@ class RLMPC(ci.ICOLAV):
             csog_state_cpy = csog_state.copy()
             csog_state[2] = csog_state_cpy[3]
             csog_state[3] = csog_state_cpy[2]
+            print(f"len mpc do_list: {len(translated_do_list)}")
             do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
                 csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
             )
@@ -739,7 +750,7 @@ class RLMPC(ci.ICOLAV):
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
             self._min_depth, enc, buffer=self._mpc.params.r_safe_so, show_plots=show_plots
         )
-        self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+        self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
         nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
         nominal_trajectory = nominal_trajectory + np.array(

@@ -145,9 +145,9 @@ def main():
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
-        "scenario_file_folder": training_scenario_folders,
+        "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 10,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.4,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -165,7 +165,7 @@ def main():
     env = Monitor(gym.make(id=env_id, **env_config))
     env_config.update(
         {
-            "max_number_of_episodes": 5,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 100,
@@ -186,7 +186,7 @@ def main():
 
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [256, 128],
+        "critic_arch": [128, 128],
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "use_sde": False,
@@ -213,7 +213,7 @@ def main():
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir,
-        eval_freq=1000,
+        eval_freq=10000000,
         n_eval_episodes=5,
         callback_after_eval=stop_train_callback,
         experiment_name=exp_name_str,
@@ -226,12 +226,12 @@ def main():
         env,
         log_dir=base_dir,
         experiment_name=exp_name_str,
-        save_stats_freq=10,
+        save_stats_freq=4,
         save_agent_model_freq=100,
         log_stats_freq=4,
         verbose=1,
     )
-    total_training_timesteps = 5000
+    total_training_timesteps = 100000
     model.learn(
         total_timesteps=total_training_timesteps,
         progress_bar=True,

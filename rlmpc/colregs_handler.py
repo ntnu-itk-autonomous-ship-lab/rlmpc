@@ -91,6 +91,9 @@ class COLREGSHandler:
         Returns:
             Tuple[list, list, list]: Tuple of the crossing, head-on and overtaking dynamic obstacle lists.
         """
+        for ID in self._do_labels:
+            if ID not in [do[0] for do in do_list]:
+                self._remove_do(ID)
 
         p_os = np.array([xs[0], xs[1]])
         v_os = np.array([xs[3] * np.cos(xs[2]), xs[3] * np.sin(xs[2])])
