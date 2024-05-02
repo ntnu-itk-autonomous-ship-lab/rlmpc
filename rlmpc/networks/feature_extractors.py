@@ -122,7 +122,7 @@ class TrackingGRU(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Space,
-        features_dim: int = 30,
+        features_dim: int = 15,
         num_layers: int = 1,
         batch_size: int = 1,
     ) -> None:
@@ -180,7 +180,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = TrackingGRU(subspace, features_dim=30, num_layers=1, batch_size=batch_size)
+                extractors[key] = TrackingGRU(subspace, features_dim=15, num_layers=1, batch_size=batch_size)
                 total_concat_size += extractors[key].features_dim
             elif key == "DisturbanceObservation":
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])

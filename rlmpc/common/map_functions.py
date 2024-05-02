@@ -24,6 +24,7 @@ import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
+
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
@@ -1001,6 +1002,10 @@ def compute_surface_approximations_from_polygons(
                     max_area_idx = np.argmax([poly.area for poly in relevant_coastline_safety.geoms])
                     relevant_coastline_safety = relevant_coastline_safety.geoms[max_area_idx]
                 y_coastline_orig, x_coastline_orig = relevant_coastline_safety.exterior.coords.xy
+
+                if len(y_coastline_orig) < 3:
+                    continue
+
                 if enc is not None and show_plots:
                     translated_coastline = hf.translate_polygons(
                         [relevant_coastline_safety], -map_origin[1], -map_origin[0]

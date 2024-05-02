@@ -1,5 +1,4 @@
 import argparse
-import copy
 import platform
 from pathlib import Path
 from typing import Tuple
@@ -181,7 +180,7 @@ def main():
     policy = sac_rlmpc.SACPolicyWithMPC
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     actor_noise_std_dev = np.array(
-        [0.001, 0.001, 0.001, 0.001]
+        [0.003, 0.003, 0.003, 0.003]
     )  # normalized std dev for the action space [course, speed, course, speed]
 
     policy_kwargs = {
@@ -198,11 +197,12 @@ def main():
         policy,
         env,
         policy_kwargs=policy_kwargs,
-        buffer_size=700,
+        learning_rate=0.001,
+        buffer_size=500,
         learning_starts=0,
-        batch_size=16,
+        batch_size=4,
         gradient_steps=1,
-        train_freq=(100, "step"),
+        train_freq=(4, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
         verbose=1,
@@ -231,7 +231,7 @@ def main():
         log_stats_freq=4,
         verbose=1,
     )
-    total_training_timesteps = 100000
+    total_training_timesteps = 10000
     model.learn(
         total_timesteps=total_training_timesteps,
         progress_bar=True,

@@ -449,10 +449,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             if env.envs[0].unwrapped.time < 0.0001:
                 self._last_actor_info = [{} for _ in range(env.num_envs)]
                 action_count = 0
-                self.policy.actor.mpc.close_enc_display()
                 self.policy.initialize_mpc_actor(env.envs[0])
 
-            actions, buffer_actions, actor_infos = self._sample_action(
+            actions, _, actor_infos = self._sample_action(
                 learning_starts,
                 observation=self._current_obs,
                 actor_info=self._last_actor_info,
@@ -463,6 +462,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             # SARSA style buffer storage
             action_count += 1
             if action_count == 2:
+                for info in self._last_infos:
+                    info.update({"next_actor_info": actor_infos[0]})
                 action_count = 0
                 self._store_transition(
                     replay_buffer,
@@ -487,7 +488,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self._last_dones = dones
 
             for idx, info in enumerate(infos):
-                info.update({"actor_info": actor_infos[idx]})
+                info.update({"actor_info": self._last_actor_info[idx]})
             self._last_infos = infos
 
             # Give access to local variables
@@ -647,10 +648,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "rollout/ep_len_mean", sb3_utils.safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer])
             )
         self.logger.record("time/fps", fps)
-        self.logger.record("time/time_elapsed", int(time_elapsed), exclude="tensorboard")
+        self.logger.record("time/time_elapsed", int(time_elapsed))
         self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
         if self.use_sde:
-            self.logger.record("train/std", (self.actor.get_std()).mean().item())
+            self.logger.record("train/std", (self.actor.log_std).mean().item())
 
         if len(self.ep_success_buffer) > 0:
             self.logger.record("rollout/success_rate", sb3_utils.safe_mean(self.ep_success_buffer))

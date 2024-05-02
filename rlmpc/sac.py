@@ -260,10 +260,15 @@ class SAC(opa.OffPolicyAlgorithm):
                 self.actor.reset_noise()
 
             # Action by the current actor for the sampled state
-            log_prob = self.actor.action_log_prob(
-                replay_data.observations, actions=replay_data.actions, infos=replay_data.infos
+            # reparameterization trick
+            norm_mpc_actions = np.array(
+                [info[0]["actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32
             )
-            log_prob = log_prob.reshape(-1, 1)
+            sampled_actions = self.actor.sample_action(norm_mpc_actions)
+            sampled_log_prob = self.actor.action_log_prob(
+                replay_data.observations, actions=sampled_actions, infos=replay_data.infos
+            )
+            sampled_log_prob = sampled_log_prob.reshape(-1, 1)
 
             ent_coef_loss = None
             if self.ent_coef_optimizer is not None and self.log_ent_coef is not None:
@@ -271,7 +276,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 # so we don't change it with other losses
                 # see https://github.com/rail-berkeley/softlearning/issues/60
                 ent_coef = th.exp(self.log_ent_coef.detach())
-                ent_coef_loss = -(self.log_ent_coef * (log_prob + self.target_entropy).detach()).mean()
+                ent_coef_loss = -(self.log_ent_coef * (sampled_log_prob + self.target_entropy).detach()).mean()
                 ent_coef_losses.append(ent_coef_loss.item())
             else:
                 ent_coef = self.ent_coef_tensor
@@ -288,7 +293,10 @@ class SAC(opa.OffPolicyAlgorithm):
             with th.no_grad():
                 # Select action according to policy
                 next_log_prob = self.actor.action_log_prob(
-                    replay_data.next_observations, actions=replay_data.next_actions, infos=replay_data.infos
+                    replay_data.next_observations,
+                    actions=replay_data.next_actions,
+                    infos=replay_data.infos,
+                    is_next_action=True,
                 )
                 # Compute the next Q values: min over all critics targets
                 next_q_values = th.cat(
@@ -314,17 +322,11 @@ class SAC(opa.OffPolicyAlgorithm):
             critic_loss.backward()
             self.critic.optimizer.step()
 
-            # reparameterization trick
-            eps = th.randn_like(replay_data.actions)
-            cov = th.diag(th.exp(self.actor.log_std))
-            cholesky_cov = th.linalg.cholesky(cov)
-            sampled_actions = replay_data.actions + (cholesky_cov @ eps.T).T
-            sampled_actions = sampled_actions.requires_grad_(True)
-
             with th.no_grad():
-                log_prob_sampled = self.actor.action_log_prob(
+                sampled_log_prob = self.actor.action_log_prob(
                     replay_data.observations, actions=sampled_actions, infos=replay_data.infos
                 )
+            sampled_log_prob = sampled_log_prob.reshape(-1, 1)
 
             q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
@@ -332,9 +334,8 @@ class SAC(opa.OffPolicyAlgorithm):
             actor_grads = th.zeros((batch_size, self.actor.num_params))
             actor_losses = th.zeros((batch_size, 1))
             t_now = time.time()
-            # should take into account that the sens function can have different input size depending on the
-            # particular episode (number of constraints)
             sens = self.policy.sensitivities()
+            cov = th.diag(th.exp(self.actor.log_std))
             for b in range(batch_size):
                 actor_info = replay_data.infos[b][0]["actor_info"]
                 if not actor_info["optimal"]:
@@ -347,13 +348,13 @@ class SAC(opa.OffPolicyAlgorithm):
 
                 da_dp = sens.da_dp(z, p_fixed, p).full()
                 da_dp = th.from_numpy(da_dp).float()
-                d_log_pi_dp = (cov @ (sampled_actions[b] - replay_data.actions[b]).reshape(-1, 1)).T @ da_dp
-                d_log_pi_da = cov @ (sampled_actions[b] - replay_data.actions[b])
+                d_log_pi_dp = (cov @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp
+                d_log_pi_da = cov @ (sampled_actions[b] - norm_mpc_actions[b])
                 df_repar_dp = da_dp
 
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
                 actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
-                actor_losses[b] = ent_coef * log_prob_sampled[b] - min_qf_pi_sampled[b]
+                actor_losses[b] = ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b]
             print("Actor gradient computation time: ", time.time() - t_now)
             self.actor.update_params(-actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))
 

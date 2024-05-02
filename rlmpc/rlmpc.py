@@ -24,7 +24,6 @@ import numpy as np
 import rlmpc.colregs_handler as ch
 import rlmpc.common.config_parsing as cp
 import rlmpc.common.helper_functions as hf
-import rlmpc.common.map_functions as rl_mapf
 import rlmpc.common.paths as dp
 import rlmpc.common.set_generator as sg
 import rlmpc.mpc.common as mpc_common
@@ -33,6 +32,7 @@ import rlmpc.mpc.parameters as mpc_params
 import rrt_star_lib
 import scipy.interpolate as interp
 import seacharts.enc as senc
+import shapely.geometry as sgeo
 import yaml
 from colav_simulator.behavior_generator import RRTConfig
 from shapely import strtree
@@ -129,6 +129,8 @@ class RLMPC(ci.ICOLAV):
         self._set_generator: Optional[sg.SetGenerator] = None
         self._debug: bool = True
         self._disturbance_handles: list = []
+        self._rrt_traj_handle = None
+        self._mpc_traj_handle = None
 
         self._goal_state: np.ndarray = np.array([])
 
@@ -136,6 +138,15 @@ class RLMPC(ci.ICOLAV):
         self._speed_plan: np.ndarray = np.array([])
         self._enc: Optional[senc.ENC] = None
         self._nominal_path = None
+
+        self._do_plt_handles: list = []
+
+    def _clear_do_handles(self) -> None:
+        if self._do_plt_handles:
+            for handle in self._do_plt_handles:
+                if handle:
+                    handle.remove()
+            self._do_plt_handles = []
 
     def _clear_disturbance_handles(self) -> None:
         if self._disturbance_handles:
@@ -173,7 +184,7 @@ class RLMPC(ci.ICOLAV):
 
         enc.close_display()
         self._enc = copy.deepcopy(enc)
-        self._enc.start_display()
+        self._enc.start_display(figname="RL-MPC Debug")
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
@@ -443,6 +454,44 @@ class RLMPC(ci.ICOLAV):
             )
         self._disturbance_handles = handles
 
+    def visualize_ships(self, ownship_state: np.ndarray, do_list: list, enc: senc.ENC) -> None:
+        """Visualize the ships in the ENC.
+
+        Args:
+            ownship_state (np.ndarray): Ownship state.
+            do_list (list): List of dynamic obstacles.
+            enc (senc.ENC): Electronic navigational chart.
+        """
+        if self._debug:
+            self._enc.start_display(figname="RL-MPC Debug")
+            self._clear_do_handles()
+            for _, do_state, do_cov, length, width in do_list:
+                ellipse_x, ellipse_y = cs_mhm.create_probability_ellipse(do_cov, 0.67)
+                ell_geometry = sgeo.Polygon(zip(ellipse_y + do_state[1], ellipse_x + do_state[0]))
+                ell_i_handle = enc.draw_polygon(ell_geometry, color="red", alpha=0.2)
+                do_poly = mapf.create_ship_polygon(
+                    do_state[0],
+                    do_state[1],
+                    np.arctan2(do_state[3], do_state[2]),
+                    length,
+                    width,
+                    length_scaling=1.0,
+                    width_scaling=1.0,
+                )
+                do_i_handle = enc.draw_polygon(do_poly, color="red")
+                self._do_plt_handles.extend([ell_i_handle, do_i_handle])
+
+            ship_poly = mapf.create_ship_polygon(
+                ownship_state[0],
+                ownship_state[1],
+                ownship_state[2],
+                self._config.ship_length,
+                self._config.ship_width,
+                1.0,
+                1.0,
+            )
+            enc.draw_polygon(ship_poly, color="pink")
+
     @property
     def mpc_params(self) -> mpc_params.MidlevelMPCParams:
         return self._mpc.params
@@ -504,19 +553,8 @@ class RLMPC(ci.ICOLAV):
                 translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
             ]
 
-            if self._debug:
-                self._enc.start_display()
-                plotters.plot_dynamic_obstacles(do_list, "red", enc, self._mpc.params.dt, self._mpc.params.dt)
-                ship_poly = mapf.create_ship_polygon(
-                    ownship_state[0],
-                    ownship_state[1],
-                    ownship_state[2],
-                    self._config.ship_length,
-                    self._config.ship_width,
-                    1.0,
-                    1.0,
-                )
-                enc.draw_polygon(ship_poly, color="pink")
+            self.visualize_ships(ownship_state, do_list, enc)
+
             csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
             csog_state_cpy = csog_state.copy()
             csog_state[2] = csog_state_cpy[3]
@@ -555,7 +593,9 @@ class RLMPC(ci.ICOLAV):
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if self._debug:
-                plotters.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
+                if self._mpc_traj_handle:
+                    self._mpc_traj_handle.remove()
+                self._mpc_traj_handle = plotters.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
 
             self._t_prev_mpc = t
             self._mpc_soln["trajectory"] = self._mpc_trajectory
@@ -616,7 +656,7 @@ class RLMPC(ci.ICOLAV):
             ownship_state=start_state_copy.tolist(),
             U_d=nominal_speed_ref,
             initialized=False,
-            return_on_first_solution=True,
+            return_on_first_solution=True if prev_soln else False,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
 
@@ -634,7 +674,9 @@ class RLMPC(ci.ICOLAV):
             rrt_inputs = np.concatenate((rrt_inputs, np.tile(u_init.reshape(nu, 1), (1, sample_diff))), axis=1)
 
         # plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
-        plotters.plot_trajectory(rrt_trajectory, enc, color="black")
+        if self._rrt_traj_handle:
+            self._rrt_traj_handle.remove()
+        self._rrt_traj_handle = plotters.plot_trajectory(rrt_trajectory, enc, color="black")
         rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
 
         if self._config.rrtstar.params.step_size < self._mpc.params.dt:

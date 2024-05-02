@@ -172,38 +172,20 @@ class SACMPCActor(BasePolicy):
         assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
         self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
 
-    def get_adhoc_action_dist_params(
-        self, obs: rlmpc_buffers.TensorDict, action: th.Tensor
-    ) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
-        """
-        Get the parameters for the action distribution.
-
-        Args:
-            - obs (th.Tensor): Observation
-            - action (th.Tensor): Action computed by the actor for the given observation
-
-        Returns:
-            - Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]: Mean, standard deviation and optional keyword arguments.
-        """
-        assert isinstance(self.observation_space, spaces.Dict)
-
-        mean_actions = action
-        log_std = self.log_std
-        log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
-        return mean_actions, log_std, {}
-
     def action_log_prob(
         self,
         obs: rlmpc_buffers.TensorDict,
         actions: Optional[th.Tensor] = None,
         infos: Optional[List[Dict[str, Any]]] = None,
+        is_next_action: bool = False,
     ) -> Tuple[th.Tensor, th.Tensor]:
         """Computes the log probability of the policy distribution for the given observation.
 
         Args:
             obs (th.Tensor): Observations
-            actions (th.Tensor): (MPC) Actions for the given observation
+            actions (th.Tensor): (MPC) Actions to evaluate the log probability for
             infos (Optional[List[Dict[str, Any]]], optional): Additional information. Defaults to None.
+            is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
 
         Returns:
             Tuple[th.Tensor, th.Tensor]:
@@ -217,9 +199,10 @@ class SACMPCActor(BasePolicy):
         #
         # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
         assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
+        actor_str = "actor_info" if not is_next_action else "next_actor_info"
         if infos is not None:
             # Extract mean of the policy distribution = MPC action for the given observation
-            norm_mpc_actions = np.array([info[0]["actor_info"]["norm_mpc_action"] for info in infos], dtype=np.float32)
+            norm_mpc_actions = np.array([info[0][actor_str]["norm_mpc_action"] for info in infos], dtype=np.float32)
             norm_mpc_actions = th.from_numpy(norm_mpc_actions)
 
         if isinstance(actions, np.ndarray):
@@ -267,10 +250,7 @@ class SACMPCActor(BasePolicy):
             info.update({"unnorm_mpc_action": action, "norm_mpc_action": norm_action})
 
             if not deterministic:
-                self.action_dist = self.action_dist.proba_distribution(
-                    mean_actions=th.from_numpy(norm_action), log_std=self.log_std
-                )
-                norm_action = self.action_dist.get_actions()
+                norm_action = self.sample_action(norm_action)
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
 
@@ -279,6 +259,23 @@ class SACMPCActor(BasePolicy):
                 self.infeasible_solutions += 1
 
         return unnormalized_actions, normalized_actions, actor_infos
+
+    def sample_action(self, mpc_actions: np.ndarray) -> np.ndarray:
+        """Sample an action from the policy distribution with mean from the input MPC action
+
+
+        Args:
+            mpc_actions (np.ndarray): The input MPC action (normalized)
+
+        Returns:
+            np.ndarray: The sampled action (normalized)
+        """
+        self.action_dist = self.action_dist.proba_distribution(
+            mean_actions=th.from_numpy(mpc_actions), log_std=self.log_std
+        )
+        norm_actions = self.action_dist.get_actions()
+        norm_actions = th.clamp(norm_actions, -1.0, 1.0)
+        return norm_actions
 
     def extract_observation_features(
         self, observation: Union[np.ndarray, Dict[str, np.ndarray], rlmpc_buffers.TensorDict], idx: int

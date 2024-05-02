@@ -282,7 +282,10 @@ class CollectStatisticsCallback(BaseCallback):
         if self.num_timesteps % self.log_stats_freq == 0:
             # self.envdata_logger(self.vec_env)
 
-            self.logger.record("mpc/infeasible_solutions", self.model.actor.infeasible_solutions)
+            self.logger.record(
+                "mpc/infeasible_solution_percentage",
+                100.0 * self.model.actor.infeasible_solutions / (self.num_timesteps + 1),
+            )
             mpc_params = self.model.actor.mpc.mpc_params
             self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
             self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[2, 2])
@@ -318,8 +321,8 @@ class CollectStatisticsCallback(BaseCallback):
             rel_tracking_obs = th.from_numpy(self.model._current_obs["RelativeTrackingObservation"])
             trackinggru = self.model.critic.features_extractor.extractors["RelativeTrackingObservation"]
             output = trackinggru(rel_tracking_obs)
-            self.logger.record("sac/trackinggru_output_min", output.min().item())
-            self.logger.record("sac/trackinggru_output_max", output.max().item())
+            # self.logger.record("sac/trackinggru_output_min", output.min().item())
+            # self.logger.record("sac/trackinggru_output_max", output.max().item())
 
             # chi_d = self.model._
             # self.logger.record("env/chi_d")

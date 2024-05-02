@@ -355,6 +355,8 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
         self._prev_speed = self.env.ownship.speed
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+        if self.env.time < 0.0001:
+            self._prev_speed = self.env.ownship.speed
         turn_rate = self.env.ownship.state[5]
         speed = self.env.ownship.speed
 
@@ -499,16 +501,25 @@ class MPCRewarder(cs_reward.IReward):
         self.readily_apparent_maneuvering_rewarder = ReadilyApparentManeuveringRewarder(
             env, config.readily_apparent_maneuvering
         )
+        self.r_antigrounding: float = 0.0
+        self.r_collision_avoidance: float = 0.0
+        self.r_colreg: float = 0.0
+        self.r_trajectory_tracking: float = 0.0
+        self.r_readily_apparent_maneuvering: float = 0.0
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
-        r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
-        r_collision_avoidance = self.collision_avoidance_rewarder(state, action, **kwargs)
-        r_colreg = self.colreg_rewarder(state, action, **kwargs)
-        r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
-        r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
+        self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
+        self.r_collision_avoidance = self.collision_avoidance_rewarder(state, action, **kwargs)
+        self.r_colreg = self.colreg_rewarder(state, action, **kwargs)
+        self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
+        self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
         print(
-            f"r_antigrounding: {r_antigrounding:.2f}, r_collision_avoidance: {r_collision_avoidance:.2f}, r_colreg: {r_colreg:.2f}, r_trajectory_tracking: {r_trajectory_tracking:.2f}, r_readily_apparent_maneuvering: {r_readily_apparent_maneuvering:.2f}"
+            f"r_antigrounding: {self.r_antigrounding:.2f}, r_collision_avoidance: {self.r_collision_avoidance:.2f}, r_colreg: {self.r_colreg:.2f}, r_trajectory_tracking: {self.r_trajectory_tracking:.2f}, r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.2f}"
         )
         return (
-            r_antigrounding + r_collision_avoidance + r_colreg + r_trajectory_tracking + r_readily_apparent_maneuvering
+            self.r_antigrounding
+            + self.r_collision_avoidance
+            + self.r_colreg
+            + self.r_trajectory_tracking
+            + self.r_readily_apparent_maneuvering
         )
