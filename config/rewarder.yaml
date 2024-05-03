@@ -36,4 +36,4 @@ collision_avoidance:
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
   rho_anti_grounding: 1000.0
-  r_safe: 10.0
+  r_safe: 5.0

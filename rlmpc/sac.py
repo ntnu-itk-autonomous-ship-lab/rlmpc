@@ -327,6 +327,7 @@ class SAC(opa.OffPolicyAlgorithm):
                     replay_data.observations, actions=sampled_actions, infos=replay_data.infos
                 )
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
+            sampled_actions.requires_grad = True
 
             q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
@@ -349,7 +350,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 da_dp = sens.da_dp(z, p_fixed, p).full()
                 da_dp = th.from_numpy(da_dp).float()
                 d_log_pi_dp = (cov @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp
-                d_log_pi_da = cov @ (sampled_actions[b] - norm_mpc_actions[b])
+                d_log_pi_da = -cov @ (sampled_actions[b] - norm_mpc_actions[b])
                 df_repar_dp = da_dp
 
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]

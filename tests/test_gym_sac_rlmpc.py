@@ -91,11 +91,13 @@ def main():
     experiment_name = "sac_rlmpc"
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
 
-    scenario_names = ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
+    scenario_names = [
+        "rlmpc_scenario_channel"
+    ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = False
+    generate = True
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
