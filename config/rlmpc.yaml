@@ -75,7 +75,7 @@ midlevel_mpc:
 
     w_L2: 0.0
     w_L1: 100000.0
-    r_safe_so: 10.0
+    r_safe_so: 5.0
     r_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"

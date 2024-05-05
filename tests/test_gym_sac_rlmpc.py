@@ -110,7 +110,7 @@ def main():
                 save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=90,
+                n_episodes=100,
                 delete_existing_files=True,
             )
 
