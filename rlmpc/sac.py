@@ -91,11 +91,6 @@ class SAC(opa.OffPolicyAlgorithm):
         - _init_setup_model (bool): Whether or not to build the network at the creation of the instance
     """
 
-    # policy_aliases: ClassVar[Dict[str, Type[BasePolicy]]] = {
-    #     "MlpPolicy": MlpPolicy,
-    #     "CnnPolicy": CnnPolicy,
-    #     "MultiInputPolicy": MultiInputPolicy,
-    # }
     policy: SACPolicyWithMPC
     actor: SACMPCActor
     critic: ContinuousCritic
@@ -217,6 +212,7 @@ class SAC(opa.OffPolicyAlgorithm):
         th.save(self.critic_target.state_dict(), pathlib.Path(str(path) + "_critic_target.pth"))
         th.save(self.log_ent_coef, pathlib.Path(str(path) + "_log_ent_coef.pth"))
         self.actor.mpc.save_params(pathlib.Path(str(path) + "_actor.yaml"))
+        th.save(self.actor.mpc_param_provider.state_dict(), pathlib.Path(str(path) + "_mpc_param_provider.pth"))
 
     def custom_load(self, path: pathlib.Path) -> None:
         """Loads the model parameters (NN critic and MPC actor)"""
@@ -224,17 +220,13 @@ class SAC(opa.OffPolicyAlgorithm):
         self.critic_target.load_state_dict(th.load(pathlib.Path(str(path) + "_critic_target.pth")))
         self.log_ent_coef = th.load(pathlib.Path(str(path) + "_log_ent_coef.pth"))
         self.actor.mpc.load_params(pathlib.Path(str(path) + "_actor.yaml"))
+        self.actor.mpc_param_provider.load_state_dict(th.load(pathlib.Path(str(path) + "_mpc_param_provider.pth")))
 
     def initialize_mpc_actor(
         self,
         env: COLAVEnvironment,
     ) -> None:
         self.policy.initialize_mpc_actor(env)
-
-    def transfer_mpc_parameters(self, model) -> None:
-        assert hasattr(model, "actor") and hasattr(model.actor, "mpc")
-        params = copy.deepcopy(model.actor.mpc.get_mpc_params())
-        self.actor.set_mpc_params(params)
 
     def _create_aliases(self) -> None:
         self.actor: SACMPCActor = self.policy.actor
@@ -261,8 +253,8 @@ class SAC(opa.OffPolicyAlgorithm):
 
             # Action by the current actor for the sampled state
             # reparameterization trick
-            norm_mpc_actions = np.array(
-                [info[0]["actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32
+            norm_mpc_actions = th.from_numpy(
+                np.array([info[0]["actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32)
             )
             sampled_actions = self.actor.sample_action(norm_mpc_actions)
             sampled_log_prob = self.actor.action_log_prob(
@@ -336,7 +328,7 @@ class SAC(opa.OffPolicyAlgorithm):
             actor_losses = th.zeros((batch_size, 1))
             t_now = time.time()
             sens = self.policy.sensitivities()
-            cov = th.diag(th.exp(self.actor.log_std))
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
             for b in range(batch_size):
                 actor_info = replay_data.infos[b][0]["actor_info"]
                 if not actor_info["optimal"]:
@@ -347,10 +339,12 @@ class SAC(opa.OffPolicyAlgorithm):
                 p_fixed = actor_info["p_fixed"]
                 z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
 
+                dmpc_param_dnn_dp = th.autograd.
+
                 da_dp = sens.da_dp(z, p_fixed, p).full()
                 da_dp = th.from_numpy(da_dp).float()
-                d_log_pi_dp = (cov @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp
-                d_log_pi_da = -cov @ (sampled_actions[b] - norm_mpc_actions[b])
+                d_log_pi_dp = (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp
+                d_log_pi_da = -cov_inv @ (sampled_actions[b] - norm_mpc_actions[b])
                 df_repar_dp = da_dp
 
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]

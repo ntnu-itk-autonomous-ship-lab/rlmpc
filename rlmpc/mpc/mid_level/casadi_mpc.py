@@ -8,11 +8,9 @@
 """
 
 import time
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import casadi as csd
-import colav_simulator.common.map_functions as cs_mapf
-import colav_simulator.common.plotters as cs_plotters
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.helper_functions as hf
@@ -76,7 +74,7 @@ class CasadiMPC:
 
         self._t_prev: float = 0.0
         self._xs_prev: np.ndarray = np.array([])
-        self._min_depth: int = 5
+        self._min_depth: int = 1
         self.ns: int = 0
 
         self._x_path: csd.Function = csd.Function("x_path", [], [])
@@ -131,6 +129,14 @@ class CasadiMPC:
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
+
+    def set_param_subset(self, param_subset: Dict[str, np.ndarray | float]):
+        """Sets the parameter subset for the MPC.
+
+        Args:
+            param_subset (Dict[str, np.ndarray | float]): Dictionary containing the parameter subset.
+        """
+        self._params.set_parameter_subset(param_subset)
 
     def update_adjustable_params(self, delta_p: np.ndarray) -> None:
         """Updates the adjustable parameters in the MPC.
@@ -522,7 +528,7 @@ class CasadiMPC:
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
-        min_depth: int = 5,
+        min_depth: int = 1,
         tau: float | None = None,
     ) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
@@ -789,14 +795,14 @@ class CasadiMPC:
             path_ref_k = csd.vertcat(x_path_k, y_path_k, s_dot_ref_k)
 
             # Sum stage cost
-            path_following_cost, path_dev_cost, path_dot_dev_cost = mpc_common.path_following_cost_huber(
-                x_k, path_ref_k, Q_p_vec
-            )
-
             x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
             y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
             speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
-            speed_dev_cost = 2.0 * Q_p_vec[2] * (x_k[3] - speed_ref_k) ** 2
+            speed_dev_cost = Q_p_vec[1] * (x_k[3] - speed_ref_k) ** 2
+
+            path_following_cost, path_dev_cost, path_dot_dev_cost = mpc_common.path_following_cost_huber(
+                x_k, path_ref_k, Q_p_vec
+            )
 
             if k > 0:
                 x_k_test = np.array([0.0, 0.0, 0.0, 5.0, 295.0, 0.0])
@@ -922,7 +928,7 @@ class CasadiMPC:
         x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
         y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
         speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
-        speed_dev_cost = 2.0 * Q_p_vec[2] * (x_k[3] - speed_ref_k) ** 2
+        speed_dev_cost = Q_p_vec[1] * (x_k[3] - speed_ref_k) ** 2
 
         # speed_dev_cost = 0.5 * Q_p_vec[2] * (x_k[3] - self._speed_spline(x_k[4], self._speed_spl_coeffs)) ** 2
 

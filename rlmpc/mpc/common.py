@@ -247,12 +247,12 @@ def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[cs
     z = csd.vertcat(x[:2], x[5])
     assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
     path_dev_squared = (z[:2] - p_ref[:2]).T @ (z[:2] - p_ref[:2])
-    path_dev_cost = 0.5 * Q_p[0] * huber_loss(path_dev_squared, Q_p[1])
+    path_dev_cost = Q_p[0] * huber_loss(path_dev_squared, delta=1.0)
     path_dot_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2
     return path_dev_cost + path_dot_dev_cost, path_dev_cost, path_dot_dev_cost
 
 
-def huber_loss(x_squared: csd.MX, delta: csd.MX) -> csd.MX:
+def huber_loss(x_squared: csd.MX, delta: csd.MX = 1.0) -> csd.MX:
     """Huber loss function.
 
     Args:
@@ -262,7 +262,7 @@ def huber_loss(x_squared: csd.MX, delta: csd.MX) -> csd.MX:
     Returns:
         csd.MX: Loss function value.
     """
-    return 2.0 * (csd.sqrt(1.0 + x_squared / (delta**2)) - 1.0) * delta**2
+    return (csd.sqrt(1.0 + x_squared / (delta**2)) - 1.0) * delta**2
 
 
 def rate_cost(

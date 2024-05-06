@@ -1021,7 +1021,7 @@ def compute_surface_approximations_from_polygons(
                 )
 
                 # Tuning parameter
-                orig_point_spacing = max(7.0, 0.01 * arc_length[-1])
+                orig_point_spacing = max(7.0, 0.05 * arc_length[-1])
                 # if show_plots:
                 #     print(
                 #         f"Polygon {j}: Relevant coastline arc length: {arc_length[-1]} | distance spacing: {orig_point_spacing}"
@@ -1187,7 +1187,7 @@ def compute_surface_approximations_from_polygons(
                         xcoord,
                         ycoord,
                         points=zip(x_buffer_points, y_buffer_points),
-                        distance=0.2 * extra_buffer_point_distance_spacing,
+                        distance=0.5 * extra_buffer_point_distance_spacing,
                     ):
                         continue
                     x_buffer_points.append(xcoord)
@@ -1203,7 +1203,7 @@ def compute_surface_approximations_from_polygons(
                 #     print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
                 # if show_plots:
                 #     print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
-                smoothing = 10.0
+                smoothing = 1.0
 
                 rbf = scipyintp.RBFInterpolator(
                     np.array([x_surface_data_points, y_surface_data_points]).T,

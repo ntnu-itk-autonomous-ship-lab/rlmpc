@@ -11,28 +11,87 @@
 import pathlib
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
+import colav_simulator.common.math_functions as csmf
 import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
 import rlmpc.buffers as rlmpc_buffers
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
-import rlmpc.mpc.parameters as mpc_params
 import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.rlmpc as rlmpc
-import seacharts.enc as senc
 import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution, StateDependentNoiseDistribution
-from stable_baselines3.common.preprocessing import get_action_dim
+from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy, ContinuousCritic
+from torch.nn import functional as F
 
 # CAP the standard deviation of the actor
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
+
+
+class MPCParameterDNN(th.nn.Module):
+    def __init__(
+        self,
+        param_list: List[str],
+        hidden_sizes: List[int],
+        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
+        features_dim: int = 152,
+    ):
+        super().__init__()
+        self.num_params = len(param_list)
+        self.param_list = param_list
+        self.hidden_sizes = hidden_sizes
+        self.activation_fn = activation_fn()
+        self.layers = th.nn.ModuleList()
+        prev_size = features_dim
+        for size in hidden_sizes:
+            self.layers.append(th.nn.Linear(prev_size, size))
+            prev_size = size
+        self.layers.append(th.nn.Linear(prev_size, self.num_params))
+        self.tanh = th.nn.Tanh()
+        self.out_parameter_ranges = {
+            "r_safe_do": [2.5, 50.0],
+            "Q_p": [0.001, 100.0],
+            "K_app_course": [0.1, 200.0],
+            "K_app_speed": [0.1, 200.0],
+            "w_colregs": [0.1, 500.0],
+            "d_attenuation": [10.0, 1000.0],
+        }
+        self.out_parameter_lengths = {
+            "r_safe_do": 1,
+            "Q_p": 3,
+            "K_app_course": 1,
+            "K_app_speed": 1,
+            "w_colregs": 3,
+            "d_attenuation": 1,
+        }
+
+    def forward(self, x: th.Tensor) -> th.Tensor:
+        for layer in self.layers[:-1]:
+            x = layer(x)
+            x = self.activation_fn(x)
+        x = self.layers[-1](x)
+        x = self.tanh(x)
+        return x
+
+    def map_to_parameter_dict(self, x: th.Tensor) -> Dict[str, Union[float, np.ndarray]]:
+        x = x.detach().cpu().numpy()
+        params = {}
+        for i, param in enumerate(self.param_list):  # order is important
+            param_range = self.out_parameter_ranges[param]
+            param_length = self.out_parameter_lengths[param]
+            x_param = x[i : i + param_length]
+
+            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+            params[param] = x_param[j]
+        return params
 
 
 class SACMPCActor(BasePolicy):
@@ -42,13 +101,13 @@ class SACMPCActor(BasePolicy):
     Args:
         - observation_space (spaces.Space): Observation space
         - action_space (spaces.Box): Action space
+        - observation_type (Any): Observation type
+        - action_type (Any): Action type
         - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
-        - features_extractor (th.nn.Module): Network to extract features
-        - features_dim (int): Dimension of the features extracted by ``features_extractor``
-        - activation_fn (Type[th.nn.Module], optional): Activation function. Defaults to nn.ReLU.
+        - features_extractor_class (Type[BaseFeaturesExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
+        - features_extractor_kwargs (Optional[Dict[str, Any]]): Keyword arguments
         - use_sde (bool, optional): Whether to use State Dependent Exploration or not. Defaults to False.
         - log_std_init (float, optional): Initial value for the log standard deviation. Defaults to -3.
-        - full_std (bool, optional): Whether to use the full standard deviation or just the diagonal one. Defaults to True.
         - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` when using gSDE to ensure
             a positive standard deviation (cf paper). It allows to keep variance
             above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
@@ -63,11 +122,10 @@ class SACMPCActor(BasePolicy):
         action_space: spaces.Box,
         observation_type: Any,
         action_type: Any,
+        mpc_param_provider_kwargs: Dict[str, Any],
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
-        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
         use_sde: bool = False,
-        std_init: np.ndarray | float = np.array([2.0, 2.0, 0.5]),
-        full_std: bool = True,
+        std_init: np.ndarray | float = np.array([2.0, 2.0]),
         use_expln: bool = False,
         clip_mean: float = 2.0,
     ):
@@ -95,10 +153,8 @@ class SACMPCActor(BasePolicy):
         # Save arguments to re-create object at loading
         self.use_sde = use_sde
         self.sde_features_extractor = None
-        self.activation_fn = activation_fn
         self.log_std_init = self.log_std
         self.use_expln = use_expln
-        self.full_std = full_std
         self.clip_mean = clip_mean
         self.infeasible_solutions: int = 0
 
@@ -106,6 +162,14 @@ class SACMPCActor(BasePolicy):
         self.action_dist = DiagGaussianDistribution(action_dim).proba_distribution(
             th.zeros(action_dim), log_std=self.log_std_init
         )
+
+        # mpc_param_provider_kwargs = mpc_param_provider_kwargs.update[
+        #     {
+        #         "features_extractor_class": features_extractor_class,
+        #         "features_extractor_kwargs": features_extractor_kwargs,
+        #     }
+        # ]
+        self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
         self.mpc = rlmpc.RLMPC(mpc_config)
         self.mpc_sensitivities = None
         nx, nu = self.mpc.get_mpc_model_dims()
@@ -123,14 +187,11 @@ class SACMPCActor(BasePolicy):
 
         # second option, sequence of course and speed refs
         self.action_indices = [
-            int(nu * n_samples + (1 * nx) + 2),  # chi 2
-            int(nu * n_samples + (1 * nx) + 3),  # speed 2
-            int(nu * n_samples + (2 * nx) + 2),  # chi 3
-            int(nu * n_samples + (2 * nx) + 3),  # speed 3
+            int(nu * n_samples + (1 * nx) + 2),  # chi 1
+            int(nu * n_samples + (1 * nx) + 3),  # speed 1
+            # int(nu * n_samples + (2 * nx) + 2),  # chi 2
+            # int(nu * n_samples + (2 * nx) + 3),  # speed 2
         ]
-
-    def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:
-        self.mpc.set_mpc_params(params)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -216,6 +277,9 @@ class SACMPCActor(BasePolicy):
     def _convert_obs_tensor_to_numpy(self, obs: Dict[str, th.Tensor]) -> Dict[str, np.ndarray]:
         return {k: v.cpu().numpy() for k, v in obs.items()}
 
+    def _convert_obs_numpy_to_tensor(self, obs: Dict[str, np.ndarray]) -> Dict[str, th.Tensor]:
+        return {k: th.from_numpy(v) for k, v in obs.items()}
+
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
         obs = self._convert_obs_tensor_to_numpy(observation)
         return self.predict_with_mpc(obs, deterministic)
@@ -241,8 +305,16 @@ class SACMPCActor(BasePolicy):
         normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         actor_infos = [{} for _ in range(batch_size)]
+        obs_tensor = self._convert_obs_numpy_to_tensor(observation)
+        preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
+        features = self.features_extractor(preprocessed_obs)
+        mpc_param_subset = self.mpc_param_provider(features)
+
         for idx in range(batch_size):
-            t, ownship_state, do_list, w = self.extract_observation_features(observation, idx)
+            mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(mpc_param_subset[idx])
+            print(f"Provided MPC parameters: {mpc_param_subset_dict}")
+            self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
+            t, ownship_state, do_list, w = self.extract_mpc_observation_features(observation, idx)
             # w.print()
             prev_soln = state[idx] if state is not None else None
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
@@ -277,7 +349,7 @@ class SACMPCActor(BasePolicy):
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
         return norm_actions
 
-    def extract_observation_features(
+    def extract_mpc_observation_features(
         self, observation: Union[np.ndarray, Dict[str, np.ndarray], rlmpc_buffers.TensorDict], idx: int
     ) -> Tuple[float, np.ndarray, List, stochasticity.DisturbanceData]:
         """Extract features from the observation at a given index in the batch.
@@ -307,6 +379,64 @@ class SACMPCActor(BasePolicy):
         w.currents = {"speed": disturbance_vector[0], "direction": (disturbance_vector[1] + ownship_course)}
         w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3] + ownship_course}
         return t, ownship_state, do_list, w
+
+    def preprocess_obs_for_dnn(
+        self,
+        obs: Union[th.Tensor, Dict[str, th.Tensor]],
+        observation_space: spaces.Space,
+        normalize_images: bool = True,
+    ) -> Union[th.Tensor, Dict[str, th.Tensor]]:
+        """
+        Preprocess observation to be to a neural network.
+        For images, it normalizes the values by dividing them by 255 (to have values in [0, 1])
+        For discrete observations, it create a one hot vector.
+
+        Args:
+            obs (Union[th.Tensor, Dict[str, th.Tensor]]): Observation
+            observation_space (spaces.Space):
+            normalize_images (bool): Whether to normalize images or not (True by default)
+
+        Returns:
+            Union[th.Tensor, Dict[str, th.Tensor]]: The preprocessed observation
+        """
+        if isinstance(observation_space, spaces.Dict):
+            # Do not modify by reference the original observation
+            assert isinstance(obs, Dict), f"Expected dict, got {type(obs)}"
+            preprocessed_obs = {}
+            for key, _obs in obs.items():
+                preprocessed_obs[key] = self.preprocess_obs_for_dnn(
+                    _obs, observation_space[key], normalize_images=normalize_images
+                )
+                # print(
+                #     f"Preprocessed observation: {key} shape: {preprocessed_obs[key].shape} | (min, max): ({preprocessed_obs[key].min()}, {preprocessed_obs[key].max()})"
+                # )
+            return preprocessed_obs  # type: ignore[return-value]
+
+        assert isinstance(obs, th.Tensor), f"Expecting a torch Tensor, but got {type(obs)}"
+
+        if isinstance(observation_space, spaces.Box):
+            if normalize_images and is_image_space(observation_space):
+                return obs.float() / 255.0
+            return obs.float()
+
+        elif isinstance(observation_space, spaces.Discrete):
+            # One hot encoding and convert to float to avoid errors
+            return F.one_hot(obs.long(), num_classes=int(observation_space.n)).float()
+
+        elif isinstance(observation_space, spaces.MultiDiscrete):
+            # Tensor concatenation of one hot encodings of each Categorical sub-space
+            return th.cat(
+                [
+                    F.one_hot(obs_.long(), num_classes=int(observation_space.nvec[idx])).float()
+                    for idx, obs_ in enumerate(th.split(obs.long(), 1, dim=1))
+                ],
+                dim=-1,
+            ).view(obs.shape[0], sum(observation_space.nvec))
+
+        elif isinstance(observation_space, spaces.MultiBinary):
+            return obs.float()
+        else:
+            raise NotImplementedError(f"Preprocessing not implemented for {observation_space}")
 
     def initialize(
         self,
@@ -376,6 +506,7 @@ class SACPolicyWithMPC(BasePolicy):
         action_type: Any,
         lr_schedule: Schedule,
         critic_arch: Optional[List[int]] = [256, 256],
+        mpc_param_provider_kwargs: Dict[str, Any] = {},
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
         use_sde: bool = False,
@@ -413,6 +544,7 @@ class SACPolicyWithMPC(BasePolicy):
         }
 
         self.actor_kwargs = {
+            "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
             "observation_space": self.observation_space,
             "action_space": self.action_space,
             "mpc_config": mpc_config,
@@ -427,13 +559,11 @@ class SACPolicyWithMPC(BasePolicy):
         }
         self.actor_kwargs.update(sde_kwargs)
 
-        self.actor = SACMPCActor(
-            **self.actor_kwargs,
-            activation_fn=activation_fn,
-            full_std=True,
-        )
+        self.actor = SACMPCActor(**self.actor_kwargs)
 
         self._build_critic(lr_schedule)
+
+        self.actor.features_extractor = self.critic.features_extractor  # share features extractor with critic
 
     def _build_critic(self, lr_schedule: Schedule) -> None:
         # Create a separate features extractor for the critic

@@ -7,7 +7,6 @@ los:
   max_cross_track_error_int: 1000.0
   cross_track_error_int_threshold: 30.0
 
-
 colregs_handler:
   theta_critical_ot: 45.0  # contact angle threshold for OT situation
   theta_critical_ho: 13.0 # contact and bearing angle threshold for HO situation
@@ -27,7 +26,7 @@ rrtstar:
       iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
       goal_radius: 1000.0
-      step_size: 5.0
+      step_size: 2.5
       min_steering_time: 1.0
       max_steering_time: 30.0
       steering_acceptance_radius: 10.0
@@ -56,8 +55,8 @@ midlevel_mpc:
     rate: 0.4
     reference_traj_bbox_buffer: 200.0
     T: 60.0
-    dt: 5.0
-    Q_p: [0.1, 1.0, 3.0] # [0.3, 1.0, 15.0]
+    dt: 2.5
+    Q_p: [0.5, 3.0, 3.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.001]
     K_app_course: 30.0
@@ -75,7 +74,7 @@ midlevel_mpc:
 
     w_L2: 0.0
     w_L1: 100000.0
-    r_safe_so: 5.0
+    r_safe_so: 1.0
     r_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"

@@ -57,6 +57,7 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
+        self.tanh = nn.Tanh()
 
     def set_inference_mode(self, inference_mode: bool) -> None:
         self.vae.set_inference_mode(inference_mode)
@@ -82,6 +83,8 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         with th.no_grad():
             z_e, _, _ = self.vae.encode(observations)
             # print(f"z_e shape: {z_e.shape}")
+            # normalize
+            z_e = self.tanh(z_e)
             return z_e
 
 
@@ -192,7 +195,12 @@ class CombinedExtractor(BaseFeaturesExtractor):
     def forward(self, observations: th.Tensor) -> th.Tensor:
         encoded_tensor_list = []
         for key, extractor in self.extractors.items():
-            encoded_tensor_list.append(extractor(observations[key]))
+            extracted_tensor = extractor(observations[key])
+            if extracted_tensor.max() > 1.0:
+                print(f"WARNING: {key} extracted_tensor max value > 1.0")
+            elif extracted_tensor.min() < -1.0:
+                print(f"WARNING: {key} extracted_tensor min value < -1.0")
+            encoded_tensor_list.append(extracted_tensor)
 
         return th.cat(encoded_tensor_list, dim=1)
 
@@ -207,7 +215,7 @@ if __name__ == "__main__":
         scenario_name = "rlmpc_scenario_cr_ss"
         config_file = rl_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 1:
-        scenario_name = "rlmpc_scenario_head_on_channel"
+        scenario_name = "rlmpc_scenario_ms_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
     elif scenario_choice == 2:
         scenario_name = "rogaland_random_rl"

@@ -10,6 +10,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from enum import Enum
+from typing import Dict
 
 import numpy as np
 
@@ -116,8 +117,7 @@ class MidlevelMPCParams(IParams):
     # Adjustable
     Q_p: np.ndarray = np.diag(
         [0.1, 0.1, 1.0]
-    )  # path following cost matrix, position (x, y) and speed assignment (s_dot / path variable).
-    # If huber loss is used for position loss, the first two diagonal elements are the huber loss cost parameter and delta parameter.
+    )  # path following cost matrix, position (x, y), speed deviation and speed assignment path variable deviation.
     # R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
     alpha_app_course: np.ndarray = np.array([112.0, 0.0006])
     alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
@@ -185,6 +185,46 @@ class MidlevelMPCParams(IParams):
                 self.r_safe_do,
             ]
         )
+
+    def set_parameter_subset(self, param_subset: Dict[str, float | np.ndarray]) -> None:
+        """Sets the adjustable parameters in the subset.
+
+        Args:
+            param_subset (Dict[str, float | np.ndarray]): Dictionary of adjustable parameters.
+        """
+        for key, value in param_subset.items():
+            if key == "Q_p":
+                self.Q_p = np.clip(np.diag(value), np.diag([1e-4, 1e-4, 1e-4]), np.diag([1e3, 1e3, 1e3]))
+            elif key == "alpha_app_course":
+                self.alpha_app_course = np.clip(value, np.array([1e-6, 0.000001]), np.array([1e3, 1.0]))
+            elif key == "alpha_app_speed":
+                self.alpha_app_speed = np.clip(value, np.array([1.0, 0.00001]), np.array([1e3, 1.0]))
+            elif key == "K_app_course":
+                self.K_app_course = np.clip(value, 0.001, 1e3)
+            elif key == "K_app_speed":
+                self.K_app_speed = np.clip(value, 0.001, 1e3)
+            elif key == "alpha_cr":
+                self.alpha_cr = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+            elif key == "y_0_cr":
+                self.y_0_cr = np.clip(value, -1e4, 1e4)
+            elif key == "alpha_ho":
+                self.alpha_ho = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+            elif key == "x_0_ho":
+                self.x_0_ho = np.clip(value, -1e4, 1e4)
+            elif key == "alpha_ot":
+                self.alpha_ot = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+            elif key == "x_0_ot":
+                self.x_0_ot = np.clip(value, -1e4, 1e4)
+            elif key == "y_0_ot":
+                self.y_0_ot = np.clip(value, -1e4, 1e4)
+            elif key == "d_attenuation":
+                self.d_attenuation = np.clip(value, 1.0, 1e4)
+            elif key == "w_colregs":
+                self.w_colregs = np.clip(value, np.array([1e-4, 1e-4, 1e-4]), np.array([1e4, 1e4, 1e4]))
+            elif key == "r_safe_do":
+                self.r_safe_do = np.clip(value, 1.0, 1e4)
+            else:
+                raise ValueError(f"Parameter {key} not in the parameter list.")
 
     def set_adjustable(self, adjustable: np.ndarray) -> None:
         """Sets the adjustable parameters.

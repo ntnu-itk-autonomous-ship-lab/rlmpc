@@ -1,4 +1,4 @@
-name: "rlmpc_scenario_head_on_channel"
+name: "rlmpc_scenario_ms_channel"
 save_scenario: False
 t_start: 0.0
 t_end: 250.0
@@ -43,6 +43,9 @@ stochasticity:
     mu_direction: 0.00001
     sigma_speed: 0.005
     sigma_direction: 0.005
+    add_impulse_noise: False
+    speed_impulses: [5.0]
+    direction_impulses: [45.0]
   wind:
     constant: True
     initial_speed: 0.0
@@ -53,6 +56,10 @@ stochasticity:
     mu_direction: 0.00001
     sigma_speed: 0.005
     sigma_direction: 0.005
+    add_impulse_noise: True
+    speed_impulses: [1.0, 2.5, 5.0]
+    direction_impulses: [-90.0, -45.0, 45.0, 90.0]
+    # impulse_times: [100.0]
 ship_list:
   - id: 0
     mmsi: 100

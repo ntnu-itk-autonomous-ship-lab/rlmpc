@@ -92,7 +92,7 @@ if __name__ == "__main__":
         scenario_name = "boknafjorden_generation_test"
         config_file = rl_dp.scenarios / (scenario_name + ".yaml")
     elif scenario_choice == 1:
-        scenario_name = "rlmpc_scenario_head_on_channel"
+        scenario_name = "rlmpc_scenario_ms_channel"
         config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
     elif scenario_choice == 3:
         scenario_name = "rogaland_random_rl"

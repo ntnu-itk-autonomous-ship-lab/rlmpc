@@ -10,13 +10,10 @@
 import platform
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Tuple, Type
 
-import colav_simulator.common.map_functions as cs_mapf
-import colav_simulator.common.plotters as cs_plotters
 import numpy as np
 import rlmpc.common.config_parsing as cp
-import rlmpc.common.map_functions as mapf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as common
 import rlmpc.mpc.mid_level.casadi_mpc as casadi_mpc
@@ -106,6 +103,11 @@ class MidlevelMPC:
     @property
     def fixed_params(self) -> np.ndarray:
         return self._casadi_mpc.get_fixed_params()
+
+    def set_param_subset(self, subset: Dict[str, Any]) -> None:
+        self._casadi_mpc.set_param_subset(subset)
+        if self._acados_enabled and ACADOS_COMPATIBLE:
+            self._acados_mpc.set_param_subset(subset)
 
     def update_adjustable_params(self, delta: np.ndarray) -> None:
         self._casadi_mpc.update_adjustable_params(delta)

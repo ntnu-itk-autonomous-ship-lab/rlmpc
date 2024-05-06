@@ -123,7 +123,6 @@ class RLMPC(ci.ICOLAV):
         self._mpc_inputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
         self._mpc_rel_polygons: list = []
-        self._rel_polygons: list = []
         self._polygons: list = []
         self._all_polygons: list = []
         self._set_generator: Optional[sg.SetGenerator] = None
@@ -211,13 +210,13 @@ class RLMPC(ci.ICOLAV):
         bbox = mapf.create_bbox_from_points(self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=300.0)
         planning_cdt = mapf.create_safe_sea_triangulation(
             self._enc,
-            vessel_min_depth=5,
+            vessel_min_depth=1,
             buffer=self._mpc.params.r_safe_so,
             bbox=bbox,
             show_plots=False,
         )
         relevant_hazards = mapf.extract_hazards_within_bounding_box(
-            self._rel_polygons, bbox, self._enc, show_plots=False
+            self._all_polygons, bbox, self._enc, show_plots=True
         )
         self._hazards = relevant_hazards[0]
         self._rrtstar = rrt_star_lib.RRTStar(
@@ -245,7 +244,7 @@ class RLMPC(ci.ICOLAV):
     def plot_hazards(self):
         """Plot the grounding hazards."""
         for poly in self._hazards:
-            self._enc.draw_polygon(poly, color="red", alpha=0.7)
+            self._enc.draw_polygon(poly, color="red", alpha=0.6)
 
     def plot_surfaces(self, ownship_state: np.ndarray, npoints: int = 300):
         """Plot surface interpolations of the static obstacles."""
@@ -316,15 +315,16 @@ class RLMPC(ci.ICOLAV):
         chi_0_ref = cs_mf.wrap_angle_to_pmpi(
             self._mpc_trajectory[2, 1]
         )  # starting from 1 since the first sample is the current state
-        chi_1_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
         U_0_ref = self._mpc_trajectory[3, 1]
+
+        chi_1_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
         U_1_ref = self._mpc_trajectory[3, 2]
         action = np.array(
             [
                 cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi),
                 U_0_ref - U,
-                cs_mf.wrap_angle_diff_to_pmpi(chi_1_ref, chi),
-                U_1_ref - U,
+                # cs_mf.wrap_angle_diff_to_pmpi(chi_1_ref, chi),
+                # U_1_ref - U,
             ]
         )
 
@@ -380,6 +380,14 @@ class RLMPC(ci.ICOLAV):
         """
         self._mpc.set_action_indices(action_indices)
 
+    def set_mpc_param_subset(self, param_subset: Dict[str, float | np.ndarray]) -> None:
+        """Sets a subset of the MPC parameters.
+
+        Args:
+            param_subset (Dict[str, float | np.ndarray]): The subset of parameters.
+        """
+        self._mpc.set_param_subset(param_subset)
+
     def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:
         """Sets the MPC parameters.
 
@@ -405,6 +413,11 @@ class RLMPC(ci.ICOLAV):
             filename (Path): Path to the YAML file.
         """
         self._config = RLMPCParams.from_file(filename)
+        self._los = guidances.LOSGuidance(self._config.los)
+        self._ktp = guidances.KinematicTrajectoryPlanner()
+        self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
+        self._ma_filter = stochasticity.MovingAverageFilter()
+        self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
 
     def close_enc_display(self) -> None:
         """Closes the ENC display."""
@@ -554,6 +567,7 @@ class RLMPC(ci.ICOLAV):
             ]
 
             self.visualize_ships(ownship_state, do_list, enc)
+            self.visualize_disturbance(w)
 
             csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
             csog_state_cpy = csog_state.copy()
@@ -785,7 +799,6 @@ class RLMPC(ci.ICOLAV):
             - show_plots (bool): Whether to show plots or not.
             - **kwargs: Additional keyword arguments.
         """
-        self._rel_polygons = []
         self._polygons = []
         self._mpc_rel_polygons = []
         self._min_depth = mapf.find_minimum_depth(self._config.ship_draft, enc)
@@ -810,12 +823,6 @@ class RLMPC(ci.ICOLAV):
             self._polygons.extend(poly_tuple[0])
 
         if enc is not None and show_plots:
-            enc.start_display()
-            # hf.plot_trajectory(waypoints, enc, color="green")
-            plotters.plot_trajectory(nominal_trajectory, enc, color="yellow")
-            for hazard in self._polygons:
-                enc.draw_polygon(hazard, color="red", fill=True, alpha=0.7)
-
             ship_poly = mapf.create_ship_polygon(
                 ownship_state[0],
                 ownship_state[1],
@@ -825,9 +832,7 @@ class RLMPC(ci.ICOLAV):
                 1.0,
                 1.0,
             )
-            # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
             enc.draw_polygon(ship_poly, color="pink")
-            # enc.draw_circle((goal_state[1], goal_state[0]), radius=40, color="cyan", alpha=0.4)
 
         # Translate the polygons to the origin of the map
         translated_poly_tuple_list = []

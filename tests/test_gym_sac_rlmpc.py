@@ -97,7 +97,7 @@ def main():
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = True
+    generate = False
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
@@ -179,15 +179,18 @@ def main():
     eval_env = Monitor(gym.make(id=env_id, **env_config))
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
-    policy = sac_rlmpc.SACPolicyWithMPC
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    actor_noise_std_dev = np.array(
-        [0.003, 0.003, 0.003, 0.003]
-    )  # normalized std dev for the action space [course, speed, course, speed]
+    actor_noise_std_dev = np.array([0.003, 0.003])  # normalized std dev for the action space [course, speed]
 
+    mpc_param_provider_kwargs = {
+        "param_list": ["r_safe_do", "d_attenuation"],
+        "hidden_sizes": [258],
+        "activation_fn": th.nn.ReLU,
+    }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [128, 128],
+        "critic_arch": [258],
+        "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "use_sde": False,
@@ -196,7 +199,7 @@ def main():
         "clip_mean": 2.0,
     }
     model = sac_rlmpc.SAC(
-        policy,
+        sac_rlmpc.SACPolicyWithMPC,
         env,
         policy_kwargs=policy_kwargs,
         learning_rate=0.001,
