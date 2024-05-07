@@ -236,7 +236,7 @@ class SAC(opa.OffPolicyAlgorithm):
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         self.policy.set_training_mode(True)
-        optimizers = [self.critic.optimizer]
+        optimizers = [self.critic.optimizer, self.actor.optimizer]
         if self.ent_coef_optimizer is not None:
             optimizers += [self.ent_coef_optimizer]
         self._update_learning_rate(optimizers)
@@ -324,6 +324,39 @@ class SAC(opa.OffPolicyAlgorithm):
             q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
+            self.actor.optimizer.zero_grad()
+            dnn_param_grads = []
+            jac_dnn_mpc_params = []
+            n_dnn_outputs = self.actor.mpc_param_provider.num_params
+
+            # extract the parameters and buffers for a funcional call
+            actor_dnn_params = {k: v.detach() for k, v in self.actor.mpc_param_provider.named_parameters()}
+            actor_dnn_buffers = {k: v.detach() for k, v in self.actor.mpc_param_provider.named_buffers()}
+            actor_dnn_feature_inputs = th.from_numpy(
+                np.array([info[0]["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
+            )
+
+            # n_dnn_params = sum(p.numel() for p in actor_dnn_params.values())
+            # print(f"Total number of DNN MPC provider parameters: {n_dnn_params}")
+            def compute_sample_jacobian(sample):
+                # this will calculate the gradients for a single sample
+                # we want the gradients for each output wrt to the parameters
+                # this is the same as the jacobian of the model wrt the parameters
+
+                # define a function that takes the as input returns the output of the self.actor.mpc_param_providerwork
+                call = lambda x: th.func.functional_call(self.actor.mpc_param_provider, (x, actor_dnn_buffers), sample)
+
+                # calculate the jacobian of the self.actor.mpc_param_providerwork wrt the parameters
+                J = th.func.jacrev(call)(actor_dnn_params)
+
+                # J is a dictionary with keys the names of the parameters and values the gradients
+                # we want a tensor
+                grads = th.cat([v.flatten(1) for v in J.values()], -1)
+                return grads
+
+            # no we can use vmap to calculate the gradients for all samples at once
+            dnn_jacobians = th.vmap(compute_sample_jacobian)(actor_dnn_feature_inputs)
+
             actor_grads = th.zeros((batch_size, self.actor.num_params))
             actor_losses = th.zeros((batch_size, 1))
             t_now = time.time()
@@ -339,13 +372,15 @@ class SAC(opa.OffPolicyAlgorithm):
                 p_fixed = actor_info["p_fixed"]
                 z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
 
-                dmpc_param_dnn_dp = th.autograd.
-
-                da_dp = sens.da_dp(z, p_fixed, p).full()
-                da_dp = th.from_numpy(da_dp).float()
-                d_log_pi_dp = (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp
+                da_dp_mpc = sens.da_dp(z, p_fixed, p).full()
+                da_dp_mpc = th.from_numpy(da_dp_mpc).float()
+                d_log_pi_dp = (
+                    (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T
+                    @ da_dp_mpc
+                    @ dnn_jacobians[b]
+                )
                 d_log_pi_da = -cov_inv @ (sampled_actions[b] - norm_mpc_actions[b])
-                df_repar_dp = da_dp
+                df_repar_dp = da_dp_mpc @ dnn_jacobians[b]
 
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
                 actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp

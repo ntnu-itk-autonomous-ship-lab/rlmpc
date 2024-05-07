@@ -104,6 +104,11 @@ class MidlevelMPC:
     def fixed_params(self) -> np.ndarray:
         return self._casadi_mpc.get_fixed_params()
 
+    def set_adjustable_param_str_list(self, param_str_list: list[str]) -> None:
+        self._casadi_mpc.set_adjustable_param_str_list(param_str_list)
+        if self._acados_enabled and ACADOS_COMPATIBLE:
+            self._acados_mpc.set_adjustable_param_list(param_list)
+
     def set_param_subset(self, subset: Dict[str, Any]) -> None:
         self._casadi_mpc.set_param_subset(subset)
         if self._acados_enabled and ACADOS_COMPATIBLE:

@@ -44,7 +44,29 @@ class MPCParameterDNN(th.nn.Module):
         features_dim: int = 152,
     ):
         super().__init__()
-        self.num_params = len(param_list)
+        self.out_parameter_ranges = {
+            "Q_p": [0.001, 200.0],
+            "K_app_course": [0.1, 200.0],
+            "K_app_speed": [0.1, 200.0],
+            "d_attenuation": [10.0, 1000.0],
+            "w_colregs": [0.1, 500.0],
+            "r_safe_do": [2.5, 50.0],
+        }
+        self.out_parameter_lengths = {
+            "Q_p": 3,
+            "K_app_course": 1,
+            "K_app_speed": 1,
+            "d_attenuation": 1,
+            "w_colregs": 3,
+            "r_safe_do": 1,
+        }
+        offset = 0
+        self.parameter_indices = {}
+        for param in param_list:
+            self.parameter_indices[param] = offset
+            offset += self.out_parameter_lengths[param]
+
+        self.num_params = offset
         self.param_list = param_list
         self.hidden_sizes = hidden_sizes
         self.activation_fn = activation_fn()
@@ -55,22 +77,6 @@ class MPCParameterDNN(th.nn.Module):
             prev_size = size
         self.layers.append(th.nn.Linear(prev_size, self.num_params))
         self.tanh = th.nn.Tanh()
-        self.out_parameter_ranges = {
-            "r_safe_do": [2.5, 50.0],
-            "Q_p": [0.001, 100.0],
-            "K_app_course": [0.1, 200.0],
-            "K_app_speed": [0.1, 200.0],
-            "w_colregs": [0.1, 500.0],
-            "d_attenuation": [10.0, 1000.0],
-        }
-        self.out_parameter_lengths = {
-            "r_safe_do": 1,
-            "Q_p": 3,
-            "K_app_course": 1,
-            "K_app_speed": 1,
-            "w_colregs": 3,
-            "d_attenuation": 1,
-        }
 
     def forward(self, x: th.Tensor) -> th.Tensor:
         for layer in self.layers[:-1]:
@@ -81,17 +87,48 @@ class MPCParameterDNN(th.nn.Module):
         return x
 
     def map_to_parameter_dict(self, x: th.Tensor) -> Dict[str, Union[float, np.ndarray]]:
-        x = x.detach().cpu().numpy()
+        """Maps the DNN output tensor to a dictionary of unnormalized parameters.
+
+        Args:
+            x (th.Tensor): The DNN output tensor
+
+        Returns:
+            Dict[str, Union[float, np.ndarray]]: The dictionary of unnormalized parameters
+        """
+        x = x.detach().cpu().numpy().copy()
         params = {}
-        for i, param in enumerate(self.param_list):  # order is important
+        for param in self.param_list:
             param_range = self.out_parameter_ranges[param]
             param_length = self.out_parameter_lengths[param]
-            x_param = x[i : i + param_length]
+            pindx = self.parameter_indices[param]
+            x_param = x[pindx : pindx + param_length]
 
             for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
                 x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
-            params[param] = x_param[j]
+            params[param] = x_param
         return params
+
+    def unnormalize(self, x: th.Tensor) -> np.ndarray:
+        """Unnormalize the DNN output tensor.
+
+        Args:
+            x (th.Tensor): The DNN output tensor
+
+        Returns:
+            np.ndarray: The unnormalized output as a numpy array
+        """
+        x_unnorm = x.clone()
+        for param in self.param_list:
+            param_range = self.out_parameter_ranges[param]
+            param_length = self.out_parameter_lengths[param]
+            pindx = self.parameter_indices[param]
+            x_param = x[pindx : pindx + param_length]
+
+            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+            x_unnorm[pindx : pindx + param_length] = x_param
+
+        return x_unnorm.detach().cpu().numpy()
 
 
 class SACMPCActor(BasePolicy):
@@ -173,8 +210,9 @@ class SACMPCActor(BasePolicy):
         self.mpc = rlmpc.RLMPC(mpc_config)
         self.mpc_sensitivities = None
         nx, nu = self.mpc.get_mpc_model_dims()
+        self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.mpc.get_mpc_params()
-        self.num_params = self.mpc.get_adjustable_mpc_params().size
+        self.num_params = self.mpc_param_provider.num_params
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         # lookahead_sample = self.mpc.lookahead_sample
         # Indices for the RLMPC action a = [x_LD, y_LD, speed_0]
@@ -320,7 +358,12 @@ class SACMPCActor(BasePolicy):
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
             norm_action = self.action_type.normalize(action)
             info.update({"unnorm_mpc_action": action, "norm_mpc_action": norm_action})
-
+            info.update({"dnn_input_features": features[idx].detach().cpu().numpy()})
+            info.update(
+                {
+                    "unnorm_dnn_mpc_params": self.mpc_param_provider.unnormalize(mpc_param_subset[idx]),
+                }
+            )
             if not deterministic:
                 norm_action = self.sample_action(norm_action)
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
@@ -332,19 +375,19 @@ class SACMPCActor(BasePolicy):
 
         return unnormalized_actions, normalized_actions, actor_infos
 
-    def sample_action(self, mpc_actions: np.ndarray) -> np.ndarray:
+    def sample_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
         """Sample an action from the policy distribution with mean from the input MPC action
 
 
         Args:
-            mpc_actions (np.ndarray): The input MPC action (normalized)
+            mpc_actions (np.ndarray | th.Tensor): The input MPC action (normalized)
 
         Returns:
             np.ndarray: The sampled action (normalized)
         """
-        self.action_dist = self.action_dist.proba_distribution(
-            mean_actions=th.from_numpy(mpc_actions), log_std=self.log_std
-        )
+        if isinstance(mpc_actions, np.ndarray):
+            mpc_actions = th.from_numpy(mpc_actions)
+        self.action_dist = self.action_dist.proba_distribution(mean_actions=mpc_actions, log_std=self.log_std)
         norm_actions = self.action_dist.get_actions()
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
         return norm_actions
@@ -559,11 +602,10 @@ class SACPolicyWithMPC(BasePolicy):
         }
         self.actor_kwargs.update(sde_kwargs)
 
-        self.actor = SACMPCActor(**self.actor_kwargs)
-
         self._build_critic(lr_schedule)
 
-        self.actor.features_extractor = self.critic.features_extractor  # share features extractor with critic
+        self._build_actor(lr_schedule)
+        print("Actor and critic built!")
 
     def _build_critic(self, lr_schedule: Schedule) -> None:
         # Create a separate features extractor for the critic
@@ -583,6 +625,13 @@ class SACPolicyWithMPC(BasePolicy):
 
         # Target networks should always be in eval mode
         self.critic_target.set_training_mode(False)
+
+    def _build_actor(self, lr_schedule: Schedule) -> None:
+        self.actor = SACMPCActor(**self.actor_kwargs)
+        self.actor.features_extractor = self.critic.features_extractor  # share features extractor with critic
+        self.actor.optimizer = self.optimizer_class(
+            self.actor.mpc_param_provider.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
+        )
 
     def initialize_mpc_actor(
         self,

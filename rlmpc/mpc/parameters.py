@@ -10,7 +10,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 
@@ -160,31 +160,96 @@ class MidlevelMPCParams(IParams):
         config_dict["w_colregs"] = self.w_colregs.tolist()
         return config_dict
 
-    def adjustable(self) -> np.ndarray:
+    def adjustable(self, name_list: Optional[list[str]] = None) -> np.ndarray:
         """Returns an array of the adjustable parameters by the RL scheme.
+
+        Args:
+            name_list (Optional[list[str]]): List of adjustable parameters to return. If None, all adjustable parameters are returned.
 
         Returns:
             np.ndarray: Array of adjustable parameters.
         """
-        return np.array(
-            [
-                *self.Q_p.diagonal().flatten().tolist(),
-                *self.alpha_app_course.flatten().tolist(),
-                *self.alpha_app_speed.flatten().tolist(),
-                self.K_app_course,
-                self.K_app_speed,
-                *self.alpha_cr.tolist(),
-                self.y_0_cr,
-                *self.alpha_ho.tolist(),
-                self.x_0_ho,
-                *self.alpha_ot.tolist(),
-                self.x_0_ot,
-                self.y_0_ot,
-                self.d_attenuation,
-                *self.w_colregs.tolist(),
-                self.r_safe_do,
-            ]
-        )
+        params = []
+        if name_list is not None:
+            for key in name_list:
+                if key == "Q_p":
+                    params.extend(self.Q_p.diagonal().tolist())
+                elif key == "alpha_app_course":
+                    params.extend(self.alpha_app_course.tolist())
+                elif key == "alpha_app_speed":
+                    params.extend(self.alpha_app_speed.tolist())
+                elif key == "K_app_course":
+                    params.append(self.K_app_course)
+                elif key == "K_app_speed":
+                    params.append(self.K_app_speed)
+                elif key == "alpha_cr":
+                    params.extend(self.alpha_cr.tolist())
+                elif key == "y_0_cr":
+                    params.append(self.y_0_cr)
+                elif key == "alpha_ho":
+                    params.extend(self.alpha_ho.tolist())
+                elif key == "x_0_ho":
+                    params.append(self.x_0_ho)
+                elif key == "alpha_ot":
+                    params.extend(self.alpha_ot.tolist())
+                elif key == "x_0_ot":
+                    params.append(self.x_0_ot)
+                elif key == "y_0_ot":
+                    params.append(self.y_0_ot)
+                elif key == "d_attenuation":
+                    params.append(self.d_attenuation)
+                elif key == "w_colregs":
+                    params.extend(self.w_colregs.tolist())
+                elif key == "r_safe_do":
+                    params.append(self.r_safe_do)
+                else:
+                    raise ValueError(f"Parameter {key} not in the parameter list.")
+            params = np.array(params)
+        else:
+            params = np.array(
+                [
+                    *self.Q_p.diagonal().tolist(),
+                    *self.alpha_app_course.tolist(),
+                    *self.alpha_app_speed.tolist(),
+                    self.K_app_course,
+                    self.K_app_speed,
+                    *self.alpha_cr.tolist(),
+                    self.y_0_cr,
+                    *self.alpha_ho.tolist(),
+                    self.x_0_ho,
+                    *self.alpha_ot.tolist(),
+                    self.x_0_ot,
+                    self.y_0_ot,
+                    self.d_attenuation,
+                    *self.w_colregs.tolist(),
+                    self.r_safe_do,
+                ]
+            )
+        return params
+
+    def adjustable_string_list(self) -> list[str]:
+        """Returns a list of adjustable parameters by the RL scheme.
+
+        Returns:
+            list[str]: List of adjustable parameters.
+        """
+        return [
+            "Q_p",
+            "alpha_app_course",
+            "alpha_app_speed",
+            "K_app_course",
+            "K_app_speed",
+            "alpha_cr",
+            "y_0_cr",
+            "alpha_ho",
+            "x_0_ho",
+            "alpha_ot",
+            "x_0_ot",
+            "y_0_ot",
+            "d_attenuation",
+            "w_colregs",
+            "r_safe_do",
+        ]
 
     def set_parameter_subset(self, param_subset: Dict[str, float | np.ndarray]) -> None:
         """Sets the adjustable parameters in the subset.
@@ -200,29 +265,29 @@ class MidlevelMPCParams(IParams):
             elif key == "alpha_app_speed":
                 self.alpha_app_speed = np.clip(value, np.array([1.0, 0.00001]), np.array([1e3, 1.0]))
             elif key == "K_app_course":
-                self.K_app_course = np.clip(value, 0.001, 1e3)
+                self.K_app_course = float(np.clip(value, 0.001, 1e3))
             elif key == "K_app_speed":
-                self.K_app_speed = np.clip(value, 0.001, 1e3)
+                self.K_app_speed = float(np.clip(value, 0.001, 1e3))
             elif key == "alpha_cr":
                 self.alpha_cr = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
             elif key == "y_0_cr":
-                self.y_0_cr = np.clip(value, -1e4, 1e4)
+                self.y_0_cr = float(np.clip(value, -1e4, 1e4))
             elif key == "alpha_ho":
                 self.alpha_ho = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
             elif key == "x_0_ho":
-                self.x_0_ho = np.clip(value, -1e4, 1e4)
+                self.x_0_ho = float(np.clip(value, -1e4, 1e4))
             elif key == "alpha_ot":
                 self.alpha_ot = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
             elif key == "x_0_ot":
-                self.x_0_ot = np.clip(value, -1e4, 1e4)
+                self.x_0_ot = float(np.clip(value, -1e4, 1e4))
             elif key == "y_0_ot":
-                self.y_0_ot = np.clip(value, -1e4, 1e4)
+                self.y_0_ot = float(np.clip(value, -1e4, 1e4))
             elif key == "d_attenuation":
-                self.d_attenuation = np.clip(value, 1.0, 1e4)
+                self.d_attenuation = float(np.clip(value, 1.0, 1e4))
             elif key == "w_colregs":
                 self.w_colregs = np.clip(value, np.array([1e-4, 1e-4, 1e-4]), np.array([1e4, 1e4, 1e4]))
             elif key == "r_safe_do":
-                self.r_safe_do = np.clip(value, 1.0, 1e4)
+                self.r_safe_do = float(np.clip(value, 1.0, 1e4))
             else:
                 raise ValueError(f"Parameter {key} not in the parameter list.")
 

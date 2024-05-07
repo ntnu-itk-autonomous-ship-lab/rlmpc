@@ -372,6 +372,14 @@ class RLMPC(ci.ICOLAV):
         """Updates the adjustable parameters of the MPC."""
         self._mpc.update_adjustable_params(delta)
 
+    def set_adjustable_param_str_list(self, param_str_list: list[str]) -> None:
+        """Sets the list of adjustable parameters.
+
+        Args:
+            param_list (list[str]): List of adjustable parameters.
+        """
+        self._mpc.set_adjustable_param_str_list(param_str_list)
+
     def set_action_indices(self, action_indices: list):
         """Sets the indices of the action variables used for calculating the sensitivity da_dp.
 

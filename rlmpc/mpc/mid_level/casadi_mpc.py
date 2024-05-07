@@ -65,6 +65,11 @@ class CasadiMPC:
         self._p_adjustable_list: list[csd.MX] = []
         self._p: csd.MX = csd.MX.sym("p", 0)
         self._p_list: list[csd.MX] = []
+        self._adjustable_param_str_list: list[str] = self._params.adjustable_string_list()
+        self._all_adjustable_param_str_list: list[str] = self._params.adjustable_string_list()
+        self._fixed_param_str_list: list[str] = [
+            name for name in self._all_adjustable_param_str_list if name not in self._adjustable_param_str_list
+        ]
 
         self._set_generator: Optional[sg.SetGenerator] = None
         self._p_ship_mdl_values: np.ndarray = np.array([])
@@ -130,6 +135,17 @@ class CasadiMPC:
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
 
+    def set_adjustable_param_str_list(self, adjustable_param_list: list[str]):
+        """Sets the adjustable parameter list for the MPC.
+
+        Args:
+            adjustable_param_list (list[str]): List of adjustable parameter strings.
+        """
+        self._adjustable_param_str_list = adjustable_param_list
+        self._fixed_param_str_list = [
+            name for name in self._all_adjustable_param_str_list if name not in self._adjustable_param_str_list
+        ]
+
     def set_param_subset(self, param_subset: Dict[str, np.ndarray | float]):
         """Sets the parameter subset for the MPC.
 
@@ -137,6 +153,7 @@ class CasadiMPC:
             param_subset (Dict[str, np.ndarray | float]): Dictionary containing the parameter subset.
         """
         self._params.set_parameter_subset(param_subset)
+        self._p_adjustable_values = self._params.adjustable(self._adjustable_param_str_list)
 
     def update_adjustable_params(self, delta_p: np.ndarray) -> None:
         """Updates the adjustable parameters in the MPC.
@@ -155,7 +172,7 @@ class CasadiMPC:
             np.ndarray: Array of parameters.
         """
         mdl_adjustable_params = np.array([])
-        mpc_adjustable_params = self._params.adjustable()
+        mpc_adjustable_params = self._params.adjustable(name_list=self._adjustable_param_str_list)
         return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
 
     def get_fixed_params(self) -> np.ndarray:
@@ -522,6 +539,24 @@ class CasadiMPC:
                 + self._y_dot_path(s, self._y_dot_path_coeffs) ** 2
             )
 
+    def prune_adjustable_params(self, p_adjustable: list, p_fixed: list) -> Tuple[list, list]:
+        """Prunes the adjustable parameters,  moves non-considered parameters to the fixed parameter list.
+
+        Args:
+            p_adjustable (list): List of adjustable parameters.
+            p_fixed (list): List of fixed parameters.
+
+        Returns:
+            np.ndarray: Pruned adjustable parameters.
+        """
+        p_adjustable_upd = []
+        for p_adj, name in zip(p_adjustable, self._all_adjustable_param_str_list):
+            if name not in self._adjustable_param_str_list:
+                p_fixed.append(p_adj)
+            else:
+                p_adjustable_upd.append(p_adj)
+        return p_adjustable_upd, p_fixed
+
     def construct_ocp(
         self,
         nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
@@ -635,12 +670,6 @@ class CasadiMPC:
         gamma = csd.MX.sym("gamma", 1)
         p_fixed.append(gamma)
 
-        p_adjustable.append(Q_p_vec)
-        p_adjustable.append(alpha_app_course)
-        p_adjustable.append(alpha_app_speed)
-        p_adjustable.append(K_app_course)
-        p_adjustable.append(K_app_speed)
-
         # COLREGS cost parameters
         alpha_cr = csd.MX.sym("alpha_cr", 2, 1)
         y_0_cr = csd.MX.sym("y_0_cr", 1, 1)
@@ -652,6 +681,18 @@ class CasadiMPC:
         d_attenuation = csd.MX.sym("d_attenuation", 1, 1)
         colregs_weights = csd.MX.sym("colregs_weights", 3, 1)
 
+        max_num_so_constr = self._params.max_num_so_constr
+
+        # Safety zone parameters
+        r_safe_so = csd.MX.sym("r_safe_so", 1)
+        r_safe_do = csd.MX.sym("r_safe_do", 1)
+        p_fixed.append(r_safe_so)
+
+        p_adjustable.append(Q_p_vec)
+        p_adjustable.append(alpha_app_course)
+        p_adjustable.append(alpha_app_speed)
+        p_adjustable.append(K_app_course)
+        p_adjustable.append(K_app_speed)
         p_adjustable.append(alpha_cr)
         p_adjustable.append(y_0_cr)
         p_adjustable.append(alpha_ho)
@@ -661,8 +702,8 @@ class CasadiMPC:
         p_adjustable.append(y_0_ot)
         p_adjustable.append(d_attenuation)
         p_adjustable.append(colregs_weights)
-
-        max_num_so_constr = self._params.max_num_so_constr
+        p_adjustable.append(r_safe_do)
+        p_adjustable, p_fixed = self.prune_adjustable_params(p_adjustable, p_fixed)
 
         # Static obstacle constraint parameters
         so_pars = csd.MX.sym("so_pars", 0)
@@ -702,12 +743,6 @@ class CasadiMPC:
         p_fixed.append(W_bx)
         p_fixed.append(W_so)
         p_fixed.append(W_do)
-
-        # Safety zone parameters
-        r_safe_so = csd.MX.sym("r_safe_so", 1)
-        r_safe_do = csd.MX.sym("r_safe_do", 1)
-        p_fixed.append(r_safe_so)
-        p_adjustable.append(r_safe_do)
 
         ship_vertices = self.model.params().ship_vertices
 
@@ -1241,6 +1276,10 @@ class CasadiMPC:
         so_parameter_values = self._update_so_parameter_values(so_list, state, enc)
         fixed_parameter_values.extend(so_parameter_values)
 
+        fixed_parameter_values.append(self._params.r_safe_so)
+        non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
+        fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
+
         max_num_so_constr = (
             self._params.max_num_so_constr
         )  # min(len(self._so_surfaces), self._params.max_num_so_constr)
@@ -1248,7 +1287,6 @@ class CasadiMPC:
         slack_size = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
         W = self._params.w_L1 * np.ones(slack_size)
         fixed_parameter_values.extend(W.tolist())
-        fixed_parameter_values.append(self._params.r_safe_so)
 
         do_parameter_values_cr = self._create_do_parameter_values(state, do_cr_list)
         do_parameter_values_ho = self._create_do_parameter_values(state, do_ho_list)
