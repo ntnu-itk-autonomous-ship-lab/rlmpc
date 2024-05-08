@@ -119,7 +119,7 @@ class DisturbanceNN(BaseFeaturesExtractor):
         return self.passthrough(observations)
 
 
-class TrackingGRU(BaseFeaturesExtractor):
+class TrackingGRUVAE(BaseFeaturesExtractor):
     """Feature extractor for the tracking state."""
 
     def __init__(
@@ -129,14 +129,14 @@ class TrackingGRU(BaseFeaturesExtractor):
         num_layers: int = 1,
         batch_size: int = 1,
     ) -> None:
-        super(TrackingGRU, self).__init__(observation_space, features_dim=features_dim)
+        super(TrackingGRUVAE, self).__init__(observation_space, features_dim=features_dim)
 
         self.input_dim = observation_space.shape[0]
         self.hidden_dim = features_dim
         self.num_layers = num_layers
         self.gru = nn.GRU(input_size=self.input_dim, hidden_size=features_dim, num_layers=num_layers, batch_first=True)
 
-    def forward(self, observations: th.Tensor) -> Tuple[th.Tensor]:
+    def forward(self, observations: th.Tensor) -> th.Tensor:
         batch_size = observations.shape[0]
         hidden = th.zeros(self.num_layers, batch_size, self.hidden_dim)
 

@@ -11,9 +11,9 @@ map_tolerance: 1
 map_buffer: 0
 new_load_of_map_data: False
 type: MS
-n_random_ships_range: [4, 8]
+n_random_ships_range: [2, 10]
 episode_generation:
-  n_episodes: 40
+  n_episodes: 100
   n_constant_os_state_episodes: 1
   n_constant_os_plan_episodes: 1
   n_constant_do_state_episodes: 1
