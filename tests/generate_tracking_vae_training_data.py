@@ -118,7 +118,7 @@ if __name__ == "__main__":
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 1,
+        "max_number_of_episodes": 1000000000,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.4,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -139,7 +139,7 @@ if __name__ == "__main__":
 
     use_vec_env = False
     if use_vec_env:
-        num_cpu = 1
+        num_cpu = 10
         training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
         obs = training_vec_env.reset()
         observations = [obs]
@@ -150,7 +150,7 @@ if __name__ == "__main__":
         for i in range(n_steps):
             actions = np.array([training_vec_env.action_space.sample() for _ in range(num_cpu)])
             obs, reward, dones, info = training_vec_env.step(actions)
-            training_vec_env.render()
+            # training_vec_env.render()
 
             tracking_observations[i] = obs["RelativeTrackingObservation"]
             print(f"Progress: {i}/{n_steps}")
