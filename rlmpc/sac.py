@@ -383,7 +383,9 @@ class SAC(opa.OffPolicyAlgorithm):
                 df_repar_dp = da_dp_mpc @ dnn_jacobians[b]
 
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
-                actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
+                actor_grads[b] = ent_coef * d_log_pi_dp + ((ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp).reshape(
+                    1, -1
+                )
                 actor_losses[b] = ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b]
             print("Actor gradient computation time: ", time.time() - t_now)
             self.actor.update_params(-actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))

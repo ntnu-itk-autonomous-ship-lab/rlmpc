@@ -110,7 +110,7 @@ class RLMPC(ci.ICOLAV):
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
         self._ma_filter = stochasticity.MovingAverageFilter()
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
-        self._dt_sim: float = 0.5  # get from scenario config, typically alway s0 .5
+        self._dt_sim: float = 0.5  # get from scenario config, typically always 0.5
         self._rrtstar = None
         self._map_origin: np.ndarray = np.array([])
         self._references = np.array([])
@@ -139,6 +139,35 @@ class RLMPC(ci.ICOLAV):
         self._nominal_path = None
 
         self._do_plt_handles: list = []
+
+    def reset(self) -> None:
+        self._los.reset()
+        self._colregs_handler.reset()
+        self._mpc.reset()
+
+        self._references = np.zeros((9, 1))
+        self._t_prev = 0.0
+        self._t_prev_mpc = 0.0
+        self._initialized = False
+        self._rrtstar = None
+        self._mpc_soln = {}
+        self._mpc_trajectory = np.array([])
+        self._mpc_inputs = np.array([])
+        self._geometry_tree = strtree.STRtree([])
+        self._min_depth = 0
+        self._map_origin = np.array([])
+        self._mpc_rel_polygons = []
+        self._polygons = []
+        self._all_polygons = []
+        self._set_generator = None
+        self._disturbance_handles = []
+        self._rrt_traj_handle = None
+        self._mpc_traj_handle = None
+        self._goal_state = np.array([])
+        self._waypoints = np.array([])
+        self._speed_plan = np.array([])
+        self._enc = None
+        self._nominal_path = None
 
     def _clear_do_handles(self) -> None:
         if self._do_plt_handles:

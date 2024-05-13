@@ -107,7 +107,7 @@ class MidlevelMPC:
     def set_adjustable_param_str_list(self, param_str_list: list[str]) -> None:
         self._casadi_mpc.set_adjustable_param_str_list(param_str_list)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.set_adjustable_param_list(param_list)
+            self._acados_mpc.set_adjustable_param_list(param_str_list)
 
     def set_param_subset(self, subset: Dict[str, Any]) -> None:
         self._casadi_mpc.set_param_subset(subset)
@@ -119,6 +119,11 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.update_adjustable_params(delta)
         self._params = self._casadi_mpc._params
+
+    def reset(self) -> None:
+        self._casadi_mpc.reset()
+        if self._acados_enabled and ACADOS_COMPATIBLE:
+            self._acados_mpc.reset()
 
     def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
         """Computes the path variable and its derivative from the current state.

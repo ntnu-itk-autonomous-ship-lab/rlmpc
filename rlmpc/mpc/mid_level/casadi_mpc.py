@@ -318,6 +318,14 @@ class CasadiMPC:
         X = self.model.erk4_n_step(xs, u, p, self._params.dt, N)
         return X
 
+    def reset(self) -> None:
+        """Resets the MPC."""
+        self._initialized = False
+        self._p_fixed_so_values = np.array([])
+        self._xs_prev = np.array([])
+        self._prev_cost = np.inf
+        self._t_prev = 0.0
+
     def plan(
         self,
         t: float,

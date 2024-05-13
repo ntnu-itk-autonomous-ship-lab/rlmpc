@@ -111,7 +111,7 @@ class COLREGSHandler:
 
             situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
 
-            if ID in self._do_labels and (do_passed_by or os_passed_by):
+            if ID in self._do_labels and (do_passed_by):
                 print(f"Removed DO{i} | do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
                 self._remove_do(ID)
                 self._already_removed_labels.append(ID)

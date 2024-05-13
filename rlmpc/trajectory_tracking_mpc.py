@@ -73,6 +73,25 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
         self._original_poly_list: list = []
         self._set_generator: Optional[sg.SetGenerator] = None
 
+    def reset(self) -> None:
+        self._references = np.zeros((9, 1))
+        self._t_prev = 0.0
+        self._t_prev_mpc = 0.0
+        self._initialized = False
+        self._nominal_trajectory = np.array([])
+        self._nominal_inputs = np.array([])
+        self._mpc_soln = {}
+        self._mpc_trajectory = np.array([])
+        self._mpc_inputs = np.array([])
+        self._geometry_tree = strtree.STRtree([])
+        self._mpc_rel_polygons = []
+        self._rel_polygons = []
+        self._original_poly_list = []
+        self._map_origin = np.array([])
+        self._min_depth = 0
+        self._set_generator = None
+        self._los.reset()
+
     def plan(
         self,
         t: float,

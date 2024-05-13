@@ -72,6 +72,7 @@ if __name__ == "__main__":
         for idx, name in enumerate(scenario_names):
             if idx == 0:
                 continue
+
             scenario_generator.seed(idx + 2)
             _ = scenario_generator.generate(
                 config_file=rl_dp.scenarios / (name + ".yaml"),
@@ -80,7 +81,7 @@ if __name__ == "__main__":
                 save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=130,
+                n_episodes=70,
                 delete_existing_files=True,
             )
 
@@ -92,7 +93,7 @@ if __name__ == "__main__":
                 save_scenario_folder=rl_dp.scenarios / "test_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=60,
+                n_episodes=30,
                 delete_existing_files=True,
             )
 
@@ -116,7 +117,7 @@ if __name__ == "__main__":
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
-        "scenario_file_folder": [training_scenario_folders[0]],
+        "scenario_file_folder": training_scenario_folders,  # [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
         "max_number_of_episodes": 1000000000,
         "simulator_config": training_sim_config,
@@ -137,15 +138,15 @@ if __name__ == "__main__":
     TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_gru_training_data_rogaland.npy"
     TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_gru_test_data_rogaland.npy"
 
-    use_vec_env = False
+    use_vec_env = True
     if use_vec_env:
-        num_cpu = 10
+        num_cpu = 18
         training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
         obs = training_vec_env.reset()
         observations = [obs]
         frames = []
         tracking_obs_dim = list(obs["RelativeTrackingObservation"].shape)
-        n_steps = 2000
+        n_steps = 1200
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
         for i in range(n_steps):
             actions = np.array([training_vec_env.action_space.sample() for _ in range(num_cpu)])
@@ -156,11 +157,12 @@ if __name__ == "__main__":
             print(f"Progress: {i}/{n_steps}")
 
         np.save(TRACKINGOBS_DATADIR / TRACKING_GRU_TRAINING_DATA_SAVE_FILE, tracking_observations)
-
-        # tracking_data = np.load(TRACKINGOBS_DATADIR / TRACKING_TRAINING_DATA_SAVE_FILE, mmap_mode="r", allow_pickle=True)
-        # m = np.load(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
-
         training_vec_env.close()
+
+        # tracking_data = np.load(
+        #     TRACKINGOBS_DATADIR / TRACKING_TRAINING_DATA_SAVE_FILE, mmap_mode="r", allow_pickle=True
+        # )
+        # m = np.load(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
 
         env_config.update(
             {
@@ -180,7 +182,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         tracking_obs_dim = list(obs["RelativeTrackingObservation"].shape)
-        n_steps = 2000
+        n_steps = 600
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
         for i in range(n_steps):
             actions = np.array([test_vec_env.action_space.sample() for _ in range(num_cpu)])
@@ -195,7 +197,7 @@ if __name__ == "__main__":
         # tracking_data = np.load(TRACKINGOBS_DATADIR / TRACKING_TRAINING_DATA_SAVE_FILE, mmap_mode="r", allow_pickle=True)
         # m = np.load(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
 
-        training_vec_env.close()
+        test_vec_env.close()
     else:
         env = gym.make(id=env_id, **env_config)
         obs, info = env.reset(seed=1)

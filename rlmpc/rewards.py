@@ -384,6 +384,8 @@ class COLREGRewarder(cs_reward.IReward):
         self._nx_do: int = 6
         self._all_polygons: list = []
         self._r_safe: float = 10.0
+        self._min_depth: int = 0
+        self._geometry_tree: Any = None
 
     def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:

@@ -4,8 +4,8 @@ t_start: 0.0
 t_end: 250.0
 dt_sim: 0.5
 utm_zone: 33
-map_size: [1200.0, 1500.0]
-map_origin_enu: [-31824.0, 6573700.0]
+map_size: [1400.0, 1500.0]
+map_origin_enu: [-31924.0, 6573700.0]
 map_data_files: ["Rogaland_utm33.gdb"]
 map_tolerance: 0
 map_buffer: 0
@@ -68,10 +68,10 @@ ship_list:
     # speed_plan: [4.0, 4.0, 4.0, 4.0, 4.0]
     goal_csog_state: [6574800.0, -30584, 4.0, 0.0] #[6583580.0, -31824.0, 0.0, 0.0]
     tracker:
-      # kf:
-      #   P_0: [49.1, 49.1, 0.11, 0.11]
-      #   q: 1.0
-      god_tracker: ""
+      kf:
+        P_0: [49.1, 49.1, 0.11, 0.11]
+        q: 1.0
+      # god_tracker: ""
     sensors:
       - radar:
           max_range: 5000.0
@@ -115,7 +115,7 @@ ship_list:
         q: 0.15
     sensors:
       - radar:
-          max_range: 2000.0
+          max_range: 5000.0
           measurement_rate: 0.5
           R: [25.0, 25.0]
           R_true: [25.0, 25.0]
