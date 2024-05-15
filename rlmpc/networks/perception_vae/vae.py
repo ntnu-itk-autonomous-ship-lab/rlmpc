@@ -11,9 +11,8 @@ from typing import Tuple
 
 import torch as th
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
-from rlmpc.networks.tracking_gru_vae.decoder import TrackingDecoder
-from rlmpc.networks.tracking_gru_vae.encoder import TrackingEncoder
+from rlmpc.networks.perception_vae.decoder import PerceptionImageDecoder
+from rlmpc.networks.perception_vae.encoder import PerceptionImageEncoder
 
 
 class Lambda(nn.Module):

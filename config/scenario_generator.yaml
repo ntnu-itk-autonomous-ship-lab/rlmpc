@@ -23,7 +23,7 @@ t_cpa_threshold: 200.0
 d_cpa_threshold: 100.0
 
 behavior_generator:
-  ownship_method: "ConstantSpeedRandomWaypoints" # "ConstantSpeedRandomWaypoints" # "VaryingSpeedRandomWaypoints"
+  ownship_method: "RRTStar" # "ConstantSpeedRandomWaypoints" # "VaryingSpeedRandomWaypoints"
   target_ship_method: "ConstantSpeedRandomWaypoints" # "RRT" # "PQRRTStar"
   target_ship_rrt_behavior_sampling_method: "OwnshipWaypointCorridor" # Either Optimal, OwnshipGoal, OwnshipWaypointCorridor, CourseCorridor, UniformlyInMap, CPA
 

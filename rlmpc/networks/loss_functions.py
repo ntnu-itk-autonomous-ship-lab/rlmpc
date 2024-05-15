@@ -10,7 +10,6 @@
 from typing import Tuple
 
 import matplotlib.pyplot as plt
-import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
@@ -32,9 +31,10 @@ def vqvae(
     Returns:
         Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]: The total loss, the reconstruction loss, the VQ loss, and the commitment loss.
     """
+    dims = [i for i in range(1, len(x.shape))]
     weight_matrix = compute_weights_from_semantic_mask(semantic_mask)
     loss_recon = 0.5 * nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
-    loss_recon = th.mean(th.sum(loss_recon, dim=[1, 2, 3]))
+    loss_recon = th.mean(th.sum(loss_recon, dim=dims))
 
     # Vector quantization objective
     loss_vq = F.mse_loss(z_q_x, z_e_x.detach())
@@ -90,9 +90,10 @@ def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor,
     Returns:
         th.Tensor: The reconstruction loss.
     """
+    dims = [i for i in range(1, len(x.shape))]
     weight_matrix = compute_weights_from_semantic_mask(semantic_mask)
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
-    mse = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
+    mse = th.mean(th.sum(mse_nonreduced_nonscaled, dim=dims))
     log_sigma_opt = 0.5 * (mse + 1e-7).log()
 
     if False:
@@ -103,7 +104,7 @@ def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor,
         ax[2].imshow(weight_matrix[0, 0].detach().cpu().numpy())
         ax[3].imshow(recon_x[0, 0].detach().cpu().numpy())
     recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weight_matrix + log_sigma_opt
-    recon_loss = th.mean(th.sum(recon_loss, dim=[1, 2, 3]))
+    recon_loss = th.mean(th.sum(recon_loss, dim=dims))
     return recon_loss, log_sigma_opt + 1e-7
 
 
@@ -118,9 +119,10 @@ def semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, seman
     Returns:
         th.Tensor: The reconstruction loss.
     """
+    dims = [i for i in range(1, len(x.shape))]
     weight_matrix = compute_weights_from_semantic_mask_land_ownship_only(semantic_mask)
     mse_nonreduced_nonscaled = nn.MSELoss(reduction="none")(recon_x, x) * weight_matrix
-    recon_loss = th.mean(th.sum(mse_nonreduced_nonscaled, dim=[1, 2, 3]))
+    recon_loss = th.mean(th.sum(mse_nonreduced_nonscaled, dim=dims))
     return recon_loss
 
 
@@ -136,10 +138,54 @@ def sigma_reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
         th.Tensor: The reconstruction loss.
     """
     mse = F.mse_loss(recon_x, x, reduction="mean")
+    dims = [i for i in range(1, len(x.shape))]
     log_sigma_opt = 0.5 * (mse + 1e-7).log()
     recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) + log_sigma_opt
-    recon_loss = th.mean(th.sum(recon_loss, dim=[1, 2, 3]))
+    recon_loss = th.mean(th.sum(recon_loss, dim=dims))
     return recon_loss, log_sigma_opt + 1e-7
+
+
+def sigma_reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+    """
+    Compute the reconstruction loss of the sigma-VAE.
+
+    Args:
+        recon_x (th.Tensor): The reconstructed image of dim [batch_size, n_channels, height, width].
+        x (th.Tensor): The input image of dim [batch_size, n_channels, height, width].
+
+    Returns:
+        Tuple[th.Tensor, th.Tensor]: The reconstruction loss and the log sigma.
+    """
+    dims = [i for i in range(1, len(x.shape))]
+    weights = th.ones_like(x)
+    weights[th.where(x[:, :, :3] > -1.0)] = 5.0  # increase the weight for the first three channels
+    weights[th.where(x[:, :, 0] > 0.98)] = 0.0
+    mse = F.mse_loss(recon_x, x, reduction="none") * weights
+    mse = th.mean(th.sum(mse, dim=dims))
+    log_sigma_opt = 0.5 * (mse + 1e-7).log()
+    recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weights + log_sigma_opt
+    recon_loss = th.mean(th.sum(recon_loss, dim=dims))
+    return recon_loss, log_sigma_opt + 1e-7
+
+
+def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
+    """
+    Compute the reconstruction loss of the VAE.
+
+    Args:
+        recon_x (th.Tensor): The reconstructed image of dim [batch_size, n_channels, height, width].
+        x (th.Tensor): The input image of dim [batch_size, n_channels, height, width].
+
+    Returns:
+        th.Tensor: The reconstruction loss.
+    """
+    dims = [i for i in range(1, len(x.shape))]
+    weights = th.ones_like(x)
+    weights[th.where(x[:, :, :3] > -1.0)] = 2.0  # increase the weight for the first three channels
+    weights[th.where(x[:, :, 0] > 0.99)] = 0.0
+    mse = F.mse_loss(recon_x, x, reduction="none") * weights
+    recon_loss = th.mean(th.sum(mse, dim=dims))
+    return recon_loss
 
 
 def vanilla_reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
@@ -153,7 +199,8 @@ def vanilla_reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
         th.Tensor: The reconstruction loss.
     """
     mse_nonreduced = nn.MSELoss(reduction="none")(recon_x, x)
-    mse_loss = th.mean(th.sum(mse_nonreduced, dim=[1, 2, 3]))
+    dims = [i for i in range(1, len(x.shape))]
+    mse_loss = th.mean(th.sum(mse_nonreduced, dim=dims))
     return mse_loss
 
 

@@ -100,66 +100,53 @@ class PerceptionImageDataset(Dataset):
         return sample, mask
 
 
-# class PartialDataset(Dataset):
-# """
-# * Description: custom `Dataset` module for processing `.npy` files (N, C, H, W) (N > 1) grouped by date
-# - i.e. mini-batched .npy file stored by date
-# - Therefore, the number of samples, 'N', is different from each other...
-# """
-# def __init__(self, read_path, date, transform=None):
-#     """
-#     * Arguments:
-#     - read_path (string): path of `.npy` files
-#     - data (string): date(yymmdd) as a file name
-#     - transform (callable, optional): optional transform to be applied on a sample
-#     """
-#     self.transform = transform
-#     self.path = read_path
-#     self.date = date
+class TrackingObservationDataset(Dataset):
+    """Class for tracking observation dataset from the colav-environment.
 
-#     self.data = self.read_memmap(f'{os.path.join(self.path, self.date)}.npy')
+    The dataset is a numpy array of shape (n_samples, n_envs, max_num_do, do_info_dim),
 
-# def read_memmap(self, file_name):
-#     """
-#     * Descripton: read `np.memmap` file from the directory
+    where n_samples is the number of samples, n_envs is the number of environments,
+    max_num_do is the maximum number of dynamic obstacles in the environment,
+    and do_info_dim is the dimension of the dynamic obstacle information.
 
-#     * Argument:
-#     - file_name (string): path of '.npy' and '.npy.conf' files
 
-#     * Output:
-#     - whole data loaded in a memory-efficient manner (np.memmap)
-#     """
-#     with open(file_name + '.conf', 'r') as file:
-#         memmap_configs = json.load(file)
-#         return np.memmap(file_name, mode='r+', shape=tuple(memmap_configs['shape']), dtype=memmap_configs['dtype'])
+    """
 
-# def __getitem__(self, index):
-#     """
-#     * Description: function for indexing samples
+    def __init__(
+        self,
+        data_npy_file: str,
+        data_dir: Path,
+        transform=transforms_v2.Compose(
+            [
+                transforms_v2.ToDtype(torch.float32, scale=True),
+            ]
+        ),
+    ):
+        """Initializes the dataset.
+        Args:
+            - data_npy_file (str): The name of the npy file containing the observation data.
+            - data_dir (Path): The path to the data directory in which the numpy file is found.
+            - transform (transforms_v2...): The transform to apply to the data.
+        """
+        self.data_dir = data_dir
+        self.transform = transform
+        self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.float32)
+        self.data = self.data[:1, :1]
+        self.n_samples, self.n_envs, self.max_num_do, self.do_info_dim = self.data.shape
 
-#     * Argument:
-#     - index (int): index of the sample
+    def get_datainfo(self) -> Tuple[int, int, int, int, int]:
+        """Returns the data information."""
+        return self.n_samples, self.n_envs, self.max_num_do, self.do_info_dim
 
-#     * Output:
-#     - input data, output data (torch.Tensor, torch.Tensor)
-#     - (batch_size, 4 (Mask(0 - background, 1 - foreground) / input1 / input2 / input3), height, width), (batch_size, output, height, width)
-#     """
+    def __len__(self):
+        return self.n_samples * self.n_envs
 
-#     mask = torch.Tensor(self.data[index, 0, :, :]).reshape(1, PATCH_HEIGHT, PATCH_WIDTH)
-#     inputs = torch.Tensor(self.data[index, 2:4, :, :])
-#     output = torch.Tensor(self.data[index, 1, :, :]).reshape(1, PATCH_HEIGHT, PATCH_WIDTH)
-
-#     if self.transform is not None:
-#         inputs = self.transform(inputs)
-
-#     inputs = np.concatenate([mask, inputs], axis=0)
-#     return (inputs, output)
-
-# def __len__(self):
-#     """
-#     * Description: fucntion for noticing the length of dataset
-
-#     * Output:
-#     - length (int)
-#     """
-#     return self.data.shape[0]
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        assert idx < self.n_samples * self.n_envs, "Index out of range"
+        env_idx = idx % self.n_envs
+        sample_idx = idx // self.n_envs
+        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :].copy().astype(np.float32))
+        # sort sample after entry 0 (distance)
+        if self.transform:
+            sample = self.transform(sample)
+        return sample

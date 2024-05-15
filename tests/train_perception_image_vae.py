@@ -14,7 +14,7 @@ import torch
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rlmpc.networks.vanilla_vae_arch2.vae import VAE
+from rlmpc.networks.perception_vae.vae import VAE
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -28,10 +28,8 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "training_vae4"
+EXPERIMENT_NAME: str = "perception_vae5"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
-SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
-LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
 
 
 class RunningLoss:
@@ -117,9 +115,9 @@ def train_vae(
         training_batch_losses = []
 
         model.train()
+        model.set_inference_mode(False)
         for batch_idx, (batch_images, semantic_masks) in enumerate(training_dataloader):
             batch_start_time = time.time()
-            model.zero_grad()
             optimizer.zero_grad()
 
             batch_images = batch_images.to(device)
@@ -270,8 +268,8 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 128
-    fc_dim = 800
+    latent_dim = 64
+    fc_dim = 512
     encoder_conv_block_dims = [32, 256, 256, 256]
     input_image_dim = (1, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -290,7 +288,7 @@ if __name__ == "__main__":
     num_epochs = 100
     learning_rate = 1e-04
 
-    log_dir = EXPERIMENT_PATH / "logs"
+    log_dir = BASE_PATH / "logs"
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
     training_data_npy_filename1 = "perception_data_rogaland_random_everything_land_only.npy"
@@ -338,6 +336,7 @@ if __name__ == "__main__":
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
     print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
+
     writer = SummaryWriter(log_dir=log_dir)
     optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
 
@@ -368,5 +367,5 @@ if __name__ == "__main__":
         optimizer=optimizer,
         save_interval=save_interval,
         device=device,
-        early_stopping_patience=10,
+        early_stopping_patience=8,
     )

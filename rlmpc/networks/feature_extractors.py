@@ -11,17 +11,19 @@ import pathlib
 from sys import platform
 from typing import Tuple
 
-import rlmpc.networks.vanilla_vae_arch2.vae as vae_arch2
+import rlmpc.networks.perception_vae.vae as perception_vae
+import rlmpc.networks.tracking_vae.vae as tracking_vae
 import torch as th
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 if platform == "linux" or platform == "linux2":
     VAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/data/vae/")
+    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/data/tracking_vae")
 elif platform == "darwin":
     VAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/vae_models/")
+    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/data/tracking_vae")
 
 
 class PerceptionImageVAE(BaseFeaturesExtractor):
@@ -40,8 +42,8 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
         if model_file is None:
-            model_file = VAE_DATADIR / "training_vae1_model_LD_128_best.pth"
-        self.vae: vae_arch2.VAE = vae_arch2.VAE(
+            model_file = VAE_DATADIR / "perception_vae_LD_64/perception_vae5_model_LD_64_best.pth"
+        self.vae: perception_vae.VAE = perception_vae.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
             encoder_conv_block_dims=encoder_conv_block_dims,
@@ -119,7 +121,7 @@ class DisturbanceNN(BaseFeaturesExtractor):
         return self.passthrough(observations)
 
 
-class TrackingGRUVAE(BaseFeaturesExtractor):
+class TrackingVAE(BaseFeaturesExtractor):
     """Feature extractor for the tracking state."""
 
     def __init__(
@@ -127,35 +129,48 @@ class TrackingGRUVAE(BaseFeaturesExtractor):
         observation_space: spaces.Space,
         features_dim: int = 15,
         num_layers: int = 1,
-        batch_size: int = 1,
+        model_file: str | None = None,
     ) -> None:
-        super(TrackingGRUVAE, self).__init__(observation_space, features_dim=features_dim)
+        super(TrackingVAE, self).__init__(observation_space, features_dim=features_dim)
 
-        self.input_dim = observation_space.shape[0]
-        self.hidden_dim = features_dim
-        self.num_layers = num_layers
-        self.gru = nn.GRU(input_size=self.input_dim, hidden_size=features_dim, num_layers=num_layers, batch_first=True)
+        self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
+
+        if model_file is None:
+            model_file = TRACKINGVAE_DATADIR / "tracking_vae1_model_LD_10_best.pth"
+
+        self.vae: tracking_vae.VAE = tracking_vae.VAE(
+            latent_dim=features_dim,
+            num_layers=num_layers,
+        )
+
+        self.vae.load_state_dict(
+            th.load(
+                str(model_file),
+                map_location=th.device("cpu"),
+            )
+        )
+        self.vae.eval()
+        self.vae.set_inference_mode(True)
+        self.latent_dim = self.vae.latent_dim
+        self.tanh = nn.Tanh()
+
+    def set_inference_mode(self, inference_mode: bool) -> None:
+        self.vae.set_inference_mode(inference_mode)
+
+    def preprocess_obs(self, observations: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+        return self.vae.preprocess_obs(observations)
+
+    def reconstruct(self, observations: th.Tensor) -> th.Tensor:
+        observations, seq_lengths = self.preprocess_obs(observations)
+        recon_obs = self.vae(observations, seq_lengths)
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        batch_size = observations.shape[0]
-        hidden = th.zeros(self.num_layers, batch_size, self.hidden_dim)
-
-        # extract length of valid obstacle observations
-        seq_lengths = th.sum(observations[:, 0, :] < 0.9, dim=1)
-        seq_lengths[seq_lengths == 0] = 1
-        max_seq_length = seq_lengths.max().item()
-        observations = observations[:, :, :max_seq_length]
-
-        observations = observations.permute(0, 2, 1)
-        packed_seq = rnn_utils.pack_padded_sequence(observations, seq_lengths, batch_first=True, enforce_sorted=False)
-        packed_output, hidden = self.gru(packed_seq, hidden)
-        output, _ = rnn_utils.pad_packed_sequence(packed_output, batch_first=True)
-
-        hidden_out = hidden.permute(1, 0, 2).reshape(-1, self.num_layers * self.hidden_dim)
-        return hidden_out
-
-    def init_hidden(self, batch_size: int) -> th.Tensor:
-        return th.zeros(self.num_layers, batch_size, self.hidden_dim)
+        assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
+        with th.no_grad():
+            observations, seq_lengths = self.preprocess_obs(observations)
+            z_e, _, _ = self.vae.encode(observations, seq_lengths)
+            # print(f"z_e shape: {z_e.shape}")
+            return z_e
 
 
 class CombinedExtractor(BaseFeaturesExtractor):
@@ -183,8 +198,8 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = TrackingGRU(subspace, features_dim=15, num_layers=1, batch_size=batch_size)
-                total_concat_size += extractors[key].features_dim
+                extractors[key] = TrackingVAE(subspace, features_dim=10, num_layers=1)
+                total_concat_size += extractors[key].latent_dim
             elif key == "DisturbanceObservation":
                 extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
                 total_concat_size += subspace.shape[-1]
