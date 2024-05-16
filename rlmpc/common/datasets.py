@@ -131,12 +131,15 @@ class TrackingObservationDataset(Dataset):
         self.data_dir = data_dir
         self.transform = transform
         self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.float32)
-        self.data = self.data[:1, :1]
+        # self.data = self.data[:1, :1]
         self.n_samples, self.n_envs, self.max_num_do, self.do_info_dim = self.data.shape
 
     def get_datainfo(self) -> Tuple[int, int, int, int, int]:
         """Returns the data information."""
         return self.n_samples, self.n_envs, self.max_num_do, self.do_info_dim
+
+    def get_data(self):
+        return self.data
 
     def __len__(self):
         return self.n_samples * self.n_envs

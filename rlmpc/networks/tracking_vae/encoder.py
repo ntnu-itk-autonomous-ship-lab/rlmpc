@@ -50,8 +50,8 @@ class TrackingEncoder(nn.Module):
         self.fc_dim = fc_dim
         self.rnn1 = rnn_type(input_size=self.input_dim, hidden_size=latent_dim, num_layers=num_layers, batch_first=True)
         self.fc0 = nn.Linear(self.latent_dim, fc_dim)  # 2 * self.latent_dim)
-        self.dropout = nn.Dropout(p=0.3)
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=0.2)
         self.fc1 = nn.Linear(fc_dim, 2 * self.latent_dim)
 
     def encode(self, x: th.Tensor, seq_lengths: th.Tensor) -> th.Tensor:
@@ -80,8 +80,8 @@ class TrackingEncoder(nn.Module):
         last_hidden = last_hidden.permute(1, 0, 2).reshape(-1, self.latent_dim)
 
         z_enc = self.fc0(last_hidden)
-        z_enc = self.dropout(z_enc)
         z_enc = self.relu(z_enc)
+        z_enc = self.dropout(z_enc)
         z_enc = self.fc1(z_enc)
         return z_enc
 

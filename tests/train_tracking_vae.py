@@ -93,7 +93,7 @@ def train_vae(
     best_train_loss = 1e20
     best_epoch = 0
 
-    beta = 0.1
+    beta = 0.01
     input_dim = (10, 6)
     beta_norm = beta * model.latent_dim / (input_dim[0] * input_dim[1])
 
@@ -242,16 +242,16 @@ def train_vae(
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dims = [10, 20, 40, 60]
+    latent_dims = [10, 20, 30, 40, 50]
     rnn_types = [torch.nn.GRU, torch.nn.LSTM]  # , torch.nn.GRU]
-    num_rnn_layers = 2
-    fc_dim = 5000
+    num_rnn_layers = 1
+    fc_dim = 1024
     input_dim = 6
 
     load_model = False
     save_interval = 20
     batch_size = 16
-    num_epochs = 300
+    num_epochs = 100
     learning_rate = 0.001
 
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
@@ -266,10 +266,10 @@ if __name__ == "__main__":
     training_dataset2 = rl_ds.TrackingObservationDataset(training_data_npy_filename2, data_dir)
     test_dataset2 = rl_ds.TrackingObservationDataset(test_data_npy_filename2, data_dir)
 
-    training_dataset = torch.utils.data.ConcatDataset([training_dataset1, training_dataset2, test_dataset2])
+    training_dataset = torch.utils.data.ConcatDataset([training_dataset1, training_dataset2, test_dataset1])
     test_dataset = test_dataset1  # torch.utils.data.ConcatDataset([test_dataset1, ])
-    training_dataset = training_dataset1
-    test_dataset = test_dataset1
+    # training_dataset = training_dataset1
+    # test_dataset = test_dataset1
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
@@ -305,8 +305,8 @@ if __name__ == "__main__":
             writer = SummaryWriter(log_dir=log_dir / name)
             optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
             T_max = len(train_dataloader) * num_epochs
-            lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader), T_mult=2, eta_min=1e-5)
-            # lr_schedule = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=3e-5)
+            # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=len(train_dataloader), T_mult=2, eta_min=1e-5)
+            lr_schedule = CosineAnnealingLR(optimizer, T_max=T_max, eta_min=3e-5)
             # lr_schedule = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
             if not experiment_path.exists():
@@ -339,7 +339,7 @@ if __name__ == "__main__":
                 lr_schedule=lr_schedule,
                 save_interval=save_interval,
                 device=device,
-                early_stopping_patience=num_epochs,
+                early_stopping_patience=6,  # num_epochs,
                 experiment_path=experiment_path,
             )
 
@@ -351,7 +351,7 @@ if __name__ == "__main__":
                 best_loss_sofar = opt_loss
                 best_experiment = name
 
-            batch_obs = next(iter(test_dataloader))
+            batch_obs = next(iter(train_dataloader))
             batch_obs = batch_obs.to(device)
             # extract length of valid obstacle observations
             seq_lengths = (

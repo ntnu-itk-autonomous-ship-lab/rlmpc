@@ -28,7 +28,7 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "perception_vae5"
+EXPERIMENT_NAME: str = "perception_vae1"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 
 
@@ -97,7 +97,7 @@ def train_vae(
         model_path.mkdir()
 
     n_batch_images_to_show = 12
-    beta = 1.0
+    beta = 0.5
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
@@ -268,8 +268,8 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 64
-    fc_dim = 512
+    latent_dim = 50
+    fc_dim = 1024
     encoder_conv_block_dims = [32, 256, 256, 256]
     input_image_dim = (1, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -284,8 +284,8 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10
-    batch_size = 64
-    num_epochs = 100
+    batch_size = 32
+    num_epochs = 60
     learning_rate = 1e-04
 
     log_dir = BASE_PATH / "logs"
@@ -367,5 +367,5 @@ if __name__ == "__main__":
         optimizer=optimizer,
         save_interval=save_interval,
         device=device,
-        early_stopping_patience=8,
+        early_stopping_patience=6,
     )

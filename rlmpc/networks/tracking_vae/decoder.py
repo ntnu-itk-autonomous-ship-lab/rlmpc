@@ -7,11 +7,8 @@
     Author: Trym Tengesdal
 """
 
-from typing import Tuple
-
 import torch as th
 import torch.nn as nn
-import torch.nn.utils.rnn as rnn_utils
 
 
 class TrackingDecoder(nn.Module):
@@ -38,9 +35,11 @@ class TrackingDecoder(nn.Module):
         self.num_layers = num_layers
         self.fc_dim = fc_dim
         self.fc0 = nn.Linear(self.latent_dim, fc_dim)
-        self.dropout0 = nn.Dropout(p=0.3)
         self.relu = nn.ReLU()
+        self.dropout0 = nn.Dropout(p=0.2)
         self.fc1 = nn.Linear(fc_dim, self.latent_dim)
+        self.dropout1 = nn.Dropout(p=0.2)
+
         self.rnn = rnn_type(input_size=latent_dim, hidden_size=latent_dim, num_layers=num_layers, batch_first=True)
         self.fc2 = nn.Linear(self.latent_dim, output_dim)
 
@@ -50,9 +49,10 @@ class TrackingDecoder(nn.Module):
     def decode(self, z: th.Tensor, max_seq_len: int) -> th.Tensor:
         z = z.unsqueeze(1).repeat(1, max_seq_len, 1)
         z = self.fc0(z)
-        z = self.dropout0(z)
         z = self.relu(z)
+        z = self.dropout0(z)
         z = self.fc1(z)
+        z = self.dropout1(z)
         output, _ = self.rnn(z)  # hidden state is dont care for decoder.
         output = self.fc2(output)
         return output

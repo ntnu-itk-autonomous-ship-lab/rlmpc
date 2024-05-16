@@ -181,7 +181,9 @@ def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
     """
     dims = [i for i in range(1, len(x.shape))]
     weights = th.ones_like(x)
-    weights[th.where(x[:, :, :3] > -1.0)] = 2.0  # increase the weight for the first three channels
+    weights[th.where(x[:, :, 0] >= -1.0)] = 2.0  # increase the weight for the first three channels
+    weights[th.where(x[:, :, 1] >= -1.0)] = 2.0
+    weights[th.where(x[:, :, 2] >= -1.0)] = 2.0
     weights[th.where(x[:, :, 0] > 0.99)] = 0.0
     mse = F.mse_loss(recon_x, x, reduction="none") * weights
     recon_loss = th.mean(th.sum(mse, dim=dims))
