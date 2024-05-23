@@ -145,7 +145,7 @@ def sigma_reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
     return recon_loss, log_sigma_opt + 1e-7
 
 
-def sigma_reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+def sigma_reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
     """
     Compute the reconstruction loss of the sigma-VAE.
 
@@ -168,25 +168,29 @@ def sigma_reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor) -> Tuple[th.Tenso
     return recon_loss, log_sigma_opt + 1e-7
 
 
-def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
+def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor) -> th.Tensor:
     """
     Compute the reconstruction loss of the VAE.
 
     Args:
         recon_x (th.Tensor): The reconstructed image of dim [batch_size, n_channels, height, width].
         x (th.Tensor): The input image of dim [batch_size, n_channels, height, width].
+        seq_lengths (th.Tensor): The length of the sequences in the batch.
 
     Returns:
         th.Tensor: The reconstruction loss.
     """
     dims = [i for i in range(1, len(x.shape))]
-    weights = th.ones_like(x)
-    weights[th.where(x[:, :, 0] >= -1.0)] = 2.0  # increase the weight for the first three channels
-    weights[th.where(x[:, :, 1] >= -1.0)] = 2.0
-    weights[th.where(x[:, :, 2] >= -1.0)] = 2.0
+    weights = 10.0 * th.ones_like(x)
+    weights[:, :, 0][th.where(x[:, :, 0] >= -1.0)] = 70.0  # increase the weight for the first three channels
+    weights[:, :, 1][th.where(x[:, :, 1] >= -1.0)] = 50.0
+    weights[:, :, 2][th.where(x[:, :, 2] >= -1.0)] = 50.0
     weights[th.where(x[:, :, 0] > 0.99)] = 0.0
+    if weights.sum() == 0.0:
+        print("Weights are zero!")
     mse = F.mse_loss(recon_x, x, reduction="none") * weights
-    recon_loss = th.mean(th.sum(mse, dim=dims))
+    recon_loss = th.sum(mse, dim=dims) / seq_lengths.to(x.device).float()
+    recon_loss = th.mean(recon_loss)
     return recon_loss
 
 
@@ -218,5 +222,5 @@ def kullback_leibler_divergence(mean: th.Tensor, logvar: th.Tensor) -> th.Tensor
     """
     # logvar = th.log(logvar.exp() + 1e-7)  # To avoid singularity
     # print(f"latent variance (min, max): ({logvar.exp().min()}, {logvar.exp().max()})")
-    kld_loss = -0.5 * th.sum(1 + logvar - mean.pow(2) - (logvar.exp()), dim=[1, 0])
+    kld_loss = -0.5 * th.mean(th.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1), dim=0)
     return kld_loss

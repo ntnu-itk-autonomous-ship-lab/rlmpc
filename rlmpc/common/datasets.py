@@ -118,7 +118,7 @@ class TrackingObservationDataset(Dataset):
         data_dir: Path,
         transform=transforms_v2.Compose(
             [
-                transforms_v2.ToDtype(torch.float32, scale=True),
+                transforms_v2.ToDtype(torch.float32, scale=False),
             ]
         ),
     ):

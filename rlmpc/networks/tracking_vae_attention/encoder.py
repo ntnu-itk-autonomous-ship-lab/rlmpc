@@ -32,9 +32,7 @@ class TrackingEncoder(nn.Module):
         latent_dim: int = 5,
         num_layers: int = 1,
         fc_dim: int = 1024,
-        rnn_hidden_dim: int = 256,
         rnn_type: nn.Module = nn.GRU,
-        bidirectional: bool = False,
     ) -> None:
         """
 
@@ -43,34 +41,18 @@ class TrackingEncoder(nn.Module):
             latent_dim (int): Dimension of the latent space
             num_layers (int): Number of GRU layers
             fc_dim (int): Dimension of the fully connected layer.
-            rnn_hidden_dim (int): Hidden dimension of the RNN
             rnn_type (nn.Module): Type of RNN module to use (GRU or LSTM)
-            bidirectional (bool): Whether to use a bidirectional RNN
         """
         super(TrackingEncoder, self).__init__()
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.num_layers = num_layers
         self.fc_dim = fc_dim
-        self.rnn_hidden_dim = rnn_hidden_dim
-        self.bidirectional = bidirectional
-        self.hidden = th.nn.Parameter(th.randn(1, 1, self.rnn_hidden_dim))
-        self.rnn1 = rnn_type(
-            input_size=self.input_dim,
-            hidden_size=rnn_hidden_dim,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=bidirectional,
-            dropout=0.3,
-        )
-        rnn_output_dim = 2 * rnn_hidden_dim if bidirectional else rnn_hidden_dim
-
-        # self.fc0 = nn.Linear(rnn_output_dim, fc_dim)  # 2 * self.latent_dim)
-        # self.init_weights(self.fc0)
-        self.fc1 = nn.Linear(rnn_output_dim, 2 * self.latent_dim)
-        self.init_weights(self.fc1)
-        self.layer_norm0 = nn.LayerNorm(2 * self.latent_dim)
+        self.rnn1 = rnn_type(input_size=self.input_dim, hidden_size=latent_dim, num_layers=num_layers, batch_first=True)
+        self.fc0 = nn.Linear(self.latent_dim, fc_dim)  # 2 * self.latent_dim)
         self.elu = nn.ELU()
+        self.dropout = nn.Dropout(p=0.4)
+        self.fc1 = nn.Linear(fc_dim, 2 * self.latent_dim)
 
     def encode(self, x: th.Tensor, seq_lengths: th.Tensor) -> th.Tensor:
         """Encodes the input into the VAE mean and logvar
@@ -86,37 +68,32 @@ class TrackingEncoder(nn.Module):
         #     f"Input shape: {x.shape}, seq_lengths shape: {seq_lengths.shape}, Input (min, max): ({x.min()}, {x.max()})"
         # )
         batch_size = x.shape[0]
+        hidden = th.zeros(self.num_layers, batch_size, self.latent_dim).to(x.device)
         packed_seq = rnn_utils.pack_padded_sequence(x, seq_lengths, batch_first=True, enforce_sorted=False)
 
         if isinstance(self.rnn1, nn.LSTM):
-            output_seq, (hidden, last_cell) = self.rnn1(packed_seq)
+            cell = th.zeros_like(hidden)
+            output_seq, (hidden, last_cell) = self.rnn1(packed_seq, (hidden, cell))
         else:  # GRU
-            output_seq, hidden = self.rnn1(packed_seq)
+            output_seq, hidden = self.rnn1(packed_seq, hidden)
         # unpacked, _ = rnn_utils.pad_packed_sequence(output_seq, batch_first=True)
 
-        if self.bidirectional:
-            hidden = hidden.view(self.num_layers, 2, batch_size, self.rnn_hidden_dim)
-            hidden = hidden[-1].transpose(0, 1).reshape(batch_size, -1)
-        else:
-            hidden = hidden[-1].unsqueeze(0)
-            hidden = hidden.permute(1, 0, 2).reshape(-1, self.rnn_hidden_dim)
+        # hidden dim = (num_layers, batch_size, latent_dim) and we want to reshape to (batch_size, num_layers * latent_dim)
+        last_hidden = hidden[-1].unsqueeze(0)
+        last_hidden = last_hidden.permute(1, 0, 2).reshape(-1, self.latent_dim)
 
-        z_enc = self.fc1(hidden)
-        z_enc = self.layer_norm0(z_enc)
+        z_enc = self.fc0(last_hidden)
         z_enc = self.elu(z_enc)
         # z_enc = self.dropout(z_enc)
-        # z_enc = self.fc1(z_enc)
+        z_enc = self.fc1(z_enc)
         return z_enc
+
+    def init_hidden(self, batch_size: int) -> th.Tensor:
+        return th.zeros(self.num_layers, batch_size, self.latent_dim)
 
     def forward(self, x: th.Tensor, seq_lengths: th.Tensor) -> th.Tensor:
         z_enc = self.encode(x, seq_lengths)
         return z_enc
-
-    def init_weights(self, layer):
-        if isinstance(layer, nn.Linear):
-            print(f"Initialize layer with nn.init.xavier_uniform_: {layer}")
-            th.nn.init.xavier_uniform_(layer.weight)
-            layer.bias.data.fill_(0.01)
 
 
 if __name__ == "__main__":

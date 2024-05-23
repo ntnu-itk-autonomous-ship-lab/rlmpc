@@ -37,8 +37,6 @@ class VAE(nn.Module):
         fc_dim: int = 1024,
         inference_mode: bool = False,
         rnn_type: nn.Module = nn.LSTM,
-        rnn_hidden_dim: int = 256,
-        bidirectional: bool = False,
     ):
         """
         Args:
@@ -48,8 +46,6 @@ class VAE(nn.Module):
             fc_dim (int): Dimension of the fully connected layer.
             inference_mode (bool): Inference mode
             rnn_type (nn.Module): Type of RNN module to use (GRU or LSTM)
-            rnn_hidden_dim (int): Hidden dimension of the RNN
-            bidirectional (bool): Whether to use a bidirectional RNN
         """
         super(VAE, self).__init__()
         self.latent_dim = latent_dim
@@ -57,28 +53,14 @@ class VAE(nn.Module):
         self.num_layers = num_layers
         self.input_dim = input_dim
         self.encoder = TrackingEncoder(
-            input_dim=input_dim,
-            latent_dim=latent_dim,
-            num_layers=num_layers,
-            fc_dim=fc_dim,
-            rnn_type=rnn_type,
-            rnn_hidden_dim=rnn_hidden_dim,
-            bidirectional=bidirectional,
+            input_dim=input_dim, latent_dim=latent_dim, num_layers=num_layers, fc_dim=fc_dim, rnn_type=rnn_type
         )
         self.decoder = TrackingDecoder(
-            latent_dim=latent_dim,
-            output_dim=input_dim,
-            num_layers=num_layers,
-            fc_dim=fc_dim,
-            rnn_type=rnn_type,
-            rnn_hidden_dim=rnn_hidden_dim,
-            bidirectional=bidirectional,
+            latent_dim=latent_dim, output_dim=input_dim, num_layers=num_layers, fc_dim=fc_dim, rnn_type=rnn_type
         )
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
-
-        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.4 * th.eye(self.latent_dim))
 
         num_params = sum(p.numel() for p in self.parameters())
         print(f"Initialized tracking RNN VAE with {num_params} parameters")
@@ -87,7 +69,7 @@ class VAE(nn.Module):
         if observations.ndim < 3:
             observations = observations.unsqueeze(0)
         seq_lengths = (
-            th.sum(observations[:, 0, :] < 0.95, dim=1).to("cpu").type(th.int64)
+            th.sum(observations[:, 0, :] < 0.9, dim=1).to("cpu").type(th.int64)
         )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
         seq_lengths[seq_lengths == 0] = 1
         max_seq_length = seq_lengths.max().item()
@@ -127,7 +109,7 @@ class VAE(nn.Module):
         logvars = self.logvar_params(z)
         logvars = th.log(logvars.exp() + 1e-7)  # To avoid singularity
         std = th.exp(0.5 * logvars)
-        eps = self.mvnormal.sample(sample_shape=mean.shape[:1]).to(z.device)
+        eps = th.randn_like(std)
 
         if self.inference_mode:
             eps = th.zeros_like(eps)

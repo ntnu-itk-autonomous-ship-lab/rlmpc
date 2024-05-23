@@ -127,11 +127,11 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env1",
-        "seed": 101,
+        "seed": 11036,
     }
 
-    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_gru_training_data_rogaland2.npy"
-    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_gru_test_data_rogaland2.npy"
+    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_gru_training_data_rogaland8.npy"
+    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_gru_training_data_rogaland9.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -141,7 +141,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         tracking_obs_dim = list(obs["RelativeTrackingObservation"].shape)
-        n_steps = 1000
+        n_steps = 1100
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
         for i in range(n_steps):
             actions = np.array([training_vec_env.action_space.sample() for _ in range(num_cpu)])
@@ -164,7 +164,7 @@ if __name__ == "__main__":
                 "max_number_of_episodes": 9000000,
                 "scenario_file_folder": test_scenario_folders,
                 "merge_loaded_scenario_episodes": True,
-                "seed": 110,
+                "seed": 11059,
                 "test_mode": True,
                 "simulator_config": eval_sim_config,
                 "reload_map": False,
@@ -177,7 +177,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         tracking_obs_dim = list(obs["RelativeTrackingObservation"].shape)
-        n_steps = 500
+        n_steps = 1100
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
         for i in range(n_steps):
             actions = np.array([test_vec_env.action_space.sample() for _ in range(num_cpu)])
