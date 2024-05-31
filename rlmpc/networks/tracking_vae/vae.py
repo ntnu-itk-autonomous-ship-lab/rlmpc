@@ -78,7 +78,7 @@ class VAE(nn.Module):
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
 
-        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.4 * th.eye(self.latent_dim))
+        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.5 * th.eye(self.latent_dim))
 
         num_params = sum(p.numel() for p in self.parameters())
         print(f"Initialized tracking RNN VAE with {num_params} parameters")

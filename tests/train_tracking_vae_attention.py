@@ -13,7 +13,7 @@ import rlmpc.networks.loss_functions as loss_functions
 import torch
 import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rlmpc.networks.tracking_vae.vae import VAE
+from rlmpc.networks.tracking_vae_attention.vae import VAE
 from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -94,9 +94,12 @@ def train_vae(
     best_train_loss = 1e20
     best_epoch = 0
 
-    beta = 0.001
+    beta = 0.5
     training_losses = []
     testing_losses = []
+
+    input_dim = 6
+    max_seq_length = 10
 
     # warmup_period = n_batches
     # warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period)
@@ -122,16 +125,13 @@ def train_vae(
             seq_lengths = (
                 torch.sum(batch_obs[:, 0, :] < 0.95, dim=1).to("cpu").type(torch.int64)
             )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
-            seq_lengths[seq_lengths == 0] = 1
-            max_seq_length = seq_lengths.max().item()
-            batch_obs = batch_obs[:, :, -max_seq_length:]
             batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
             # Forward pass
             reconstructed_obs, means, log_vars, _ = model(batch_obs, seq_lengths)
             mse_loss = loss_functions.reconstruction_rnn(reconstructed_obs, batch_obs, seq_lengths)
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            beta_norm = beta * model.latent_dim / (max_seq_length * 6)
+            beta_norm = beta * model.latent_dim / (max_seq_length * input_dim)
             loss = mse_loss + beta_norm * kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
@@ -184,16 +184,13 @@ def train_vae(
             seq_lengths = (
                 torch.sum(batch_obs[:, 0, :] < 0.95, dim=1).to("cpu").type(torch.int64)
             )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
-            seq_lengths[seq_lengths == 0] = 1
-            max_seq_length = seq_lengths.max().item()
-            batch_obs = batch_obs[:, :, -max_seq_length:]
             batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
             # Forward pass
             reconstructed_obs, means, log_vars, _ = model(batch_obs, seq_lengths)
             mse_loss = loss_functions.reconstruction_rnn(reconstructed_obs, batch_obs, seq_lengths)
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
-            beta_norm = beta * model.latent_dim / (max_seq_length * 6)
+            beta_norm = beta * model.latent_dim / (max_seq_length * input_dim)
             loss = mse_loss + beta_norm * kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
@@ -243,114 +240,72 @@ def train_vae(
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dims = [5, 10, 15, 20, 30]
-    rnn_types = [torch.nn.GRU, torch.nn.LSTM]
-    num_rnn_layers = 2
-    fc_dim = 16
+    latent_dims = [7, 10, 15]  # , 10, 15, 20]
+    rnn_types = [torch.nn.GRU]
+    num_rnn_layers_decoder = 1
+    rnn_hidden_dim_decoder = 64
+    num_heads = 6
+    embedding_dims = [240, 12, 48, 60, 72]  # [12, 24, 48]
     input_dim = 6
 
     load_model = False
     save_interval = 20
-    batch_size = 128
-    num_epochs = 60
-    learning_rate = 1e-4
+    batch_size = 64
+    num_epochs = 40
+    learning_rate = 2e-4
 
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
-    training_data_npy_filename = "tracking_gru_training_data_rogaland.npy"
-    test_data_npy_filename = "tracking_gru_test_data_rogaland.npy"
-    training_data_npy_filename2 = "tracking_gru_training_data_rogaland2.npy"
-    test_data_npy_filename2 = "tracking_gru_test_data_rogaland2.npy"
-    training_data_npy_filename3 = "tracking_gru_training_data_rogaland3.npy"
-    training_data_npy_filename4 = "tracking_gru_training_data_rogaland4.npy"
-    training_data_npy_filename5 = "tracking_gru_training_data_rogaland5.npy"
-    training_data_npy_filename6 = "tracking_gru_training_data_rogaland6.npy"
-    training_data_npy_filename7 = "tracking_gru_training_data_rogaland7.npy"
-    training_data_npy_filename8 = "tracking_gru_training_data_rogaland8.npy"
-    training_data_npy_filename9 = "tracking_gru_training_data_rogaland9.npy"
+    training_data_filename_list = []
+    for i in range(1, 9):
+        training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
+        training_data_filename_list.append(training_data_filename)
 
-    # training_transform = transforms_v2.Compose(
-    #     [
-    #         transforms_v2.ToDtype(torch.float32, scale=True),
-    #         transforms_v2.RandomChoice(
-    #             [
-    #                 transforms_v2.ToDtype(torch.float32, scale=True),
-    #                 transforms_v2.transforms_v2.ElasticTransform(alpha=50, sigma=3),
-    #             ],
-    #             p=[0.5, 0.5, 0.5],
-    #         ),
-    #         transforms_v2.ToDtype(torch.float32, scale=True),
-    #     ]
-    # )
-
-    training_dataset1 = rl_ds.TrackingObservationDataset(training_data_npy_filename, data_dir)
-    test_dataset1 = rl_ds.TrackingObservationDataset(test_data_npy_filename, data_dir)
-    training_dataset2 = rl_ds.TrackingObservationDataset(training_data_npy_filename2, data_dir)
-    test_dataset2 = rl_ds.TrackingObservationDataset(test_data_npy_filename2, data_dir)
-
-    training_dataset3 = rl_ds.TrackingObservationDataset(training_data_npy_filename3, data_dir)
-    training_dataset4 = rl_ds.TrackingObservationDataset(training_data_npy_filename4, data_dir)
-    training_dataset5 = rl_ds.TrackingObservationDataset(training_data_npy_filename5, data_dir)
-    training_dataset6 = rl_ds.TrackingObservationDataset(training_data_npy_filename6, data_dir)
-    training_dataset7 = rl_ds.TrackingObservationDataset(training_data_npy_filename7, data_dir)
-    training_dataset8 = rl_ds.TrackingObservationDataset(training_data_npy_filename8, data_dir)
-    training_dataset9 = rl_ds.TrackingObservationDataset(training_data_npy_filename9, data_dir)
+    test_data_npy_filename1 = "tracking_vae_test_data_rogaland1.npy"
+    test_data_npy_filename2 = "tracking_vae_test_data_rogaland2.npy"
 
     training_dataset = torch.utils.data.ConcatDataset(
         [
-            training_dataset1,
-            training_dataset2,
-            training_dataset3,
-            training_dataset4,
-            training_dataset5,
-            training_dataset6,
-            training_dataset7,
-            training_dataset8,
-            training_dataset9,
+            rl_ds.TrackingObservationDataset(training_data_file, data_dir)
+            for training_data_file in training_data_filename_list
         ]
     )
+
+    test_dataset1 = rl_ds.TrackingObservationDataset(test_data_npy_filename1, data_dir)
+    test_dataset2 = rl_ds.TrackingObservationDataset(test_data_npy_filename2, data_dir)
     test_dataset = torch.utils.data.ConcatDataset([test_dataset1, test_dataset2])
-    # training_dataset = training_dataset1
-    # test_dataset = test_dataset1
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
     print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
 
-    # SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
-    # LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
     log_dir = BASE_PATH / "logs"
 
     best_experiment = ""
     best_loss_sofar = 1e20
     exp_counter = 0
-    for rnn_type in rnn_types:
-        if rnn_type == torch.nn.GRU:
-            rnn_type_str = "GRU"
-        else:
-            rnn_type_str = "LSTM"
-
+    for embedding_dim in embedding_dims:
         for latent_dim in latent_dims:
             vae = VAE(
                 latent_dim=latent_dim,
                 input_dim=input_dim,
-                num_layers=num_rnn_layers,
-                fc_dim=fc_dim,
-                inference_mode=False,
-                rnn_type=rnn_type,
-                rnn_hidden_dim=20,
-                bidirectional=True,
+                embedding_dim=embedding_dim,
+                num_heads=num_heads,
+                num_layers=num_rnn_layers_decoder,
+                rnn_type=torch.nn.GRU,
+                rnn_hidden_dim=rnn_hidden_dim_decoder,
+                bidirectional=False,
             ).to(device)
 
-            name = f"tracking_vae{exp_counter+1}_NL_{num_rnn_layers}_LD_{latent_dim}_{rnn_type_str}"
+            name = f"tracking_avae{exp_counter+1}_NL_{num_rnn_layers_decoder}_nonbi_HD_{rnn_hidden_dim_decoder}_LD_{latent_dim}_NH_{num_heads}_ED_{embedding_dim}"
             experiment_path = BASE_PATH / name
 
             writer = SummaryWriter(log_dir=log_dir / name)
             optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
             # T_max = len(train_dataloader) * num_epochs
-            lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
-            # lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
+            # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
+            lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
             # lr_schedule = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
             if not experiment_path.exists():
@@ -361,7 +316,10 @@ if __name__ == "__main__":
                 "experiment_path": experiment_path,
                 "experiment_name": name,
                 "latent_dim": latent_dim,
-                "num_rnn_layers": num_rnn_layers,
+                "num_rnn_layers_decoder": num_rnn_layers_decoder,
+                "rnn_hidden_dim_decoder": rnn_hidden_dim_decoder,
+                "num_heads": num_heads,
+                "embedding_dim": embedding_dim,
                 "input_dim": input_dim,
                 "batch_size": batch_size,
                 "num_epochs": num_epochs,
@@ -383,33 +341,17 @@ if __name__ == "__main__":
                 lr_schedule=lr_schedule,
                 save_interval=save_interval,
                 device=device,
-                early_stopping_patience=60,  # num_epochs,
+                early_stopping_patience=10,  # num_epochs,
                 experiment_path=experiment_path,
             )
 
             print(
-                f"[EXPERIMENT: {exp_counter + 1}]: LD={latent_dim}, NL={num_rnn_layers}, rnn_type={rnn_type_str} | Optimal loss: {opt_loss} at epoch {opt_epoch}"
+                f"[EXPERIMENT: {exp_counter + 1}]: LD={latent_dim}, NL={num_rnn_layers_decoder}, HD={rnn_hidden_dim_decoder}, NH={num_heads}, ED={embedding_dim} | Optimal loss: {opt_loss} at epoch {opt_epoch}"
             )
 
             if opt_loss < best_loss_sofar:
                 best_loss_sofar = opt_loss
                 best_experiment = name
-
-            batch_obs = next(iter(test_dataloader))
-            batch_obs = batch_obs.to(device)
-            # extract length of valid obstacle observations
-            seq_lengths = (
-                torch.sum(batch_obs[:, 0, :] < 0.95, dim=1).to("cpu").type(torch.int64)
-            )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
-            seq_lengths[seq_lengths == 0] = 1
-            max_seq_length = seq_lengths.max().item()
-            batch_obs = batch_obs[:, :, -max_seq_length:]
-            batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
-            recon_obs, _, _, _ = model(batch_obs, seq_lengths)
-            weights = torch.ones_like(batch_obs)
-            weights[torch.where(batch_obs[:, :, 0] > 0.98)] = 0.0
-            diff = weights * (recon_obs - batch_obs)
-            print(f"diff = {diff[0]}")
 
             exp_counter += 1
 

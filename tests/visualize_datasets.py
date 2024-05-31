@@ -14,10 +14,10 @@ if __name__ == "__main__":
     batch_size = 32
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
-    training_data_npy_filename = "tracking_gru_training_data_rogaland.npy"
-    test_data_npy_filename = "tracking_gru_test_data_rogaland.npy"
-    training_data_npy_filename2 = "tracking_gru_training_data_rogaland2.npy"
-    test_data_npy_filename2 = "tracking_gru_test_data_rogaland2.npy"
+    training_data_npy_filename = "tracking_vae_training_data_rogaland1.npy"
+    test_data_npy_filename = "tracking_vae_test_data_rogaland1.npy"
+    training_data_npy_filename2 = "tracking_vae_training_data_rogaland2.npy"
+    test_data_npy_filename2 = "tracking_vae_test_data_rogaland2.npy"
 
     training_dataset1 = rl_ds.TrackingObservationDataset(training_data_npy_filename, data_dir).get_data()
     test_dataset1 = rl_ds.TrackingObservationDataset(test_data_npy_filename, data_dir).get_data()
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     df_test2 = pd.DataFrame(test_dataset2[::20, :, 1:3, :].reshape(-1, 2), columns=["speed x", "speed y"])
 
     # find indices where both speed x and speed y are 0:
-    td1sub = training_dataset1[::20, :, :, :].reshape(-1, 6, 10)
+    td1sub = training_dataset1[::10, :, :, :].reshape(-1, 6, 10)
     idxs = np.where((td1sub[:, 1, :] == 0) & (td1sub[:, 2, :] == 0))
     td1_0speed = td1sub[idxs[0], :, idxs[1]].reshape(-1, 6, 10)
 

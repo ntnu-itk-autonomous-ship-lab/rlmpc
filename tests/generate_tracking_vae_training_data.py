@@ -127,11 +127,11 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env1",
-        "seed": 11036,
+        "seed": 52,
     }
 
-    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_gru_training_data_rogaland8.npy"
-    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_gru_training_data_rogaland9.npy"
+    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland9.npy"
+    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland10.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -164,7 +164,7 @@ if __name__ == "__main__":
                 "max_number_of_episodes": 9000000,
                 "scenario_file_folder": test_scenario_folders,
                 "merge_loaded_scenario_episodes": True,
-                "seed": 11059,
+                "seed": 56,
                 "test_mode": True,
                 "simulator_config": eval_sim_config,
                 "reload_map": False,
@@ -200,18 +200,18 @@ if __name__ == "__main__":
         observations = []
         frames = []
 
-        vae = VAE(latent_dim=10, input_dim=6, num_layers=1, inference_mode=True, rnn_type=th.nn.GRU).to(
-            th.device("cpu")
-        )
+        # vae = VAE(latent_dim=10, input_dim=6, num_layers=1, inference_mode=True, rnn_type=th.nn.GRU).to(
+        #     th.device("cpu")
+        # )
 
-        vae.load_state_dict(
-            th.load(
-                "/home/doctor/Desktop/machine_learning/data/tracking_vae/tracking_vae2_BS_32_LD_10_GRU/tracking_vae2_BS_32_LD_10_GRU_best.pth",
-                map_location=th.device("cpu"),
-            )
-        )
-        vae.eval()
-        vae.set_inference_mode(True)
+        # vae.load_state_dict(
+        #     th.load(
+        #         "/home/doctor/Desktop/machine_learning/data/tracking_vae/tracking_vae2_BS_32_LD_10_GRU/tracking_vae2_BS_32_LD_10_GRU_best.pth",
+        #         map_location=th.device("cpu"),
+        #     )
+        # )
+        # vae.eval()
+        # vae.set_inference_mode(True)
 
         n_steps = 500
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)

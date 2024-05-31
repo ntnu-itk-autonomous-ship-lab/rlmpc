@@ -116,11 +116,7 @@ class TrackingObservationDataset(Dataset):
         self,
         data_npy_file: str,
         data_dir: Path,
-        transform=transforms_v2.Compose(
-            [
-                transforms_v2.ToDtype(torch.float32, scale=False),
-            ]
-        ),
+        transform=None,
     ):
         """Initializes the dataset.
         Args:

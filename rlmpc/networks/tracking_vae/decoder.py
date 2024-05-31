@@ -48,7 +48,7 @@ class TrackingDecoder(nn.Module):
             num_layers=num_layers,
             batch_first=True,
             bidirectional=bidirectional,
-            dropout=0.3,
+            dropout=0.1,
         )
         rnn_output_dim = rnn_hidden_dim * (2 if bidirectional else 1)
         self.fc1 = nn.Linear(rnn_output_dim, output_dim)

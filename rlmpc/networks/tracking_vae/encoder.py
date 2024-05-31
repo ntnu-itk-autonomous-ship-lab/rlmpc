@@ -54,14 +54,13 @@ class TrackingEncoder(nn.Module):
         self.fc_dim = fc_dim
         self.rnn_hidden_dim = rnn_hidden_dim
         self.bidirectional = bidirectional
-        self.hidden = th.nn.Parameter(th.randn(1, 1, self.rnn_hidden_dim))
         self.rnn1 = rnn_type(
             input_size=self.input_dim,
             hidden_size=rnn_hidden_dim,
             num_layers=num_layers,
             batch_first=True,
             bidirectional=bidirectional,
-            dropout=0.3,
+            dropout=0.1,
         )
         rnn_output_dim = 2 * rnn_hidden_dim if bidirectional else rnn_hidden_dim
 
