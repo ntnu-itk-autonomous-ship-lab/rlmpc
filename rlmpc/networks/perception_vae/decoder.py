@@ -7,7 +7,7 @@
     Author: Trym Tengesdal
 """
 
-from typing import Tuple
+from typing import List, Tuple
 
 import torch as th
 import torch.nn as nn
@@ -24,6 +24,7 @@ class PerceptionImageDecoder(nn.Module):
         n_input_channels: int = 3,
         latent_dim: int = 128,
         first_deconv_input_dim: Tuple[int, int] = (32, 7, 7),
+        deconv_block_dims: List[int] = [256, 128, 128, 64, 32],
         fc_dim: int = 32,
     ):
         """
@@ -32,6 +33,8 @@ class PerceptionImageDecoder(nn.Module):
             n_input_channels (int): Number of input channels
             latent_dim (int): Dimension of the latent space
             first_deconv_input_dim (Tuple[int, int]): Dimensions of the first deconvolutional block
+            deconv_block_dims (List[int]): Dimensions of the deconvolutional blocks
+            fc_dim (int): Dimension of the fully connected layer
         """
 
         super(PerceptionImageDecoder, self).__init__()
@@ -64,15 +67,37 @@ class PerceptionImageDecoder(nn.Module):
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
 
         self.deconv_block = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=latent_dim, out_channels=256, kernel_size=3, stride=1, padding=1),
-            nn.ConvTranspose2d(in_channels=256, out_channels=128, kernel_size=4, stride=2, padding=2),
+            nn.ConvTranspose2d(
+                in_channels=latent_dim, out_channels=deconv_block_dims[0], kernel_size=3, stride=1, padding=1
+            ),
+            nn.ConvTranspose2d(
+                in_channels=deconv_block_dims[0], out_channels=deconv_block_dims[1], kernel_size=4, stride=2, padding=2
+            ),
             nn.ReLU(),
-            nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=6, stride=4, padding=3, dilation=1),
+            nn.ConvTranspose2d(
+                in_channels=deconv_block_dims[1],
+                out_channels=deconv_block_dims[2],
+                kernel_size=6,
+                stride=4,
+                padding=3,
+                dilation=1,
+            ),
             nn.ReLU(),
-            nn.ConvTranspose2d(in_channels=128, out_channels=64, kernel_size=3, stride=2, padding=3, dilation=1),
+            nn.ConvTranspose2d(
+                in_channels=deconv_block_dims[2],
+                out_channels=deconv_block_dims[3],
+                kernel_size=3,
+                stride=2,
+                padding=3,
+                dilation=1,
+            ),
             nn.ReLU(),
-            nn.ConvTranspose2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=2),
-            nn.ConvTranspose2d(in_channels=32, out_channels=n_input_channels, kernel_size=4, stride=2, padding=2),
+            nn.ConvTranspose2d(
+                in_channels=deconv_block_dims[3], out_channels=deconv_block_dims[4], kernel_size=3, stride=1, padding=2
+            ),
+            nn.ConvTranspose2d(
+                in_channels=deconv_block_dims[4], out_channels=n_input_channels, kernel_size=4, stride=2, padding=2
+            ),
             nn.Sigmoid(),
         )
 

@@ -7,7 +7,7 @@
     Author: Trym Tengesdal
 """
 
-from typing import Tuple
+from typing import List, Tuple
 
 import torch as th
 import torch.nn as nn
@@ -33,7 +33,8 @@ class VAE(nn.Module):
         self,
         latent_dim: int = 64,
         input_image_dim: Tuple[int, int, int] = (3, 400, 400),
-        encoder_conv_block_dims: Tuple[int, int, int, int] = (32, 64, 128, 128),
+        encoder_conv_block_dims: List[int] = [32, 64, 128, 128],
+        decoder_conv_block_dims: List[int] = [256, 128, 128, 64, 3],
         fc_dim: int = 32,
         inference_mode: bool = False,
     ):
@@ -42,6 +43,7 @@ class VAE(nn.Module):
             latent_dim (int): Dimension of the latent space
             input_image_dim (Tuple[int, int, int]): Dimensions of the input image
             encoder_conv_block_dims (Tuple[int, int, int, int]): Dimensions of the convolutional blocks
+            decoder_conv_block_dims (Tuple[int, int, int, int]): Dimensions of the deconvolutional blocks
             inference_mode (bool): Inference mode
         """
 
@@ -53,13 +55,14 @@ class VAE(nn.Module):
         self.encoder = PerceptionImageEncoder(
             n_input_channels=input_image_dim[0],
             latent_dim=latent_dim,
-            conv_block_dims=encoder_conv_block_dims,
+            conv_block_dims=tuple(encoder_conv_block_dims),
             fc_dim=fc_dim,
         )
         self.decoder = PerceptionImageDecoder(
             n_input_channels=input_image_dim[0],
             latent_dim=latent_dim,
             first_deconv_input_dim=self.encoder.last_conv_block_dim,
+            deconv_block_dims=decoder_conv_block_dims,
             fc_dim=fc_dim,
         )
 

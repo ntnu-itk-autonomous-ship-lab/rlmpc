@@ -36,12 +36,18 @@ LOG_STD_MIN = -20
 
 
 class MPCParameterDNN(th.nn.Module):
+    """The DNN for predicting the MPC parameter increments, based on the
+    current situation, parameters and action. The DNN outputs are normalized to [-1, 1] and then mapped to the
+    actual parameter ranges.
+    """
+
     def __init__(
         self,
         param_list: List[str],
-        hidden_sizes: List[int],
+        hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        features_dim: int = 152,
+        features_dim: int = 124,
+        action_dim: int = 2,
     ):
         super().__init__()
         self.out_parameter_ranges = {
@@ -50,7 +56,7 @@ class MPCParameterDNN(th.nn.Module):
             "K_app_speed": [0.1, 200.0],
             "d_attenuation": [10.0, 1000.0],
             "w_colregs": [0.1, 500.0],
-            "r_safe_do": [2.5, 50.0],
+            "r_safe_do": [2.5, 100.0],
         }
         self.out_parameter_lengths = {
             "Q_p": 3,
@@ -60,6 +66,11 @@ class MPCParameterDNN(th.nn.Module):
             "w_colregs": 3,
             "r_safe_do": 1,
         }
+        self.parameter_weights = 10.0 * th.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0])
+        self.action_weight = 100.0 * th.diag([1.0, 1.0])
+        self.mpc_cost_val_scaling = 0.0001
+        self.human_preference_cost_val_scaling = 0.0001
+
         offset = 0
         self.parameter_indices = {}
         for param in param_list:
@@ -71,41 +82,53 @@ class MPCParameterDNN(th.nn.Module):
         self.hidden_sizes = hidden_sizes
         self.activation_fn = activation_fn()
         self.layers = th.nn.ModuleList()
-        prev_size = features_dim
+
+        self.input_dim = (
+            features_dim + offset + action_dim
+        )  # Add the number of parameters to the input features, and the action dim
+        prev_size = self.input_dim
         for size in hidden_sizes:
             self.layers.append(th.nn.Linear(prev_size, size))
             prev_size = size
         self.layers.append(th.nn.Linear(prev_size, self.num_params))
         self.tanh = th.nn.Tanh()
 
-    def forward(self, x: th.Tensor) -> th.Tensor:
+    def forward(self, features: th.Tensor, current_params: th.Tensor, prev_action: th.Tensor) -> th.Tensor:
+        input_tensor = th.cat([features, current_params, prev_action], dim=-1)
+        x = input_tensor
         for layer in self.layers[:-1]:
             x = layer(x)
             x = self.activation_fn(x)
         x = self.layers[-1](x)
-        x = self.tanh(x)
+        # x = self.tanh(x)
         return x
 
-    def map_to_parameter_dict(self, x: th.Tensor) -> Dict[str, Union[float, np.ndarray]]:
-        """Maps the DNN output tensor to a dictionary of unnormalized parameters.
+    def map_to_parameter_dict(self, x: np.ndarray, current_params: np.ndarray) -> Dict[str, Union[float, np.ndarray]]:
+        """Maps the DNN output tensor to a dictionary of unnormalized parameters, given the current parameters.
 
         Args:
-            x (th.Tensor): The DNN output tensor
+            x (np.ndarray): The DNN output, consisting of normalized parameter increments.
+            current_params (np.ndarray): The current parameters
 
         Returns:
             Dict[str, Union[float, np.ndarray]]: The dictionary of unnormalized parameters
         """
-        x = x.detach().cpu().numpy().copy()
         params = {}
+        x_np = x.copy()
+        current_params_np = current_params.copy()
         for param in self.param_list:
             param_range = self.out_parameter_ranges[param]
             param_length = self.out_parameter_lengths[param]
             pindx = self.parameter_indices[param]
-            x_param = x[pindx : pindx + param_length]
+            x_param_current = current_params_np[pindx : pindx + param_length]
+            x_param_new = (
+                x_np[pindx : pindx + param_length] + x_param_current
+            )  # Add the current parameter value to the increment
+            x_param_new = np.clip(x_param_new, -1.0, 1.0)
 
-            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
-                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
-            params[param] = x_param
+            for j in range(len(x_param_new)):  # pylint: disable=consider-using-enumerate
+                x_param_new[j] = csmf.linear_map(x_param_new[j], (-1.0, 1.0), tuple(param_range))
+            params[param] = x_param_new
         return params
 
     def unnormalize(self, x: th.Tensor) -> np.ndarray:
@@ -117,7 +140,7 @@ class MPCParameterDNN(th.nn.Module):
         Returns:
             np.ndarray: The unnormalized output as a numpy array
         """
-        x_unnorm = x.clone()
+        x_unnorm = th.zeros_like(x)
         for param in self.param_list:
             param_range = self.out_parameter_ranges[param]
             param_length = self.out_parameter_lengths[param]
@@ -128,7 +151,53 @@ class MPCParameterDNN(th.nn.Module):
                 x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
             x_unnorm[pindx : pindx + param_length] = x_param
 
-        return x_unnorm.detach().cpu().numpy()
+        return x_unnorm.detach().numpy()
+
+    def normalize(self, p: th.Tensor) -> th.Tensor:
+        """Normalize the input parameter (not increment) tensor.
+
+        Args:
+            p (th.Tensor): The parameter tensor
+
+        Returns:
+            th.Tensor: The normalized parameter tensor
+        """
+        p_norm = th.zeros_like(p)
+        for param in self.param_list:
+            param_range = self.out_parameter_ranges[param]
+            param_length = self.out_parameter_lengths[param]
+            pindx = self.parameter_indices[param]
+            p_param = p[pindx : pindx + param_length]
+
+            for j in range(len(p_param)):  # pylint: disable=consider-using-enumerate
+                p_param[j] = csmf.linear_map(p_param[j], tuple(param_range), (-1.0, 1.0))
+            p_norm[pindx : pindx + param_length] = p_param
+        return p_norm
+
+    def loss_function(
+        self,
+        param_increment: th.Tensor,
+        prev_action: th.Tensor,
+        new_action: th.Tensor,
+        mpc_cost_val: th.Tensor,
+        human_tuned_cost_val: th.Tensor,
+    ) -> th.Tensor:
+        """Compute the loss of the MPC parameter provider.
+
+        Args:
+            param_increment (th.Tensor): The increment of the MPC parameters.
+            prev_action (th.Tensor): The previous action.
+            new_action (th.Tensor): The new action.
+            mpc_cost_val (th.Tensor): The MPC cost value.
+            human_tuned_cost_val (th.Tensor): The human-tuned cost value.
+
+        Returns:
+            th.Tensor: The loss of the MPC parameter provider.
+        """
+        Q_param = 1.0 * th.ones_like(param_increment)
+        action_diff = th.sum(th.pow(new_action - prev_action, 2))
+        loss = th.pow(param_increment - action_diff, 2) + th.pow(mpc_cost_val - human_tuned_cost_val, 2)
+        return loss
 
 
 class SACMPCActor(BasePolicy):
@@ -236,10 +305,8 @@ class SACMPCActor(BasePolicy):
 
         data.update(
             dict(
-                activation_fn=self.activation_fn,
                 use_sde=self.use_sde,
                 log_std_init=self.log_std_init,
-                full_std=self.full_std,
                 use_expln=self.use_expln,
                 features_extractor=self.features_extractor,
                 clip_mean=self.clip_mean,
@@ -346,12 +413,22 @@ class SACMPCActor(BasePolicy):
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
-        mpc_param_subset = self.mpc_param_provider(features)
+
+        old_mpc_params = self.mpc.get_adjustable_mpc_params()
+        current_mpc_params = th.from_numpy(old_mpc_params).float()
+        current_mpc_params = self.mpc_param_provider.normalize(current_mpc_params)
 
         for idx in range(batch_size):
-            mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(mpc_param_subset[idx])
-            print(f"Provided MPC parameters: {mpc_param_subset_dict}")
-            self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
+            prev_action = th.zeros(self.action_space.shape[0]) if state is None else state[idx]["norm_mpc_action"]
+            mpc_param_increment = (
+                self.mpc_param_provider(features[idx], current_mpc_params, prev_action).detach().numpy()
+            )
+
+            mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
+                mpc_param_increment, current_mpc_params.detach().numpy()
+            )
+            print(f"Provided MPC parameters: {mpc_param_subset_dict} | Old: {old_mpc_params.tolist()}")
+            # self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
             t, ownship_state, do_list, w = self.extract_mpc_observation_features(observation, idx)
             # w.print()
             prev_soln = state[idx] if state is not None else None
@@ -361,7 +438,9 @@ class SACMPCActor(BasePolicy):
             info.update({"dnn_input_features": features[idx].detach().cpu().numpy()})
             info.update(
                 {
-                    "unnorm_dnn_mpc_params": self.mpc_param_provider.unnormalize(mpc_param_subset[idx]),
+                    "mpc_param_increment": self.mpc_param_provider.unnormalize(mpc_param_increment),
+                    "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
+                    "old_mpc_params": old_mpc_params,
                 }
             )
             if not deterministic:
@@ -462,22 +541,6 @@ class SACMPCActor(BasePolicy):
                 return obs.float() / 255.0
             return obs.float()
 
-        elif isinstance(observation_space, spaces.Discrete):
-            # One hot encoding and convert to float to avoid errors
-            return F.one_hot(obs.long(), num_classes=int(observation_space.n)).float()
-
-        elif isinstance(observation_space, spaces.MultiDiscrete):
-            # Tensor concatenation of one hot encodings of each Categorical sub-space
-            return th.cat(
-                [
-                    F.one_hot(obs_.long(), num_classes=int(observation_space.nvec[idx])).float()
-                    for idx, obs_ in enumerate(th.split(obs.long(), 1, dim=1))
-                ],
-                dim=-1,
-            ).view(obs.shape[0], sum(observation_space.nvec))
-
-        elif isinstance(observation_space, spaces.MultiBinary):
-            return obs.float()
         else:
             raise NotImplementedError(f"Preprocessing not implemented for {observation_space}")
 

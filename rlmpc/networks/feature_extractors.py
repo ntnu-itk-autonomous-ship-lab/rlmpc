@@ -12,7 +12,7 @@ from sys import platform
 from typing import Tuple
 
 import rlmpc.networks.perception_vae.vae as perception_vae
-import rlmpc.networks.tracking_vae.vae as tracking_vae
+import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 import torch as th
 import torch.nn as nn
 from gymnasium import spaces
@@ -32,9 +32,10 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Box,
-        encoder_conv_block_dims=(32, 64, 128, 128),
+        encoder_conv_block_dims=[32, 128, 256, 256],
+        decoder_conv_block_dims=[256, 128, 128, 64, 32],
         fc_dim=512,
-        latent_dim: int = 128,
+        latent_dim: int = 100,
         model_file: str | None = None,
     ):
         super(PerceptionImageVAE, self).__init__(observation_space, features_dim=latent_dim)
@@ -42,11 +43,12 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
         if model_file is None:
-            model_file = VAE_DATADIR / "perception_vae_LD_64/perception_vae5_model_LD_64_best.pth"
+            model_file = VAE_DATADIR / "training_vae3_model_LD_100_best.pth"
         self.vae: perception_vae.VAE = perception_vae.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
             encoder_conv_block_dims=encoder_conv_block_dims,
+            decoder_conv_block_dims=decoder_conv_block_dims,
             fc_dim=fc_dim,
         )
 
@@ -133,14 +135,23 @@ class TrackingVAE(BaseFeaturesExtractor):
     ) -> None:
         super(TrackingVAE, self).__init__(observation_space, features_dim=features_dim)
 
-        self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
+        self.input_dim = observation_space.shape[0]
+        self.max_seq_len = observation_space.shape[1]
 
         if model_file is None:
-            model_file = TRACKINGVAE_DATADIR / "tracking_vae1_model_LD_10_best.pth"
+            model_file = TRACKINGVAE_DATADIR / "tracking_avae15_NL_1_nonbi_HD_64_LD_15_NH_6_ED_72_best.pth"
 
         self.vae: tracking_vae.VAE = tracking_vae.VAE(
-            latent_dim=features_dim,
-            num_layers=num_layers,
+            input_dim=self.input_dim,
+            embedding_dim=72,
+            num_heads=6,
+            rnn_hidden_dim=64,
+            latent_dim=15,
+            num_layers=1,
+            rnn_type=th.nn.GRU,
+            bidirectional=False,
+            max_seq_len=self.max_seq_len,
+            inference_mode=True,
         )
 
         self.vae.load_state_dict(
@@ -152,7 +163,6 @@ class TrackingVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
-        self.tanh = nn.Tanh()
 
     def set_inference_mode(self, inference_mode: bool) -> None:
         self.vae.set_inference_mode(inference_mode)
@@ -163,6 +173,7 @@ class TrackingVAE(BaseFeaturesExtractor):
     def reconstruct(self, observations: th.Tensor) -> th.Tensor:
         observations, seq_lengths = self.preprocess_obs(observations)
         recon_obs = self.vae(observations, seq_lengths)
+        return recon_obs
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
@@ -170,6 +181,7 @@ class TrackingVAE(BaseFeaturesExtractor):
             observations, seq_lengths = self.preprocess_obs(observations)
             z_e, _, _ = self.vae.encode(observations, seq_lengths)
             # print(f"z_e shape: {z_e.shape}")
+            z_e = th.tanh(z_e)
             return z_e
 
 

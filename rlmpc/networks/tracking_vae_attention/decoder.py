@@ -76,7 +76,7 @@ class TrackingDecoder(nn.Module):
 
     def init_weights(self, layer):
         if isinstance(layer, nn.Linear):
-            print(f"Initialize layer with nn.init.xavier_uniform_: {layer}")
+            # print(f"Initialize layer with nn.init.xavier_uniform_: {layer}")
             th.nn.init.xavier_uniform_(layer.weight)
             layer.bias.data.fill_(0.01)
 

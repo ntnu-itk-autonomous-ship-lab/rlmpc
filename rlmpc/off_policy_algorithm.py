@@ -11,13 +11,14 @@
 import sys
 import time
 import warnings
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
 import rlmpc.buffers as rlmpc_buffers
+import rlmpc.common.paths as rl_dp
 import stable_baselines3.common.callbacks as sb3_callbacks
 import stable_baselines3.common.logger as sb3_logger
 import stable_baselines3.common.monitor as sb3_monitor
@@ -50,6 +51,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         - tau (float): the soft update coefficient ("Polyak update", between 0 and 1)
         - gamma (float): the discount factor
         - tensorboard_log (Optional[str]): the log location for tensorboard (if None, no logging)
+        - data_path (Optional[Path]): path to the data directory, where replay buffer and other data should be saved
         - train_freq (Union[int, Tuple[int, str]]): Update the model every ``train_freq`` steps. Alternatively pass a tuple of frequency and unit
             like ``(5, "step")`` or ``(2, "episode")``.
         - gradient_steps (int): How many gradient steps to do after each rollout (see ``train_freq``)
@@ -84,6 +86,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         policy_kwargs: Optional[Dict[str, Any]] = None,
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
+        data_path: Optional[Path] = rl_dp.data,
         verbose: int = 0,
         device: Union[th.device, str] = "cuda" if th.cuda.is_available() else "cpu",
         support_multi_env: bool = False,
@@ -137,6 +140,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self._convert_train_freq()
         self.num_timesteps: int = 0
         self._episode_num: int = 0
+        self.data_path: Path = data_path
 
         # Update policy keyword arguments
         if sde_support:
@@ -447,7 +451,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
             if env.envs[0].unwrapped.time < 0.0001:
-                self._last_actor_info = [{} for _ in range(env.num_envs)]
+                self._last_actor_info = None
                 action_count = 0
                 self.policy.initialize_mpc_actor(env.envs[0])
 
@@ -521,6 +525,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     # Log training infos
                     if log_interval is not None and self._episode_num % log_interval == 0:
                         self._dump_logs()
+
+                    self.save_replay_buffer(self.data_path / "replay_buffer.pkl")
 
         callback.on_rollout_end()
         return sb3_types.RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)

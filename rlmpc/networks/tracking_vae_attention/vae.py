@@ -87,8 +87,9 @@ class VAE(nn.Module):
     def preprocess_obs(self, observations: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
         if observations.ndim < 3:
             observations = observations.unsqueeze(0)
+        # extract length of valid obstacle observations
         seq_lengths = (
-            th.sum(observations[:, 0, :] < 0.9, dim=1).to("cpu").type(th.int64)
+            th.sum(observations[:, 0, :] < 0.99, dim=1).to("cpu").type(th.int64)
         )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
         observations = observations.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
