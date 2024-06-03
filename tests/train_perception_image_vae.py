@@ -28,7 +28,7 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "perception_vae2"
+EXPERIMENT_NAME: str = "perception_vae_LD_64_2"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 
 
@@ -268,7 +268,7 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 80
+    latent_dim = 64
     fc_dim = 1024
     encoder_conv_block_dims = [64, 256, 256, 256]
     input_image_dim = (1, 256, 256)

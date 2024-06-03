@@ -235,6 +235,8 @@ class SAC(opa.OffPolicyAlgorithm):
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
+        batch_start_time = time.time()
+
         self.policy.set_training_mode(True)
         optimizers = [self.critic.optimizer, self.actor.optimizer]
         if self.ent_coef_optimizer is not None:
@@ -325,43 +327,29 @@ class SAC(opa.OffPolicyAlgorithm):
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
             self.actor.optimizer.zero_grad()
-            dnn_param_grads = []
-            jac_dnn_mpc_params = []
-            n_dnn_outputs = self.actor.mpc_param_provider.num_params
 
             # extract the parameters and buffers for a funcional call
-            actor_dnn_params = {k: v.detach() for k, v in self.actor.mpc_param_provider.named_parameters()}
-            actor_dnn_buffers = {k: v.detach() for k, v in self.actor.mpc_param_provider.named_buffers()}
             actor_dnn_feature_inputs = th.from_numpy(
                 np.array([info[0]["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
             )
+            actor_dnn_old_mpc_param_inputs = th.from_numpy(
+                np.array([info[0]["actor_info"]["old_mpc_params"] for info in replay_data.infos], dtype=np.float32)
+            )
+            actor_dnn_prev_action_inputs = th.from_numpy(
+                np.array([info[0]["actor_info"]["prev_action"] for info in replay_data.infos], dtype=np.float32)
+            )
+            dnn_input = th.cat(
+                [actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs, actor_dnn_prev_action_inputs], dim=1
+            )
 
-            # n_dnn_params = sum(p.numel() for p in actor_dnn_params.values())
-            # print(f"Total number of DNN MPC provider parameters: {n_dnn_params}")
-            def compute_sample_jacobian(sample):
-                # this will calculate the gradients for a single sample
-                # we want the gradients for each output wrt to the parameters
-                # this is the same as the jacobian of the model wrt the parameters
+            dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input)
 
-                # define a function that takes the as input returns the output of the self.actor.mpc_param_providerwork
-                call = lambda x: th.func.functional_call(self.actor.mpc_param_provider, (x, actor_dnn_buffers), sample)
-
-                # calculate the jacobian of the self.actor.mpc_param_providerwork wrt the parameters
-                J = th.func.jacrev(call)(actor_dnn_params)
-
-                # J is a dictionary with keys the names of the parameters and values the gradients
-                # we want a tensor
-                grads = th.cat([v.flatten(1) for v in J.values()], -1)
-                return grads
-
-            # no we can use vmap to calculate the gradients for all samples at once
-            dnn_jacobians = th.vmap(compute_sample_jacobian)(actor_dnn_feature_inputs)
-
-            actor_grads = th.zeros((batch_size, self.actor.num_params))
+            actor_grads = th.zeros((batch_size, self.actor.mpc_param_provider.num_params))
             actor_losses = th.zeros((batch_size, 1))
-            t_now = time.time()
+
             sens = self.policy.sensitivities()
             cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
+            t_actor_start_now = time.time()
             for b in range(batch_size):
                 actor_info = replay_data.infos[b][0]["actor_info"]
                 if not actor_info["optimal"]:
@@ -378,16 +366,14 @@ class SAC(opa.OffPolicyAlgorithm):
                     (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T
                     @ da_dp_mpc
                     @ dnn_jacobians[b]
-                )
+                ).reshape(-1)
                 d_log_pi_da = -cov_inv @ (sampled_actions[b] - norm_mpc_actions[b])
                 df_repar_dp = da_dp_mpc @ dnn_jacobians[b]
 
                 dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
-                actor_grads[b] = ent_coef * d_log_pi_dp + ((ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp).reshape(
-                    1, -1
-                )
+                actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
                 actor_losses[b] = ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b]
-            print("Actor gradient computation time: ", time.time() - t_now)
+            print("Actor gradient computation time: ", time.time() - t_actor_start_now)
             self.actor.update_params(-actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))
 
             if gradient_step % self.target_update_interval == 0:
@@ -397,12 +383,15 @@ class SAC(opa.OffPolicyAlgorithm):
 
         self._n_updates += gradient_steps
 
+        mean_actor_loss = actor_losses.clone().detach().mean().numpy()
+        mean_actor_grad_norm = np.linalg.norm(np.mean(actor_grads.clone().detach().numpy(), axis=0), ord=2)
+        print(
+            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.4f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coef Loss: {np.mean(ent_coef_losses):.4f} | Ent Coef: {np.mean(ent_coefs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
+        )
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/ent_coef", np.mean(ent_coefs))
-        self.logger.record("train/actor_loss", actor_losses.clone().detach().mean().numpy())
-        self.logger.record(
-            "train/actor_grad_norm", np.linalg.norm(np.mean(actor_grads.clone().detach().numpy(), axis=0), ord=2)
-        )
+        self.logger.record("train/actor_loss", mean_actor_loss)
+        self.logger.record("train/actor_grad_norm", mean_actor_grad_norm)
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))

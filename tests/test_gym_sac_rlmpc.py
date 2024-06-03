@@ -183,7 +183,7 @@ def main():
     actor_noise_std_dev = np.array([0.003, 0.003])  # normalized std dev for the action space [course, speed]
 
     mpc_param_provider_kwargs = {
-        "param_list": ["Q_p", "d_attenuation", "r_safe_do"],
+        "param_list": ["r_safe_do"],
         "hidden_sizes": [256],
         "activation_fn": th.nn.ReLU,
     }

@@ -127,11 +127,11 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env1",
-        "seed": 52,
+        "seed": 82,
     }
 
-    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland9.npy"
-    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland10.npy"
+    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland13.npy"
+    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland14.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -145,6 +145,7 @@ if __name__ == "__main__":
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
         for i in range(n_steps):
             actions = np.array([training_vec_env.action_space.sample() for _ in range(num_cpu)])
+            actions = np.zeros_like(actions)
             obs, reward, dones, info = training_vec_env.step(actions)
             # training_vec_env.render()
 
@@ -164,7 +165,7 @@ if __name__ == "__main__":
                 "max_number_of_episodes": 9000000,
                 "scenario_file_folder": test_scenario_folders,
                 "merge_loaded_scenario_episodes": True,
-                "seed": 56,
+                "seed": 86,
                 "test_mode": True,
                 "simulator_config": eval_sim_config,
                 "reload_map": False,
@@ -181,6 +182,8 @@ if __name__ == "__main__":
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
         for i in range(n_steps):
             actions = np.array([test_vec_env.action_space.sample() for _ in range(num_cpu)])
+            actions = np.zeros_like(actions)
+
             obs, reward, dones, info = test_vec_env.step(actions)
             test_vec_env.render()
 

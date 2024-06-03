@@ -245,7 +245,7 @@ class RLMPC(ci.ICOLAV):
             show_plots=False,
         )
         relevant_hazards = mapf.extract_hazards_within_bounding_box(
-            self._all_polygons, bbox, self._enc, show_plots=True
+            self._all_polygons, bbox, self._enc, show_plots=False
         )
         self._hazards = relevant_hazards[0]
         self._rrtstar = rrt_star_lib.RRTStar(
@@ -293,7 +293,7 @@ class RLMPC(ci.ICOLAV):
         pc = ax.pcolormesh(x, y, z, shading="gouraud", rasterized=True)
         ax.scatter(center[0], center[1], color="red", s=30, marker="x")
         cbar = fig.colorbar(pc)
-        cbar.set_label("Surface value capped to +-1.0")
+        cbar.set_label("Surface value capped to [0.0, 1.0]")
         ax.set_xlabel("North [m]")
         ax.set_ylabel("East [m]")
         plt.show(block=False)
@@ -453,7 +453,6 @@ class RLMPC(ci.ICOLAV):
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
         self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
-        self._ma_filter = stochasticity.MovingAverageFilter()
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
 
     def close_enc_display(self) -> None:

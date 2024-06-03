@@ -123,7 +123,7 @@ def train_vae(
 
             # extract length of valid obstacle observations
             seq_lengths = (
-                torch.sum(batch_obs[:, 0, :] < 0.95, dim=1).to("cpu").type(torch.int64)
+                torch.sum(batch_obs[:, 0, :] < 0.99, dim=1).to("cpu").type(torch.int64)
             )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
             batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
@@ -182,7 +182,7 @@ def train_vae(
             batch_obs = batch_obs.to(device)
             # extract length of valid obstacle observations
             seq_lengths = (
-                torch.sum(batch_obs[:, 0, :] < 0.95, dim=1).to("cpu").type(torch.int64)
+                torch.sum(batch_obs[:, 0, :] < 0.99, dim=1).to("cpu").type(torch.int64)
             )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
             batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
@@ -240,24 +240,24 @@ def train_vae(
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dims = [7, 10, 15]  # , 10, 15, 20]
+    latent_dims = [8, 10, 15]  # , 10, 15, 20]
     rnn_types = [torch.nn.GRU]
     num_rnn_layers_decoder = 1
-    rnn_hidden_dim_decoder = 64
+    rnn_hidden_dim_decoder = 100
     num_heads = 6
     embedding_dims = [240, 12, 48, 60, 72]  # [12, 24, 48]
     input_dim = 6
 
     load_model = False
     save_interval = 20
-    batch_size = 64
+    batch_size = 128
     num_epochs = 40
     learning_rate = 2e-4
 
     data_dir = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
     training_data_filename_list = []
-    for i in range(1, 9):
+    for i in range(1, 15):
         training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
         training_data_filename_list.append(training_data_filename)
 

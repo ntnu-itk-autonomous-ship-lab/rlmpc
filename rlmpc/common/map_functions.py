@@ -1067,7 +1067,7 @@ def compute_surface_approximations_from_polygons(
                 #     )
 
                 # Add buffer points just outside the relevant polygon coastline, where the mask is zero or negative (no collision)
-                buffer_distance = 0.1
+                buffer_distance = 1.0
                 y_poly, x_poly = polygon.buffer(
                     d_safe + buffer_distance, cap_style=cap_style, join_style=join_style
                 ).exterior.coords.xy
@@ -1117,8 +1117,8 @@ def compute_surface_approximations_from_polygons(
                 #     print(f"n_surface_points after buffer points: {len(y_surface_data_points)}")
 
                 ## Add more buffer points further away from the relevant polygon coastline, where the mask is zero or negative (no collision)
-                buffer_distance = 10.0
-                surface_value_at_outlier_points = -10.0
+                buffer_distance = 100.0
+                surface_value_at_outlier_points = -100.0
                 relevant_coastline_extra_buffered = polygon.buffer(d_safe + buffer_distance)
 
                 # if enc is not None:
@@ -1152,7 +1152,7 @@ def compute_surface_approximations_from_polygons(
                     relevant_coastline_extra_buffered = relevant_coastline_extra_buffered.geoms[max_area_idx]
                 y_buffered_boundary, x_buffered_boundary = relevant_coastline_extra_buffered.exterior.coords.xy
 
-                if enc is not None and show_plots:
+                if False:  # enc is not None and show_plots:
                     translated_extra_buff_coastline = hf.translate_polygons(
                         [relevant_coastline_extra_buffered], -map_origin[1], -map_origin[0]
                     )[0]
@@ -1193,7 +1193,7 @@ def compute_surface_approximations_from_polygons(
                     x_buffer_points.append(xcoord)
                     y_buffer_points.append(ycoord)
                     mask_surface_data_points.append(surface_value_at_outlier_points)
-                    if enc is not None and show_plots:
+                    if False:  # enc is not None and show_plots:
                         enc.draw_circle(
                             (ycoord + map_origin[1], xcoord + map_origin[0]), radius=1.0, color="black", fill=False
                         )

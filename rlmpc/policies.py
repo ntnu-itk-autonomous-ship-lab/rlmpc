@@ -66,8 +66,8 @@ class MPCParameterDNN(th.nn.Module):
             "w_colregs": 3,
             "r_safe_do": 1,
         }
-        self.parameter_weights = 10.0 * th.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0])
-        self.action_weight = 100.0 * th.diag([1.0, 1.0])
+        self.parameter_weights = 10.0 * th.diag(th.Tensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]))
+        self.action_weight = 100.0 * th.diag(th.Tensor([1.0, 1.0]))
         self.mpc_cost_val_scaling = 0.0001
         self.human_preference_cost_val_scaling = 0.0001
 
@@ -77,7 +77,7 @@ class MPCParameterDNN(th.nn.Module):
             self.parameter_indices[param] = offset
             offset += self.out_parameter_lengths[param]
 
-        self.num_params = offset
+        self.num_output_params = offset
         self.param_list = param_list
         self.hidden_sizes = hidden_sizes
         self.activation_fn = activation_fn()
@@ -90,12 +90,11 @@ class MPCParameterDNN(th.nn.Module):
         for size in hidden_sizes:
             self.layers.append(th.nn.Linear(prev_size, size))
             prev_size = size
-        self.layers.append(th.nn.Linear(prev_size, self.num_params))
+        self.layers.append(th.nn.Linear(prev_size, self.num_output_params))
         self.tanh = th.nn.Tanh()
+        self.num_params = sum(p.numel() for p in self.parameters())
 
-    def forward(self, features: th.Tensor, current_params: th.Tensor, prev_action: th.Tensor) -> th.Tensor:
-        input_tensor = th.cat([features, current_params, prev_action], dim=-1)
-        x = input_tensor
+    def forward(self, x: th.Tensor) -> th.Tensor:
         for layer in self.layers[:-1]:
             x = layer(x)
             x = self.activation_fn(x)
@@ -131,16 +130,26 @@ class MPCParameterDNN(th.nn.Module):
             params[param] = x_param_new
         return params
 
-    def unnormalize(self, x: th.Tensor) -> np.ndarray:
-        """Unnormalize the DNN output tensor.
+    def save(self, path: pathlib.Path) -> None:
+        """Save the DNN model to a file.
 
         Args:
-            x (th.Tensor): The DNN output tensor
+            path (pathlib.Path): The path to save the model to
+        """
+        th.save(self.state_dict(), path)
+
+    def unnormalize(self, x: th.Tensor | np.ndarray) -> np.ndarray:
+        """Unnormalize the DNN output.
+
+        Args:
+            x (th.Tensor | np.ndarray): The DNN output
 
         Returns:
             np.ndarray: The unnormalized output as a numpy array
         """
-        x_unnorm = th.zeros_like(x)
+        if isinstance(x, th.Tensor):
+            x = x.detach().numpy()
+        x_unnorm = np.zeros_like(x)
         for param in self.param_list:
             param_range = self.out_parameter_ranges[param]
             param_length = self.out_parameter_lengths[param]
@@ -151,7 +160,7 @@ class MPCParameterDNN(th.nn.Module):
                 x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
             x_unnorm[pindx : pindx + param_length] = x_param
 
-        return x_unnorm.detach().numpy()
+        return x_unnorm
 
     def normalize(self, p: th.Tensor) -> th.Tensor:
         """Normalize the input parameter (not increment) tensor.
@@ -174,30 +183,55 @@ class MPCParameterDNN(th.nn.Module):
             p_norm[pindx : pindx + param_length] = p_param
         return p_norm
 
-    def loss_function(
-        self,
-        param_increment: th.Tensor,
-        prev_action: th.Tensor,
-        new_action: th.Tensor,
-        mpc_cost_val: th.Tensor,
-        human_tuned_cost_val: th.Tensor,
-    ) -> th.Tensor:
-        """Compute the loss of the MPC parameter provider.
+    def parameter_jacobian(self, x: th.Tensor) -> th.Tensor:
+        """Compute the Jacobian of the DNN output wrt its parameters.
 
         Args:
-            param_increment (th.Tensor): The increment of the MPC parameters.
-            prev_action (th.Tensor): The previous action.
-            new_action (th.Tensor): The new action.
-            mpc_cost_val (th.Tensor): The MPC cost value.
-            human_tuned_cost_val (th.Tensor): The human-tuned cost value.
+            x (th.Tensor): The input tensor
 
         Returns:
-            th.Tensor: The loss of the MPC parameter provider.
+            th.Tensor: The Jacobian of the DNN output wrt its parameters
         """
-        Q_param = 1.0 * th.ones_like(param_increment)
-        action_diff = th.sum(th.pow(new_action - prev_action, 2))
-        loss = th.pow(param_increment - action_diff, 2) + th.pow(mpc_cost_val - human_tuned_cost_val, 2)
-        return loss
+        params = {k: v.detach() for k, v in self.named_parameters()}
+        buffers = {k: v.detach() for k, v in self.named_buffers()}
+
+        # n_dnn_params = sum(p.numel() for p in params.values())
+        # print(f"Total number of DNN MPC provider parameters: {n_dnn_params}")
+        def compute_sample_jacobian(sample):
+            # this will calculate the gradients for a single sample
+            # we want the gradients for each output wrt to the parameters
+            # this is the same as the jacobian of the model wrt the parameters
+
+            call = lambda x: th.func.functional_call(self, (x, buffers), sample)
+
+            # calculate the jacobian of the self.actor.mpc_param_provider wrt the parameters
+            J = th.func.jacrev(call)(params)
+
+            # J is a dictionary with keys the names of the parameters and values the gradients
+            # we want a tensor
+            grads = th.cat([v.flatten(1) for v in J.values()], -1)
+            return grads
+
+        # no we can use vmap to calculate the gradients for all samples at once
+        dnn_jacobians = th.vmap(compute_sample_jacobian)(x)
+        return dnn_jacobians
+
+    def loss_function_gradient(self, x: th.Tensor, dlag_mpc_dp: th.Tensor) -> th.Tensor:
+        """Compute the gradient of the loss function wrt the DNN parameters.
+
+        Args:
+            x (th.Tensor): Input features to the DNN
+            dlag_mpc_dp (th.Tensor): The Lagrangian jacobian wrt the MPC parameters (where p_MPC = p_DNN + p_mpc_old)
+
+        Returns:
+            th.Tensor: The gradient of the loss function wrt the DNN parameters
+        """
+        self_jac = self.parameter_jacobian(x)
+        param_increment = self(x)
+        print(f"MPC lagrangian jac: {dlag_mpc_dp}")
+        loss_grad = (self.parameter_weights @ param_increment + self.mpc_cost_val_scaling * dlag_mpc_dp) @ self_jac
+        print(f"Loss gradient: {loss_grad}")
+        return loss_grad
 
 
 class SACMPCActor(BasePolicy):
@@ -419,10 +453,14 @@ class SACMPCActor(BasePolicy):
         current_mpc_params = self.mpc_param_provider.normalize(current_mpc_params)
 
         for idx in range(batch_size):
-            prev_action = th.zeros(self.action_space.shape[0]) if state is None else state[idx]["norm_mpc_action"]
-            mpc_param_increment = (
-                self.mpc_param_provider(features[idx], current_mpc_params, prev_action).detach().numpy()
+            prev_action = (
+                th.zeros(self.action_space.shape[0])
+                if state is None
+                else th.from_numpy(state[idx]["norm_mpc_action"]).float()
             )
+            dnn_input = th.cat([features[idx], current_mpc_params, prev_action], dim=-1)
+            mpc_param_increment = self.mpc_param_provider(dnn_input)
+            mpc_param_increment = mpc_param_increment.detach().numpy()
 
             mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
                 mpc_param_increment, current_mpc_params.detach().numpy()
@@ -434,13 +472,16 @@ class SACMPCActor(BasePolicy):
             prev_soln = state[idx] if state is not None else None
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
             norm_action = self.action_type.normalize(action)
-            info.update({"unnorm_mpc_action": action, "norm_mpc_action": norm_action})
-            info.update({"dnn_input_features": features[idx].detach().cpu().numpy()})
             info.update(
                 {
+                    "prev_action": prev_action.numpy(),
+                    "unnorm_mpc_action": action,
+                    "norm_mpc_action": norm_action,
+                    "dnn_input_features": features[idx].detach().cpu().numpy(),
                     "mpc_param_increment": self.mpc_param_provider.unnormalize(mpc_param_increment),
                     "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
                     "old_mpc_params": old_mpc_params,
+                    "old_mpc_params_norm": current_mpc_params.detach().numpy(),
                 }
             )
             if not deterministic:

@@ -145,6 +145,7 @@ class CasadiMPC:
         self._fixed_param_str_list = [
             name for name in self._all_adjustable_param_str_list if name not in self._adjustable_param_str_list
         ]
+        self._p_adjustable_values = self._params.adjustable(self._adjustable_param_str_list)
 
     def set_param_subset(self, param_subset: Dict[str, np.ndarray | float]):
         """Sets the parameter subset for the MPC.
