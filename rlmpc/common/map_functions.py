@@ -1006,22 +1006,12 @@ def compute_surface_approximations_from_polygons(
                 if len(y_coastline_orig) < 3:
                     continue
 
-                if enc is not None and show_plots:
-                    translated_coastline = hf.translate_polygons(
-                        [relevant_coastline_safety], -map_origin[1], -map_origin[0]
-                    )[0]
-                    enc.draw_polygon(
-                        translated_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style),
-                        color="black",
-                        fill=False,
-                    )
-
                 x_coastline_interp, y_coastline_interp, arc_length = hf.create_arc_length_spline(
                     x_coastline_orig, y_coastline_orig
                 )
 
                 # Tuning parameter
-                orig_point_spacing = max(7.0, 0.05 * arc_length[-1])
+                orig_point_spacing = max(7.0, 0.008 * arc_length[-1])
                 # if show_plots:
                 #     print(
                 #         f"Polygon {j}: Relevant coastline arc length: {arc_length[-1]} | distance spacing: {orig_point_spacing}"
@@ -1036,7 +1026,7 @@ def compute_surface_approximations_from_polygons(
                         xcoord,
                         ycoord,
                         points=zip(x_surface_data_points, y_surface_data_points),
-                        distance=0.5 * orig_point_spacing,
+                        distance=0.2 * orig_point_spacing,
                     ):
                         continue
 
@@ -1067,13 +1057,13 @@ def compute_surface_approximations_from_polygons(
                 #     )
 
                 # Add buffer points just outside the relevant polygon coastline, where the mask is zero or negative (no collision)
-                buffer_distance = 1.0
+                buffer_distance = 0.5
                 y_poly, x_poly = polygon.buffer(
                     d_safe + buffer_distance, cap_style=cap_style, join_style=join_style
                 ).exterior.coords.xy
                 x_poly_spline, y_poly_spline, arc_length_poly = hf.create_arc_length_spline(x_poly, y_poly)
 
-                surface_value_at_buffer_points = -1.0
+                surface_value_at_buffer_points = -0.5
                 y_poly_spaced = list(y_poly_spline(np.arange(0, arc_length_poly[-1], orig_point_spacing)))
                 x_poly_spaced = list(x_poly_spline(np.arange(0, arc_length_poly[-1], orig_point_spacing)))
                 y_buffer_points = []
@@ -1090,13 +1080,13 @@ def compute_surface_approximations_from_polygons(
                 )
                 try:
                     for xcoord, ycoord in zip(x_poly_spaced, y_poly_spaced):
-                        if point_is_within_distance_of_points_in_list(
-                            xcoord,
-                            ycoord,
-                            points=zip(x_buffer_points, y_buffer_points),
-                            distance=0.5 * orig_point_spacing,
-                        ):
-                            continue
+                        # if point_is_within_distance_of_points_in_list(
+                        #     xcoord,
+                        #     ycoord,
+                        #     points=zip(x_buffer_points, y_buffer_points),
+                        #     distance=0.5 * orig_point_spacing,
+                        # ):
+                        #     continue
 
                         if relevant_coastline_safety_buffered.buffer(0.2).contains(geometry.Point(ycoord, xcoord)):
                             x_buffer_points.append(xcoord)
@@ -1117,8 +1107,8 @@ def compute_surface_approximations_from_polygons(
                 #     print(f"n_surface_points after buffer points: {len(y_surface_data_points)}")
 
                 ## Add more buffer points further away from the relevant polygon coastline, where the mask is zero or negative (no collision)
-                buffer_distance = 100.0
-                surface_value_at_outlier_points = -100.0
+                buffer_distance = 1.0
+                surface_value_at_outlier_points = -1.0
                 relevant_coastline_extra_buffered = polygon.buffer(d_safe + buffer_distance)
 
                 # if enc is not None:
@@ -1203,7 +1193,7 @@ def compute_surface_approximations_from_polygons(
                 #     print(f"extra_buffer_point_distance_spacing: {extra_buffer_point_distance_spacing}")
                 # if show_plots:
                 #     print(f"Polygon {j}: num total surface data points: {len(y_surface_data_points)}")
-                smoothing = 1.0
+                smoothing = 5.0
 
                 rbf = scipyintp.RBFInterpolator(
                     np.array([x_surface_data_points, y_surface_data_points]).T,

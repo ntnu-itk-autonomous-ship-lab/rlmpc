@@ -46,7 +46,7 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        features_dim: int = 124,
+        features_dim: int = 119,
         action_dim: int = 2,
     ):
         super().__init__()
@@ -72,9 +72,9 @@ class MPCParameterDNN(th.nn.Module):
         self.human_preference_cost_val_scaling = 0.0001
 
         offset = 0
-        self.parameter_indices = {}
+        self.out_parameter_indices = {}
         for param in param_list:
-            self.parameter_indices[param] = offset
+            self.out_parameter_indices[param] = offset
             offset += self.out_parameter_lengths[param]
 
         self.num_output_params = offset
@@ -92,7 +92,9 @@ class MPCParameterDNN(th.nn.Module):
             prev_size = size
         self.layers.append(th.nn.Linear(prev_size, self.num_output_params))
         self.tanh = th.nn.Tanh()
-        self.num_params = sum(p.numel() for p in self.parameters())
+        # The DNN parameters
+        self.parameter_lengths = [p.numel() for p in self.parameters()]
+        self.num_params = sum(self.parameter_lengths)
 
     def forward(self, x: th.Tensor) -> th.Tensor:
         for layer in self.layers[:-1]:
@@ -101,6 +103,19 @@ class MPCParameterDNN(th.nn.Module):
         x = self.layers[-1](x)
         # x = self.tanh(x)
         return x
+
+    def set_gradients(self, grads: th.Tensor) -> None:
+        """Update the parameters of the actor DNN mpc parameter provider policy.
+
+        Args:
+            - grads (th.Tensor): The parameter gradient tensor 1 x num_params.
+
+        """
+        idx = 0
+        for param_name, param in self.named_parameters():
+            param.grad = grads[idx : idx + param.numel()].reshape(param.shape)
+            # print(f"Parameter: {param_name} | Gradient: {param.grad}")
+            idx += param.numel()
 
     def map_to_parameter_dict(self, x: np.ndarray, current_params: np.ndarray) -> Dict[str, Union[float, np.ndarray]]:
         """Maps the DNN output tensor to a dictionary of unnormalized parameters, given the current parameters.
@@ -118,7 +133,7 @@ class MPCParameterDNN(th.nn.Module):
         for param in self.param_list:
             param_range = self.out_parameter_ranges[param]
             param_length = self.out_parameter_lengths[param]
-            pindx = self.parameter_indices[param]
+            pindx = self.out_parameter_indices[param]
             x_param_current = current_params_np[pindx : pindx + param_length]
             x_param_new = (
                 x_np[pindx : pindx + param_length] + x_param_current
@@ -153,7 +168,7 @@ class MPCParameterDNN(th.nn.Module):
         for param in self.param_list:
             param_range = self.out_parameter_ranges[param]
             param_length = self.out_parameter_lengths[param]
-            pindx = self.parameter_indices[param]
+            pindx = self.out_parameter_indices[param]
             x_param = x[pindx : pindx + param_length]
 
             for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
@@ -175,7 +190,7 @@ class MPCParameterDNN(th.nn.Module):
         for param in self.param_list:
             param_range = self.out_parameter_ranges[param]
             param_length = self.out_parameter_lengths[param]
-            pindx = self.parameter_indices[param]
+            pindx = self.out_parameter_indices[param]
             p_param = p[pindx : pindx + param_length]
 
             for j in range(len(p_param)):  # pylint: disable=consider-using-enumerate
@@ -315,7 +330,6 @@ class SACMPCActor(BasePolicy):
         nx, nu = self.mpc.get_mpc_model_dims()
         self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.mpc.get_mpc_params()
-        self.num_params = self.mpc_param_provider.num_params
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         # lookahead_sample = self.mpc.lookahead_sample
         # Indices for the RLMPC action a = [x_LD, y_LD, speed_0]
@@ -328,10 +342,8 @@ class SACMPCActor(BasePolicy):
 
         # second option, sequence of course and speed refs
         self.action_indices = [
-            int(nu * n_samples + (1 * nx) + 2),  # chi 1
-            int(nu * n_samples + (1 * nx) + 3),  # speed 1
-            # int(nu * n_samples + (2 * nx) + 2),  # chi 2
-            # int(nu * n_samples + (2 * nx) + 3),  # speed 2
+            int(nu * n_samples + (2 * nx) + 2),  # chi 2
+            int(nu * n_samples + (2 * nx) + 3),  # speed 2
         ]
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
@@ -371,6 +383,14 @@ class SACMPCActor(BasePolicy):
         msg = "reset_noise() is only available when using gSDE"
         assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
         self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
+
+    def set_gradients(self, grads: th.Tensor) -> None:
+        """Update the parameter gradients of the actor DNN mpc parameter provider policy.
+
+        Args:
+            - grads (th.Tensor): The parameter gradient tensor 1 x num_params.
+        """
+        self.mpc_param_provider.set_gradients(grads)
 
     def action_log_prob(
         self,
@@ -607,9 +627,8 @@ class SACMPCActor(BasePolicy):
         print("SAC MPC Actor initialized!")
 
     def update_params(self, step: th.Tensor) -> None:
-        """Update the parameters of the actor policy (if any)."""
-        step = step.detach().cpu().numpy()
-        self.mpc.update_adjustable_mpc_params(step)
+        """Update the parameters of the actor DNN mpc parameter provider policy."""
+        self.mpc_param_provider.update_params(step)
 
 
 class SACPolicyWithMPC(BasePolicy):

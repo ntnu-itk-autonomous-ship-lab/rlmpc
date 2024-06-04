@@ -150,7 +150,7 @@ def main():
         "merge_loaded_scenario_episodes": True,
         "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
-        "action_sample_time": 1.0 / 0.4,  # from rlmpc.yaml config file
+        "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
@@ -183,7 +183,7 @@ def main():
     actor_noise_std_dev = np.array([0.003, 0.003])  # normalized std dev for the action space [course, speed]
 
     mpc_param_provider_kwargs = {
-        "param_list": ["r_safe_do"],
+        "param_list": ["Q_p", "r_safe_do"],
         "hidden_sizes": [256],
         "activation_fn": th.nn.ReLU,
     }
@@ -210,8 +210,10 @@ def main():
         train_freq=(4, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
+        data_path=base_dir,
         verbose=1,
     )
+    # model.load_critics(base_dir=base_dir, base_name="best_model_eval")
 
     exp_name_str = "sac_rlmpc1"
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)

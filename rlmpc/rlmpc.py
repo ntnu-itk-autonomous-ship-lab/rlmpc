@@ -161,6 +161,7 @@ class RLMPC(ci.ICOLAV):
         self._all_polygons = []
         self._set_generator = None
         self._disturbance_handles = []
+        self._action_indices: list = []
         self._rrt_traj_handle = None
         self._mpc_traj_handle = None
         self._goal_state = np.array([])
@@ -210,9 +211,10 @@ class RLMPC(ci.ICOLAV):
         self._mpc_inputs: np.ndarray = np.array([])
         self._colregs_handler.reset()
 
-        enc.close_display()
-        self._enc = copy.deepcopy(enc)
-        self._enc.start_display(figname="RL-MPC Debug")
+        if self._debug:
+            enc.close_display()
+            self._enc = copy.deepcopy(enc)
+            self._enc.start_display(figname="RL-MPC Debug")
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
@@ -240,7 +242,7 @@ class RLMPC(ci.ICOLAV):
         planning_cdt = mapf.create_safe_sea_triangulation(
             self._enc,
             vessel_min_depth=1,
-            buffer=self._mpc.params.r_safe_so,
+            buffer=self._mpc.params.r_safe_so + self._config.ship_length / 2.0,
             bbox=bbox,
             show_plots=False,
         )
@@ -263,12 +265,13 @@ class RLMPC(ci.ICOLAV):
         os_poly = mapf.create_ship_polygon(
             ownship_csog_state[0], ownship_csog_state[1], ownship_csog_state[2], 8.0, 3.0, 1.0, 1.0
         )
-        self._enc.draw_polygon(os_poly, color="pink")
-        self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=3.0, color="black")
 
-        # self.plot_surfaces(ownship_state)
+        if self._debug:
+            self._enc.draw_polygon(os_poly, color="pink")
+            self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=3.0, color="black")
+            # self.plot_surfaces(ownship_state)
+
         self._initialized = True
-        # print("RL-MPC initialized!")
 
     def plot_hazards(self):
         """Plot the grounding hazards."""
@@ -282,8 +285,8 @@ class RLMPC(ci.ICOLAV):
         center = ownship_state[:2] - np.array([self._map_origin[0], self._map_origin[1]])
         npx = npoints
         npy = npoints
-        x = np.linspace(center[0] - 150, center[0] + 150, npx)
-        y = np.linspace(center[1] - 150, center[1] + 150, npy)
+        x = np.linspace(center[0] - 300, center[0] + 300, npx)
+        y = np.linspace(center[1] - 300, center[1] + 300, npy)
         z = np.zeros((npy, npx))
         for idy, y_val in enumerate(y):
             for idx, x_val in enumerate(x):
@@ -341,13 +344,11 @@ class RLMPC(ci.ICOLAV):
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
         chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # COg
-        chi_0_ref = cs_mf.wrap_angle_to_pmpi(
-            self._mpc_trajectory[2, 1]
-        )  # starting from 1 since the first sample is the current state
-        U_0_ref = self._mpc_trajectory[3, 1]
+        chi_0_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
+        U_0_ref = self._mpc_trajectory[3, 2]
 
-        chi_1_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
-        U_1_ref = self._mpc_trajectory[3, 2]
+        # chi_1_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
+        # U_1_ref = self._mpc_trajectory[3, 2]
         action = np.array(
             [
                 cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi),
@@ -415,6 +416,7 @@ class RLMPC(ci.ICOLAV):
         Args:
             action_indices (list): List of indices of the action variables in the decision vector.
         """
+        self._action_indices = action_indices
         self._mpc.set_action_indices(action_indices)
 
     def set_mpc_param_subset(self, param_subset: Dict[str, float | np.ndarray]) -> None:
@@ -706,7 +708,7 @@ class RLMPC(ci.ICOLAV):
             ownship_state=start_state_copy.tolist(),
             U_d=nominal_speed_ref,
             initialized=False,
-            return_on_first_solution=True if prev_soln else False,
+            return_on_first_solution=False,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
 
@@ -839,7 +841,10 @@ class RLMPC(ci.ICOLAV):
         self._mpc_rel_polygons = []
         self._min_depth = mapf.find_minimum_depth(self._config.ship_draft, enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
-            self._min_depth, enc, buffer=self._mpc.params.r_safe_so, show_plots=show_plots
+            self._min_depth,
+            enc,
+            buffer=self._mpc.params.r_safe_so + self._config.ship_length / 2.0,
+            show_plots=show_plots,
         )
         self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 

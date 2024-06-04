@@ -97,7 +97,7 @@ def train_vae(
         model_path.mkdir()
 
     n_batch_images_to_show = 12
-    beta = 0.5
+    beta = 0.9
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
@@ -284,7 +284,7 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10
-    batch_size = 32
+    batch_size = 48
     num_epochs = 60
     learning_rate = 1e-04
 

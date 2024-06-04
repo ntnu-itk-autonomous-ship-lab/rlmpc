@@ -82,6 +82,7 @@ class SAC(opa.OffPolicyAlgorithm):
         - stats_window_size (int): Window size for the rollout logging, specifying the number of episodes to average
             the reported success rate, mean episode length, and mean reward over
         - tensorboard_log (Optional[str]): the log location for tensorboard (if None, no logging)
+        - data_path (Optional[str]): the path to save the replay buffer data
         - policy_kwargs (Optional[Dict[str, Any]]): additional arguments to be passed to the policy on creation
         - verbose (int): Verbosity level: 0 for no output, 1 for info messages (such as device or wrappers used), 2 for
             debug messages
@@ -119,6 +120,7 @@ class SAC(opa.OffPolicyAlgorithm):
         use_sde_at_warmup: bool = False,
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
+        data_path: Optional[str] = None,
         policy_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
         seed: Optional[int] = None,
@@ -149,6 +151,7 @@ class SAC(opa.OffPolicyAlgorithm):
             policy_kwargs=policy_kwargs,
             stats_window_size=stats_window_size,
             tensorboard_log=tensorboard_log,
+            data_path=data_path,
             verbose=verbose,
             device=device,
             seed=seed,
@@ -221,6 +224,13 @@ class SAC(opa.OffPolicyAlgorithm):
         self.log_ent_coef = th.load(pathlib.Path(str(path) + "_log_ent_coef.pth"))
         self.actor.mpc.load_params(pathlib.Path(str(path) + "_actor.yaml"))
         self.actor.mpc_param_provider.load_state_dict(th.load(pathlib.Path(str(path) + "_mpc_param_provider.pth")))
+
+    def load_critics(self, base_dir: pathlib.Path, base_name: str) -> None:
+        """Loads the critic model"""
+        critic_path = base_dir / f"{base_name}_critic.pth"
+        critic_target_path = base_dir / f"{base_name}_critic_target.pth"
+        self.critic.load_state_dict(th.load(critic_path))
+        self.critic_target.load_state_dict(th.load(critic_target_path))
 
     def initialize_mpc_actor(
         self,
@@ -326,8 +336,6 @@ class SAC(opa.OffPolicyAlgorithm):
             q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
             min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
-            self.actor.optimizer.zero_grad()
-
             # extract the parameters and buffers for a funcional call
             actor_dnn_feature_inputs = th.from_numpy(
                 np.array([info[0]["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
@@ -374,7 +382,11 @@ class SAC(opa.OffPolicyAlgorithm):
                 actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
                 actor_losses[b] = ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b]
             print("Actor gradient computation time: ", time.time() - t_actor_start_now)
-            self.actor.update_params(-actor_grads.mean(dim=0) * self.lr_schedule(self._current_progress_remaining))
+
+            self.actor.optimizer.zero_grad()
+            # Equivalent to loss.backward()
+            self.actor.set_gradients(actor_grads.mean(dim=0))
+            self.actor.optimizer.step()
 
             if gradient_step % self.target_update_interval == 0:
                 polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
@@ -397,7 +409,6 @@ class SAC(opa.OffPolicyAlgorithm):
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
         # log:
-        # #- mpc parameter evolution over steps
         # - actor loss
         # - actor gradient
         # - critic loss

@@ -297,6 +297,12 @@ class AntiGroundingRewarder(cs_reward.IReward):
                 )
                 print(f"Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]} | d2so={d2so}.")
         grounding_cost = self._config.rho_anti_grounding * g_so.sum()
+
+        # Add extra cost if the ship is grounded in the simulator (i.e. the ship is on land)
+        # The above cost only gives a penalty if the ship CG is inside the grounding polygon approximations.
+        if self.env.simulator.determine_ship_grounding():
+            grounding_cost += self._config.rho_anti_grounding * 1.0
+
         return -grounding_cost
 
 

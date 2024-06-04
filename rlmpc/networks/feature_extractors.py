@@ -129,7 +129,7 @@ class TrackingVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Space,
-        features_dim: int = 15,
+        features_dim: int = 10,
         num_layers: int = 1,
         model_file: str | None = None,
     ) -> None:
@@ -139,14 +139,14 @@ class TrackingVAE(BaseFeaturesExtractor):
         self.max_seq_len = observation_space.shape[1]
 
         if model_file is None:
-            model_file = TRACKINGVAE_DATADIR / "tracking_avae15_NL_1_nonbi_HD_64_LD_15_NH_6_ED_72_best.pth"
+            model_file = TRACKINGVAE_DATADIR / "tracking_avae2_NL_1_nonbi_HD_100_LD_10_NH_6_ED_240_best.pth"
 
         self.vae: tracking_vae.VAE = tracking_vae.VAE(
             input_dim=self.input_dim,
-            embedding_dim=72,
+            embedding_dim=240,
             num_heads=6,
-            rnn_hidden_dim=64,
-            latent_dim=15,
+            rnn_hidden_dim=100,
+            latent_dim=10,
             num_layers=1,
             rnn_type=th.nn.GRU,
             bidirectional=False,

@@ -164,7 +164,7 @@ class CasadiMPC:
         """
         p_adjustable_values = self._p_adjustable_values + delta_p
         self._params.set_adjustable(p_adjustable_values)
-        self._p_adjustable_values = self._params.adjustable()
+        self._p_adjustable_values = self._params.adjustable(self._adjustable_param_str_list)
 
     def get_adjustable_params(self) -> np.ndarray:
         """Returns the RL-tuneable parameters in the MPC.
