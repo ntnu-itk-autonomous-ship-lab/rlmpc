@@ -140,3 +140,4 @@ dmypy.json
 todo.txt
 .vscode/
 acados_code_gen/
+data/
