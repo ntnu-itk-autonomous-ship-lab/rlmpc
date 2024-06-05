@@ -9,13 +9,15 @@
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.math_functions as mf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
 import colav_simulator.common.plotters as plotters
 import colav_simulator.core.guidances as guidances
+import colav_simulator.gym.action as csgym_action
+import colav_simulator.gym.observation as csgym_obs
 import colav_simulator.gym.reward as cs_reward
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,8 +26,6 @@ import rlmpc.common.helper_functions as hf
 import rlmpc.common.map_functions as rl_mapf
 import rlmpc.mpc.common as mpc_common
 import yaml
-from colav_simulator.gym.action import Action
-from colav_simulator.gym.observation import Observation
 
 if TYPE_CHECKING:
     from colav_simulator.gym.environment import COLAVEnvironment
@@ -283,7 +283,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
         ax.set_ylabel("East [m]")
         plt.show(block=False)
 
-    def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self.create_so_surfaces()
         p_os = (self.env.ownship.state[:2] - self._map_origin).reshape(1, 2)
@@ -335,7 +335,7 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
         epsilon = 1e-6
         return np.log(1.0 + epsilon) - np.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
 
-    def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
         do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0)
         g_do = np.zeros(len(do_list))
@@ -360,7 +360,7 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
         self.alpha_app = np.concatenate([self._config.alpha_app_course, self._config.alpha_app_speed])
         self._prev_speed = self.env.ownship.speed
 
-    def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._prev_speed = self.env.ownship.speed
         turn_rate = self.env.ownship.state[5]
@@ -393,7 +393,7 @@ class COLREGRewarder(cs_reward.IReward):
         self._min_depth: int = 0
         self._geometry_tree: Any = None
 
-    def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._colregs_handler.reset()
             self._map_origin = self.env.ownship.csog_state[:2]
@@ -486,7 +486,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         super().__init__(env)
         self._config = config
 
-    def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         unnormalized_obs = self.env.observation_type.unnormalize(state)
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
         huber_loss = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
@@ -515,7 +515,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_trajectory_tracking: float = 0.0
         self.r_readily_apparent_maneuvering: float = 0.0
 
-    def __call__(self, state: Observation, action: Optional[Action] = None, **kwargs) -> float:
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
         self.r_collision_avoidance = self.collision_avoidance_rewarder(state, action, **kwargs)
         self.r_colreg = self.colreg_rewarder(state, action, **kwargs)

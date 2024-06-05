@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+import colav_simulator.behavior_generator as cs_bg
 import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.math_functions as cs_mf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
@@ -34,7 +35,6 @@ import scipy.interpolate as interp
 import seacharts.enc as senc
 import shapely.geometry as sgeo
 import yaml
-from colav_simulator.behavior_generator import RRTConfig
 from shapely import strtree
 
 
@@ -42,7 +42,7 @@ from shapely import strtree
 class RLMPCParams:
     mpc: mlmpc.Config
     los: guidances.LOSGuidanceParams
-    rrtstar: RRTConfig
+    rrtstar: cs_bg.RRTConfig
     colregs_handler: ch.COLREGSHandlerParams
     ship_length: float = 8.0
     ship_width: float = 3.0
@@ -54,7 +54,7 @@ class RLMPCParams:
             mpc=mlmpc.Config.from_dict(config_dict["midlevel_mpc"]),
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
             colregs_handler=ch.COLREGSHandlerParams.from_dict(config_dict["colregs_handler"]),
-            rrtstar=RRTConfig.from_dict(config_dict["rrtstar"]),
+            rrtstar=cs_bg.RRTConfig.from_dict(config_dict["rrtstar"]),
         )
         return config
 
@@ -230,7 +230,6 @@ class RLMPC(ci.ICOLAV):
         self._setup_mpc_static_obstacle_input(ownship_csog_state, self._enc, self._debug, **kwargs)
         self._mpc.construct_ocp(
             nominal_path=self._nominal_path,
-            xs=ownship_csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
             so_list=self._mpc_rel_polygons,
             enc=self._enc,
             map_origin=self._map_origin,
@@ -260,7 +259,7 @@ class RLMPC(ci.ICOLAV):
         self._rrtstar.set_goal_state(self._goal_state.tolist())
 
         if self._debug:
-            self.plot_path(self._enc)
+            self.plot_path()
 
         os_poly = mapf.create_ship_polygon(
             ownship_csog_state[0], ownship_csog_state[1], ownship_csog_state[2], 8.0, 3.0, 1.0, 1.0
@@ -505,13 +504,12 @@ class RLMPC(ci.ICOLAV):
             )
         self._disturbance_handles = handles
 
-    def visualize_ships(self, ownship_state: np.ndarray, do_list: list, enc: senc.ENC) -> None:
+    def visualize_ships(self, ownship_state: np.ndarray, do_list: list) -> None:
         """Visualize the ships in the ENC.
 
         Args:
             ownship_state (np.ndarray): Ownship state.
             do_list (list): List of dynamic obstacles.
-            enc (senc.ENC): Electronic navigational chart.
         """
         if self._debug:
             self._enc.start_display(figname="RL-MPC Debug")
@@ -519,7 +517,7 @@ class RLMPC(ci.ICOLAV):
             for _, do_state, do_cov, length, width in do_list:
                 ellipse_x, ellipse_y = cs_mhm.create_probability_ellipse(do_cov, 0.67)
                 ell_geometry = sgeo.Polygon(zip(ellipse_y + do_state[1], ellipse_x + do_state[0]))
-                ell_i_handle = enc.draw_polygon(ell_geometry, color="red", alpha=0.2)
+                ell_i_handle = self._enc.draw_polygon(ell_geometry, color="red", alpha=0.2)
                 do_poly = mapf.create_ship_polygon(
                     do_state[0],
                     do_state[1],
@@ -529,7 +527,7 @@ class RLMPC(ci.ICOLAV):
                     length_scaling=1.0,
                     width_scaling=1.0,
                 )
-                do_i_handle = enc.draw_polygon(do_poly, color="red")
+                do_i_handle = self._enc.draw_polygon(do_poly, color="red")
                 self._do_plt_handles.extend([ell_i_handle, do_i_handle])
 
             ship_poly = mapf.create_ship_polygon(
@@ -541,15 +539,15 @@ class RLMPC(ci.ICOLAV):
                 1.0,
                 1.0,
             )
-            enc.draw_polygon(ship_poly, color="pink")
+            self._enc.draw_polygon(ship_poly, color="pink")
 
     @property
     def mpc_params(self) -> mpc_params.MidlevelMPCParams:
         return self._mpc.params
 
-    def plot_path(self, enc: senc.ENC) -> None:
+    def plot_path(self) -> None:
         """Plot the nominal path."""
-        enc.start_display()
+        self._enc.start_display()
         nominal_trajectory = self._ktp.compute_reference_trajectory(2.0)
         nominal_trajectory = nominal_trajectory + np.array(
             [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
@@ -557,7 +555,7 @@ class RLMPC(ci.ICOLAV):
         plotters.plot_waypoints(
             self._waypoints[:2, :],
             draft=1.0,
-            enc=enc,
+            enc=self._enc,
             color="orange",
             point_buffer=3.0,
             disk_buffer=6.0,
@@ -566,7 +564,7 @@ class RLMPC(ci.ICOLAV):
         )
         plotters.plot_trajectory(
             nominal_trajectory[:2, :],
-            enc,
+            self._enc,
             "yellow",
         )
 
@@ -604,7 +602,7 @@ class RLMPC(ci.ICOLAV):
                 translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
             ]
 
-            self.visualize_ships(ownship_state, do_list, enc)
+            self.visualize_ships(ownship_state, do_list)
             self.visualize_disturbance(w)
 
             csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)

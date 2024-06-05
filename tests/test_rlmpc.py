@@ -1,9 +1,12 @@
 import unittest
+import warnings
 
 import rlmpc.common.paths as dp
 import rlmpc.rlmpc as rlmpc
 from colav_simulator.scenario_generator import ScenarioGenerator
 from colav_simulator.simulator import Simulator
+
+warnings.filterwarnings("ignore", module="pandas")
 
 
 class TestRLMPC(unittest.TestCase):
@@ -17,9 +20,12 @@ class TestRLMPC(unittest.TestCase):
         return super().tearDown()
 
     def test_rlmpc(self):
-        scenario_file = dp.scenarios / "test_rlmpc.yaml"
-        scenario_data = self.scenario_generator.generate(
-            config_file=scenario_file, new_load_of_map_data=False, show_plots=False
+        scenario_name = "rlmpc_scenario_ms_channel"
+        scenario_data = self.scenario_generator.load_scenario_from_folders(
+            folder=dp.scenarios / "training_data" / scenario_name,
+            scenario_name=scenario_name,
+            reload_map=False,
+            max_number_of_episodes=1,
         )
         self.simulator.toggle_liveplot_visibility(True)
         output = self.simulator.run([scenario_data], colav_systems=[(0, self.rlmpc_obj)])

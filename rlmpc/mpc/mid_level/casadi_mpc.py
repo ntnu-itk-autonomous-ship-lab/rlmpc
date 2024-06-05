@@ -132,6 +132,10 @@ class CasadiMPC:
         self._box_inequality_constraints: csd.Function = csd.Function("box_inequality_constraints", [], [])
         self.dim_g = 0
 
+    @property
+    def params(self) -> parameters.MidlevelMPCParams:
+        return self._params
+
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
 
@@ -334,8 +338,6 @@ class CasadiMPC:
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
-        so_list: list,
-        enc: senc.ENC,
         warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
@@ -349,8 +351,6 @@ class CasadiMPC:
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
-            - so_list (list): List ofrelevant static obstacle Polygon objects.
-            - enc (senc.ENC): ENC object containing the map info.
             - warm_start (dict): Warm start solution to use.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
@@ -635,7 +635,6 @@ class CasadiMPC:
         # NLP perturbation (may be zero or randomly generated if the MPC is used as a stochastic policy)
         self._nlp_perturbation = csd.MX.sym("nlp_perturbation", nu, 1)
         p_fixed.append(self._nlp_perturbation)
-
         p_fixed.append(self._p_mdl)
 
         # Initial state constraint
@@ -711,7 +710,6 @@ class CasadiMPC:
             so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=True
         )
         so_surfaces = so_surfaces[0]
-        # max_num_so_constr = min(len(so_surfaces), self._params.max_num_so_constr)
         self._so_surfaces = so_surfaces
 
         # Slack weighting matrix W (dim = 1 x (max_num_so_constr + 3 * self._params.max_num_do_constr_per_zone))
@@ -1169,7 +1167,7 @@ class CasadiMPC:
         d = np.zeros((nu, 1))
         if perturb_nlp:
             d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
-        fixed_parameter_values.extend(d.flatten().tolist())  # d
+        fixed_parameter_values.extend(d.flatten().tolist())
         fixed_parameter_values.extend(state.flatten().tolist())  # x0
 
         path_parameter_values, _, _ = self._create_path_parameter_values()

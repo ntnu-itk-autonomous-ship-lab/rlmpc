@@ -40,7 +40,7 @@ class MPCModel(ABC):
         """Returns input and state constraint boxes relevant for the model."""
 
     @abstractmethod
-    def setup_equations_of_motion(self, **kwargs):
+    def setup_equations_of_motion(self, **kwargs) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the model"""
 
 

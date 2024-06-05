@@ -11,6 +11,7 @@
 import pathlib
 import time
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from typing import List, Optional, Tuple
 
 import casadi as csd
@@ -68,6 +69,19 @@ class CasadiSolverOptions:
             self.solver_type + ".derivative_test": self.derivative_test,
         }
         return opts
+
+
+class AcadosErrorCode(Enum):
+    Success = 0
+    Failure = 1
+    MaxIter = 2
+    MinStep = 3
+    QPFailure = 4
+    Ready = 5
+
+
+def map_acados_error_code(error_code: int) -> str:
+    return AcadosErrorCode(error_code).name
 
 
 def parse_acados_solver_options(config_dict: dict):

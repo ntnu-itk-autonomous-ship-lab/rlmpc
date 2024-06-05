@@ -71,21 +71,19 @@ class MidlevelMPC:
 
     def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rlmpc_config) -> None:
         if config:
-            self._params = config.mpc
             self._solver_options: common.SolverConfig = config.solver_options
             self._acados_enabled: bool = config.enable_acados
         else:
-            default_config = cp.extract(Config, config_file, dp.rlmpc_config)
-            self._params = default_config.mpc
-            self._solver_options = default_config.solver_options
-            self._acados_enabled = default_config.enable_acados
+            config = cp.extract(Config, config_file, dp.rlmpc_config)
+            self._solver_options = config.solver_options
+            self._acados_enabled = config.enable_acados
 
         self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(
-            config.model, self._params, self._solver_options.casadi
+            config.model, config.mpc, self._solver_options.casadi
         )
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(
-                config.model, self._params, self._solver_options.acados
+                config.model, config.mpc, self._solver_options.acados
             )
 
     @property
@@ -94,7 +92,7 @@ class MidlevelMPC:
 
     @property
     def params(self) -> mpc_parameters.MidlevelMPCParams:
-        return self._casadi_mpc._params
+        return self._casadi_mpc.params
 
     @property
     def adjustable_params(self) -> np.ndarray:
@@ -107,7 +105,7 @@ class MidlevelMPC:
     def set_adjustable_param_str_list(self, param_str_list: list[str]) -> None:
         self._casadi_mpc.set_adjustable_param_str_list(param_str_list)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.set_adjustable_param_list(param_str_list)
+            self._acados_mpc.set_adjustable_param_str_list(param_str_list)
 
     def set_param_subset(self, subset: Dict[str, Any]) -> None:
         self._casadi_mpc.set_param_subset(subset)
@@ -118,7 +116,6 @@ class MidlevelMPC:
         self._casadi_mpc.update_adjustable_params(delta)
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.update_adjustable_params(delta)
-        self._params = self._casadi_mpc._params
 
     def reset(self) -> None:
         self._casadi_mpc.reset()
@@ -147,7 +144,6 @@ class MidlevelMPC:
     def construct_ocp(
         self,
         nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
-        xs: np.ndarray,
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
@@ -158,7 +154,6 @@ class MidlevelMPC:
 
         Args:
             - nominal_path (Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float]): Tuple containing the nominal path splines in x, y, heading and the speed. The last element is the path length.
-            - xs (np.ndarray): Current state of the ownship on the form [x, y, chi, U]^T
             - so_list (list): List of static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing information about the ENC.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
@@ -167,7 +162,7 @@ class MidlevelMPC:
         """
         self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, tau)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_path, xs, so_list, enc, map_origin, min_depth)
+            self._acados_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth)
 
     def model_prediction(self, xs: np.ndarray, U: np.ndarray, N: int, p: np.ndarray = np.array([])) -> np.ndarray:
         """Predicts the state trajectory of the system using the model.
@@ -217,7 +212,6 @@ class MidlevelMPC:
         Args:
             - params (mpc_parameters.MidlevelMPCParams): Parameters of the mid-level MPC.
         """
-        self._params = params
         self._casadi_mpc.set_params(params)
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.set_params(params)
@@ -236,12 +230,9 @@ class MidlevelMPC:
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
-        so_list: list,
-        enc: senc.ENC,
         warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
-        prev_soln: Optional[dict] = None,
         **kwargs,
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
@@ -252,19 +243,25 @@ class MidlevelMPC:
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
-            - so_list (list): List of ALL static obstacle Polygon objects.
-            - enc (senc.ENC): Electronic Navigational Chart object.
             - warm_start (Optional[dict]): Warm start solution to use before the next iteration.
             - perturb_nlp (bool, optional): Perturb the NLP cost function or not. Used when using the MPC as a stochastic policy. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
-            - dict: Dictionary containing the optimal trajectory, inputs, slacks, course references (X[4, :]), speed references (U_d(s)), solver stats ++
+            - dict: Dictionary containing the solution info (trajectory, decision variables, etc.)
         """
         if self._acados_enabled:
             mpc_soln = self._acados_mpc.plan(
-                t, xs, do_cr_list, do_ho_list, do_ot_list, so_list, enc, prev_soln, **kwargs
+                t,
+                xs,
+                do_cr_list,
+                do_ho_list,
+                do_ot_list,
+                warm_start,
+                perturb_nlp=perturb_nlp,
+                perturb_sigma=perturb_sigma,
+                **kwargs,
             )
         else:
             mpc_soln = self._casadi_mpc.plan(
@@ -273,8 +270,6 @@ class MidlevelMPC:
                 do_cr_list,
                 do_ho_list,
                 do_ot_list,
-                so_list,
-                enc,
                 warm_start,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
