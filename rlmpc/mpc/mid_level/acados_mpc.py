@@ -7,15 +7,17 @@
     Author: Trym Tengesdal
 """
 
+import time
 from typing import Dict, Optional, Tuple
 
 import casadi as csd
-import colav_simulator.common.map_functions as mapf
+import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.helper_functions as hf
+import rlmpc.common.integrators as integrators
 import rlmpc.common.map_functions as mapf
 import rlmpc.common.math_functions as mf
-import rlmpc.common.paths as dp
+import rlmpc.common.set_generator as sg
 import rlmpc.mpc.common as mpc_common
 import rlmpc.mpc.models as models
 import rlmpc.mpc.parameters as parameters
@@ -32,7 +34,7 @@ class AcadosMPC:
     ) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._acados_ocp.solver_options = mpc_common.parse_acados_solver_options(solver_options)
-        self._model = model
+        self.model = model
 
         self._params: parameters.MidlevelMPCParams = params
         self._so_surfaces: list = []
@@ -62,6 +64,7 @@ class AcadosMPC:
         self._min_depth: int = 1
         self._t_prev: float = 0.0
         self._xs_prev: np.ndarray = np.array([])
+        self._prev_cost: float = np.inf
 
         self._x_path: csd.Function = csd.Function("x_path", [], [])
         self._x_path_coeffs: csd.MX = csd.MX.sym("x_path_coeffs", 0)
@@ -284,43 +287,67 @@ class AcadosMPC:
     def plan(
         self,
         t: float,
-        nominal_trajectory: np.ndarray,
-        nominal_inputs: Optional[np.ndarray],
         xs: np.ndarray,
-        do_list: list,
+        do_cr_list: list,
+        do_ho_list: list,
+        do_ot_list: list,
         so_list: list,
         enc: senc.ENC,
+        warm_start: dict,
+        perturb_nlp: bool = False,
+        perturb_sigma: float = 0.001,
+        show_plots: bool = False,
+        **kwargs,
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
         Args:
-            - t (float): Current time.
-            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
-            - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
-            - xs (np.ndarray): Current state.
-            - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width).
-            - so_list (list): List of static obstacle Polygon objects.
-            - enc (np.ndarray): Electronic Navigation Chart (ENC) of the environment.
+            - xs (np.ndarray): Current state [x, y, psi, u, v, r]^T of the ownship.
+            - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
+            - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
+            - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            - so_list (list): List ofrelevant static obstacle Polygon objects.
+            - enc (senc.ENC): ENC object containing the map info.
+            - warm_start (dict): Warm start solution to use.
+            - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
+            - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
+            - show_plots (bool, optional): Whether to show plots. Defaults to False.
+            - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
-            - dict: Dictionary containing the optimal trajectory, inputs, lower slacks, upper slacks and solver stats.
+            - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
+
         """
         if not self._initialized:
-            self._set_initial_warm_start(nominal_trajectory, nominal_inputs)
-            self._p_fixed_so_values = self._create_fixed_so_parameter_values(nominal_trajectory, xs, so_list, enc)
             self._xs_prev = xs
-            self._initialized = True
+            self._xs_prev[2] = xs[2] + np.arctan2(xs[4], xs[3])
+            self._prev_cost = np.inf
+            self._t_prev = t
 
-        psi = xs[2]
+        if "X" in warm_start:
+            # warm start is embedded in the previous solution in this case
+            self._xs_prev = warm_start["X"][:, 0] - np.array(
+                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+            )
+
+        chi = xs[2] + np.arctan2(xs[4], xs[3])
         xs_unwrapped = xs.copy()
-        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
+        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], chi]))[1]
+        xs_unwrapped[3] = np.sqrt(xs[3] ** 2 + xs[4] ** 2)
+        self._s, self._s_dot = self.compute_path_variable_info(xs_unwrapped)
+        xs_unwrapped[4] = self._s
+        xs_unwrapped[5] = self._s_dot
         self._xs_prev = xs_unwrapped
-        dt = t - self._t_prev
-        if dt > 0.0:
-            self._shift_warm_start(xs_unwrapped, dt, enc)
+        self._x_warm_start = warm_start["X"]
+        self._u_warm_start = warm_start["U"]
 
-        self._update_ocp(nominal_trajectory, nominal_inputs, xs_unwrapped, do_list, so_list)
-        self._acados_ocp_solver.solve_for_x0(x0_bar=xs_unwrapped)
+        self._update_ocp(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
+        try:
+            self._acados_ocp_solver.solve_for_x0(x0_bar=xs_unwrapped)
+        except Exception as e:
+            print(f"Error in ACADOS: {e}")
+            return {"optimal": False}
+
         self._acados_ocp_solver.print_statistics()
         t_solve = self._acados_ocp_solver.get_stats("time_tot")[0]
         cost_val = self._acados_ocp_solver.get_cost()
@@ -338,10 +365,13 @@ class AcadosMPC:
         self._u_warm_start = inputs.copy()
         self._t_prev = t
         output = {
+            "soln": self._current_warmstart,
+            "optimal": stats["success"],
+            "p": self._p_adjustable_values.astype(np.float32),
+            "p_fixed": self._p_fixed_values.astype(np.float32),
             "trajectory": trajectory,
             "inputs": inputs,
-            "lower_slacks": lower_slacks,
-            "upper_slacks": upper_slacks,
+            "slacks": Sigma,
             "so_constr_vals": so_constr_vals,
             "do_constr_vals": do_constr_vals,
             "t_solve": t_solve,
@@ -365,7 +395,7 @@ class AcadosMPC:
         for i in range(self._acados_ocp.dims.N + 1):
             x_i = trajectory[:, i]
             so_constraints.append(self._static_obstacle_constraints(x_i).full().flatten())
-            do_constraints.append(self._dynamic_obstacle_constraints(x_i, self._params.d_safe_do).full().flatten())
+            do_constraints.append(self._dynamic_obstacle_constraints(x_i, self._params.r_safe_do).full().flatten())
         so_constraint_arr = np.array(so_constraints).T
         do_constraint_arr = np.array(do_constraints).T
         if so_constraint_arr.size == 0:
@@ -393,9 +423,9 @@ class AcadosMPC:
             trajectory[:, i] = self._acados_ocp_solver.get(i, "x")
             if i < self._acados_ocp.dims.N:
                 inputs[:, i] = self._acados_ocp_solver.get(i, "u").T
-        psi = trajectory[2, :]
-        psi = np.unwrap(np.concatenate(([xs[2]], psi)))[1:]
-        trajectory[2, :] = psi
+        chi = trajectory[2, :]
+        chi = np.unwrap(np.concatenate(([xs[2]], chi)))[1:]
+        trajectory[2, :] = chi
         if lower_slacks.size == 0:
             lower_slacks = np.array([0.0])
             upper_slacks = np.array([0.0])
@@ -403,20 +433,14 @@ class AcadosMPC:
 
     def _update_ocp(
         self,
-        nominal_trajectory: np.ndarray,
-        nominal_inputs: Optional[np.ndarray],
         xs: np.ndarray,
         do_list: list,
-        so_list: list,
     ) -> None:
         """Updates the OCP (cost and constraints) with the current info available
 
         Args:
-            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track or path to follow
-            - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
-            - xs (np.ndarray): Current state.
+            - xs (np.ndarray): Current state [x, y, psi, u, v, r]^T of the ownship.
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width)
-            - so_list (list): List of static obstacle Polygon objects
         """
         # self._acados_ocp_solver.constraints_set(0, "lbx", xs)
         # self._acados_ocp_solver.constraints_set(0, "ubx", xs)
@@ -424,14 +448,13 @@ class AcadosMPC:
             self._acados_ocp_solver.set(i, "x", self._x_warm_start[:, i])
             if i < self._acados_ocp.dims.N:
                 self._acados_ocp_solver.set(i, "u", self._u_warm_start[:, i])
-            p_i = self.create_parameter_values(nominal_trajectory, nominal_inputs, xs, do_list, so_list, i)
+            p_i = self.create_parameter_values(xs, do_list, i)
             self._acados_ocp_solver.set(i, "p", p_i)
         # print("OCP updated")
 
     def construct_ocp(
         self,
-        nominal_trajectory: np.ndarray,
-        nominal_inputs: Optional[np.ndarray],
+        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
         xs: np.ndarray,
         so_list: list,
         enc: senc.ENC,
@@ -461,10 +484,13 @@ class AcadosMPC:
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
 
         """
+        self._initialized = False
+        self._set_path_information(nominal_path)
         N = int(self._params.T / self._params.dt)
+
         self._min_depth = min_depth
         self._map_origin = map_origin
-        self._acados_ocp.model = self._model.as_acados()
+        self._acados_ocp.model = self.model.as_acados()
         self._acados_ocp.dims.N = N
         self._acados_ocp.solver_options.qp_solver_cond_N = self._acados_ocp.dims.N
         self._acados_ocp.solver_options.tf = self._params.T
@@ -508,9 +534,6 @@ class AcadosMPC:
         p_fixed.append(self._y_dot_path_coeffs)
         p_fixed.append(csd.vertcat(*path_derivative_refs_list))
 
-        gamma = csd.MX.sym("gamma", 1)
-        p_fixed.append(gamma)
-
         # COLREGS cost parameters
         alpha_cr = csd.MX.sym("alpha_cr", 2, 1)
         y_0_cr = csd.MX.sym("y_0_cr", 1, 1)
@@ -522,12 +545,8 @@ class AcadosMPC:
         d_attenuation = csd.MX.sym("d_attenuation", 1, 1)
         colregs_weights = csd.MX.sym("colregs_weights", 3, 1)
 
-        max_num_so_constr = self._params.max_num_so_constr
-
         # Safety zone parameters
-        r_safe_so = csd.MX.sym("r_safe_so", 1)
         r_safe_do = csd.MX.sym("r_safe_do", 1)
-        p_fixed.append(r_safe_so)
 
         p_adjustable.append(Q_p_vec)
         p_adjustable.append(alpha_app_course)
@@ -547,7 +566,7 @@ class AcadosMPC:
         p_adjustable, p_fixed = self.prune_adjustable_params(p_adjustable, p_fixed)
 
         approx_inf = 1e6
-        lbu, ubu, lbx, ubx = self._model.get_input_state_bounds()
+        lbu, ubu, lbx, ubx = self.model.get_input_state_bounds()
 
         # Input constraints
         self._acados_ocp.constraints.idxbu = np.array(range(nu))
@@ -566,6 +585,8 @@ class AcadosMPC:
 
         n_colregs_zones = 3
         n_path_constr = self._params.max_num_so_constr + self._params.max_num_do_constr_per_zone * n_colregs_zones
+        nx_do = 6
+        X_do = csd.MX.sym("X_do", nx_do * self._params.max_num_do_constr_per_zone * n_colregs_zones)
 
         if n_path_constr:
             self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
@@ -587,10 +608,10 @@ class AcadosMPC:
             self._acados_ocp.cost.zu_e = self._params.w_L1 * np.ones(n_path_constr)
 
             con_h_expr = []
-            so_constr_list = self._create_static_obstacle_constraint(x, so_list, d_safe_so, ship_vertices, enc)
+            so_constr_list = self._create_static_obstacle_constraint(x, so_list)
             con_h_expr.extend(so_constr_list)
 
-            do_constr_list = self._create_dynamic_obstacle_constraint(x, d_safe_do)
+            do_constr_list = self._create_dynamic_obstacle_constraint(x, X_do, nx_do, r_safe_do)
             con_h_expr.extend(do_constr_list)
 
             self._acados_ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
@@ -601,103 +622,48 @@ class AcadosMPC:
         self._acados_ocp.model.p = csd.vertcat(self._p_adjustable, self._p_fixed)
         self._acados_ocp.dims.np = self._acados_ocp.model.p.size()[0]
 
-        self._acados_ocp.parameter_values = self.create_parameter_values(xs, do_list, so_list, 0, enc)
+        self._acados_ocp.parameter_values = self.create_parameter_values(xs, do_list, 0)
 
         solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
-        self._acados_ocp.code_export_directory = dp.acados_code_gen.as_posix()
+        self._acados_ocp.code_export_directory = rl_dp.acados_code_gen.as_posix()
         self._acados_ocp_solver: AcadosOcpSolver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json)
 
     def _create_static_obstacle_constraint(
         self,
         x_k: csd.MX,
-        sigma_k: csd.MX,
-        so_pars: list,
-        A_so_constr: Optional[csd.MX],
-        b_so_constr: Optional[csd.MX],
         so_surfaces: Optional[list],
-        ship_vertices: np.ndarray,
-        r_safe_so: csd.MX,
     ) -> list:
         """Creates the static obstacle constraints for the NLP at the current stage, based on the chosen static obstacle constraint type.
 
         Args:
             - x_k (csd.MX): State vector at the current stage in the OCP.
-            - sigma_k (csd.MX): Sigma vector at the current stage in the OCP.
-            - so_pars (csd.MX): Parameters of the static obstacles, used for circular, ellipsoidal constraints
-            - A_so_constr (Optional[csd.MX]): Convex safe set constraint matrix if convex safe set constraints are used.
-            - b_so_constr (Optional[csd.MX]): Convex safe set constraint vector if convex safe set constraints are used.
             - so_surfaces (Optional[list]): Parametric surface approximations for the static obstacles, if parametric surface constraints are used.
-            - ship_vertices (np.ndarray): Vertices of the ship model.
-            - r_safe_so (csd.MX): Safety distance to static obstacles.
 
         Returns:
             list: List of static obstacle constraints at the current stage in the OCP.
         """
-        epsilon = 1e-9
         so_constr_list = []
         if self._params.max_num_so_constr == 0:
             return so_constr_list
-
-        if self._params.so_constr_type == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET:
-            assert (
-                A_so_constr is not None and b_so_constr is not None
-            ), "Convex safe set constraints must be provided for this constraint type."
-            so_constr_list.append(
-                # A_so_constr @ x_k[0:2]
-                # - b_so_constr
-                # - sigma_k[: self._params.max_num_so_constr]
-                csd.vec(
-                    A_so_constr @ (mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * r_safe_so + x_k[0:2])
-                    - b_so_constr
-                    - sigma_k[: self._params.max_num_so_constr]
-                )
-            )
-        else:
-            if self._params.so_constr_type == parameters.StaticObstacleConstraint.CIRCULAR:
-                assert (
-                    so_pars.shape[0] == 3
-                ), "Static obstacle parameters with dim 3 in first axis must be provided for this constraint type."
-                for j in range(self._params.max_num_so_constr):
-                    x_c, y_c, r_c = so_pars[0, j], so_pars[1, j], so_pars[2, j]
-                    so_constr_list.append(
-                        csd.log(r_c**2 - sigma_k[j] + epsilon)
-                        - csd.log(((x_k[0] - x_c) ** 2) + (x_k[1] - y_c) ** 2 + epsilon)
-                    )
-            elif self._params.so_constr_type == parameters.StaticObstacleConstraint.ELLIPSOIDAL:
-                assert (
-                    so_pars.shape[0] == 4
-                ), "Static obstacle parameters with dim 4 in first axis must be provided for this constraint type."
-                for j in range(self._params.max_num_so_constr):
-                    x_e, y_e, A_e = so_pars[0, j], so_pars[1, j], so_pars[2:, j]
-                    A_e = csd.reshape(A_e, 2, 2)
-                    p_diff_do_frame = x_k[0:2] - csd.vertcat(x_e, y_e)
-                    weights = A_e / r_safe_so**2
-                    so_constr_list.append(
-                        csd.log(1 - sigma_k[j] + epsilon)
-                        - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
-                    )
-            elif self._params.so_constr_type == parameters.StaticObstacleConstraint.PARAMETRICSURFACE:
-                assert so_surfaces is not None, "Parametric surfaces must be provided for this constraint type."
-                n_so = len(so_surfaces)
-                for j in range(self._params.max_num_so_constr):
-                    if j < n_so:
-                        so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
-                        # vertices = mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * r_safe_so + x_k[0:2]
-                        # vertices = vertices.reshape((-1, 2))
-                        # for i in range(vertices.shape[0]):
-                        #     so_constr_list.append(csd.vec(so_surfaces[j](vertices[i, :]) - sigma_k[j]))
-                    else:
-                        so_constr_list.append(-sigma_k[j] - 1000.0)
+        assert so_surfaces is not None, "Parametric surfaces must be provided for this constraint type."
+        n_so = len(so_surfaces)
+        for j in range(self._params.max_num_so_constr):
+            if j < n_so:
+                so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))))
+                # vertices = mf.Rpsi2D_casadi(x_k[2]) @ ship_vertices * r_safe_so + x_k[0:2]
+                # vertices = vertices.reshape((-1, 2))
+                # for i in range(vertices.shape[0]):
+                #     so_constr_list.append(csd.vec(so_surfaces[j](vertices[i, :])))
+            else:
+                so_constr_list.append(-1000.0)
+        self._static_obstacle_constraints = csd.Function("so_constr", [x_k], [csd.vertcat(*so_constr_list)])
         return so_constr_list
 
-    def _create_dynamic_obstacle_constraint(
-        self, x_k: csd.MX, sigma_k: csd.MX, X_do_k: csd.MX, nx_do: int, r_safe_do: csd.MX
-    ) -> list:
+    def _create_dynamic_obstacle_constraint(self, x_k: csd.MX, X_do_k: csd.MX, nx_do: int, r_safe_do: csd.MX) -> list:
         """Creates the dynamic obstacle constraints for the NLP at the current stage.
 
         Args:
             x_k (csd.MX): State vector at the current stage in the OCP.
-            sigma_k (csd.MX): Sigma vector at the current stage in the OCP for dynamic obstacle constraints.
             X_do_k (csd.MX): Decision variables of the dynamic obstacles (in all colregs zones) at the current stage in the OCP.
             nx_do (int): Dimension of fixed parameter vector for a dynamic obstacle.
             r_safe_do (csd.MX): Safety distance to dynamic obstacles.
@@ -712,33 +678,27 @@ class AcadosMPC:
             x_aug_do_i = X_do_k[nx_do * i : nx_do * (i + 1)]
             x_do_i = x_aug_do_i[0:4]
             l_do_i = x_aug_do_i[4]
-            w_do_i = x_aug_do_i[5]
             Rchi_do_i = mf.Rpsi2D_casadi(x_do_i[2])
             p_diff_do_frame = Rchi_do_i.T @ (x_k[0:2] - x_do_i[0:2])
             weights = hf.casadi_matrix_from_nested_list(
                 [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * l_do_i + r_safe_do) ** 2]]
             )
-            # do_constr_list.append(1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame)
+            # do_constr_list.append(1.0 - p_diff_do_frame.T @ weights @ p_diff_do_frame)
             do_constr_list.append(
-                csd.log(1.0 + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon) - sigma_k[i]
+                csd.log(1.0 + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
             )
+        self._dynamic_obstacle_constraints = csd.Function("do_constr", [x_k, X_do_k], [csd.vertcat(*do_constr_list)])
         return do_constr_list
 
     def create_parameter_values(
         self,
-        nominal_trajectory: np.ndarray,
-        nominal_inputs: Optional[np.ndarray],
         xs: np.ndarray,
         do_list: list,
-        so_list: list,
         stage_idx: int,
-        enc: senc.ENC = None,
     ) -> np.ndarray:
         """Creates the parameter vector values for a stage in the OCP, which is used in the cost function and constraints.
 
         Args:
-            - nominal_trajectory (np.ndarray): Nominal reference trajectory to track.
-            - nominal_inputs (Optional[np.ndarray]): Nominal reference inputs used if time parameterized trajectory tracking is selected.
             - xs (np.ndarray): State vector at the current stage in the OCP.
             - do_list (list): List of dynamic obstacles.
             - so_list (list): List of static obstacles.
@@ -748,27 +708,16 @@ class AcadosMPC:
         Returns:
             - np.ndarray: Parameter vector to be used as input to solver
         """
+        fixed_parameter_values = []
+
         nu = self._acados_ocp.model.u.size()[0]
         N = self._acados_ocp.dims.N
-        adjustable_params = self.get_adjustable_params()
+        adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
 
-        fixed_parameter_values = []
-        if self._params.path_following:
-            x_ref_stage = nominal_trajectory[0:2, stage_idx]
-        else:
-            x_ref_stage = nominal_trajectory[:6, stage_idx]
+        path_parameter_values = self._create_path_parameter_values()
+        fixed_parameter_values.extend(path_parameter_values)
 
-        u_ref_stage = np.zeros(nu)
-        if (
-            stage_idx < N and nominal_inputs is not None and not self._params.path_following
-        ):  # Time parameterized trajectory tracking
-            u_ref_stage = nominal_inputs[:, stage_idx]
-
-        fixed_parameter_values.extend(x_ref_stage.tolist())
-        fixed_parameter_values.extend(u_ref_stage.tolist())
-        fixed_parameter_values.append(self._params.gamma)
-
-        do_parameter_values = self._create_do_parameter_values(nominal_trajectory, xs, do_list, stage_idx, enc)
+        do_parameter_values = self._create_do_parameter_values(xs, do_list, stage_idx)
         fixed_parameter_values.extend(do_parameter_values)
 
         return np.concatenate((adjustable_params, np.array(fixed_parameter_values)))
