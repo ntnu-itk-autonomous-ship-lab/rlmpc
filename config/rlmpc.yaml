@@ -26,7 +26,7 @@ rrtstar:
       iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
       goal_radius: 1000.0
-      step_size: 2.0
+      step_size: 2.5
       min_steering_time: 1.0
       max_steering_time: 30.0
       steering_acceptance_radius: 10.0
@@ -52,7 +52,7 @@ rrtstar:
 
 midlevel_mpc:
   params:
-    rate: 0.5
+    rate: 1.0
     reference_traj_bbox_buffer: 200.0
     T: 60.0
     dt: 2.0
@@ -113,22 +113,22 @@ midlevel_mpc:
       derivative_test: "none"
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 300
-      nlp_solver_tol_stat: 0.00001
+      nlp_solver_max_iter: 200
+      nlp_solver_tol_stat: 0.0001
       nlp_solver_tol_eq: 0.00001
-      nlp_solver_tol_ineq: 0.00001
-      nlp_solver_tol_comp: 0.00001
+      nlp_solver_tol_ineq: 0.0001
+      nlp_solver_tol_comp: 0.0001
       nlp_solver_ext_qp_res: 1
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" # "FULL_CONDENSING_QPOASES"
-      qp_solver_iter_max: 200
+      qp_solver_iter_max: 50
       qp_solver_warm_start: 1
-      qp_solver_tol_stat: 0.00001
-      qp_solver_tol_eq: 0.00001
-      qp_solver_tol_ineq: 0.00001
-      qp_solver_tol_comp: 0.00001
+      qp_solver_tol_stat: 0.0001
+      qp_solver_tol_eq: 0.0001
+      qp_solver_tol_ineq: 0.0001
+      qp_solver_tol_comp: 0.0001
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
-      regularize_method: "NO_REGULARIZE"
+      regularize_method: "PROJECT"
       levenberg_marquardt: 0.0
       print_level: 1
       ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

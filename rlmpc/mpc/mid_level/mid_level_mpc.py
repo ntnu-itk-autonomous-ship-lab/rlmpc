@@ -133,13 +133,13 @@ class MidlevelMPC:
         """
         return self._casadi_mpc.compute_path_variable_info(xs)
 
-    def dims(self) -> Tuple[int, int, int, int]:
+    def dims(self) -> Tuple[int, int, int, int, int]:
         """Get the input, state and slack dimensions of the (casadi) MPC model.
 
         Returns:
-            Tuple[int, int, int, int]: Input, state, slacks and g func dimensions.
+            Tuple[int, int, int, int, int]: Input, state, slack dimension (for k != 0), total number of slacks, and g func dimensions.
         """
-        return *self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.dim_g
+        return *self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.ns_total, self._casadi_mpc.dim_g
 
     def construct_ocp(
         self,
@@ -263,6 +263,9 @@ class MidlevelMPC:
                 perturb_sigma=perturb_sigma,
                 **kwargs,
             )
+            mpc_soln["soln"]["x"] = self._casadi_mpc.decision_variables(
+                mpc_soln["inputs"], mpc_soln["trajectory"], mpc_soln["slacks"]
+            ).full()
         else:
             mpc_soln = self._casadi_mpc.plan(
                 t,

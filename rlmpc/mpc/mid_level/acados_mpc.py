@@ -33,6 +33,7 @@ class AcadosMPC:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._acados_ocp.solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self.model = model
+        self._acados_ocp_solver: AcadosOcpSolver = None
 
         self._params: parameters.MidlevelMPCParams = params
         self._so_surfaces: list = []
@@ -53,6 +54,7 @@ class AcadosMPC:
         self._fixed_param_str_list: list[str] = [
             name for name in self._all_adjustable_param_str_list if name not in self._adjustable_param_str_list
         ]
+        self._parameter_values: list = []
 
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -121,6 +123,8 @@ class AcadosMPC:
         self._xs_prev = np.array([])
         self._prev_cost = np.inf
         self._t_prev = 0.0
+        if self._acados_ocp_solver is not None:
+            self._acados_ocp_solver.reset()
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
@@ -332,9 +336,7 @@ class AcadosMPC:
             self._xs_prev[2] = xs[2] + np.arctan2(xs[4], xs[3])
             self._prev_cost = np.inf
             self._t_prev = t
-
-        if "X" in warm_start:
-            # warm start is embedded in the previous solution in this case
+        else:
             self._xs_prev = warm_start["X"][:, 0] - np.array(
                 [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
             )
@@ -353,36 +355,40 @@ class AcadosMPC:
         self._update_ocp(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
         self.print_warm_start_info(xs_unwrapped)
         try:
-            self._acados_ocp_solver.solve_for_x0(x0_bar=xs_unwrapped)
+            status = self._acados_ocp_solver.solve()
+            status_str = mpc_common.map_acados_error_code(status)
+            print(f"[ACADOS] Solution status {status_str}")
         except Exception as _:  # pylint: disable=broad-except
-            err_str = mpc_common.map_acados_error_code(self._acados_ocp_solver.get_status())
-            print(f"Error in ACADOS: {err_str}")
+            c = mpc_common.map_acados_error_code(status)
+            print(f"[ACADOS] Solution status {status} error: {status_str}")
 
         self._acados_ocp_solver.print_statistics()
-        t_solve = self._acados_ocp_solver.get_stats("time_tot")[0]
+        t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
-        n_iter = self._acados_ocp_solver.get_stats("sqp_iter")[0]
+        n_iter = self._acados_ocp_solver.get_stats("sqp_iter")
         final_residuals = self._acados_ocp_solver.get_stats("residuals")
-        success = self._acados_ocp_solver.get_stats("success")
+        success = True if status == 0 else False
 
         # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
-        inputs, trajectory, lower_slacks, upper_slacks = self._get_solution(xs_unwrapped)
+        inputs, trajectory, slacks, lam_g = self._get_solution(xs_unwrapped)
         so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
 
         print(
-            f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | su (max, argmax): ({np.max(upper_slacks)}, {np.argmax(upper_slacks)}) | so_constr (max, argmax): ({np.max(so_constr_vals)}, {np.argmax(so_constr_vals)}) | do_constr (max, argmax): ({np.argmax(do_constr_vals)}, {np.argmax(do_constr_vals)}))"
+            f"[ACADOS] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)}))"
         )
         self._x_warm_start = trajectory.copy()
         self._u_warm_start = inputs.copy()
         self._t_prev = t
+        w = np.concatenate((inputs.flatten(), trajectory.flatten(), slacks.flatten())).reshape(-1, 1)
+        soln = {"x": w, "lam_g": lam_g, "lam_x": np.zeros(w.shape, dtype=np.float32)}
         output = {
-            "soln": self._current_warmstart,
+            "soln": soln,
             "optimal": success,
             "p": self._p_adjustable_values.astype(np.float32),
             "p_fixed": self._p_fixed_values.astype(np.float32),
             "trajectory": trajectory,
             "inputs": inputs,
-            "slacks": Sigma,
+            "slacks": slacks,
             "so_constr_vals": so_constr_vals,
             "do_constr_vals": do_constr_vals,
             "t_solve": t_solve,
@@ -405,8 +411,11 @@ class AcadosMPC:
         do_constraints = []
         for i in range(self._acados_ocp.dims.N + 1):
             x_i = trajectory[:, i]
+            X_do_i = self._X_do[i]
             so_constraints.append(self._static_obstacle_constraints(x_i).full().flatten())
-            do_constraints.append(self._dynamic_obstacle_constraints(x_i, self._params.r_safe_do).full().flatten())
+            do_constraints.append(
+                self._dynamic_obstacle_constraints(x_i, X_do_i, self._params.r_safe_do).full().flatten()
+            )
         so_constraint_arr = np.array(so_constraints).T
         do_constraint_arr = np.array(do_constraints).T
         if so_constraint_arr.size == 0:
@@ -424,23 +433,28 @@ class AcadosMPC:
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Inputs, states, lower and upper slack variables.
         """
-        lower_slacks = np.zeros((self._acados_ocp.dims.ns, self._acados_ocp.dims.N + 1))
-        upper_slacks = np.zeros((self._acados_ocp.dims.ns, self._acados_ocp.dims.N + 1))
-        trajectory = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1))
-        inputs = np.zeros((self._acados_ocp.dims.nu, self._acados_ocp.dims.N))
+        slacks = []
+        trajectory = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1), dtype=np.float32)
+        inputs = np.zeros((self._acados_ocp.dims.nu, self._acados_ocp.dims.N), dtype=np.float32)
+        lam_eq = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N), dtype=np.float32)
+        lam_ineq = []
         for i in range(self._acados_ocp.dims.N + 1):
-            lower_slacks[:, i] = self._acados_ocp_solver.get(i, "sl")
-            upper_slacks[:, i] = self._acados_ocp_solver.get(i, "su")
+            lower_slacks = self._acados_ocp_solver.get(i, "sl")
+            upper_slacks = self._acados_ocp_solver.get(i, "su")
+            if np.any(upper_slacks > lower_slacks):
+                slacks.extend(upper_slacks.tolist())
+            elif np.any(upper_slacks <= lower_slacks):
+                slacks.extend(lower_slacks.tolist())
             trajectory[:, i] = self._acados_ocp_solver.get(i, "x")
+            lam_ineq_i = self._acados_ocp_solver.get(i, "lam")
+            lam_ineq.extend(lam_ineq_i.tolist())
             if i < self._acados_ocp.dims.N:
+                lam_eq[:, i] = self._acados_ocp_solver.get(i, "pi")
                 inputs[:, i] = self._acados_ocp_solver.get(i, "u").T
-        chi = trajectory[2, :]
-        chi = np.unwrap(np.concatenate(([xs[2]], chi)))[1:]
-        trajectory[2, :] = chi
-        if lower_slacks.size == 0:
-            lower_slacks = np.array([0.0])
-            upper_slacks = np.array([0.0])
-        return inputs, trajectory, lower_slacks, upper_slacks
+        slacks = np.array(slacks).reshape(-1, 1).astype(np.float32)
+        lam_ineq = np.array(lam_ineq).reshape(-1, 1).astype(np.float32)
+        lam_g = np.concatenate((lam_eq.flatten(), lam_ineq.flatten())).reshape(-1, 1)
+        return inputs, trajectory, slacks, lam_g
 
     def _update_ocp(
         self,
@@ -457,8 +471,8 @@ class AcadosMPC:
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
         """
-        # self._acados_ocp_solver.constraints_set(0, "lbx", xs)
-        # self._acados_ocp_solver.constraints_set(0, "ubx", xs)
+        self._acados_ocp_solver.constraints_set(0, "lbx", xs)
+        self._acados_ocp_solver.constraints_set(0, "ubx", xs)
         self._parameter_values = []
         self._X_do = []
         for i in range(self._acados_ocp.dims.N + 1):
@@ -571,7 +585,7 @@ class AcadosMPC:
         p_adjustable.append(r_safe_do)
         p_adjustable, p_fixed = self.prune_adjustable_params(p_adjustable, p_fixed)
 
-        approx_inf = 1e6
+        approx_inf = 1e7
         lbu, ubu, lbx, ubx = self.model.get_input_state_bounds()
 
         # Input constraints
@@ -580,14 +594,16 @@ class AcadosMPC:
         self._acados_ocp.constraints.ubu = ubu
 
         # State constraints
-        self._acados_ocp.constraints.x0 = np.zeros(nx)  # will be updated at each iteration
         self._acados_ocp.constraints.idxbx = np.array(range(nx))
+        self._acados_ocp.constraints.x0 = np.zeros(nx)
         self._acados_ocp.constraints.lbx = lbx[self._acados_ocp.constraints.idxbx]
         self._acados_ocp.constraints.ubx = ubx[self._acados_ocp.constraints.idxbx]
+        self._acados_ocp.constraints.idxsbx = self._idx_slacked_bx_constr
 
         self._acados_ocp.constraints.idxbx_e = np.array(range(nx))
         self._acados_ocp.constraints.lbx_e = lbx[self._acados_ocp.constraints.idxbx_e]
         self._acados_ocp.constraints.ubx_e = ubx[self._acados_ocp.constraints.idxbx_e]
+        self._acados_ocp.constraints.idxsbx_e = self._idx_slacked_bx_constr
 
         n_colregs_zones = 3
         n_path_constr = self._params.max_num_so_constr + self._params.max_num_do_constr_per_zone * n_colregs_zones
@@ -601,23 +617,17 @@ class AcadosMPC:
         self._so_surfaces = so_surfaces
 
         if n_path_constr:
+            self._acados_ocp.constraints.lh_0 = -approx_inf * np.ones(n_path_constr)
             self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
-            self._acados_ocp.constraints.lh_e = self._acados_ocp.constraints.lh
+            self._acados_ocp.constraints.lh_e = -approx_inf * np.ones(n_path_constr)
+            self._acados_ocp.constraints.uh_0 = np.zeros(n_path_constr)
             self._acados_ocp.constraints.uh = np.zeros(n_path_constr)
-            self._acados_ocp.constraints.uh_e = self._acados_ocp.constraints.uh
+            self._acados_ocp.constraints.uh_e = np.zeros(n_path_constr)
 
             # Slacks on dynamic obstacle and static obstacle constraints
+            self._acados_ocp.constraints.idxsh_0 = np.array(range(n_path_constr))
             self._acados_ocp.constraints.idxsh = np.array(range(n_path_constr))
             self._acados_ocp.constraints.idxsh_e = np.array(range(n_path_constr))
-
-            self._acados_ocp.cost.Zl = 0 * self._params.w_L2 * np.ones(n_path_constr)
-            self._acados_ocp.cost.Zl_e = 0 * self._params.w_L2 * np.ones(n_path_constr)
-            self._acados_ocp.cost.Zu = self._params.w_L2 * np.ones(n_path_constr)
-            self._acados_ocp.cost.Zu_e = self._params.w_L2 * np.ones(n_path_constr)
-            self._acados_ocp.cost.zl = 0 * self._params.w_L1 * np.ones(n_path_constr)
-            self._acados_ocp.cost.zl_e = 0 * self._params.w_L1 * np.ones(n_path_constr)
-            self._acados_ocp.cost.zu = self._params.w_L1 * np.ones(n_path_constr)
-            self._acados_ocp.cost.zu_e = self._params.w_L1 * np.ones(n_path_constr)
 
             con_h_expr = []
             so_constr_list = self._create_static_obstacle_constraint(x, so_surfaces=so_surfaces)
@@ -626,8 +636,25 @@ class AcadosMPC:
             do_constr_list = self._create_dynamic_obstacle_constraint(x, X_do, nx_do, r_safe_do)
             con_h_expr.extend(do_constr_list)
 
+            self._acados_ocp.model.con_h_expr_0 = csd.vertcat(*con_h_expr)
             self._acados_ocp.model.con_h_expr = csd.vertcat(*con_h_expr)
             self._acados_ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
+
+        ns = n_path_constr + self._idx_slacked_bx_constr.size
+        self._acados_ocp.cost.Zl_0 = 0 * self._params.w_L2 * np.ones(n_path_constr)
+        self._acados_ocp.cost.Zl = 0 * self._params.w_L2 * np.ones(ns)
+        self._acados_ocp.cost.Zl_e = 0 * self._params.w_L2 * np.ones(ns)
+        self._acados_ocp.cost.Zu_0 = 0 * self._params.w_L2 * np.ones(n_path_constr)
+        self._acados_ocp.cost.Zu = 0 * self._params.w_L2 * np.ones(ns)
+        self._acados_ocp.cost.Zu_e = 0 * self._params.w_L2 * np.ones(ns)
+
+        # We use L1 norm for the slack variables
+        self._acados_ocp.cost.zl_0 = self._params.w_L1 * np.ones(n_path_constr)
+        self._acados_ocp.cost.zl = self._params.w_L1 * np.ones(ns)
+        self._acados_ocp.cost.zl_e = self._params.w_L1 * np.ones(ns)
+        self._acados_ocp.cost.zu_0 = self._params.w_L1 * np.ones(n_path_constr)
+        self._acados_ocp.cost.zu = self._params.w_L1 * np.ones(ns)
+        self._acados_ocp.cost.zu_e = self._params.w_L1 * np.ones(ns)
 
         # Cost function
         self._acados_ocp.cost.cost_type = "EXTERNAL"
@@ -687,10 +714,13 @@ class AcadosMPC:
         self._p = csd.vertcat(*p_adjustable, *p_fixed)
         self._p_fixed_list = p_fixed
         self._p_adjustable_list = p_adjustable
+        self._p_adjustable_values = self.get_adjustable_params()
 
         self._acados_ocp.model.p = csd.vertcat(self._p_adjustable, self._p_fixed)
         self._acados_ocp.dims.np = self._acados_ocp.model.p.size()[0]
-        self._acados_ocp.parameter_values = self.create_parameter_values(np.zeros(nx), [], [], [], 0)
+        self._acados_ocp.parameter_values = self.create_parameter_values(
+            xs=np.zeros(nx), do_cr_list=[], do_ho_list=[], do_ot_list=[], stage_idx=0
+        )
 
         solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
         self._acados_ocp.code_export_directory = rl_dp.acados_code_gen.as_posix()
@@ -728,7 +758,7 @@ class AcadosMPC:
                 # for i in range(vertices.shape[0]):
                 #     so_constr_list.append(csd.vec(so_surfaces[j](vertices[i, :])))
             else:
-                so_constr_list.append(-1000.0)
+                so_constr_list.append(-1.0)
         return so_constr_list
 
     def _create_dynamic_obstacle_constraint(self, x_k: csd.MX, X_do_k: csd.MX, nx_do: int, r_safe_do: csd.MX) -> list:
@@ -806,6 +836,7 @@ class AcadosMPC:
         fixed_parameter_values.extend(do_cr_parameter_values)
         fixed_parameter_values.extend(do_ho_parameter_values)
         fixed_parameter_values.extend(do_ot_parameter_values)
+        self._p_fixed_values = np.array(fixed_parameter_values)
 
         return np.concatenate((adjustable_params, np.array(fixed_parameter_values)))
 
@@ -881,7 +912,7 @@ class AcadosMPC:
         X_do = np.zeros(nx_do * self._params.max_num_do_constr_per_zone)
         t = stage * self._params.dt
         for i in range(self._params.max_num_do_constr_per_zone):
-            X_do[nx_do * i : nx_do * (i + 1)] = [csog_state[0] - 1e5, csog_state[1] - 1e5, 0.0, 0.0, 10.0, 3.0]
+            X_do[nx_do * i : nx_do * (i + 1)] = [csog_state[0] - 1e3, csog_state[1] - 1e3, 0.0, 0.0, 10.0, 3.0]
             if i < n_do:
                 (ID, do_state, cov, length, width) = do_list[i]
                 chi = np.arctan2(do_state[3], do_state[2])

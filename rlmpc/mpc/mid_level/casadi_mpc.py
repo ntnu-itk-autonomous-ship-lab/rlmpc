@@ -81,7 +81,7 @@ class CasadiMPC:
         self._xs_prev: np.ndarray = np.array([])
         self._min_depth: int = 1
         self.ns: int = 0
-
+        self.ns_total: int = 0
         self._x_path: csd.Function = csd.Function("x_path", [], [])
         self._x_path_coeffs: csd.MX = csd.MX.sym("x_path_coeffs", 0)
         self._x_path_coeffs_values: np.ndarray = np.array([])
@@ -641,17 +641,12 @@ class CasadiMPC:
         x_0 = csd.MX.sym("x_0_constr", nx, 1)
         x_k = csd.MX.sym("x_0", nx, 1)
         X.append(x_k)
-        g_eq_list.append(x_0 - x_k)
+        g_ineq_list.append(x_0 - x_k)  # x_0 <= x_k
+        g_ineq_list.append(x_k - x_0)  # x_k <= x_0
         p_fixed.append(x_0)
 
         self._idx_slacked_bx_constr = np.array([0, 1, 2, 3, 4, 5])
         n_bx_slacks = self._idx_slacked_bx_constr.shape[0]
-        sigma_bx_k = csd.MX.sym(
-            "sigma_bx_0",
-            n_bx_slacks,
-            1,
-        )
-        Sigma_bx.append(sigma_bx_k)
 
         # Path following, speed deviation, chattering and fuel cost parameters
         dim_Q_p = self._params.Q_p.shape[0]
@@ -765,16 +760,25 @@ class CasadiMPC:
             U.append(u_k)
             hu.append(lbu_k - u_k)  # lbu <= u_k
             hu.append(u_k - ubu_k)  # u_k <= ubu
-            hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
-            hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= inf
-            hx.append(
-                lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bx_k
-            )  # lbx - sigma_bx <= x_k
-            hx.append(
-                x_k[self._idx_slacked_bx_constr] - sigma_bx_k - ubx_k[self._idx_slacked_bx_constr]
-            )  # x_k <= ubx + sigma_bx
 
-            slack_penalty_cost = W_bx.T @ sigma_bx_k
+            slack_penalty_cost = 0.0
+            if k > 0:
+                sigma_bx_k = csd.MX.sym(
+                    "sigma_bx_" + str(k),
+                    n_bx_slacks,
+                    1,
+                )  # We do not slack the first state variable.
+                Sigma_bx.append(sigma_bx_k)
+                hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
+                hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= inf
+                hx.append(
+                    lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bx_k
+                )  # lbx - sigma_bx <= x_k
+                hx.append(
+                    x_k[self._idx_slacked_bx_constr] - sigma_bx_k - ubx_k[self._idx_slacked_bx_constr]
+                )  # x_k <= ubx + sigma_bx
+
+                slack_penalty_cost += W_bx.T @ sigma_bx_k
 
             sigma_so_k = csd.MX.sym(
                 "sigma_so_" + str(k),
@@ -857,6 +861,7 @@ class CasadiMPC:
                 self._overtaking_cost = csd.Function(
                     "overtaking_cost", [x_k, X_do_ot, self._p_colregs], [overtaking_cost]
                 )
+            if k > 0:
                 self._slack_penalty_cost = csd.Function(
                     "slack_penalty_cost", [sigma_bx_k, sigma_so_k, sigma_do_k], [slack_penalty_cost]
                 )
@@ -875,16 +880,24 @@ class CasadiMPC:
             X.append(x_k)
             g_eq_list.append(x_k_end - x_k)
 
-            sigma_bx_k = csd.MX.sym(
-                "sigma_bx_" + str(k + 1),
-                n_bx_slacks,
-                1,
-            )
-            Sigma_bx.append(sigma_bx_k)
+            if k == 0:
+                print(
+                    f"dim lam_g_ineq_0 = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + 2 * (sigma_so_k.shape[0] + sigma_do_k.shape[0])}"
+                )
+            elif k == 1:
+                print(
+                    f"dim lam_g_ineq_{k} = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + 2 * (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
+                )
 
         J *= dt
 
         # Terminal costs and constraints
+        sigma_bx_k = csd.MX.sym(
+            "sigma_bx_" + str(N),
+            n_bx_slacks,
+            1,
+        )
+        Sigma_bx.append(sigma_bx_k)
         hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
         hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= 1e12 = inf
         hx.append(
@@ -914,6 +927,9 @@ class CasadiMPC:
             hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
             hs_do.append(sigma_do_k - approx_inf)  # sigma_do_k <= inf
             slack_penalty_cost += W_do.T @ sigma_do_k
+        print(
+            f"dim lam_g_ineq_N = {2 * nx + len(do_constr_k) + len(so_constr_k) + 2 * (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
+        )
 
         x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
         y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
@@ -970,12 +986,11 @@ class CasadiMPC:
 
         self._opt_vars = csd.vertcat(*U, *X, *Sigma)
         self._opt_vars_list = U + X + Sigma
-        ns = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
-
         self._cost_function = J
         self._g_eq = g_eq
         self._g_ineq = g_ineq
         g = csd.vertcat(g_eq, g_ineq)
+        self.ns_total = csd.vertcat(*Sigma).shape[0]
 
         # Create IPOPT solver object
         nlp_prob = {
@@ -1046,7 +1061,7 @@ class CasadiMPC:
             [
                 csd.reshape(csd.vertcat(*U), nu, -1),
                 csd.reshape(csd.vertcat(*X), nx, -1),
-                csd.reshape(csd.vertcat(*Sigma), ns, -1),
+                csd.reshape(csd.vertcat(*Sigma), -1, 1),
             ],
             ["w"],
             ["U", "X", "Sigma"],
@@ -1056,7 +1071,7 @@ class CasadiMPC:
             [
                 csd.reshape(csd.vertcat(*U), nu, -1),
                 csd.reshape(csd.vertcat(*X), nx, -1),
-                csd.reshape(csd.vertcat(*Sigma), ns, -1),
+                csd.reshape(csd.vertcat(*Sigma), -1, 1),
             ],
             [self._opt_vars],
             ["U", "X", "Sigma"],
@@ -1069,6 +1084,10 @@ class CasadiMPC:
         self._nlp_ineq = H
         self._nlp_hess_lag = self._solver.get_function("nlp_hess_l")
         # self.build_sensitivities(tau=self._solver_options.mu_target)
+
+        print(
+            f"dim g_eq (G) = {g_eq.shape[0]}, dim g_ineq (H) = {g_ineq.shape[0]} | dim_g = {g_eq.shape[0] + g_ineq.shape[0]} | dim Sigma = {csd.vertcat(*Sigma).shape[0]} | dim w = {self._opt_vars.shape[0]}"
+        )
 
     def _create_static_obstacle_constraint(
         self,
@@ -1096,8 +1115,10 @@ class CasadiMPC:
         for j in range(self._params.max_num_so_constr):
             if j < n_so:
                 so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
+                so_constr_list.append(-so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])  #
             else:
-                so_constr_list.append(-sigma_k[j] - 1000.0)
+                so_constr_list.append(-sigma_k[j] - 1000.0)  # h <= sigma, where h = -1000.0
+                so_constr_list.append(-sigma_k[j] + 1000.0)  # -inf - sigma <= h, where h = -1000.0
         return so_constr_list
 
     def _create_dynamic_obstacle_constraint(
@@ -1128,9 +1149,9 @@ class CasadiMPC:
                 [[1.0 / (0.5 * l_do_i + r_safe_do) ** 2, 0.0], [0.0, 1.0 / (0.5 * l_do_i + r_safe_do) ** 2]]
             )
             # do_constr_list.append(1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame)
-            do_constr_list.append(
-                csd.log(1.0 + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon) - sigma_k[i]
-            )
+            h_do = csd.log(1.0 + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+            do_constr_list.append(h_do - sigma_k[i])  # h <= sigma
+            do_constr_list.append(-h_do - sigma_k[i])  # -sigma <= h
         return do_constr_list
 
     def create_parameter_values(
@@ -1855,5 +1876,5 @@ class CasadiMPC:
         return_status = self._solver.stats()["return_status"]
         n_iters = self._solver.stats()["iter_count"]
         print(
-            f"Mid-level COLAV: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Equality constraints (max, argmax): ({g_eq_vals.max(), np.argmax(g_eq_vals)}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
+            f"[CASADI] Mid-level CAS NMPC: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Equality constraints (max, argmax): ({g_eq_vals.max(), np.argmax(g_eq_vals)}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
         )

@@ -269,8 +269,8 @@ def train_vae(
 
 if __name__ == "__main__":
     latent_dim = 85
-    fc_dim = 1024
-    encoder_conv_block_dims = [64, 256, 256, 256]
+    fc_dim = 512
+    encoder_conv_block_dims = [64, 128, 256, 256]
     input_image_dim = (1, 256, 256)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(

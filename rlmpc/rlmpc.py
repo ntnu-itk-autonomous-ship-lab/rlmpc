@@ -625,7 +625,7 @@ class RLMPC(ci.ICOLAV):
             #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
             #     )
 
-            warm_start = self.create_mpc_warm_start(t, ownship_state, enc, **kwargs)
+            warm_start = self.create_mpc_warm_start(t, ownship_state, **kwargs)
 
             self._mpc_soln = self._mpc.plan(
                 t,
@@ -634,7 +634,7 @@ class RLMPC(ci.ICOLAV):
                 do_ho_list=do_ho_list,
                 do_ot_list=do_ot_list,
                 so_list=self._mpc_rel_polygons,
-                enc=enc,
+                enc=self._enc,
                 warm_start=warm_start,
                 **kwargs,
             )
@@ -645,7 +645,7 @@ class RLMPC(ci.ICOLAV):
             if self._debug:
                 if self._mpc_traj_handle:
                     self._mpc_traj_handle.remove()
-                self._mpc_traj_handle = plotters.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
+                self._mpc_traj_handle = plotters.plot_trajectory(self._mpc_trajectory, self._enc, color="cyan")
 
             self._t_prev_mpc = t
             self._mpc_soln["trajectory"] = self._mpc_trajectory
@@ -656,35 +656,27 @@ class RLMPC(ci.ICOLAV):
             )
             self._mpc_soln["u_prev"] = self._mpc_inputs[:, 0]
 
-        waypoints = np.column_stack((self._mpc_trajectory[:2, 0], self._mpc_trajectory[:2, 3]))
-        speed_plan = np.array([self._mpc_trajectory[3, 3], self._mpc_trajectory[3, 3]])
-        # if self._debug:
-        #     plotters.plot_waypoints(
-        #         waypoints, enc, color="magenta", point_buffer=3.0, disk_buffer=6.0, hole_buffer=3.0, alpha=0.4
-        #     )
-
-        self._references = self._los.compute_references(waypoints, speed_plan, None, ownship_state, t - self._t_prev)
+        chi_ref = self._mpc_trajectory[2, 2]
+        U_ref = self._mpc_trajectory[3, 2]
+        self._references = np.array([0.0, 0.0, chi_ref, U_ref, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(9, 1)
         self._t_prev = t
         self._mpc_soln["t_prev"] = t
         return self._references
 
-    def create_mpc_warm_start(
-        self, t: float, ownship_state: np.ndarray, enc: senc.ENC, **kwargs
-    ) -> Optional[Dict[str, np.ndarray]]:
+    def create_mpc_warm_start(self, t: float, ownship_state: np.ndarray, **kwargs) -> Optional[Dict[str, np.ndarray]]:
         """Creates a warm start for the MPC by growing an RRT from the terminal MPC state towards the goal state. If t == 0, the RRT is grown from the current ownship state.
 
         Args:
             t (float): Current time.
             ownship_state (np.ndarray): Ownship state on the form [x, y, psi, u, v, r]^T.
-            enc (senc.ENC): Electronic navigational chart.
 
         Returns:
             Dict[str, np.ndarray]: Warm start dictionary containing the trajectory, inputs, waypoints and times.
         """
-        nx, nu, ns, dim_g = self._mpc.dims()
+        nx, nu, ns, ns_total, dim_g = self._mpc.dims()
         prev_soln = self._mpc_soln if "soln" in self._mpc_soln else None
-        is_prev_soln = True if "prev_soln" in kwargs and kwargs["prev_soln"] else False
-        prev_soln = kwargs["prev_soln"] if is_prev_soln else None
+        is_prev_soln = True if ("prev_soln" in kwargs and kwargs["prev_soln"]) or prev_soln else False
+        prev_soln = kwargs["prev_soln"] if ("prev_soln" in kwargs and is_prev_soln) else prev_soln
 
         os_state_csog = ownship_state.copy()
         os_state_csog[2] = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
@@ -726,7 +718,7 @@ class RLMPC(ci.ICOLAV):
         # plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
         if self._rrt_traj_handle:
             self._rrt_traj_handle.remove()
-        self._rrt_traj_handle = plotters.plot_trajectory(rrt_trajectory, enc, color="black")
+        self._rrt_traj_handle = plotters.plot_trajectory(rrt_trajectory, self._enc, color="black")
         rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
 
         if self._config.rrtstar.params.step_size < self._mpc.params.dt:
@@ -755,13 +747,12 @@ class RLMPC(ci.ICOLAV):
         # 4s MPC step time => må shifte MPC trajectory 2s fram i tid
         warm_start = {}
         if prev_soln:
-            U, X, Sigma = self._mpc.decision_trajectories(prev_soln["soln"])
-            warm_start.update(
-                {"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"], "sigma_prev": Sigma[:, 0]}
-            )
+            U, X, Sigma = prev_soln["inputs"], prev_soln["trajectory"], prev_soln["slacks"]
+            X -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
+            warm_start.update({"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"]})
             X_comb = np.concatenate((X, rrt_trajectory[:, 1:]), axis=1)
             U_comb = np.concatenate((U, rrt_inputs[:, 0:]), axis=1)
-            Sigma_comb = np.concatenate((Sigma, np.zeros((ns, rrt_trajectory[0, 1:].size))), axis=1)
+            Sigma_comb = np.concatenate((Sigma, np.zeros((ns_total - Sigma.shape[0], 1))))
 
             dt_sim = t - self._t_prev_mpc
             step = int(self._mpc.params.dt / dt_sim)
@@ -772,8 +763,7 @@ class RLMPC(ci.ICOLAV):
             # shift the interpolated trajectory dt_sim forward in time
             X = X_interp[:, 1::step][:, : N + 1]
             U = U_interp[:, 1::step][:, :N]
-            Sigma = Sigma_interp[:, 1::step][:, : N + 1]
-            w = self._mpc.decision_variables(U, X, Sigma)
+            w = self._mpc.decision_variables(U, X, Sigma).full().astype(np.float32)
             lam_g = prev_soln["soln"]["lam_g"]
             lam_g = np.concatenate((lam_g[1:], lam_g[-1].reshape(1, 1)))
             lam_x = prev_soln["soln"]["lam_x"]
@@ -781,11 +771,13 @@ class RLMPC(ci.ICOLAV):
         else:
             U = rrt_inputs[:, :N]
             X = rrt_trajectory[:, : N + 1]
-            Sigma = np.zeros((ns, N + 1))
-            w = self._mpc.decision_variables(U, X, Sigma)
-            lam_g = np.zeros((dim_g, 1))
-            lam_x = np.zeros((w.shape[0], 1))
-
+            Sigma = np.zeros(ns_total)
+            w = self._mpc.decision_variables(U, X, Sigma).full().astype(np.float32)
+            lam_g = np.zeros((dim_g, 1), dtype=np.float32)
+            lam_x = np.zeros((w.shape[0], 1), dtype=np.float32)
+        X = X.astype(np.float32)
+        U = U.astype(np.float32)
+        Sigma = Sigma.astype(np.float32)
         warm_start = {"x": w, "lam_g": lam_g, "lam_x": lam_x, "X": X, "U": U, "Sigma": Sigma}
         return warm_start
 

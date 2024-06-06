@@ -196,13 +196,11 @@ def interpolate_solution(
     if dt_mpc > dt_sim or dt_mpc < dt_sim:
         nx = trajectory.shape[0]
         nu = inputs.shape[0]
-        ns = slacks.shape[0]
         sim_times = np.arange(0.0, T_mpc + dt_mpc, dt_sim)
         mpc_times = np.arange(0.0, T_mpc + dt_mpc, dt_mpc)
         n_samples = len(sim_times)
         intp_trajectory = np.zeros((nx, n_samples))
         intp_inputs = np.zeros((nu, n_samples - 1))
-        intp_slacks = np.zeros((ns, n_samples))
         for dim in range(nx):
             intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", fill_value="extrapolate")(
                 sim_times
@@ -211,12 +209,6 @@ def interpolate_solution(
             intp_inputs[dim, :] = interp1d(mpc_times[:-1], inputs[dim, :], kind="linear", fill_value="extrapolate")(
                 sim_times[:-1]
             )
-        for dim in range(ns):
-            intp_slacks[dim, :] = interp1d(mpc_times, slacks[dim, :], kind="linear", fill_value="extrapolate")(
-                sim_times
-            )
-
-        return intp_trajectory, intp_inputs, intp_slacks
     return intp_trajectory, intp_inputs, intp_slacks
 
 
