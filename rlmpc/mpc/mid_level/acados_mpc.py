@@ -370,7 +370,7 @@ class AcadosMPC:
         success = True if status == 0 else False
 
         # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
-        inputs, trajectory, slacks, lam_g = self._get_solution(xs_unwrapped)
+        inputs, trajectory, slacks, lam_g = self._get_solution()
         so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
 
         print(
@@ -424,35 +424,83 @@ class AcadosMPC:
             do_constraint_arr = np.array([0.0])
         return so_constraint_arr, do_constraint_arr
 
-    def _get_solution(self, xs: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _get_solution(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Extracts the solution from the solver.
-
-        Args:
-            - xs (np.ndarray): Current state of the system.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Inputs, states, lower and upper slack variables.
         """
-        slacks = []
+        nx, nu, nh = self._acados_ocp.dims.nx, self._acados_ocp.dims.nu, self._acados_ocp.dims.nh
+        max_num_so_constr = self._params.max_num_so_constr
+
         trajectory = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N + 1), dtype=np.float32)
         inputs = np.zeros((self._acados_ocp.dims.nu, self._acados_ocp.dims.N), dtype=np.float32)
         lam_eq = np.zeros((self._acados_ocp.dims.nx, self._acados_ocp.dims.N), dtype=np.float32)
-        lam_ineq = []
+        slacks_bx, slacks_so, slacks_do = [], [], []
+
+        start_lbu = 0
+        start_lbx = start_lbu + nu
+        start_lh = start_lbx + nx
+
+        start_ubu = start_lh + nh
+        start_ubx = start_ubu + nu
+        start_uh = start_ubx + nx
+
+        start_lsbx = start_uh + nh
+        start_lsh = start_lsbx + nx
+        start_usbx = start_lsbx + nx
+        start_ush = start_usbx + nx
+
+        lam_bu, lam_bx, lam_hs_bx, lam_hs_so, lam_hs_do, lam_h = [], [], [], [], [], []
         for i in range(self._acados_ocp.dims.N + 1):
-            lower_slacks = self._acados_ocp_solver.get(i, "sl")
-            upper_slacks = self._acados_ocp_solver.get(i, "su")
-            if np.any(upper_slacks > lower_slacks):
-                slacks.extend(upper_slacks.tolist())
-            elif np.any(upper_slacks <= lower_slacks):
-                slacks.extend(lower_slacks.tolist())
             trajectory[:, i] = self._acados_ocp_solver.get(i, "x")
-            lam_ineq_i = self._acados_ocp_solver.get(i, "lam")
-            lam_ineq.extend(lam_ineq_i.tolist())
+
+            # Extract relevant inequality multipliers for the NLP stage
+            lam = self._acados_ocp_solver.get(i, "lam")
+            lbu = lam[start_lbu : start_lbu + nu]  # lower bound (0) for u_min <= u
+            lbx = lam[start_lbx : start_lbx + nx]  # lower bound (0) for x_min - sigma <= x
+            ubu = lam[start_ubu : start_ubu + nu]  # upper bound (0) for u_min <= u
+            ubx = lam[start_ubx : start_ubx + nx]  # upper bound (0) for x_min - sigma <= x
+            uh = lam[start_uh : start_uh + nh]  # upper bound (0) for h(t) < 0
+            lsbx = lam[start_lsbx : start_lsbx + nx]  # lower slack bound for state box x_min - sigma <= x
+            lsh = lam[start_lsh : start_lsh + nh]  # lower slack bound for h(t) < 0
+            usbx = lam[start_usbx : start_usbx + nx]  # upper slack bound for state box x <= x_max + sigma
+            ush = lam[start_ush : start_ush + nh]  # upper slack bound for h(t) < 0 + sigma
+
+            if i == 0:
+                su = self._acados_ocp_solver.get(i, "su")
+                slacks_so.extend(su[:max_num_so_constr].tolist())
+                slacks_do.extend(su[max_num_so_constr:].tolist())
+                lsbx = np.empty(0)
+                usbx = np.empty(0)
+            elif i == self._acados_ocp.dims.N:
+                lbu = np.empty(0)
+                ubu = np.empty(0)
+
+            lam_bu.extend(lbu.tolist() + ubu.tolist())
+            lam_bx.extend(lbx.tolist() + ubx.tolist())
+            lam_hs_bx.extend(lsbx.tolist() + usbx.tolist())
+            lam_hs_so.extend(lsh[:max_num_so_constr].tolist() + ush[:max_num_so_constr].tolist())
+            lam_hs_do.extend(lsh[max_num_so_constr:].tolist() + ush[max_num_so_constr:].tolist())
+            lam_h.extend(uh.tolist())
+
+            # if i == 0 or i == 1 or i == self._acados_ocp.dims.N:
+            #     print(
+            #         f"dim lam_g_ineq_0 = {lbu.size + ubu.size + lbx.size + ubx.size + uh.size + lsbx.size + usbx.size + lsh.size + ush.size}"
+            #     )
+
+            if i > 0:  # only extract upper slacks for nonlinear path constraints, and all slacks for the rest
+                lower_slacks = self._acados_ocp_solver.get(i, "sl")
+                upper_slacks = self._acados_ocp_solver.get(i, "su")
+                slacks_bx.extend(lower_slacks[0:nx].tolist() + upper_slacks[0:nx].tolist())
+                slacks_so.extend(upper_slacks[nx : nx + max_num_so_constr].tolist())
+                slacks_do.extend(upper_slacks[nx + max_num_so_constr :].tolist())
+
             if i < self._acados_ocp.dims.N:
                 lam_eq[:, i] = self._acados_ocp_solver.get(i, "pi")
                 inputs[:, i] = self._acados_ocp_solver.get(i, "u").T
-        slacks = np.array(slacks).reshape(-1, 1).astype(np.float32)
-        lam_ineq = np.array(lam_ineq).reshape(-1, 1).astype(np.float32)
+        slacks = np.concatenate((slacks_bx, slacks_so, slacks_do)).reshape(-1, 1).astype(np.float32)
+        lam_ineq = np.concatenate((lam_bu, lam_bx, lam_hs_bx, lam_hs_so, lam_hs_do, lam_h)).reshape(-1, 1).astype(np.float32)
         lam_g = np.concatenate((lam_eq.flatten(), lam_ineq.flatten())).reshape(-1, 1)
         return inputs, trajectory, slacks, lam_g
 
@@ -828,6 +876,9 @@ class AcadosMPC:
 
         path_parameter_values = self._create_path_parameter_values(stage=stage_idx)
         fixed_parameter_values.extend(path_parameter_values)
+
+        non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
+        fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 
         do_cr_parameter_values = self._create_do_parameter_values(xs, do_cr_list, stage_idx)
         do_ho_parameter_values = self._create_do_parameter_values(xs, do_ho_list, stage_idx)

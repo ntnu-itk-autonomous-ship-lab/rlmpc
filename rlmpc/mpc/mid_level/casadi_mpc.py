@@ -365,8 +365,7 @@ class CasadiMPC:
             self._xs_prev[2] = xs[2] + np.arctan2(xs[4], xs[3])
             self._prev_cost = np.inf
             self._t_prev = t
-
-        if "X" in warm_start:
+        else:
             # warm start is embedded in the previous solution in this case
             self._xs_prev = warm_start["X"][:, 0] - np.array(
                 [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
@@ -762,22 +761,30 @@ class CasadiMPC:
             hu.append(u_k - ubu_k)  # u_k <= ubu
 
             slack_penalty_cost = 0.0
-            if k > 0:
-                sigma_bx_k = csd.MX.sym(
-                    "sigma_bx_" + str(k),
+            if k > 0:  # We do not slack the first state variable.
+                sigma_bxl_k = csd.MX.sym(
+                    "sigma_bxl_" + str(k),
                     n_bx_slacks,
                     1,
-                )  # We do not slack the first state variable.
-                Sigma_bx.append(sigma_bx_k)
-                hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
-                hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= inf
+                )
+                sigma_bxu_k = csd.MX.sym(
+                    "sigma_bxu_" + str(k),
+                    n_bx_slacks,
+                    1,
+                )
+                Sigma_bx.append(sigma_bxl_k)
+                Sigma_bx.append(sigma_bxu_k)
+                hs_bx.append(-sigma_bxl_k)  # 0 <= sigma_bx_k
+                hs_bx.append(sigma_bxl_k - approx_inf)  # sigma_bx_k <= inf
+                hs_bx.append(-sigma_bxu_k)  # 0 <= sigma_bx_k
+                hs_bx.append(sigma_bxu_k - approx_inf)
                 hx.append(
-                    lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bx_k
+                    lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bxl_k
                 )  # lbx - sigma_bx <= x_k
                 hx.append(
-                    x_k[self._idx_slacked_bx_constr] - sigma_bx_k - ubx_k[self._idx_slacked_bx_constr]
+                    x_k[self._idx_slacked_bx_constr] - sigma_bxu_k - ubx_k[self._idx_slacked_bx_constr]
                 )  # x_k <= ubx + sigma_bx
-
+                sigma_bx_k = csd.vertcat(sigma_bxl_k, sigma_bxu_k)
                 slack_penalty_cost += W_bx.T @ sigma_bx_k
 
             sigma_so_k = csd.MX.sym(
@@ -861,10 +868,6 @@ class CasadiMPC:
                 self._overtaking_cost = csd.Function(
                     "overtaking_cost", [x_k, X_do_ot, self._p_colregs], [overtaking_cost]
                 )
-            if k > 0:
-                self._slack_penalty_cost = csd.Function(
-                    "slack_penalty_cost", [sigma_bx_k, sigma_so_k, sigma_do_k], [slack_penalty_cost]
-                )
 
             so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_so_k, so_surfaces)
             so_constr_list.extend(so_constr_k)
@@ -892,20 +895,29 @@ class CasadiMPC:
         J *= dt
 
         # Terminal costs and constraints
-        sigma_bx_k = csd.MX.sym(
-            "sigma_bx_" + str(N),
+        sigma_bxl_k = csd.MX.sym(
+            "sigma_bxl_" + str(N),
             n_bx_slacks,
             1,
         )
-        Sigma_bx.append(sigma_bx_k)
-        hs_bx.append(-sigma_bx_k)  # 0 <= sigma_bx_k
-        hs_bx.append(sigma_bx_k - approx_inf)  # sigma_bx_k <= 1e12 = inf
+        sigma_bxu_k = csd.MX.sym(
+            "sigma_bxu_" + str(N),
+            n_bx_slacks,
+            1,
+        )
+        Sigma_bx.append(sigma_bxl_k)
+        Sigma_bx.append(sigma_bxu_k)
+        hs_bx.append(-sigma_bxl_k)  # 0 <= sigma_bxl_k
+        hs_bx.append(sigma_bxl_k - approx_inf)  # sigma_bx_k <= 1e12 = inf
+        hs_bx.append(-sigma_bxu_k)  # 0 <= sigma_bxu_k
+        hs_bx.append(sigma_bxu_k - approx_inf)
         hx.append(
-            lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bx_k
-        )  # lbx - sigma_bx <= x_k
+            lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bxl_k
+        )  # lbx - sigma_bxl <= x_k
         hx.append(
-            x_k[self._idx_slacked_bx_constr] - sigma_bx_k - ubx_k[self._idx_slacked_bx_constr]
-        )  # x_k <= ubx + sigma_bx
+            x_k[self._idx_slacked_bx_constr] - sigma_bxu_k - ubx_k[self._idx_slacked_bx_constr]
+        )  # x_k <= ubx + sigma_bxu
+        sigma_bx_k = csd.vertcat(sigma_bxl_k, sigma_bxu_k)
         slack_penalty_cost = W_bx.T @ sigma_bx_k
         if max_num_so_constr > 0:
             sigma_so_k = csd.MX.sym(
@@ -1115,10 +1127,8 @@ class CasadiMPC:
         for j in range(self._params.max_num_so_constr):
             if j < n_so:
                 so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
-                so_constr_list.append(-so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])  #
             else:
-                so_constr_list.append(-sigma_k[j] - 1000.0)  # h <= sigma, where h = -1000.0
-                so_constr_list.append(-sigma_k[j] + 1000.0)  # -inf - sigma <= h, where h = -1000.0
+                so_constr_list.append(-sigma_k[j])  # h <= sigma, where h = 0.0
         return so_constr_list
 
     def _create_dynamic_obstacle_constraint(
@@ -1151,7 +1161,6 @@ class CasadiMPC:
             # do_constr_list.append(1.0 - sigma_k[i] - p_diff_do_frame.T @ weights @ p_diff_do_frame)
             h_do = csd.log(1.0 + epsilon) - csd.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
             do_constr_list.append(h_do - sigma_k[i])  # h <= sigma
-            do_constr_list.append(-h_do - sigma_k[i])  # -sigma <= h
         return do_constr_list
 
     def create_parameter_values(
