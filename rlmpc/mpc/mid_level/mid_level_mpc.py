@@ -85,6 +85,7 @@ class MidlevelMPC:
             self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(
                 config.model, config.mpc, self._solver_options.acados
             )
+        self.sens: common.NLPSensitivities = None
 
     @property
     def model_dims(self) -> Tuple[int, int]:
@@ -159,6 +160,8 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth)
 
+        self.build_sensitivities(tau)
+
     def model_prediction(self, xs: np.ndarray, U: np.ndarray, N: int, p: np.ndarray = np.array([])) -> np.ndarray:
         """Predicts the state trajectory of the system using the model.
 
@@ -191,7 +194,8 @@ class MidlevelMPC:
             - common.NLPSensitivities: Class container of the sensitivity functions necessary for
                 computing the score function  gradient in RL context.
         """
-        return self._casadi_mpc.build_sensitivities(tau)
+        self.sens = self._casadi_mpc.build_sensitivities(tau)
+        return self.sens
 
     def get_antigrounding_surface_functions(self) -> list:
         """Returns the anti-grounding surface functions.
@@ -278,6 +282,19 @@ class MidlevelMPC:
         lam_g_csd = mpc_soln_csd["soln"]["lam_g"].flatten()
         lam_g_diff = lam_g_ac - lam_g_csd
         w_diff = mpc_soln_ac["soln"]["x"].flatten() - mpc_soln_csd["soln"]["x"].flatten()
-        p_diff = mpc_soln_ac["p"].flatten() - mpc_soln_csd["p"].flatten()
-        p_fixed_diff = mpc_soln_ac["p_fixed"].flatten() - mpc_soln_csd["p_fixed"].flatten()
+        z_ac = np.concatenate(
+            (
+                mpc_soln_ac["soln"]["x"].flatten(),
+                mpc_soln_ac["soln"]["lam_g"].flatten(),
+            )
+        )
+        z_csd = np.concatenate(
+            (
+                mpc_soln_csd["soln"]["x"].flatten(),
+                mpc_soln_csd["soln"]["lam_g"].flatten(),
+            )
+        )
+        R_kkt_ac = self.sens.r_kkt(z_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+        R_kkt_csd = self.sens.r_kkt(z_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+
         return mpc_soln

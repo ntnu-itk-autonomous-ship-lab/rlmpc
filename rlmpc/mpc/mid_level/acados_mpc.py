@@ -367,8 +367,8 @@ class AcadosMPC:
         self._x_warm_start = warm_start["X"]
         self._u_warm_start = warm_start["U"]
 
-        if t < 0.0001:
-            self._update_ocp(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
+        if True:
+            self._update_ocp(self._acados_ocp_solver, xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
             self.print_warm_start_info(xs_unwrapped)
             try:
                 status = self._acados_ocp_solver.solve()
@@ -386,23 +386,23 @@ class AcadosMPC:
             success = True if status == 0 else False
 
             # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
-            inputs, trajectory, slacks, lam_g = self._get_solution()
+            inputs, trajectory, slacks, lam_g = self._get_solution(self._acados_ocp_solver)
             so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
             self._x_warm_start = trajectory.copy()
             self._u_warm_start = inputs.copy()
 
-        self._update_ocp(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
-        status = self._acados_ocp_solver_nonreg.solve()
-        status_str = mpc_common.map_acados_error_code(status)
-        print(f"[ACADOS] Non-regularized OCP solution: {status_str}")
+        # self._update_ocp(self._acados_ocp_solver_nonreg, xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
+        # status = self._acados_ocp_solver_nonreg.solve()
+        # status_str = mpc_common.map_acados_error_code(status)
+        # print(f"[ACADOS] Non-regularized OCP solution: {status_str}")
 
-        inputs, trajectory, slacks, lam_g = self._get_solution()
-        so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
-        self._x_warm_start = trajectory.copy()
-        self._u_warm_start = inputs.copy()
-
+        # inputs, trajectory, slacks, lam_g = self._get_solution(self._acados_ocp_solver_nonreg)
+        # so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
+        # self._x_warm_start = trajectory.copy()
+        # self._u_warm_start = inputs.copy()
+        np.set_printoptions(precision=3)
         print(
-            f"[ACADOS] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)}))"
+            f"[ACADOS] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
         )
         w = np.concatenate((inputs.flatten(), trajectory.flatten(), slacks.flatten())).reshape(-1, 1)
         soln = {"x": w, "lam_g": lam_g, "lam_x": np.zeros(w.shape, dtype=np.float32)}
@@ -451,8 +451,11 @@ class AcadosMPC:
             do_constraint_arr = np.array([0.0])
         return so_constraint_arr, do_constraint_arr
 
-    def _get_solution(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _get_solution(self, solver: AcadosOcpSolver) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Extracts the solution from the solver.
+
+        Args:
+            - solver (AcadosOcpSolver): Solver object.
 
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Inputs, states, lower and upper slack variables.
@@ -468,7 +471,7 @@ class AcadosMPC:
 
         lam_eq, lam_bu, lam_bx, lam_hs_bx, lam_hs_so, lam_hs_do, lam_h = [], [], [], [], [], [], []
         for i in range(self._acados_ocp.dims.N + 1):
-            trajectory[:, i] = self._acados_ocp_solver.get(i, "x")
+            trajectory[:, i] = solver.get(i, "x")
 
             start_lbx = start_lbu + nu if i < self._acados_ocp.dims.N else 0
             start_lh = start_lbx + nx
@@ -482,7 +485,7 @@ class AcadosMPC:
             start_ush = start_usbx + nx if i > 0 else start_usbx
 
             # Extract relevant inequality multipliers for the NLP stage FIX
-            lam = self._acados_ocp_solver.get(i, "lam")
+            lam = solver.get(i, "lam")
             len_bu = nu if i < self._acados_ocp.dims.N else 0
             lbu = lam[start_lbu : start_lbu + len_bu]  # lower bound u_min <= u
             lbx = lam[start_lbx : start_lbx + nx]  # lower bound x_min - sigma <= x
@@ -495,7 +498,7 @@ class AcadosMPC:
             ush = lam[start_ush : start_ush + nh]  # Lower bound on slacks for h(t) < 0 + sigma
 
             if i == 0:
-                su = self._acados_ocp_solver.get(i, "su")
+                su = solver.get(i, "su")
                 slacks_so.extend(su[:max_num_so_constr].tolist())
                 slacks_do.extend(su[max_num_so_constr:].tolist())
 
@@ -512,15 +515,15 @@ class AcadosMPC:
             #     )
 
             if i > 0:  # only extract upper slacks for nonlinear path constraints, and all slacks for the rest
-                lower_slacks = self._acados_ocp_solver.get(i, "sl")
-                upper_slacks = self._acados_ocp_solver.get(i, "su")
+                lower_slacks = solver.get(i, "sl")
+                upper_slacks = solver.get(i, "su")
                 slacks_bx.extend(lower_slacks[0:nx].tolist() + upper_slacks[0:nx].tolist())
                 slacks_so.extend(upper_slacks[nx : nx + max_num_so_constr].tolist())
                 slacks_do.extend(upper_slacks[nx + max_num_so_constr :].tolist())
 
             if i < self._acados_ocp.dims.N:
-                lam_eq.extend(self._acados_ocp_solver.get(i, "pi").tolist())
-                inputs[:, i] = self._acados_ocp_solver.get(i, "u").T
+                lam_eq.extend(solver.get(i, "pi").tolist())
+                inputs[:, i] = solver.get(i, "u").T
         slacks = np.concatenate((slacks_bx, slacks_so, slacks_do)).reshape(-1, 1).astype(np.float32)
         lam_eq = np.array(lam_eq, dtype=np.float32).reshape(-1, 1)
         lam_ineq = (
@@ -531,6 +534,7 @@ class AcadosMPC:
 
     def _update_ocp(
         self,
+        solver: AcadosOcpSolver,
         xs: np.ndarray,
         do_cr_list: list,
         do_ho_list: list,
@@ -539,25 +543,23 @@ class AcadosMPC:
         """Updates the OCP (cost and constraints) with the current info available
 
         Args:
+            - solver (AcadosOcpSolver): Solver object.
             - xs (np.ndarray): Current state [x, y, chi, U, s, s_dot]^T of the ownship.
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
         """
-        self._acados_ocp_solver.constraints_set(0, "lbx", xs)
-        self._acados_ocp_solver.constraints_set(0, "ubx", xs)
+        solver.constraints_set(0, "lbx", xs)
+        solver.constraints_set(0, "ubx", xs)
         self._parameter_values = []
         self._X_do = []
         for i in range(self._acados_ocp.dims.N + 1):
-            self._acados_ocp_solver.set(i, "x", self._x_warm_start[:, i])
-            self._acados_ocp_solver_nonreg.set(i, "x", self._x_warm_start[:, i])
+            solver.set(i, "x", self._x_warm_start[:, i])
             if i < self._acados_ocp.dims.N:
-                self._acados_ocp_solver.set(i, "u", self._u_warm_start[:, i])
-                self._acados_ocp_solver_nonreg.set(i, "u", self._u_warm_start[:, i])
+                solver.set(i, "u", self._u_warm_start[:, i])
             p_i = self.create_parameter_values(xs, do_cr_list, do_ho_list, do_ot_list, i)
             self._parameter_values.append(p_i)
-            self._acados_ocp_solver.set(i, "p", p_i)
-            self._acados_ocp_solver_nonreg.set(i, "p", p_i)
+            solver.set(i, "p", p_i)
         print("OCP updated")
 
     def construct_ocp(

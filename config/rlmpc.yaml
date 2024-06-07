@@ -54,7 +54,7 @@ midlevel_mpc:
   params:
     rate: 0.5
     reference_traj_bbox_buffer: 200.0
-    T: 20.0
+    T: 60.0
     dt: 2.0
     Q_p: [0.5, 3.0, 3.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]

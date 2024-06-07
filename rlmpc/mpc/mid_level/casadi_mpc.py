@@ -597,7 +597,7 @@ class CasadiMPC:
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
         n_colregs_zones = 3
-        approx_inf = 1e5
+        approx_inf = 2000.0
 
         # Ship model and path timing dynamics
         nx, nu = self.model.dims()
@@ -957,7 +957,7 @@ class CasadiMPC:
 
         lbg_eq = [0.0] * g_eq.shape[0]
         ubg_eq = [0.0] * g_eq.shape[0]
-        lbg_ineq = [-approx_inf] * g_ineq.shape[0]
+        lbg_ineq = [-np.inf] * g_ineq.shape[0]
         ubg_ineq = [0.0] * g_ineq.shape[0]
         self._lbg = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg = np.concatenate((ubg_eq, ubg_ineq), axis=0)
@@ -1413,6 +1413,7 @@ class CasadiMPC:
         da_dp_func = csd.Function("da_dp_func", [z, self._p_fixed, self._p_adjustable], [da_dp])
         output_dict.update(
             {
+                "r_kkt": r_func,
                 "dr_dz": dR_dz_func,
                 "dr_dp": dr_dp_func,
                 "dr_dp_f": dr_dp_f_func,
@@ -1880,6 +1881,7 @@ class CasadiMPC:
 
         return_status = self._solver.stats()["return_status"]
         n_iters = self._solver.stats()["iter_count"]
+        np.set_printoptions(precision=3)
         print(
             f"[CASADI] Mid-level CAS NMPC: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Equality constraints (max, argmax): ({g_eq_vals.max(), np.argmax(g_eq_vals)}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
         )

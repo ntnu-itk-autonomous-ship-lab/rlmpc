@@ -138,6 +138,7 @@ class NLPSensitivities:
     )  # Second order partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}, i.e. the Hessian
 
     da_dp: csd.Function  # Partial derivative of the RL action a wrt the adjustable parameters
+    r_kkt: csd.Function  # KKT matrix
     dz_dp: (
         csd.Function
     )  # Partial derivative of the NLP solution z = (decision variables, multipliers) wrt the adjustable parameters
@@ -179,6 +180,7 @@ class NLPSensitivities:
             d2lag_d2w=input_dict["d2lag_d2w"],
             da_dp=input_dict["da_dp"],
             dz_dp=input_dict["dz_dp"],
+            r_kkt=input_dict["r_kkt"],
             dr_dz=input_dict["dr_dz"],
             dr_dp=input_dict["dr_dp"],
             dr_dp_f=input_dict["dr_dp_f"],
