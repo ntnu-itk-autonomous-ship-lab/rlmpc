@@ -494,14 +494,14 @@ class SACMPCActor(BasePolicy):
             norm_action = self.action_type.normalize(action)
             info.update(
                 {
-                    "prev_action": prev_action.numpy(),
+                    "norm_prev_action": prev_action.numpy(),
                     "unnorm_mpc_action": action,
                     "norm_mpc_action": norm_action,
                     "dnn_input_features": features[idx].detach().cpu().numpy(),
-                    "mpc_param_increment": self.mpc_param_provider.unnormalize(mpc_param_increment),
+                    "mpc_param_increment": mpc_param_increment,
                     "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
                     "old_mpc_params": old_mpc_params,
-                    "old_mpc_params_norm": current_mpc_params.detach().numpy(),
+                    "norm_old_mpc_params": current_mpc_params.detach().numpy(),
                 }
             )
             if not deterministic:

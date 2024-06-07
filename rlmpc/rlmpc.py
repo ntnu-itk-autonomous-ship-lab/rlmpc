@@ -397,10 +397,6 @@ class RLMPC(ci.ICOLAV):
         """Returns the fixed parameters of the (casadi) MPC NLP."""
         return self._mpc.fixed_params
 
-    def update_adjustable_mpc_params(self, delta: np.ndarray) -> None:
-        """Updates the adjustable parameters of the MPC."""
-        self._mpc.update_adjustable_params(delta)
-
     def set_adjustable_param_str_list(self, param_str_list: list[str]) -> None:
         """Sets the list of adjustable parameters.
 
@@ -425,6 +421,7 @@ class RLMPC(ci.ICOLAV):
             param_subset (Dict[str, float | np.ndarray]): The subset of parameters.
         """
         self._mpc.set_param_subset(param_subset)
+        self._config.mpc = self._mpc.params
 
     def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:
         """Sets the MPC parameters.
@@ -433,6 +430,8 @@ class RLMPC(ci.ICOLAV):
             params (mpc_params.MidlevelMPCParams): The MPC parameters.
         """
         self._mpc.set_params(params)
+        self._config.mpc = self._mpc.params
+
 
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
@@ -673,7 +672,7 @@ class RLMPC(ci.ICOLAV):
         Returns:
             Dict[str, np.ndarray]: Warm start dictionary containing the trajectory, inputs, waypoints and times.
         """
-        nx, nu, ns, ns_total, dim_g = self._mpc.dims()
+        _, nu, _, ns_total, dim_g = self._mpc.dims()
         prev_soln = self._mpc_soln if "soln" in self._mpc_soln else None
         is_prev_soln = True if ("prev_soln" in kwargs and kwargs["prev_soln"]) or prev_soln else False
         prev_soln = kwargs["prev_soln"] if ("prev_soln" in kwargs and is_prev_soln) else prev_soln

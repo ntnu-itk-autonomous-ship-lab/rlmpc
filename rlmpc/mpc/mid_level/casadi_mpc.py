@@ -160,16 +160,6 @@ class CasadiMPC:
         self._params.set_parameter_subset(param_subset)
         self._p_adjustable_values = self._params.adjustable(self._adjustable_param_str_list)
 
-    def update_adjustable_params(self, delta_p: np.ndarray) -> None:
-        """Updates the adjustable parameters in the MPC.
-
-        Args:
-            - delta_p (np.ndarray): Change in the adjustable parameters.
-        """
-        p_adjustable_values = self._p_adjustable_values + delta_p
-        self._params.set_adjustable(p_adjustable_values)
-        self._p_adjustable_values = self._params.adjustable(self._adjustable_param_str_list)
-
     def get_adjustable_params(self) -> np.ndarray:
         """Returns the RL-tuneable parameters in the MPC.
 
@@ -1180,11 +1170,42 @@ class CasadiMPC:
             - Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: Tuple of parameter vector values, and arrays of dynamic obstacle parameter values for each colregs zone.
         """
         assert len(state) == 6, "State must be of length 6."
-        n_colregs_zones = 3
-        nx, nu = self.model.dims()
 
         adjustable_parameter_values = self.get_adjustable_params()
+
+        fixed_parameter_values, do_parameter_values_cr, do_parameter_values_ho, do_parameter_values_ot = (
+            self.create_fixed_parameter_values(state, do_cr_list, do_ho_list, do_ot_list, perturb_nlp, perturb_sigma)
+        )
+        self._p_fixed_values = fixed_parameter_values
+
+        params = np.concatenate((adjustable_parameter_values, self._p_fixed_values), axis=0)
+        return params, do_parameter_values_cr, do_parameter_values_ho, do_parameter_values_ot
+
+    def create_fixed_parameter_values(
+        self,
+        state: np.ndarray,
+        do_cr_list: list,
+        do_ho_list: list,
+        do_ot_list: list,
+        perturb_nlp: bool = False,
+        perturb_sigma: float = 0.001,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Creates the fixed parameter values for the NLP problem, which are not adjusted during the optimization.
+
+        Args:
+            state (np.ndarray): Current state of the system on the form (x, y, chi, U, s, s_dot)^T.
+            do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
+            do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
+            do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
+            perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
+
+        Returns:
+            np.ndarray: Fixed parameter values for the NLP problem.
+        """
         fixed_parameter_values: list = []
+        n_colregs_zones = 3
+        nx, nu = self.model.dims()
 
         d = np.zeros((nu, 1))
         if perturb_nlp:
@@ -1213,10 +1234,8 @@ class CasadiMPC:
         fixed_parameter_values.extend(do_parameter_values_ho)
         fixed_parameter_values.extend(do_parameter_values_ot)
 
-        self._p_fixed_values = np.array(fixed_parameter_values)
-
         return (
-            np.concatenate((adjustable_parameter_values, np.array(fixed_parameter_values)), axis=0),
+            np.array(fixed_parameter_values),
             np.array(do_parameter_values_cr),
             np.array(do_parameter_values_ho),
             np.array(do_parameter_values_ot),
@@ -1273,7 +1292,7 @@ class CasadiMPC:
         """Creates the parameter values for the dynamic obstacle constraints.
 
         Args:
-            state (np.ndarray): Current state of the system on the form (x, y, chi, u, v, r)^T.
+            state (np.ndarray): Current state of the system.
             do_list (list): List of dynamic obstacles in a colregs zone.
 
         Returns:

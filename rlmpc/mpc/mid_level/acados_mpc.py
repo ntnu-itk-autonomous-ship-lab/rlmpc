@@ -121,7 +121,7 @@ class AcadosMPC:
         """Resets the MPC."""
         self._initialized = False
         self._xs_prev = np.array([])
-        self._prev_cost = np.inf
+        self._prev_cost = 1e6
         self._t_prev = 0.0
         if self._acados_ocp_solver is not None:
             self._acados_ocp_solver.reset()
@@ -148,16 +148,6 @@ class AcadosMPC:
             param_subset (Dict[str, np.ndarray | float]): Dictionary containing the parameter subset.
         """
         self._params.set_parameter_subset(param_subset)
-        self._p_adjustable_values = self._params.adjustable(self._adjustable_param_str_list)
-
-    def update_adjustable_params(self, delta_p: np.ndarray) -> None:
-        """Updates the adjustable parameters in the MPC.
-
-        Args:
-            - delta_p (np.ndarray): Change in the adjustable parameters.
-        """
-        p_adjustable_values = self._p_adjustable_values + delta_p
-        self._params.set_adjustable(p_adjustable_values)
         self._p_adjustable_values = self._params.adjustable(self._adjustable_param_str_list)
 
     def get_adjustable_params(self) -> np.ndarray:
@@ -404,6 +394,7 @@ class AcadosMPC:
         self._t_prev = t
         w = np.concatenate((inputs.flatten(), trajectory.flatten(), slacks.flatten())).reshape(-1, 1)
         soln = {"x": w, "lam_g": lam_g, "lam_x": np.zeros(w.shape, dtype=np.float32)}
+        self._p_fixed_values = self.create_all_fixed_parameter_values(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
         output = {
             "soln": soln,
             "optimal": success,
@@ -505,10 +496,10 @@ class AcadosMPC:
             lam_hs_do.extend(ush[max_num_so_constr:].tolist())
             lam_h.extend(uh.tolist())
 
-            if i == 0 or i == 1 or i == self._acados_ocp.dims.N:
-                print(
-                    f"dim lam_g_ineq_0 = {lbu.size + ubu.size + lbx.size + ubx.size + uh.size + lsbx.size + usbx.size + ush.size}"
-                )
+            # if i == 0 or i == 1 or i == self._acados_ocp.dims.N:
+            #     print(
+            #         f"dim lam_g_ineq_0 = {lbu.size + ubu.size + lbx.size + ubx.size + uh.size + lsbx.size + usbx.size + ush.size}"
+            #     )
 
             if i > 0:  # only extract upper slacks for nonlinear path constraints, and all slacks for the rest
                 lower_slacks = self._acados_ocp_solver.get(i, "sl")
@@ -895,7 +886,7 @@ class AcadosMPC:
             d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
         fixed_parameter_values.extend(d.flatten().tolist())  # d
 
-        path_parameter_values = self._create_path_parameter_values(stage=stage_idx)
+        path_parameter_values = self._create_path_parameter_values(stages=stage_idx)
         fixed_parameter_values.extend(path_parameter_values)
 
         non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
@@ -912,11 +903,71 @@ class AcadosMPC:
 
         return np.concatenate((adjustable_params, np.array(fixed_parameter_values)))
 
+    def create_all_fixed_parameter_values(
+        self,
+        state: np.ndarray,
+        do_cr_list: list,
+        do_ho_list: list,
+        do_ot_list: list,
+        perturb_nlp: bool = False,
+        perturb_sigma: float = 0.001,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Creates the fixed parameter values for the NLP problem, which are not adjusted during the optimization.
+
+        Args:
+            state (np.ndarray): Current state of the system on the form (x, y, chi, U, s, s_dot)^T.
+            do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
+            do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
+            do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
+            perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
+
+        Returns:
+            np.ndarray: Fixed parameter values for the NLP problem.
+        """
+        fixed_parameter_values: list = []
+        n_colregs_zones = 3
+        nx, nu = self.model.dims()
+
+        d = np.zeros((nu, 1))
+        if perturb_nlp:
+            d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
+        fixed_parameter_values.extend(d.flatten().tolist())
+        fixed_parameter_values.extend(state.flatten().tolist())  # x0
+
+        path_parameter_values = self._create_path_parameter_values(stages=np.arange(self._acados_ocp.dims.N + 1))
+        fixed_parameter_values.extend(path_parameter_values)
+
+        non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
+        fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
+
+        max_num_so_constr = (
+            self._params.max_num_so_constr
+        )  # min(len(self._so_surfaces), self._params.max_num_so_constr)
+        n_bx_slacks = len(self._idx_slacked_bx_constr)
+        slack_size = 2 * n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        W = self._params.w_L1 * np.ones(slack_size)
+        fixed_parameter_values.extend(W.tolist())
+
+        N = self._acados_ocp.dims.N
+        all_do_cr_parameter_values = []
+        all_do_ho_parameter_values = []
+        all_do_ot_parameter_values = []
+        for k in range(N + 1):
+            all_do_cr_parameter_values.extend(self._create_do_parameter_values(state, do_cr_list, k))
+            all_do_ho_parameter_values.extend(self._create_do_parameter_values(state, do_ho_list, k))
+            all_do_ot_parameter_values.extend(self._create_do_parameter_values(state, do_ot_list, k))
+        fixed_parameter_values.extend(all_do_cr_parameter_values)
+        fixed_parameter_values.extend(all_do_ho_parameter_values)
+        fixed_parameter_values.extend(all_do_ot_parameter_values)
+
+        return np.array(fixed_parameter_values)
+
     def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
         """Computes the path variable and its derivative from the current state.
 
         Args:
-            xs (np.ndarray): State of the system on the form [x, y, psi, u, v, r]^T.
+            xs (np.ndarray): State of the system.
 
         Returns:
             Tuple[float, float]: Path variable and its derivative.
@@ -950,11 +1001,11 @@ class AcadosMPC:
         self._s_refs = np.array(s_ref_list)
         self._s_dot_refs = np.array(s_dot_ref_list)
 
-    def _create_path_parameter_values(self, stage: int) -> list:
+    def _create_path_parameter_values(self, stages: int | np.ndarray) -> list:
         """Creates the parameter values for the path constraints.
 
         Args:
-            - stage (int): Stage index for the shooting node to consider
+            - stage (int | np.ndarray): Stage indices for the shooting node to consider
 
         Returns:
             list: List of path parameters to be used as input to solver at the current stage
@@ -964,14 +1015,19 @@ class AcadosMPC:
         path_parameter_values.extend(self._y_path_coeffs_values.tolist())
         path_parameter_values.extend(self._x_dot_path_coeffs_values.tolist())
         path_parameter_values.extend(self._y_dot_path_coeffs_values.tolist())
-        path_parameter_values.extend([self._s_dot_refs[stage]])
+        s_dot_refs = self._s_dot_refs[stages]
+        if isinstance(stages, np.ndarray):
+            s_dot_refs = s_dot_refs.tolist()
+        else:
+            s_dot_refs = [s_dot_refs]
+        path_parameter_values.extend(s_dot_refs)
         return path_parameter_values
 
     def _create_do_parameter_values(self, xs: np.ndarray, do_list: list, stage: int) -> list:
         """Creates the parameter values for the dynamic obstacle constraints.
 
         Args:
-            - xs (np.ndarray): Current state of the system on the form (x, y, chi, u, v, r)^T.
+            - xs (np.ndarray): Current state of the system
             - do_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for a certain zone.
             - stage (int): Stage index for the shooting node to consider
 

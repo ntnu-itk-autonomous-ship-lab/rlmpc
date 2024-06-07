@@ -112,11 +112,6 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.set_param_subset(subset)
 
-    def update_adjustable_params(self, delta: np.ndarray) -> None:
-        self._casadi_mpc.update_adjustable_params(delta)
-        if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.update_adjustable_params(delta)
-
     def reset(self) -> None:
         self._casadi_mpc.reset()
         if self._acados_enabled and ACADOS_COMPATIBLE:
