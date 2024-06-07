@@ -272,15 +272,30 @@ class AcadosMPC:
         N = self._acados_ocp.dims.N
         g_do_constr_vals = []
         g_so_constr_vals = []
+        g_bx_constr_vals = []
+        g_bu_constr_vals = []
+        lbu, ubu, lbx, ubx = self.model.get_input_state_bounds()
+
         for i in range(N + 1):
             p_i = self._parameter_values[i]
-            x_i = self._acados_ocp_solver.get(i, "x")
             u_i = self._acados_ocp_solver.get(i, "u")
+            x_i = self._acados_ocp_solver.get(i, "x")
+            g_bx_constr_vals.extend((x_i - ubx).tolist())
+            g_bx_constr_vals.extend((lbx - x_i).tolist())
+            if i < N:
+                g_bu_constr_vals.extend((u_i - ubu).tolist())
+                g_bu_constr_vals.extend((lbu - u_i).tolist())
             # g_eq_vals.append(self.model.dynamics(x_i, u_i, csd.vertcat([])).full().flatten())
-            g_do_constr_vals.append(
-                self._dynamic_obstacle_constraints(x_i, self._X_do[i], self._params.r_safe_do).full().flatten()
+            g_do_constr_vals.extend(
+                self._dynamic_obstacle_constraints(x_i, self._X_do[i], self._params.r_safe_do).full().flatten().tolist()
             )
-            g_so_constr_vals.append(self._static_obstacle_constraints(x_i).full().flatten())
+            g_so_constr_vals.extend(self._static_obstacle_constraints(x_i).full().flatten().tolist())
+        if len(g_do_constr_vals) == 0:
+            g_do_constr_vals = [0.0]
+        if len(g_so_constr_vals) == 0:
+            g_so_constr_vals = [0.0]
+        g_bx_constr_vals = np.array(g_bx_constr_vals).flatten()
+        g_bu_constr_vals = np.array(g_bu_constr_vals).flatten()
         g_do_constr_vals = np.array(g_do_constr_vals).flatten()
         g_so_constr_vals = np.array(g_so_constr_vals).flatten()
         # g_eq_vals = np.array(g_eq_vals).flatten()
@@ -289,6 +304,14 @@ class AcadosMPC:
         #     print(
         #         f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6).flatten().T}!"
         #     )
+        if g_bx_constr_vals.max() > 1e-6:
+            print(
+                f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_bx_constr_vals > 1e-6).flatten().T}!"
+            )
+        if g_bu_constr_vals.max() > 1e-6:
+            print(
+                f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_bu_constr_vals > 1e-6).flatten().T}!"
+            )
         if g_do_constr_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6).flatten().T}!"
@@ -447,7 +470,6 @@ class AcadosMPC:
         start_uh = start_ubx + nx
 
         start_lsbx = start_uh + nh
-        start_lsh = start_lsbx + nx
         start_usbx = start_lsbx + nx
         start_ush = start_usbx + nx
 
@@ -457,15 +479,14 @@ class AcadosMPC:
 
             # Extract relevant inequality multipliers for the NLP stage
             lam = self._acados_ocp_solver.get(i, "lam")
-            lbu = lam[start_lbu : start_lbu + nu]  # lower bound (0) for u_min <= u
-            lbx = lam[start_lbx : start_lbx + nx]  # lower bound (0) for x_min - sigma <= x
-            ubu = lam[start_ubu : start_ubu + nu]  # upper bound (0) for u_min <= u
-            ubx = lam[start_ubx : start_ubx + nx]  # upper bound (0) for x_min - sigma <= x
-            uh = lam[start_uh : start_uh + nh]  # upper bound (0) for h(t) < 0
-            lsbx = lam[start_lsbx : start_lsbx + nx]  # lower slack bound for state box x_min - sigma <= x
-            lsh = lam[start_lsh : start_lsh + nh]  # lower slack bound for h(t) < 0
-            usbx = lam[start_usbx : start_usbx + nx]  # upper slack bound for state box x <= x_max + sigma
-            ush = lam[start_ush : start_ush + nh]  # upper slack bound for h(t) < 0 + sigma
+            lbu = lam[start_lbu : start_lbu + nu]  # lower bound u_min <= u
+            lbx = lam[start_lbx : start_lbx + nx]  # lower bound x_min - sigma <= x
+            ubu = lam[start_ubu : start_ubu + nu]  # upper bound u_min <= u
+            ubx = lam[start_ubx : start_ubx + nx]  # upper bound x <= x_max + sigma
+            uh = lam[start_uh : start_uh + nh]  # upper bound for h(t) < 0
+            lsbx = lam[start_lsbx : start_lsbx + nx]  # lower slack bound for x_min - sigma <= x
+            usbx = lam[start_usbx : start_usbx + nx]  # Lower bound on slacks x <= x_max + sigma
+            ush = lam[start_ush : start_ush + nh]  # Lower bound on slacks for h(t) < 0 + sigma
 
             if i == 0:
                 su = self._acados_ocp_solver.get(i, "su")
@@ -480,14 +501,14 @@ class AcadosMPC:
             lam_bu.extend(lbu.tolist() + ubu.tolist())
             lam_bx.extend(lbx.tolist() + ubx.tolist())
             lam_hs_bx.extend(lsbx.tolist() + usbx.tolist())
-            lam_hs_so.extend(lsh[:max_num_so_constr].tolist() + ush[:max_num_so_constr].tolist())
-            lam_hs_do.extend(lsh[max_num_so_constr:].tolist() + ush[max_num_so_constr:].tolist())
+            lam_hs_so.extend(ush[:max_num_so_constr].tolist())
+            lam_hs_do.extend(ush[max_num_so_constr:].tolist())
             lam_h.extend(uh.tolist())
 
-            # if i == 0 or i == 1 or i == self._acados_ocp.dims.N:
-            #     print(
-            #         f"dim lam_g_ineq_0 = {lbu.size + ubu.size + lbx.size + ubx.size + uh.size + lsbx.size + usbx.size + lsh.size + ush.size}"
-            #     )
+            if i == 0 or i == 1 or i == self._acados_ocp.dims.N:
+                print(
+                    f"dim lam_g_ineq_0 = {lbu.size + ubu.size + lbx.size + ubx.size + uh.size + lsbx.size + usbx.size + ush.size}"
+                )
 
             if i > 0:  # only extract upper slacks for nonlinear path constraints, and all slacks for the rest
                 lower_slacks = self._acados_ocp_solver.get(i, "sl")
@@ -500,7 +521,9 @@ class AcadosMPC:
                 lam_eq[:, i] = self._acados_ocp_solver.get(i, "pi")
                 inputs[:, i] = self._acados_ocp_solver.get(i, "u").T
         slacks = np.concatenate((slacks_bx, slacks_so, slacks_do)).reshape(-1, 1).astype(np.float32)
-        lam_ineq = np.concatenate((lam_bu, lam_bx, lam_hs_bx, lam_hs_so, lam_hs_do, lam_h)).reshape(-1, 1).astype(np.float32)
+        lam_ineq = (
+            np.concatenate((lam_bu, lam_bx, lam_hs_bx, lam_hs_so, lam_hs_do, lam_h)).reshape(-1, 1).astype(np.float32)
+        )
         lam_g = np.concatenate((lam_eq.flatten(), lam_ineq.flatten())).reshape(-1, 1)
         return inputs, trajectory, slacks, lam_g
 
@@ -633,7 +656,7 @@ class AcadosMPC:
         p_adjustable.append(r_safe_do)
         p_adjustable, p_fixed = self.prune_adjustable_params(p_adjustable, p_fixed)
 
-        approx_inf = 1e7
+        approx_inf = 2000.0
         lbu, ubu, lbx, ubx = self.model.get_input_state_bounds()
 
         # Input constraints
@@ -664,6 +687,8 @@ class AcadosMPC:
         so_surfaces = so_surfaces[0]
         self._so_surfaces = so_surfaces
 
+        so_constr_list = []
+        do_constr_list = []
         if n_path_constr:
             self._acados_ocp.constraints.lh_0 = -approx_inf * np.ones(n_path_constr)
             self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
@@ -705,9 +730,6 @@ class AcadosMPC:
         self._acados_ocp.cost.zu_e = self._params.w_L1 * np.ones(ns)
 
         # Cost function
-        self._acados_ocp.cost.cost_type = "EXTERNAL"
-        self._acados_ocp.cost.cost_type_e = "EXTERNAL"
-
         x_path = self._x_path(x[4], self._x_path_coeffs)
         y_path = self._y_path(x[4], self._y_path_coeffs)
         path_ref = csd.vertcat(x_path, y_path, s_dot_ref)
@@ -746,14 +768,13 @@ class AcadosMPC:
             d_attenuation,
             colregs_weights,
         )
-        self._acados_ocp.model.cost_expr_ext_cost = (
-            path_following_cost
-            + speed_dev_cost
-            + rate_cost
-            + colregs_cost
-            + u.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u
-        )
+        self._acados_ocp.model.cost_expr_ext_cost = path_following_cost + speed_dev_cost + rate_cost + colregs_cost
         self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + speed_dev_cost
+
+        # self._acados_ocp.model.cost_expr_ext_cost = u.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u
+        # self._acados_ocp.model.cost_expr_ext_cost_e = 0.0
+        self._acados_ocp.cost.cost_type = "EXTERNAL"
+        self._acados_ocp.cost.cost_type_e = "EXTERNAL"
 
         # Parameters consist of RL adjustable parameters and fixed parameters
         # (either nominal path or dynamic obstacle related).

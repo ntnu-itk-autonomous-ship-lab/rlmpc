@@ -252,7 +252,7 @@ class MidlevelMPC:
             - dict: Dictionary containing the solution info (trajectory, decision variables, etc.)
         """
         if self._acados_enabled:
-            mpc_soln = self._acados_mpc.plan(
+            mpc_soln_ac = self._acados_mpc.plan(
                 t,
                 xs,
                 do_cr_list,
@@ -263,11 +263,11 @@ class MidlevelMPC:
                 perturb_sigma=perturb_sigma,
                 **kwargs,
             )
-            mpc_soln["soln"]["x"] = self._casadi_mpc.decision_variables(
-                mpc_soln["inputs"], mpc_soln["trajectory"], mpc_soln["slacks"]
+            mpc_soln_ac["soln"]["x"] = self._casadi_mpc.decision_variables(
+                mpc_soln_ac["inputs"], mpc_soln_ac["trajectory"], mpc_soln_ac["slacks"]
             ).full()
         else:
-            mpc_soln = self._casadi_mpc.plan(
+            mpc_soln_csd = self._casadi_mpc.plan(
                 t,
                 xs,
                 do_cr_list,
@@ -278,4 +278,6 @@ class MidlevelMPC:
                 perturb_sigma=perturb_sigma,
                 **kwargs,
             )
+        mpc_soln = mpc_soln_ac if self._acados_enabled else mpc_soln_csd
+        # lam_g_diff = mpc_soln_ac["soln"]["lam_g"] - mpc_soln_csd["soln"]["lam_g"]
         return mpc_soln

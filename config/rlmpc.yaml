@@ -78,7 +78,7 @@ midlevel_mpc:
     r_safe_do: 10.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 15
+    max_num_so_constr: 12
     max_num_do_constr_per_zone: 3 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
@@ -130,5 +130,5 @@ midlevel_mpc:
       globalization: "MERIT_BACKTRACKING"
       regularize_method: "PROJECT"
       levenberg_marquardt: 0.0
-      print_level: 1
+      print_level: 0
       ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

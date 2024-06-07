@@ -468,7 +468,7 @@ class CasadiMPC:
 
         else:
             self._current_warmstart["f"] = cost_val
-        self._current_warmstart["x"] = self.decision_variables(U, X, Sigma)
+        self._current_warmstart["x"] = self.decision_variables(U, X, Sigma).full()
         self._current_warmstart["lam_x"] = lam_x
         self._current_warmstart["lam_g"] = lam_g
         self._current_warmstart["lam_p"] = lam_p
@@ -606,7 +606,7 @@ class CasadiMPC:
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
         n_colregs_zones = 3
-        approx_inf = 1e10
+        approx_inf = 1e12
 
         # Ship model and path timing dynamics
         nx, nu = self.model.dims()
@@ -707,7 +707,7 @@ class CasadiMPC:
         self._so_surfaces = so_surfaces
 
         # Slack weighting matrix W (dim = 1 x (max_num_so_constr + 3 * self._params.max_num_do_constr_per_zone))
-        W_bx = csd.MX.sym("W_bx", n_bx_slacks, 1)
+        W_bx = csd.MX.sym("W_bx", 2 * n_bx_slacks, 1)
         W_so = csd.MX.sym("W_so", max_num_so_constr, 1)
         W_do = csd.MX.sym("W_do", n_colregs_zones * self._params.max_num_do_constr_per_zone, 1)
         p_fixed.append(W_bx)
@@ -775,9 +775,7 @@ class CasadiMPC:
                 Sigma_bx.append(sigma_bxl_k)
                 Sigma_bx.append(sigma_bxu_k)
                 hs_bx.append(-sigma_bxl_k)  # 0 <= sigma_bx_k
-                hs_bx.append(sigma_bxl_k - approx_inf)  # sigma_bx_k <= inf
                 hs_bx.append(-sigma_bxu_k)  # 0 <= sigma_bx_k
-                hs_bx.append(sigma_bxu_k - approx_inf)
                 hx.append(
                     lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bxl_k
                 )  # lbx - sigma_bx <= x_k
@@ -801,12 +799,10 @@ class CasadiMPC:
             if max_num_so_constr > 0:
                 Sigma_so.append(sigma_so_k)
                 hs_so.append(-sigma_so_k)  # 0 <= sigma_so_k
-                hs_so.append(sigma_so_k - approx_inf)  # sigma_so_k <= 1e12 = inf
                 slack_penalty_cost += W_so.T @ sigma_so_k
             if self._params.max_num_do_constr_per_zone > 0:
                 Sigma_do.append(sigma_do_k)
                 hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
-                hs_do.append(sigma_do_k - approx_inf)  # sigma_do_k <= 1e12 = inf
                 slack_penalty_cost += W_do.T @ sigma_do_k
 
             x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
@@ -885,11 +881,11 @@ class CasadiMPC:
 
             if k == 0:
                 print(
-                    f"dim lam_g_ineq_0 = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + 2 * (sigma_so_k.shape[0] + sigma_do_k.shape[0])}"
+                    f"dim lam_g_ineq_0 = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + sigma_so_k.shape[0] + sigma_do_k.shape[0]}"
                 )
             elif k == 1:
                 print(
-                    f"dim lam_g_ineq_{k} = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + 2 * (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
+                    f"dim lam_g_ineq_{k} = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + sigma_so_k.shape[0] + sigma_do_k.shape[0] + 2 * n_bx_slacks}"
                 )
 
         J *= dt
@@ -908,9 +904,7 @@ class CasadiMPC:
         Sigma_bx.append(sigma_bxl_k)
         Sigma_bx.append(sigma_bxu_k)
         hs_bx.append(-sigma_bxl_k)  # 0 <= sigma_bxl_k
-        hs_bx.append(sigma_bxl_k - approx_inf)  # sigma_bx_k <= 1e12 = inf
         hs_bx.append(-sigma_bxu_k)  # 0 <= sigma_bxu_k
-        hs_bx.append(sigma_bxu_k - approx_inf)
         hx.append(
             lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bxl_k
         )  # lbx - sigma_bxl <= x_k
@@ -927,7 +921,6 @@ class CasadiMPC:
             )
             Sigma_so.append(sigma_so_k)
             hs_so.append(-sigma_so_k)  # 0 <= sigma_so_k
-            hs_so.append(sigma_so_k - approx_inf)  # sigma_so_k <= inf
             slack_penalty_cost += W_so.T @ sigma_so_k
         if self._params.max_num_do_constr_per_zone > 0:
             sigma_do_k = csd.MX.sym(
@@ -937,10 +930,9 @@ class CasadiMPC:
             )
             Sigma_do.append(sigma_do_k)
             hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
-            hs_do.append(sigma_do_k - approx_inf)  # sigma_do_k <= inf
             slack_penalty_cost += W_do.T @ sigma_do_k
         print(
-            f"dim lam_g_ineq_N = {2 * nx + len(do_constr_k) + len(so_constr_k) + 2 * (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
+            f"dim lam_g_ineq_N = {2 * nx + len(do_constr_k) + len(so_constr_k) + (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
         )
 
         x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
@@ -969,7 +961,7 @@ class CasadiMPC:
 
         hs = hs_bx + hs_so + hs_do
 
-        self.ns = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        self.ns = 2 * n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
 
         g_ineq_list = [*hu, *hx, *hs, *g_ineq_list]
 
@@ -1210,7 +1202,7 @@ class CasadiMPC:
             self._params.max_num_so_constr
         )  # min(len(self._so_surfaces), self._params.max_num_so_constr)
         n_bx_slacks = len(self._idx_slacked_bx_constr)
-        slack_size = n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
+        slack_size = 2 * n_bx_slacks + max_num_so_constr + n_colregs_zones * self._params.max_num_do_constr_per_zone
         W = self._params.w_L1 * np.ones(slack_size)
         fixed_parameter_values.extend(W.tolist())
 

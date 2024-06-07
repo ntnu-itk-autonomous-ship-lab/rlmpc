@@ -299,15 +299,16 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self._params = params
         self.setup_equations_of_motion()
 
+        self.scale_eqs: bool = True
+
         # Input and state bounds
-        U_min = -self._params.U_max
         U_max = self._params.U_max
         a_max = self._params.a_max
         r_max = self._params.r_max
         s_min = self._params.s_min
         s_max = self._params.s_max
         s_dot_max = self._params.s_dot_max
-        approx_inf = 1e10
+        approx_inf = 2000.0  # to avoid numerical issues in acados
         self.lbu = np.array([-r_max, -a_max, -approx_inf])
         self.ubu = np.array([r_max, a_max, approx_inf])
         self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -U_max, s_min, 0.0])
@@ -417,8 +418,10 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self._acados_model.f_impl_expr = self.f_impl
         self._acados_model.f_expl_expr = self.f_expl
         self._acados_model.x = self.x
+        self._acados_model.x_labels = ["x", "y", "chi", "U", "s", "s_dot"]
         self._acados_model.xdot = self.xdot
         self._acados_model.u = self.u
+        self._acados_model.u_labels = ["r", "a", "u_p"]
         self._acados_model.p = self.p
         self._acados_model.name = "kinematic_csog_with_acceleration_and_path_timing"
         return self._acados_model
