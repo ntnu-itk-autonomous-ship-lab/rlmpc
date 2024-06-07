@@ -309,8 +309,8 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         s_max = self._params.s_max
         s_dot_max = self._params.s_dot_max
         approx_inf = 2000.0  # to avoid numerical issues in acados
-        self.lbu = np.array([-r_max, -a_max, -approx_inf])
-        self.ubu = np.array([r_max, a_max, approx_inf])
+        self.lbu = np.array([-r_max, -a_max, -a_max])
+        self.ubu = np.array([r_max, a_max, a_max])
         self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -U_max, s_min, 0.0])
         self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, s_max, s_dot_max])
 

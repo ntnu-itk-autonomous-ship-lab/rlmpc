@@ -54,7 +54,7 @@ midlevel_mpc:
   params:
     rate: 0.5
     reference_traj_bbox_buffer: 200.0
-    T: 60.0
+    T: 20.0
     dt: 2.0
     Q_p: [0.5, 3.0, 3.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
@@ -96,12 +96,12 @@ midlevel_mpc:
   solver_options:
     casadi:
       solver_type: "ipopt"
-      solver_tol: 0.0000001
-      print_level: 0
+      solver_tol: 0.00000001
+      print_level: 3
       print_time: 0
-      mu_target: 0.0001 # start higher
-      mu_init: 0.1
-      acceptable_tol: 0.0001 # harder to "compute good gradient steps" for mpc-parameterizations
+      mu_target: 0.00000001 # start higher
+      mu_init: 0.01
+      acceptable_tol: 0.000001 # harder to "compute good gradient steps" for mpc-parameterizations
       acceptable_obj_change_tol: 1000_000_000_000.0
       max_iter: 300
       warm_start_init_point: "yes"
@@ -114,10 +114,10 @@ midlevel_mpc:
     acados:
       nlp_solver_type: "SQP"
       nlp_solver_max_iter: 200
-      nlp_solver_tol_stat: 0.0001
+      nlp_solver_tol_stat: 0.00001
       nlp_solver_tol_eq: 0.00001
-      nlp_solver_tol_ineq: 0.0001
-      nlp_solver_tol_comp: 0.0001
+      nlp_solver_tol_ineq: 0.00001
+      nlp_solver_tol_comp: 0.00001
       nlp_solver_ext_qp_res: 1
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" # "FULL_CONDENSING_QPOASES"
       qp_solver_iter_max: 50

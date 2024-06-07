@@ -261,18 +261,23 @@ class MidlevelMPC:
             mpc_soln_ac["soln"]["x"] = self._casadi_mpc.decision_variables(
                 mpc_soln_ac["inputs"], mpc_soln_ac["trajectory"], mpc_soln_ac["slacks"]
             ).full()
-        else:
-            mpc_soln_csd = self._casadi_mpc.plan(
-                t,
-                xs,
-                do_cr_list,
-                do_ho_list,
-                do_ot_list,
-                warm_start,
-                perturb_nlp=perturb_nlp,
-                perturb_sigma=perturb_sigma,
-                **kwargs,
-            )
+        # else:
+        mpc_soln_csd = self._casadi_mpc.plan(
+            t,
+            xs,
+            do_cr_list,
+            do_ho_list,
+            do_ot_list,
+            warm_start,
+            perturb_nlp=perturb_nlp,
+            perturb_sigma=perturb_sigma,
+            **kwargs,
+        )
         mpc_soln = mpc_soln_ac if self._acados_enabled else mpc_soln_csd
-        # lam_g_diff = mpc_soln_ac["soln"]["lam_g"] - mpc_soln_csd["soln"]["lam_g"]
+        lam_g_ac = mpc_soln_ac["soln"]["lam_g"].flatten() if self._acados_enabled else np.array([])
+        lam_g_csd = mpc_soln_csd["soln"]["lam_g"].flatten()
+        lam_g_diff = lam_g_ac - lam_g_csd
+        w_diff = mpc_soln_ac["soln"]["x"].flatten() - mpc_soln_csd["soln"]["x"].flatten()
+        p_diff = mpc_soln_ac["p"].flatten() - mpc_soln_csd["p"].flatten()
+        p_fixed_diff = mpc_soln_ac["p_fixed"].flatten() - mpc_soln_csd["p_fixed"].flatten()
         return mpc_soln

@@ -7,6 +7,7 @@
     Author: Trym Tengesdal
 """
 
+import copy
 import time
 from typing import Dict, Optional, Tuple
 
@@ -33,8 +34,8 @@ class CasadiMPC:
         params: parameters.MidlevelMPCParams,
         solver_options: mpc_common.CasadiSolverOptions,
     ) -> None:
-        self.model = model
-        self._params: parameters.MidlevelMPCParams = params
+        self.model = copy.deepcopy(model)
+        self._params: parameters.MidlevelMPCParams = copy.deepcopy(params)
 
         self._solver_options: mpc_common.CasadiSolverOptions = solver_options
         self._initialized: bool = False
@@ -596,13 +597,14 @@ class CasadiMPC:
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
         n_colregs_zones = 3
-        approx_inf = 1e12
+        approx_inf = np.inf
 
         # Ship model and path timing dynamics
         nx, nu = self.model.dims()
         xdot, x, u, p = self.model.as_casadi()
         lbu_k, ubu_k, lbx_k, ubx_k = self.model.get_input_state_bounds()
-
+        # lbx_k[:3] = -approx_inf
+        # ubx_k[:3] = approx_inf
         self._p_mdl = p
 
         hu = []  # Box constraints on inputs
@@ -630,8 +632,8 @@ class CasadiMPC:
         x_0 = csd.MX.sym("x_0_constr", nx, 1)
         x_k = csd.MX.sym("x_0", nx, 1)
         X.append(x_k)
-        g_ineq_list.append(x_0 - x_k)  # x_0 <= x_k
-        g_ineq_list.append(x_k - x_0)  # x_k <= x_0
+        hx.append(x_0 - x_k)  # x_0 <= x_k
+        hx.append(x_k - x_0)  # x_k <= x_0
         p_fixed.append(x_0)
 
         self._idx_slacked_bx_constr = np.array([0, 1, 2, 3, 4, 5])
@@ -841,7 +843,6 @@ class CasadiMPC:
                 + rate_cost
                 + colregs_cost
                 + slack_penalty_cost
-                + u_k.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u_k
             )
             if k == 0:
                 self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
@@ -1110,7 +1111,7 @@ class CasadiMPC:
             if j < n_so:
                 so_constr_list.append(so_surfaces[j](x_k[0:2].reshape((1, 2))) - sigma_k[j])
             else:
-                so_constr_list.append(-sigma_k[j])  # h <= sigma, where h = 0.0
+                so_constr_list.append(-1.0 - sigma_k[j])
         return so_constr_list
 
     def _create_dynamic_obstacle_constraint(
@@ -1305,30 +1306,20 @@ class CasadiMPC:
         for k in range(N + 1):
             t = k * self._params.dt
             for i in range(self._params.max_num_do_constr_per_zone):
+                x_do = [csog_state[0] - 1e3, csog_state[1] - 1e3, 0.0, 0.0, 10.0, 3.0]
                 if i < n_do:
                     (ID, do_state, cov, length, width) = do_list[i]
                     chi = np.arctan2(do_state[3], do_state[2])
                     U = np.sqrt(do_state[2] ** 2 + do_state[3] ** 2)
-                    do_parameter_values.extend(
-                        [
-                            do_state[0] + t * U * np.cos(chi),
-                            do_state[1] + t * U * np.sin(chi),
-                            chi,
-                            U,
-                            length,
-                            width,
-                        ]
-                    )
-                else:
-                    do_parameter_values.extend([csog_state[0] - 1e5, csog_state[1] - 1e5, 0.0, 0.0, 10.0, 3.0])
-                    # sigma = np.zeros((self._params.max_num_do_constr_per_zone, 1))
-                    # do_constr = self._create_dynamic_obstacle_constraint(
-                    #     csog_state.reshape((-1, 1)),
-                    #     sigma,
-                    #     np.array([csog_state[0] - 1e5, csog_state[1] - 1e5, 0.0, 0.0, 10.0, 3.0]).reshape((-1, 1)),
-                    #     6,
-                    #     20.0,
-                    # )
+                    x_do = [
+                        do_state[0] + t * U * np.cos(chi),
+                        do_state[1] + t * U * np.sin(chi),
+                        chi,
+                        U,
+                        length,
+                        width,
+                    ]
+                do_parameter_values.extend(x_do)
         return do_parameter_values
 
     def build_sensitivities(
