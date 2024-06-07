@@ -597,14 +597,14 @@ class CasadiMPC:
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
         n_colregs_zones = 3
-        approx_inf = np.inf
+        approx_inf = 1e5
 
         # Ship model and path timing dynamics
         nx, nu = self.model.dims()
         xdot, x, u, p = self.model.as_casadi()
         lbu_k, ubu_k, lbx_k, ubx_k = self.model.get_input_state_bounds()
-        # lbx_k[:3] = -approx_inf
-        # ubx_k[:3] = approx_inf
+        lbx_k[:3] = -approx_inf
+        ubx_k[:3] = approx_inf
         self._p_mdl = p
 
         hu = []  # Box constraints on inputs
@@ -837,13 +837,7 @@ class CasadiMPC:
                 colregs_weights,
             )
 
-            J += (
-                path_following_cost
-                + speed_dev_cost
-                + rate_cost
-                + colregs_cost
-                + slack_penalty_cost
-            )
+            J += path_following_cost + speed_dev_cost + rate_cost + colregs_cost + slack_penalty_cost
             if k == 0:
                 self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
                 self._path_dot_dev_cost = csd.Function("path_dot_dev_cost", [x_k, self._p_path], [path_dot_dev_cost])
@@ -963,7 +957,7 @@ class CasadiMPC:
 
         lbg_eq = [0.0] * g_eq.shape[0]
         ubg_eq = [0.0] * g_eq.shape[0]
-        lbg_ineq = [-np.inf] * g_ineq.shape[0]
+        lbg_ineq = [-approx_inf] * g_ineq.shape[0]
         ubg_ineq = [0.0] * g_ineq.shape[0]
         self._lbg = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg = np.concatenate((ubg_eq, ubg_ineq), axis=0)

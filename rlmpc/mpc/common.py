@@ -28,12 +28,12 @@ from acados_template.acados_ocp_solver import AcadosOcpSolver
 class CasadiSolverOptions:
     solver_type: str = "ipopt"
     solver_tol: float = 1e-6
+    constr_viol_tol: float = 1e-6
+    compl_inf_tol: float = 1e-6
     print_level: int = 0
     print_time: int = 0
     mu_target: float = 1e-6
     mu_init: float = 1e-6
-    acceptable_tol: float = 1e-6
-    acceptable_obj_change_tol: float = 1e15
     max_iter: int = 1000
     warm_start_init_point: str = "no"
     verbose: bool = True
@@ -53,12 +53,12 @@ class CasadiSolverOptions:
     def to_opt_settings(self):
         opts = {
             self.solver_type + ".tol": self.solver_tol,
+            self.solver_type + ".constr_viol_tol": self.constr_viol_tol,
+            self.solver_type + ".compl_inf_tol": self.compl_inf_tol,
             self.solver_type + ".print_level": self.print_level,
             "print_time": self.print_time,
             self.solver_type + ".mu_target": self.mu_target,
             self.solver_type + ".mu_init": self.mu_init,
-            self.solver_type + ".acceptable_tol": self.acceptable_tol,
-            self.solver_type + ".acceptable_obj_change_tol": self.acceptable_obj_change_tol,
             self.solver_type + ".max_iter": self.max_iter,
             self.solver_type + ".warm_start_init_point": self.warm_start_init_point,
             "verbose": self.verbose,

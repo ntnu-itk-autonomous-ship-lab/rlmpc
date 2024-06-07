@@ -327,6 +327,12 @@ midlevel_mpc:
               solver_tol:
                 required: True
                 type: float
+              constr_viol_tol:
+                required: True
+                type: float
+              compl_inf_tol:
+                required: True
+                type: float
               print_level:
                 required: True
                 type: integer
@@ -337,12 +343,6 @@ midlevel_mpc:
                 required: True
                 type: float
               mu_init:
-                required: True
-                type: float
-              acceptable_tol:
-                required: True
-                type: float
-              acceptable_obj_change_tol:
                 required: True
                 type: float
               max_iter:

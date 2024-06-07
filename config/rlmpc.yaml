@@ -97,12 +97,12 @@ midlevel_mpc:
     casadi:
       solver_type: "ipopt"
       solver_tol: 0.00000001
+      constr_viol_tol: 0.000001 # harder to "compute good gradient steps" for mpc-parameterizations
+      compl_inf_tol: 0.000001
       print_level: 3
       print_time: 0
       mu_target: 0.00000001 # start higher
       mu_init: 0.01
-      acceptable_tol: 0.000001 # harder to "compute good gradient steps" for mpc-parameterizations
-      acceptable_obj_change_tol: 1000_000_000_000.0
       max_iter: 300
       warm_start_init_point: "yes"
       verbose: False

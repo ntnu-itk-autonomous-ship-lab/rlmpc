@@ -465,41 +465,39 @@ class AcadosMPC:
         slacks_bx, slacks_so, slacks_do = [], [], []
 
         start_lbu = 0
-        start_lbx = start_lbu + nu
-        start_lh = start_lbx + nx
-
-        start_ubu = start_lh + nh
-        start_ubx = start_ubu + nu
-        start_uh = start_ubx + nx
-
-        start_lsbx = start_uh + nh
-        start_usbx = start_lsbx + nx
-        start_ush = start_usbx + nx
 
         lam_eq, lam_bu, lam_bx, lam_hs_bx, lam_hs_so, lam_hs_do, lam_h = [], [], [], [], [], [], []
         for i in range(self._acados_ocp.dims.N + 1):
             trajectory[:, i] = self._acados_ocp_solver.get(i, "x")
 
-            # Extract relevant inequality multipliers for the NLP stage
+            start_lbx = start_lbu + nu if i < self._acados_ocp.dims.N else 0
+            start_lh = start_lbx + nx
+
+            start_ubu = start_lh + nh
+            start_ubx = start_ubu + nu if i < self._acados_ocp.dims.N else start_ubu
+            start_uh = start_ubx + nx
+
+            start_lsbx = start_uh + nh
+            start_usbx = start_lsbx + nx if i > 0 else start_lsbx
+            start_ush = start_usbx + nx if i > 0 else start_usbx
+
+            # Extract relevant inequality multipliers for the NLP stage FIX
             lam = self._acados_ocp_solver.get(i, "lam")
-            lbu = lam[start_lbu : start_lbu + nu]  # lower bound u_min <= u
+            len_bu = nu if i < self._acados_ocp.dims.N else 0
+            lbu = lam[start_lbu : start_lbu + len_bu]  # lower bound u_min <= u
             lbx = lam[start_lbx : start_lbx + nx]  # lower bound x_min - sigma <= x
-            ubu = lam[start_ubu : start_ubu + nu]  # upper bound u_min <= u
+            ubu = lam[start_ubu : start_ubu + len_bu]  # upper bound u_min <= u
             ubx = lam[start_ubx : start_ubx + nx]  # upper bound x <= x_max + sigma
             uh = lam[start_uh : start_uh + nh]  # upper bound for h(t) < 0
-            lsbx = lam[start_lsbx : start_lsbx + nx]  # lower slack bound for x_min - sigma <= x
-            usbx = lam[start_usbx : start_usbx + nx]  # Lower bound on slacks x <= x_max + sigma
+            len_sbx_i = nx if i > 0 else 0
+            lsbx = lam[start_lsbx : start_lsbx + len_sbx_i]  # lower slack bound for x_min - sigma <= x
+            usbx = lam[start_usbx : start_usbx + len_sbx_i]  # Lower bound on slacks x <= x_max + sigma
             ush = lam[start_ush : start_ush + nh]  # Lower bound on slacks for h(t) < 0 + sigma
 
             if i == 0:
                 su = self._acados_ocp_solver.get(i, "su")
                 slacks_so.extend(su[:max_num_so_constr].tolist())
                 slacks_do.extend(su[max_num_so_constr:].tolist())
-                lsbx = np.empty(0)
-                usbx = np.empty(0)
-            elif i == self._acados_ocp.dims.N:
-                lbu = np.empty(0)
-                ubu = np.empty(0)
 
             lam_bu.extend(lbu.tolist() + ubu.tolist())
             lam_bx.extend(lbx.tolist() + ubx.tolist())
