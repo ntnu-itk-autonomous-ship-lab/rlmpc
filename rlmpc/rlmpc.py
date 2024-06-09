@@ -432,7 +432,6 @@ class RLMPC(ci.ICOLAV):
         self._mpc.set_params(params)
         self._config.mpc = self._mpc.params
 
-
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
 
@@ -596,7 +595,7 @@ class RLMPC(ci.ICOLAV):
                 p_do = do_tup[1][:2]
                 if mapf.point_in_polygon_list(p_do, self._all_polygons):
                     # print(f"Dynamic obstacle {i} is on land, i.e. not relevant")
-                    on_land_indices.append(i)
+                    on_land_indices.append(do_tup[0])
             translated_do_list = [
                 translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
             ]

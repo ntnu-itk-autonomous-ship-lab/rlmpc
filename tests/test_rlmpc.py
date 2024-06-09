@@ -28,7 +28,9 @@ class TestRLMPC(unittest.TestCase):
             max_number_of_episodes=1,
         )
         self.simulator.toggle_liveplot_visibility(True)
-        output = self.simulator.run([scenario_data], colav_systems=[(0, self.rlmpc_obj)])
+        output = self.simulator.run(
+            [scenario_data], colav_systems=[(0, self.rlmpc_obj)], terminate_on_collision_or_grounding=True
+        )
         self.assertEqual(True, True)
 
 

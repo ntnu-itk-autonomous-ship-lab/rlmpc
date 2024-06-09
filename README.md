@@ -1,5 +1,5 @@
 
-# RL-RRT-MPC
+# rlmpc
 This repository implements a two-layer trajectory planning algorithm consisting of an RRT for top-level static obstacle collision-free motion planning and an RL-MPC for mid-level local collision-free trajectory planning.
 
 
