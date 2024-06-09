@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type
 
+import colav_simulator.common.math_functions as cs_mf
 import numpy as np
 import rlmpc.common.config_parsing as cp
 import rlmpc.common.paths as dp
@@ -21,6 +22,7 @@ import rlmpc.mpc.models as models
 import rlmpc.mpc.parameters as mpc_parameters
 import scipy.interpolate as interp
 import seacharts.enc as senc
+import sympy as sp
 
 uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
@@ -265,23 +267,37 @@ class MidlevelMPC:
             mpc_soln_ac["soln"]["x"] = self._casadi_mpc.decision_variables(
                 mpc_soln_ac["inputs"], mpc_soln_ac["trajectory"], mpc_soln_ac["slacks"]
             ).full()
-        # else:
-        mpc_soln_csd = self._casadi_mpc.plan(
-            t,
-            xs,
-            do_cr_list,
-            do_ho_list,
-            do_ot_list,
-            warm_start,
-            perturb_nlp=perturb_nlp,
-            perturb_sigma=perturb_sigma,
-            **kwargs,
-        )
+        else:
+            mpc_soln_csd = self._casadi_mpc.plan(
+                t,
+                xs,
+                do_cr_list,
+                do_ho_list,
+                do_ot_list,
+                warm_start,
+                perturb_nlp=perturb_nlp,
+                perturb_sigma=perturb_sigma,
+                **kwargs,
+            )
         mpc_soln = mpc_soln_ac if self._acados_enabled else mpc_soln_csd
+
+        # self._check_optimality_conditions(mpc_soln_ac, mpc_soln_csd)
+
+        return mpc_soln
+
+    def _check_optimality_conditions(self, mpc_soln_ac: dict, mpc_soln_csd: dict) -> None:
+        """Check the optimality conditions for the acados and casadi solvers.
+
+        Args:
+            mpc_soln_ac (dict): Solution dictionary from the acados solver.
+            mpc_soln_csd (dict): Solution dictionary from the casadi solver.
+        """
         lam_g_ac = mpc_soln_ac["soln"]["lam_g"].flatten() if self._acados_enabled else np.array([])
         lam_g_csd = mpc_soln_csd["soln"]["lam_g"].flatten()
         lam_g_diff = lam_g_ac - lam_g_csd
-        w_diff = mpc_soln_ac["soln"]["x"].flatten() - mpc_soln_csd["soln"]["x"].flatten()
+        w_ac = mpc_soln_ac["soln"]["x"].flatten() if self._acados_enabled else np.array([])
+        w_csd = mpc_soln_csd["soln"]["x"].flatten()
+        w_diff = w_ac - w_csd
         z_ac = np.concatenate(
             (
                 mpc_soln_ac["soln"]["x"].flatten(),
@@ -297,4 +313,66 @@ class MidlevelMPC:
         R_kkt_ac = self.sens.r_kkt(z_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
         R_kkt_csd = self.sens.r_kkt(z_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
 
-        return mpc_soln
+        dlag_dw_ac = self.sens.dlag_dw(
+            mpc_soln_ac["soln"]["x"], lam_g_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+        ).full()
+        dlag_dw_csd = self.sens.dlag_dw(
+            mpc_soln_csd["soln"]["x"], lam_g_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+        ).full()
+        print("Checking first order necessary conditions for optimality...: ")
+        print(
+            "dlag_dw = 0 condition | acados: ", np.linalg.norm(dlag_dw_ac), " | casadi: ", np.linalg.norm(dlag_dw_csd)
+        )
+
+        eq_constr_ac = self.sens.G(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+        eq_jac_ac = self.sens.G_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+        ineq_constr_ac = self.sens.H(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+        ineq_jac_ac = self.sens.H_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+        n_eq_constr = eq_jac_ac.shape[0]
+
+        eq_constr_csd = self.sens.G(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+        eq_jac_csd = self.sens.G_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+        ineq_constr_csd = self.sens.H(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+        ineq_jac_csd = self.sens.H_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+
+        print(
+            f"c_i(x*) = 0 for all i in E | acados: {np.all(np.abs(eq_constr_ac) < 1e-4)} | casadi: {np.all(np.abs(eq_constr_csd) < 1e-4)}"
+        )
+        print(
+            f"c_i(x*) <= 0 for all i in I | acados: {np.all(ineq_constr_ac < 1e-4)} | casadi: {np.all(ineq_constr_csd < 1e-4)}"
+        )
+        active_constraints_ac = np.where(np.abs(np.concatenate((eq_constr_ac, ineq_constr_ac))) < 1e-4)[0]
+        active_constraints_csd = np.where(np.abs(np.concatenate((eq_constr_csd, ineq_constr_csd))) < 1e-4)[0]
+
+        active_constr_jac_ac = np.concatenate((eq_jac_ac, ineq_jac_ac), axis=0)[active_constraints_ac, :]
+        rank_active_constr_jac_ac = np.linalg.matrix_rank(active_constr_jac_ac)
+        max_rank_ac = np.min(active_constr_jac_ac.shape)
+        active_constr_jac_csd = np.concatenate((eq_jac_csd, ineq_jac_csd), axis=0)[active_constraints_csd, :]
+        rank_active_constr_jac_csd = np.linalg.matrix_rank(active_constr_jac_csd)
+        max_rank_csd = np.min(active_constr_jac_csd.shape)
+
+        # dep_rows_ac = cs_mf.find_dependent_rows(active_constr_jac_ac.copy())
+        # dep_rows_csd = cs_mf.find_dependent_rows(active_constr_jac_csd.copy())
+        # for dep in dep_rows_ac:
+        #     print(self._casadi_mpc.g_str_list[active_constraints_ac[dep]])
+
+        print(
+            f"Lamda_i >= 0 for i in I | acados: {np.all(lam_g_ac[n_eq_constr:] >= 0)} | casadi: {np.all(lam_g_csd[n_eq_constr:] >= 0)}"
+        )
+        print(
+            f"Lambda_i * c_i(x*) = 0 for all i in (I and E) | acados: {np.all(lam_g_ac * np.concatenate((eq_constr_ac, ineq_constr_ac)).flatten() < 1e-4)} | casadi: {np.all(lam_g_csd * np.concatenate((eq_constr_csd, ineq_constr_csd)).flatten() < 1e-4)}"
+        )
+
+        print(
+            f"Active constraint jacobian rank/max_rank | acados: {rank_active_constr_jac_ac}/{max_rank_ac} | casadi: {rank_active_constr_jac_csd}/{max_rank_csd}"
+        )
+
+        # print("Checking second order necessary conditions for optimality: ")
+        # hess_ac = self.sens.d2lag_d2w(
+        #     w_ac, np.concatenate((mpc_soln_ac["p"], mpc_soln_ac["p_fixed"])), 1.0, lam_g_ac
+        # ).full()
+        # hess_csd = self.sens.d2lag_d2w(
+        #     w_csd, np.concatenate((mpc_soln_csd["p"], mpc_soln_csd["p_fixed"])), 1.0, lam_g_csd
+        # ).full()
+
+        print("Hessian >= 0 on null space of equality constraints: ")

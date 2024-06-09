@@ -96,9 +96,9 @@ midlevel_mpc:
   solver_options:
     casadi:
       solver_type: "ipopt"
-      solver_tol: 0.00000001
-      constr_viol_tol: 0.000001 # harder to "compute good gradient steps" for mpc-parameterizations
-      compl_inf_tol: 0.000001
+      solver_tol: 0.00001
+      constr_viol_tol: 0.00001 # harder to "compute good gradient steps" for mpc-parameterizations
+      compl_inf_tol: 0.00001
       print_level: 3
       print_time: 0
       mu_target: 0.00000001 # start higher
@@ -113,11 +113,11 @@ midlevel_mpc:
       derivative_test: "none"
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 200
+      nlp_solver_max_iter: 300
       nlp_solver_tol_stat: 0.00001
       nlp_solver_tol_eq: 0.00001
       nlp_solver_tol_ineq: 0.00001
-      nlp_solver_tol_comp: 0.00001
+      nlp_solver_tol_comp: 0.0001
       nlp_solver_ext_qp_res: 1
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" # "FULL_CONDENSING_QPOASES"
       qp_solver_iter_max: 50

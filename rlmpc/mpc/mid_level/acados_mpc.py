@@ -497,13 +497,11 @@ class AcadosMPC:
             usbx = lam[start_usbx : start_usbx + len_sbx_i]  # Lower bound on slacks x <= x_max + sigma
             ush = lam[start_ush : start_ush + nh]  # Lower bound on slacks for h(t) < 0 + sigma
 
-            if i == 0:
-                su = solver.get(i, "su")
-                slacks_so.extend(su[:max_num_so_constr].tolist())
-                slacks_do.extend(su[max_num_so_constr:].tolist())
-
             lam_bu.extend(lbu.tolist() + ubu.tolist())
-            lam_bx.extend(lbx.tolist() + ubx.tolist())
+            if i == 0:
+                lam_eq.extend((lbx - ubx).tolist())
+            else:
+                lam_bx.extend(lbx.tolist() + ubx.tolist())
             lam_hs_bx.extend(lsbx.tolist() + usbx.tolist())
             lam_hs_so.extend(ush[:max_num_so_constr].tolist())
             lam_hs_do.extend(ush[max_num_so_constr:].tolist())
@@ -513,8 +511,11 @@ class AcadosMPC:
             #     print(
             #         f"dim lam_g_ineq_0 = {lbu.size + ubu.size + lbx.size + ubx.size + uh.size + lsbx.size + usbx.size + ush.size}"
             #     )
-
-            if i > 0:  # only extract upper slacks for nonlinear path constraints, and all slacks for the rest
+            if i == 0:
+                su = solver.get(i, "su")
+                slacks_so.extend(su[:max_num_so_constr].tolist())
+                slacks_do.extend(su[max_num_so_constr:].tolist())
+            else:  # only extract upper slacks for nonlinear path constraints, and all slacks for the rest
                 lower_slacks = solver.get(i, "sl")
                 upper_slacks = solver.get(i, "su")
                 slacks_bx.extend(lower_slacks[0:nx].tolist() + upper_slacks[0:nx].tolist())

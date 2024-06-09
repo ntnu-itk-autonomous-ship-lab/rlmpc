@@ -108,6 +108,8 @@ class CasadiMPC:
         self._idx_slacked_bx_constr: np.ndarray = np.array([])
         self._action_indices = [0, 1, 2]
 
+        self.g_str_list: list = []
+
         # debugging functions
         self._p_path = csd.MX.sym("p_path", 0)
         self._p_rate = csd.MX.sym("p_rate", 0)
@@ -395,6 +397,10 @@ class CasadiMPC:
         g_so_constr_vals = (
             self._static_obstacle_constraints(self._current_warmstart["x"], parameter_values).full().flatten()
         )
+        if g_so_constr_vals.size == 0:
+            g_so_constr_vals = np.array([0.0])
+        if g_do_constr_vals.size == 0:
+            g_do_constr_vals = np.array([0.0])
         if g_eq_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6).flatten().T}!"
@@ -620,6 +626,14 @@ class CasadiMPC:
         X = []
         Sigma, Sigma_bx, Sigma_do, Sigma_so = [], [], [], []
 
+        hx_constr_str_list = []
+        hu_constr_str_list = []
+        hs_bx_constr_str_list = []
+        hs_so_constr_str_list = []
+        hs_do_constr_str_list = []
+        g_ineq_str_list = []
+        g_eq_str_list = []
+
         # if self._p_mdl.shape[0] > 0:
         #     p_adjustable.append(self._p_mdl)
 
@@ -632,8 +646,8 @@ class CasadiMPC:
         x_0 = csd.MX.sym("x_0_constr", nx, 1)
         x_k = csd.MX.sym("x_0", nx, 1)
         X.append(x_k)
-        hx.append(x_0 - x_k)  # x_0 <= x_k
-        hx.append(x_k - x_0)  # x_k <= x_0
+        g_eq_list.append(x_0 - x_k)  # x_k == x_0
+        g_eq_str_list.extend([f"x_0_constr{i} - x_0{i}" for i in range(nx)])
         p_fixed.append(x_0)
 
         self._idx_slacked_bx_constr = np.array([0, 1, 2, 3, 4, 5])
@@ -751,6 +765,8 @@ class CasadiMPC:
             U.append(u_k)
             hu.append(lbu_k - u_k)  # lbu <= u_k
             hu.append(u_k - ubu_k)  # u_k <= ubu
+            hu_constr_str_list.extend([f"lbu{l} <= u_" + str(k) + str(l) for l in range(nu)])
+            hu_constr_str_list.extend(["u_" + str(k) + f"{l} <= ubu{l}" for l in range(nu)])
 
             slack_penalty_cost = 0.0
             if k > 0:  # We do not slack the first state variable.
@@ -768,12 +784,24 @@ class CasadiMPC:
                 Sigma_bx.append(sigma_bxu_k)
                 hs_bx.append(-sigma_bxl_k)  # 0 <= sigma_bx_k
                 hs_bx.append(-sigma_bxu_k)  # 0 <= sigma_bx_k
+                hs_bx_constr_str_list.extend(
+                    ["-sigma_bxl_" + str(k) + f"{l} <= 0" for l in range(sigma_bxl_k.shape[0])]
+                )
+                hs_bx_constr_str_list.extend(
+                    ["-sigma_bxu_" + str(k) + f"{l} <= 0" for l in range(sigma_bxu_k.shape[0])]
+                )
                 hx.append(
                     lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bxl_k
                 )  # lbx - sigma_bx <= x_k
                 hx.append(
                     x_k[self._idx_slacked_bx_constr] - sigma_bxu_k - ubx_k[self._idx_slacked_bx_constr]
                 )  # x_k <= ubx + sigma_bx
+                hx_constr_str_list.extend(
+                    [f"lbx{l} - sigma_bx{k}{l} <= x_" + str(k) + str(l) for l in range(sigma_bxl_k.shape[0])]
+                )
+                hx_constr_str_list.extend(
+                    ["x_" + str(k) + f"{l} <= ubx{l} + sigma_bx{k}{l}" for l in range(sigma_bxu_k.shape[0])]
+                )
                 sigma_bx_k = csd.vertcat(sigma_bxl_k, sigma_bxu_k)
                 slack_penalty_cost += W_bx.T @ sigma_bx_k
 
@@ -791,10 +819,12 @@ class CasadiMPC:
             if max_num_so_constr > 0:
                 Sigma_so.append(sigma_so_k)
                 hs_so.append(-sigma_so_k)  # 0 <= sigma_so_k
+                hs_so_constr_str_list.extend(["-sigma_so_" + str(k) + f"{l} <= 0" for l in range(sigma_so_k.shape[0])])
                 slack_penalty_cost += W_so.T @ sigma_so_k
             if self._params.max_num_do_constr_per_zone > 0:
                 Sigma_do.append(sigma_do_k)
                 hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
+                hs_do_constr_str_list.extend(["-sigma_do_" + str(k) + f"{l} <= 0" for l in range(sigma_do_k.shape[0])])
                 slack_penalty_cost += W_do.T @ sigma_do_k
 
             x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
@@ -853,16 +883,19 @@ class CasadiMPC:
             so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_so_k, so_surfaces)
             so_constr_list.extend(so_constr_k)
             g_ineq_list.extend(so_constr_k)
+            g_ineq_str_list.extend(["h_so_" + str(k) + f"{l} <= 0" for l in range(len(so_constr_k))])
 
             X_do_k = csd.vertcat(X_do_cr[:, k], X_do_ho[:, k], X_do_ot[:, k])
             do_constr_k = self._create_dynamic_obstacle_constraint(x_k, sigma_do_k, X_do_k, nx_do, r_safe_do)
             do_constr_list.extend(do_constr_k)
             g_ineq_list.extend(do_constr_k)
+            g_ineq_str_list.extend(["h_do_" + str(k) + f"{l} <= 0" for l in range(len(do_constr_k))])
 
             x_k_end, _, _, _, _, _, _, _ = erk4(x_k, csd.vertcat(u_k, self._p_mdl))
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
             X.append(x_k)
             g_eq_list.append(x_k_end - x_k)
+            g_eq_str_list.extend(["F(x_" + str(k) + f"){l} - x_" + str(k + 1) + f"{l} = 0" for l in range(nx)])
 
             if k == 0:
                 print(
@@ -890,12 +923,20 @@ class CasadiMPC:
         Sigma_bx.append(sigma_bxu_k)
         hs_bx.append(-sigma_bxl_k)  # 0 <= sigma_bxl_k
         hs_bx.append(-sigma_bxu_k)  # 0 <= sigma_bxu_k
+        hs_bx_constr_str_list.extend(["-sigma_bxl_" + str(N) + f"{l} <= 0" for l in range(sigma_bxl_k.shape[0])])
+        hs_bx_constr_str_list.extend(["-sigma_bxu_" + str(N) + f"{l} <= 0" for l in range(sigma_bxu_k.shape[0])])
         hx.append(
             lbx_k[self._idx_slacked_bx_constr] - x_k[self._idx_slacked_bx_constr] - sigma_bxl_k
         )  # lbx - sigma_bxl <= x_k
         hx.append(
             x_k[self._idx_slacked_bx_constr] - sigma_bxu_k - ubx_k[self._idx_slacked_bx_constr]
         )  # x_k <= ubx + sigma_bxu
+        hx_constr_str_list.extend(
+            [f"lbx{l} - sigma_bxl{N}{l} <= x_" + str(N) + str(l) for l in range(sigma_bxl_k.shape[0])]
+        )
+        hx_constr_str_list.extend(
+            ["x_" + str(N) + f"{l} <= ubx{l} + sigma_bxu{N}{l}" for l in range(sigma_bxu_k.shape[0])]
+        )
         sigma_bx_k = csd.vertcat(sigma_bxl_k, sigma_bxu_k)
         slack_penalty_cost = W_bx.T @ sigma_bx_k
         if max_num_so_constr > 0:
@@ -906,6 +947,7 @@ class CasadiMPC:
             )
             Sigma_so.append(sigma_so_k)
             hs_so.append(-sigma_so_k)  # 0 <= sigma_so_k
+            hs_so_constr_str_list.extend(["-sigma_so_" + str(N) + f"{l} <= 0" for l in range(sigma_so_k.shape[0])])
             slack_penalty_cost += W_so.T @ sigma_so_k
         if self._params.max_num_do_constr_per_zone > 0:
             sigma_do_k = csd.MX.sym(
@@ -915,6 +957,7 @@ class CasadiMPC:
             )
             Sigma_do.append(sigma_do_k)
             hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
+            hs_do_constr_str_list.extend(["-sigma_do_" + str(N) + f"{l} <= 0" for l in range(sigma_do_k.shape[0])])
             slack_penalty_cost += W_do.T @ sigma_do_k
         print(
             f"dim lam_g_ineq_N = {2 * nx + len(do_constr_k) + len(so_constr_k) + (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
@@ -938,11 +981,13 @@ class CasadiMPC:
         so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_so_k, so_surfaces)
         so_constr_list.extend(so_constr_N)
         g_ineq_list.extend(so_constr_N)
+        g_ineq_str_list.extend(["h_so_" + str(N) + f"{l} <= 0" for l in range(len(so_constr_N))])
 
         X_do_N = csd.vertcat(X_do_cr[:, N], X_do_ho[:, N], X_do_ot[:, N])
         do_constr_N = self._create_dynamic_obstacle_constraint(x_k, sigma_do_k, X_do_N, nx_do, r_safe_do)
         do_constr_list.extend(do_constr_N)
         g_ineq_list.extend(do_constr_N)
+        g_ineq_str_list.extend(["h_do_" + str(N) + f"{l} <= 0" for l in range(len(do_constr_N))])
 
         hs = hs_bx + hs_so + hs_do
 
@@ -980,6 +1025,15 @@ class CasadiMPC:
         self._g_ineq = g_ineq
         g = csd.vertcat(g_eq, g_ineq)
         self.ns_total = csd.vertcat(*Sigma).shape[0]
+        self.g_str_list = (
+            g_eq_str_list
+            + hu_constr_str_list
+            + hx_constr_str_list
+            + hs_bx_constr_str_list
+            + hs_so_constr_str_list
+            + hs_do_constr_str_list
+            + g_ineq_str_list
+        )
 
         # Create IPOPT solver object
         nlp_prob = {
@@ -1387,14 +1441,22 @@ class CasadiMPC:
         _, nu = self.model.dims()
         z = csd.vertcat(self._opt_vars, lamb, mu)
 
+        G_func = csd.Function("G_func", [self._opt_vars, self._p_fixed, self._p_adjustable], [G])
+        H_func = csd.Function("H_func", [self._opt_vars, self._p_fixed, self._p_adjustable], [H])
+
+        # Compute constraint jacobians
+        G_jac = csd.jacobian(G, self._opt_vars)
+        H_jac = csd.jacobian(H, self._opt_vars)
+        G_jac_func = csd.Function("G_jac_func", [self._opt_vars, self._p_fixed, self._p_adjustable], [G_jac])
+        H_jac_func = csd.Function("H_jac_func", [self._opt_vars, self._p_fixed, self._p_adjustable], [H_jac])
+
         # Build KKT matrix
         R_kkt = csd.vertcat(
             csd.transpose(dlag_dw),
             G,
             csd.diag(mu) @ H + tau,
         )
-        # check kkt conditions after
-        # # Generate sensitivity of the KKT matrix
+        # Generate sensitivity of the KKT matrix
         r_func = csd.Function("kkt_matrix_func", [z, self._p_fixed, self._p_adjustable], [R_kkt])
         dr_func = r_func.factory(
             "kkt_matrix_derivative_func", ["i0", "i1", "i2"], ["jac:o0:i0", "jac:o0:i1", "jac:o0:i2"]
@@ -1413,6 +1475,10 @@ class CasadiMPC:
         da_dp_func = csd.Function("da_dp_func", [z, self._p_fixed, self._p_adjustable], [da_dp])
         output_dict.update(
             {
+                "G": G_func,
+                "G_jac": G_jac_func,
+                "H": H_func,
+                "H_jac": H_jac_func,
                 "r_kkt": r_func,
                 "dr_dz": dR_dz_func,
                 "dr_dp": dr_dp_func,
@@ -1421,7 +1487,6 @@ class CasadiMPC:
                 "da_dp": da_dp_func,
             }
         )
-        # check how small the determinant of dr_dz isd
 
         # if generate_c_code:
         #     dr_dp_func.generate('dr_dp_func.c')

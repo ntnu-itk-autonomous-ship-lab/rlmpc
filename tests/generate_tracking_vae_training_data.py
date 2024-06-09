@@ -3,6 +3,7 @@ from pathlib import Path
 from sys import platform
 from typing import Callable, Tuple
 
+import colav_simulator.behavior_generator as cs_bg
 import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
@@ -65,10 +66,13 @@ if __name__ == "__main__":
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
-            if idx == 1:
+            if idx == 0:
                 continue
 
-            scenario_generator.seed(idx + 1)
+            scenario_generator.behavior_generator.set_ownship_method(
+                cs_bg.BehaviorGenerationMethod.ConstantSpeedAndCourse
+            )
+            scenario_generator.seed(idx)
             _ = scenario_generator.generate(
                 config_file=rl_dp.scenarios / (name + ".yaml"),
                 new_load_of_map_data=False if idx == 0 else False,
@@ -76,7 +80,7 @@ if __name__ == "__main__":
                 save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=90,
+                n_episodes=200,
                 delete_existing_files=True,
             )
 
@@ -88,7 +92,7 @@ if __name__ == "__main__":
                 save_scenario_folder=rl_dp.scenarios / "test_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=20,
+                n_episodes=50,
                 delete_existing_files=True,
             )
 
@@ -127,11 +131,11 @@ if __name__ == "__main__":
         "show_loaded_scenario_data": False,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env1",
-        "seed": 82,
+        "seed": 0,
     }
 
-    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland13.npy"
-    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland14.npy"
+    TRACKING_GRU_TRAINING_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland1.npy"
+    TRACKING_GRU_TEST_DATA_SAVE_FILE = "tracking_vae_test_data_rogaland1.npy"
 
     use_vec_env = True
     if use_vec_env:
@@ -165,7 +169,7 @@ if __name__ == "__main__":
                 "max_number_of_episodes": 9000000,
                 "scenario_file_folder": test_scenario_folders,
                 "merge_loaded_scenario_episodes": True,
-                "seed": 86,
+                "seed": 1,
                 "test_mode": True,
                 "simulator_config": eval_sim_config,
                 "reload_map": False,
@@ -178,7 +182,7 @@ if __name__ == "__main__":
         observations = [obs]
         frames = []
         tracking_obs_dim = list(obs["RelativeTrackingObservation"].shape)
-        n_steps = 1100
+        n_steps = 500
         tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
         for i in range(n_steps):
             actions = np.array([test_vec_env.action_space.sample() for _ in range(num_cpu)])
