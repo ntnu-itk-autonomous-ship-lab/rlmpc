@@ -19,9 +19,9 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 if platform == "linux" or platform == "linux2":
-    BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
+    BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/tracking_vae/")
 elif platform == "darwin":
-    BASE_PATH: Path = Path("/Users/trtengesdal/Desktop/machine_learning/data/tracking_vae/")
+    BASE_PATH: Path = Path("/Users/trtengesdal/Desktop/machine_learning/tracking_vae/")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")
@@ -240,12 +240,12 @@ def train_vae(
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dims = [8, 10, 15]  # , 10, 15, 20]
+    latent_dims = [10, 15]  # , 10, 15, 20]
     rnn_types = [torch.nn.GRU]
     num_rnn_layers_decoder = 1
     rnn_hidden_dim_decoder = 100
     num_heads = 6
-    embedding_dims = [240, 12, 48, 60, 72]  # [12, 24, 48]
+    embedding_dims = [240, 12, 48, 72, 96, 126]  # [12, 24, 48]
     input_dim = 6
 
     load_model = False
@@ -254,12 +254,19 @@ if __name__ == "__main__":
     num_epochs = 40
     learning_rate = 2e-4
 
-    data_dir = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
+    data_dir = Path("/home/doctor/Desktop/machine_learning/tracking_vae/data")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
     training_data_filename_list = []
-    for i in range(1, 15):
+    for i in range(1, 12):
         training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
+        training_data_filename_higher_noise = f"tracking_vae_training_data_rogaland_v2_{i}.npy"
         training_data_filename_list.append(training_data_filename)
+
+    test_data_filename_list = []
+    for i in range(1, 12):
+        test_data_filename_list.append(f"tracking_vae_test_data_rogaland{i}.npy")
+        if i < 3:
+            test_data_filename_list.append(f"tracking_vae_test_data_rogaland_v2_{i}.npy")
 
     test_data_npy_filename1 = "tracking_vae_test_data_rogaland1.npy"
     test_data_npy_filename2 = "tracking_vae_test_data_rogaland2.npy"
@@ -271,9 +278,10 @@ if __name__ == "__main__":
         ]
     )
 
-    test_dataset1 = rl_ds.TrackingObservationDataset(test_data_npy_filename1, data_dir)
-    test_dataset2 = rl_ds.TrackingObservationDataset(test_data_npy_filename2, data_dir)
-    test_dataset = torch.utils.data.ConcatDataset([test_dataset1, test_dataset2])
+    test_dataset = torch.utils.data.ConcatDataset(
+        [rl_ds.TrackingObservationDataset(test_data_file, data_dir) for test_data_file in test_data_filename_list]
+    )
+    # test_dataset = torch.utils.data.ConcatDataset([test_dataset1, test_dataset2])
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)

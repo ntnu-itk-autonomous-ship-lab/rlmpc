@@ -78,174 +78,164 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
 
 
 if platform == "linux" or platform == "linux2":
-    IMAGE_DATADIR: Path = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+    IMAGE_DATADIR: Path = Path("/home/doctor/Desktop/machine_learning/vae/data")
 elif platform == "darwin":
-    IMAGE_DATADIR: Path = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+    IMAGE_DATADIR: Path = Path("/Users/trtengesdal/Desktop/machine_learning/vae/data/")
 
 
 if __name__ == "__main__":
-    scenario_choice = 0
-    if scenario_choice == -1:
-        scenario_name = "crossing_give_way"
-        config_file = cs_dp.scenarios / (scenario_name + ".yaml")
-    elif scenario_choice == 0:
-        scenario_name = "boknafjorden_generation_test"
-        config_file = rl_dp.scenarios / (scenario_name + ".yaml")
-    elif scenario_choice == 1:
-        scenario_name = "rlmpc_scenario_ms_channel"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
-    elif scenario_choice == 3:
-        scenario_name = "rogaland_random_rl"
-        config_file = rl_dp.scenarios / "rogaland_random_rl.yaml"
-    elif scenario_choice == 4:
-        scenario_name = "rl_scenario"
-        config_file = rl_dp.scenarios / "rl_scenario.yaml"
-    elif scenario_choice == 5:
-        scenario_name = "rlmpc_scenario_random_everything"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything.yaml"
-    elif scenario_choice == 6:
-        scenario_name = "rlmpc_scenario_random_everything_test"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_random_everything_test.yaml"
-    elif scenario_choice == 7:
-        scenario_name = "rlmpc_scenario_random_many_vessels"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_random_many_vessels.yaml"
+    scenario_names = [
+        "rlmpc_scenario_ms_channel",
+        "rlmpc_scenario_random_many_vessels",
+    ]
+    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
+    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    scenario_generator = cs_sg.ScenarioGenerator(seed=5)
-
-    # scen = scenario_generator.load_scenario_from_folder(
-    #     rl_dp.scenarios / "training_data" / scenario_name, scenario_name, show=True
-    # )
-    scenario_data = scenario_generator.generate(
-        config_file=config_file,
-        new_load_of_map_data=True,
-        save_scenario=True,
-        save_scenario_folder=rl_dp.scenarios / "training_data" / scenario_name,
-        show_plots=True,
-        episode_idx_save_offset=0,
-    )
-
-    # Collect perception image data by executing random actions in N environments over the scenarios.
+    # map_size: [4000.0, 4000.0]
+    # map_origin_enu: [-33524.0, 6572500.0]
     observation_type = {
         "dict_observation": [
-            "navigation_3dof_state_observation",
-            "time_observation",
-            # "tracking_observation",
+            "path_relative_navigation_observation",
             "perception_image_observation",
+            "relative_tracking_observation",
+            "navigation_3dof_state_observation",
+            "tracking_observation",
+            "ground_truth_tracking_observation",
+            "disturbance_observation",
+            "time_observation",
         ]
     }
+
     env_id = "COLAVEnvironment-v0"
     env_config = {
-        "scenario_file_folder": rl_dp.scenarios / "training_data" / scenario_name,
-        "max_number_of_episodes": 100000000,
-        "test_mode": False,
+        "scenario_file_folder": training_scenario_folders,
+        "max_number_of_episodes": 100000,
         "render_update_rate": 0.5,
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
-        "seed": 11,
+        "seed": 0,
     }
-    IMG_SAVE_FILE = "perception_data_rogaland_random_everything_land_only2.npy"
-    SEGMASKS_SAVE_FILE = "segmentation_masks_rogaland_random_everything_land_only2.npy"
 
-    use_vec_env = False
-    if use_vec_env:
-        num_cpu = 18
-        vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
-        obs = vec_env.reset()
-        observations = [obs]
-        frames = []
-        img_dim = list(obs["PerceptionImageObservation"].shape)
-        n_steps = 2000
-        perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
-        masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
-        for i in range(n_steps):
-            actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
-            obs, reward, dones, info = vec_env.step(actions)
-            vec_env.render()
+    PERCEPTION_TRAINING_DATA_SAVE_FILE = "perception_training_data_rogaland"
+    SEGMASKS_TRAINING_SAVE_FILE = "segmentation_masks_training_data_rogaland"
+    PERCEPTION_TEST_DATA_SAVE_FILE = "perception_test_data_rogaland"
+    SEGMASKS_TEST_SAVE_FILE = "segmentation_masks_test_data_rogaland"
 
-            perception_images[i] = obs["PerceptionImageObservation"]
-            masks[i] = cs_ihm.create_simulation_image_segmentation_mask(perception_images[i])
-            if False:
-                fig, ax = plt.subplots(1, 2)
-                ax[0].imshow(perception_images[i, 0, 0], cmap="gray")
-                ax[1].imshow(masks[i, 0, 0], cmap="gray")
-                plt.show(block=False)
+    n_savefiles = 4
 
-            print(f"Progress: {i}/{n_steps}")
+    for sf in range(n_savefiles):
+        training_save_filename = PERCEPTION_TRAINING_DATA_SAVE_FILE + str(sf) + ".npy"
+        segmasks_training_save_filename = SEGMASKS_TRAINING_SAVE_FILE + str(sf) + ".npy"
+        test_save_filename = PERCEPTION_TEST_DATA_SAVE_FILE + str(sf) + ".npy"
+        segmasks_test_save_filename = SEGMASKS_TEST_SAVE_FILE + str(sf) + ".npy"
 
-        np.save(IMAGE_DATADIR / IMG_SAVE_FILE, perception_images)
-        np.save(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, masks)
+        use_vec_env = False
+        if use_vec_env:
+            num_cpu = 18
+            vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+            obs = vec_env.reset()
+            observations = [obs]
+            frames = []
+            img_dim = list(obs["PerceptionImageObservation"].shape)
+            n_steps = 2000
+            perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
+            masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
+            for i in range(n_steps):
+                actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
+                obs, reward, dones, info = vec_env.step(actions)
+                vec_env.render()
 
-        # imgs = np.load(IMAGE_DATADIR / IMG_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
-        # m = np.load(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+                perception_images[i] = obs["PerceptionImageObservation"]
+                masks[i] = cs_ihm.create_simulation_image_segmentation_mask(perception_images[i])
+                if False:
+                    fig, ax = plt.subplots(1, 2)
+                    ax[0].imshow(perception_images[i, 0, 0], cmap="gray")
+                    ax[1].imshow(masks[i, 0, 0], cmap="gray")
+                    plt.show(block=False)
 
-        vec_env.close()
-    else:
-        env = gym.make(id=env_id, **env_config)
+                print(f"Progress: {i}/{n_steps}")
 
-        record = False
-        if record:
-            video_path = rl_dp.animations / "demo.mp4"
-            env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
+            np.save(IMAGE_DATADIR / training_save_filename, perception_images)
+            np.save(IMAGE_DATADIR / segmasks_training_save_filename, masks)
 
-        obs, info = env.reset(seed=1)
-        img_dim = obs["PerceptionImageObservation"].shape
-        observations = []
-        frames = []
+            # imgs = np.load(IMAGE_DATADIR / IMG_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+            # m = np.load(IMAGE_DATADIR / SEGMASKS_SAVE_FILE, mmap_mode="r", allow_pickle=True).astype(np.uint8)
 
-        vae = VAE(
-            latent_dim=160, input_image_dim=(1, 256, 256), encoder_conv_block_dims=(32, 128, 256, 256), fc_dim=512
-        ).to(th.device("cpu"))
+            vec_env.close()
+        else:
+            env = gym.make(id=env_id, **env_config)
 
-        vae.load_state_dict(
-            th.load(
-                "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae2_model_LD_160_best.pth",
-                map_location=th.device("cpu"),
+            record = False
+            if record:
+                video_path = rl_dp.animations / "demo.mp4"
+                env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
+
+            obs, info = env.reset(seed=1)
+            img_dim = obs["PerceptionImageObservation"].shape
+            observations = []
+            frames = []
+
+            use_vae = False
+            if use_vae:
+                vae = VAE(
+                    latent_dim=160,
+                    input_image_dim=(1, 256, 256),
+                    encoder_conv_block_dims=(32, 128, 256, 256),
+                    fc_dim=512,
+                ).to(th.device("cpu"))
+
+                vae.load_state_dict(
+                    th.load(
+                        "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae2_model_LD_160_best.pth",
+                        map_location=th.device("cpu"),
+                    )
+                )
+                vae.eval()
+                vae.set_inference_mode(True)
+            img_transform = transforms_v2.Compose(
+                [
+                    transforms_v2.ToDtype(th.float32, scale=True),
+                    transforms_v2.Resize((256, 256)),
+                ]
             )
-        )
-        vae.eval()
-        vae.set_inference_mode(True)
-        img_transform = transforms_v2.Compose(
-            [
-                transforms_v2.ToDtype(th.float32, scale=True),
-                transforms_v2.Resize((256, 256)),
-            ]
-        )
-        display_transform = transforms_v2.Compose(
-            [
-                transforms_v2.ToDtype(th.uint8, scale=True),
-            ]
-        )
-        n_steps = 500
-        perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
-        masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
-        for i in range(n_steps):
-            random_action = env.action_space.sample()
-            obs, reward, terminated, truncated, info = env.step(random_action)
-            img = env.render()
+            display_transform = transforms_v2.Compose(
+                [
+                    transforms_v2.ToDtype(th.uint8, scale=True),
+                ]
+            )
+            n_steps = 500
+            perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
+            masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
+            for i in range(n_steps):
+                random_action = env.action_space.sample()
+                obs, reward, terminated, truncated, info = env.step(random_action)
+                img = env.render()
 
-            frames.append(img)
-            observations.append(obs)
+                frames.append(img)
+                observations.append(obs)
 
-            perception_images[i] = obs["PerceptionImageObservation"]
-            masks = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
-            pi_tensor = img_transform(th.tensor(perception_images[i]))
-            reconstructed_image, mean, log_var, sampled_latent_var = vae(pi_tensor.unsqueeze(0))
-            if True:
-                fig, ax = plt.subplots(1, 1)
-                ax.imshow(display_transform(pi_tensor)[0, :, :].detach().numpy(), cmap="hot")
-                ax.axes.get_xaxis().set_visible(False)
-                ax.axes.get_yaxis().set_visible(False)
-                fig, ax = plt.subplots(1, 1)
-                ax.imshow(display_transform(reconstructed_image)[0, 0, :, :].detach().numpy(), cmap="hot")
-                ax.axes.get_xaxis().set_visible(False)
-                ax.axes.get_yaxis().set_visible(False)
-                # ax[1].imshow(masks[i, 0, 0], cmap="gray")
-                plt.show(block=False)
-            if terminated or truncated:
-                env.reset()
+                perception_images[i] = obs["PerceptionImageObservation"]
+                masks = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
 
-        env.close()
+                if use_vae:
+                    pi_tensor = img_transform(th.tensor(perception_images[i]))
+                    reconstructed_image, mean, log_var, sampled_latent_var = vae(pi_tensor.unsqueeze(0))
+                if True:
+                    fig, ax = plt.subplots(1, 1)
+                    ax.imshow(display_transform(pi_tensor)[0, :, :].detach().numpy(), cmap="hot")
+                    ax.axes.get_xaxis().set_visible(False)
+                    ax.axes.get_yaxis().set_visible(False)
+                    fig, ax = plt.subplots(1, 1)
+                    ax.imshow(display_transform(reconstructed_image)[0, 0, :, :].detach().numpy(), cmap="hot")
+                    ax.axes.get_xaxis().set_visible(False)
+                    ax.axes.get_yaxis().set_visible(False)
+                    # ax[1].imshow(masks[i, 0, 0], cmap="gray")
+                    plt.show(block=False)
+                if terminated or truncated:
+                    env.reset()
+
+            env.close()
 
     save_gif = False
     if save_gif:
