@@ -98,7 +98,7 @@ def train_vae(
     training_losses = []
     testing_losses = []
 
-    input_dim = 6
+    input_dim = 7
     max_seq_length = 10
 
     # warmup_period = n_batches
@@ -207,7 +207,7 @@ def train_vae(
 
         testing_losses.append(test_batch_losses)
         weights = torch.ones_like(batch_obs)
-        weights[torch.where(batch_obs[:, :, 0] > 0.98)] = 0.0
+        weights[torch.where(batch_obs[:, :, 0] > 0.99)] = 0.0
         diff_ex = (reconstructed_obs[0] - batch_obs[0]) * weights
         print(f"diff_example = {diff_ex[0]}")
         print(f"diff weights = {weights[0]}")
@@ -240,13 +240,13 @@ def train_vae(
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dims = [10, 15]  # , 10, 15, 20]
+    latent_dims = [8, 10, 15]  # , 10, 15, 20]
     rnn_types = [torch.nn.GRU]
     num_rnn_layers_decoder = 1
-    rnn_hidden_dim_decoder = 100
-    num_heads = 6
-    embedding_dims = [240, 12, 48, 72, 96, 126]  # [12, 24, 48]
-    input_dim = 6
+    rnn_hidden_dim_decoder = 128
+    num_heads = 8
+    embedding_dims = [32, 64, 128, 256]
+    input_dim = 7
 
     load_model = False
     save_interval = 20
@@ -257,19 +257,13 @@ if __name__ == "__main__":
     data_dir = Path("/home/doctor/Desktop/machine_learning/tracking_vae/data")
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
     training_data_filename_list = []
-    for i in range(1, 12):
+    for i in range(1, 28):
         training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
-        training_data_filename_higher_noise = f"tracking_vae_training_data_rogaland_v2_{i}.npy"
         training_data_filename_list.append(training_data_filename)
 
     test_data_filename_list = []
     for i in range(1, 12):
         test_data_filename_list.append(f"tracking_vae_test_data_rogaland{i}.npy")
-        if i < 3:
-            test_data_filename_list.append(f"tracking_vae_test_data_rogaland_v2_{i}.npy")
-
-    test_data_npy_filename1 = "tracking_vae_test_data_rogaland1.npy"
-    test_data_npy_filename2 = "tracking_vae_test_data_rogaland2.npy"
 
     training_dataset = torch.utils.data.ConcatDataset(
         [

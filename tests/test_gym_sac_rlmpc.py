@@ -211,6 +211,7 @@ def main():
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
+        only_train_critic=True,
         verbose=1,
     )
     # model.load_critics(base_dir=base_dir, base_name="best_model_eval")

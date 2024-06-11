@@ -182,9 +182,10 @@ def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor)
     """
     dims = [i for i in range(1, len(x.shape))]
     weights = 10.0 * th.ones_like(x)
-    weights[:, :, 0][th.where(x[:, :, 0] >= -1.0)] = 50.0  # increase the weight for the first three channels
+    weights[:, :, 0][th.where(x[:, :, 0] >= -1.0)] = 50.0  # increase the weight for the first four channels
     weights[:, :, 1][th.where(x[:, :, 1] >= -1.0)] = 50.0
     weights[:, :, 2][th.where(x[:, :, 2] >= -1.0)] = 50.0
+    weights[:, :, 3][th.where(x[:, :, 3] >= -1.0)] = 50.0
     weights[th.where(x[:, :, 0] > 0.99)] = 0.0
     if weights.sum() == 0.0:
         print("Weights are zero!")

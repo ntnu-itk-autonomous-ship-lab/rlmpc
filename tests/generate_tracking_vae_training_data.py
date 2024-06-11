@@ -103,7 +103,7 @@ if __name__ == "__main__":
     observation_type = {
         "dict_observation": [
             "path_relative_navigation_observation",
-            "perception_image_observation",
+            # "perception_image_observation",
             "relative_tracking_observation",
             "navigation_3dof_state_observation",
             "tracking_observation",
@@ -140,13 +140,13 @@ if __name__ == "__main__":
     TRACKING_VAE_TEST_DATA_SAVE_FILE = "tracking_vae_test_data_rogaland"
     use_vec_env = True
 
-    n_files = 12
-    for f in range(1, n_files):
+    n_files = 28
+    for f in range(13, n_files):
         training_filename = TRACKING_VAE_TRAINING_DATA_SAVE_FILE + str(f) + ".npy"
         test_filename = TRACKING_VAE_TEST_DATA_SAVE_FILE + str(f) + ".npy"
         if use_vec_env:
             env_config.update({"seed": f + 150})
-            num_cpu = 18
+            num_cpu = 8
             training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
             obs = training_vec_env.reset()
             observations = [obs]
@@ -157,7 +157,7 @@ if __name__ == "__main__":
             for i in range(n_steps):
                 actions = np.array([training_vec_env.action_space.sample() for _ in range(num_cpu)])
                 obs, reward, dones, info = training_vec_env.step(actions)
-                training_vec_env.render()
+                # training_vec_env.render()
 
                 tracking_observations[i] = obs["RelativeTrackingObservation"]
                 print(f"Progress: {i}/{n_steps}")
@@ -193,7 +193,7 @@ if __name__ == "__main__":
                 actions = np.array([test_vec_env.action_space.sample() for _ in range(num_cpu)])
 
                 obs, reward, dones, info = test_vec_env.step(actions)
-                test_vec_env.render()
+                # test_vec_env.render()
 
                 tracking_observations[i] = obs["RelativeTrackingObservation"]
                 print(f"Progress: {i}/{n_steps}")

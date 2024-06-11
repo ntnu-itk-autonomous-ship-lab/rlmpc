@@ -34,7 +34,7 @@ class VAE(nn.Module):
         embedding_dim: int = 6,
         num_heads: int = 10,
         latent_dim: int = 10,
-        input_dim: int = 6,
+        input_dim: int = 7,
         num_layers: int = 1,
         inference_mode: bool = False,
         rnn_hidden_dim: int = 20,
