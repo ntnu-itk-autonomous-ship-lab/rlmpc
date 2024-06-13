@@ -897,14 +897,14 @@ class CasadiMPC:
             g_eq_list.append(x_k_end - x_k)
             g_eq_str_list.extend(["F(x_" + str(k) + f"){l} - x_" + str(k + 1) + f"{l} = 0" for l in range(nx)])
 
-            if k == 0:
-                print(
-                    f"dim lam_g_ineq_0 = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + sigma_so_k.shape[0] + sigma_do_k.shape[0]}"
-                )
-            elif k == 1:
-                print(
-                    f"dim lam_g_ineq_{k} = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + sigma_so_k.shape[0] + sigma_do_k.shape[0] + 2 * n_bx_slacks}"
-                )
+            # if k == 0:
+            #     print(
+            #         f"dim lam_g_ineq_0 = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + sigma_so_k.shape[0] + sigma_do_k.shape[0]}"
+            #     )
+            # elif k == 1:
+            #     print(
+            #         f"dim lam_g_ineq_{k} = {2 * nu + 2 * nx + len(do_constr_k) + len(so_constr_k) + sigma_so_k.shape[0] + sigma_do_k.shape[0] + 2 * n_bx_slacks}"
+            #     )
 
         J *= dt
 
@@ -959,9 +959,9 @@ class CasadiMPC:
             hs_do.append(-sigma_do_k)  # 0 <= sigma_do_k
             hs_do_constr_str_list.extend(["-sigma_do_" + str(N) + f"{l} <= 0" for l in range(sigma_do_k.shape[0])])
             slack_penalty_cost += W_do.T @ sigma_do_k
-        print(
-            f"dim lam_g_ineq_N = {2 * nx + len(do_constr_k) + len(so_constr_k) + (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
-        )
+        # print(
+        #     f"dim lam_g_ineq_N = {2 * nx + len(do_constr_k) + len(so_constr_k) + (sigma_so_k.shape[0] + sigma_do_k.shape[0]) + 2 * n_bx_slacks}"
+        # )
 
         x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
         y_path_k = self._y_path(x_k[4], self._y_path_coeffs)

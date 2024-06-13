@@ -24,15 +24,133 @@ import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution, StateDependentNoiseDistribution
+from stable_baselines3.common.policies import BaseModel
 from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import Schedule
-from stable_baselines3.sac.policies import BasePolicy, ContinuousCritic
+from stable_baselines3.sac.policies import BasePolicy
 from torch.nn import functional as F
 
 # CAP the standard deviation of the actor
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
+
+
+class CustomContinuousCritic(BaseModel):
+    """
+    CUSTOMIZED CRITIC NETWORK FOR SAC
+
+    It represents the action-state value function (Q-value function).
+    Compared to A2C/PPO critics, this one represents the Q-value
+    and takes the continuous action as input. It is concatenated with the state
+    and then fed to the network which outputs a single value: Q(s, a).
+    For more recent algorithms like SAC/TD3, multiple networks
+    are created to give different estimates.
+
+    By default, it creates two critic networks used to reduce overestimation
+    thanks to clipped Q-learning (cf TD3 paper).
+
+    :param observation_space: Obervation space
+    :param action_space: Action space
+    :param net_arch: Network architecture
+    :param features_extractor: Network to extract features
+        (a CNN when using images, a nn.Flatten() layer otherwise)
+    :param features_dim: Number of features
+    :param activation_fn: Activation function
+    :param normalize_images: Whether to normalize images or not,
+         dividing by 255.0 (True by default)
+    :param n_critics: Number of critic networks to create.
+    :param share_features_extractor: Whether the features extractor is shared or not
+        between the actor and the critic (this saves computation time)
+    """
+
+    features_extractor: rlmpc_fe.CombinedExtractor
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        net_arch: List[int],
+        features_extractor: rlmpc_fe.CombinedExtractor,
+        features_dim: int,
+        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
+        normalize_images: bool = True,
+        n_critics: int = 2,
+        share_features_extractor: bool = True,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            features_extractor=features_extractor,
+            normalize_images=normalize_images,
+        )
+
+        action_dim = get_action_dim(self.action_space)
+        self.share_features_extractor = share_features_extractor
+        self.n_critics = n_critics
+        self.q_networks: List[th.nn.Module] = []
+        for idx in range(n_critics):
+            q_net_list = self.create_mlp(
+                input_dim=features_dim + action_dim, output_dim=1, net_arch=net_arch, activation_fn=activation_fn
+            )
+            q_net = th.nn.Sequential(*q_net_list)
+            self.add_module(f"qf{idx}", q_net)
+            self.q_networks.append(q_net)
+
+    def create_mlp(
+        self,
+        input_dim: int,
+        output_dim: int,
+        net_arch: List[int],
+        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
+        squash_output: bool = False,
+        with_bias: bool = True,
+    ) -> List[th.nn.Module]:
+        """
+        Create a multi layer perceptron (MLP), which is
+        a collection of fully-connected layers with intermittent activation functions
+        each followed by an end activation function.
+
+        Args:
+            - input_dim (int): Dimension of the input vector
+            - output_dim (int): Dimension of the output vector
+            - net_arch (List[int]): Architecture of the neural net
+                It represents the number of units per layer.
+                The length of this list is the number of layers.
+            - activation_fn (Type[th.nn.Module]): The activation function to use in between layers.
+            - squash_output (bool): Whether to squash the output or not
+            - with_bias (bool): Whether to use bias in the layers or not
+
+        Returns:
+            - List[th.nn.Module]: The layers of the MLP
+        """
+        modules = []
+        feature_dim = input_dim
+        for arch in net_arch:
+            modules.append(th.nn.Linear(feature_dim, arch, bias=with_bias))
+            modules.append(activation_fn())
+            feature_dim = arch
+        modules.append(th.nn.Linear(feature_dim, output_dim, bias=with_bias))
+        if squash_output:
+            modules.append(th.nn.Tanh())
+        return modules
+
+    def forward(self, obs: th.Tensor, actions: th.Tensor) -> Tuple[th.Tensor, ...]:
+        # Learn the features extractor using the policy loss only
+        # when the features_extractor is shared with the actor
+        with th.set_grad_enabled(not self.share_features_extractor):
+            features = self.extract_features(obs, self.features_extractor)
+        qvalue_input = th.cat([features, actions], dim=1)
+        return tuple(q_net(qvalue_input) for q_net in self.q_networks)
+
+    def q1_forward(self, obs: th.Tensor, actions: th.Tensor) -> th.Tensor:
+        """
+        Only predict the Q-value using the first network.
+        This allows to reduce computation when all the estimates are not needed
+        (e.g. when updating the policy in TD3).
+        """
+        with th.no_grad():
+            features = self.extract_features(obs, self.features_extractor)
+        return self.q_networks[0](th.cat([features, actions], dim=1))
 
 
 class MPCParameterDNN(th.nn.Module):
@@ -69,7 +187,6 @@ class MPCParameterDNN(th.nn.Module):
         self.parameter_weights = 10.0 * th.diag(th.Tensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]))
         self.action_weight = 100.0 * th.diag(th.Tensor([1.0, 1.0]))
         self.mpc_cost_val_scaling = 0.0001
-        self.human_preference_cost_val_scaling = 0.0001
 
         offset = 0
         self.out_parameter_indices = {}
@@ -259,7 +376,7 @@ class SACMPCActor(BasePolicy):
         - observation_type (Any): Observation type
         - action_type (Any): Action type
         - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
-        - features_extractor_class (Type[BaseFeaturesExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
+        - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
         - features_extractor_kwargs (Optional[Dict[str, Any]]): Keyword arguments
         - use_sde (bool, optional): Whether to use State Dependent Exploration or not. Defaults to False.
         - log_std_init (float, optional): Initial value for the log standard deviation. Defaults to -3.
@@ -279,9 +396,7 @@ class SACMPCActor(BasePolicy):
         action_type: Any,
         mpc_param_provider_kwargs: Dict[str, Any],
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
-        use_sde: bool = False,
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
-        use_expln: bool = False,
         clip_mean: float = 2.0,
     ):
         super().__init__(
@@ -306,13 +421,12 @@ class SACMPCActor(BasePolicy):
         print(f"SAC MPC Actor gaussian std dev: {unnorm_std_init}")
 
         # Save arguments to re-create object at loading
-        self.use_sde = use_sde
-        self.sde_features_extractor = None
+        self.t_prev: float = 0.0
+        self.noise_application_duration: float = 40.0
         self.log_std_init = self.log_std
-        self.use_expln = use_expln
         self.clip_mean = clip_mean
         self.infeasible_solutions: int = 0
-
+        self.prev_noise_action = None
         action_dim = get_action_dim(self.action_space)
         self.action_dist = DiagGaussianDistribution(action_dim).proba_distribution(
             th.zeros(action_dim), log_std=self.log_std_init
@@ -331,16 +445,7 @@ class SACMPCActor(BasePolicy):
         self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.mpc.get_mpc_params()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
-        # lookahead_sample = self.mpc.lookahead_sample
-        # Indices for the RLMPC action a = [x_LD, y_LD, speed_0]
-        # where LD is the lookahead sample (3)
-        # self.action_indices = [
-        #     nu * n_samples + lookahead_sample * nx,
-        #     nu * n_samples + (lookahead_sample * nx + 1),
-        #     nu * n_samples + (lookahead_sample * nx + 3),
-        # ]
 
-        # second option, sequence of course and speed refs
         self.action_indices = [
             int(nu * n_samples + (2 * nx) + 2),  # chi 2
             int(nu * n_samples + (2 * nx) + 3),  # speed 2
@@ -351,38 +456,13 @@ class SACMPCActor(BasePolicy):
 
         data.update(
             dict(
-                use_sde=self.use_sde,
+                noise_application_duration=self.noise_application_duration,
                 log_std_init=self.log_std_init,
-                use_expln=self.use_expln,
                 features_extractor=self.features_extractor,
                 clip_mean=self.clip_mean,
             )
         )
         return data
-
-    def get_std(self) -> th.Tensor:
-        """
-        Retrieve the standard deviation of the action distribution.
-        Only useful when using gSDE.
-        It corresponds to ``th.exp(log_std)`` in the normal case,
-        but is slightly different when using ``expln`` function
-        (cf StateDependentNoiseDistribution doc).
-
-        :return:
-        """
-        msg = "get_std() is only available when using gSDE"
-        assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
-        return self.action_dist.get_std(self.log_std)
-
-    def reset_noise(self, batch_size: int = 1) -> None:
-        """
-        Sample new weights for the exploration matrix, when using gSDE.
-
-        :param batch_size:
-        """
-        msg = "reset_noise() is only available when using gSDE"
-        assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
-        self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
 
     def set_gradients(self, grads: th.Tensor) -> None:
         """Update the parameter gradients of the actor DNN mpc parameter provider policy.
@@ -488,6 +568,8 @@ class SACMPCActor(BasePolicy):
             print(f"Provided MPC parameters: {mpc_param_subset_dict} | Old: {old_mpc_params.tolist()}")
             # self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
             t, ownship_state, do_list, w = self.extract_mpc_observation_features(observation, idx)
+            if t < 0.001:
+                self.t_prev = t
             # w.print()
             prev_soln = state[idx] if state is not None else None
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
@@ -505,14 +587,19 @@ class SACMPCActor(BasePolicy):
                 }
             )
             if not deterministic:
-                norm_action = self.sample_action(norm_action)
+                self.prev_noise_action = (
+                    self.sample_action(norm_action)
+                    if t == 0.0 or t - self.t_prev >= self.noise_application_duration
+                    else self.prev_noise_action
+                )
+                norm_action = self.prev_noise_action
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
 
             actor_infos[idx] = info
             if not info["optimal"]:
                 self.infeasible_solutions += 1
-
+        self.t_prev = t
         return unnormalized_actions, normalized_actions, actor_infos
 
     def sample_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
@@ -648,7 +735,7 @@ class SACPolicyWithMPC(BasePolicy):
             a positive standard deviation (cf paper). It allows to keep variance
             above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
         - clip_mean (float, optional): Clip the mean output when using gSDE to avoid numerical instability. Defaults to 2.0.
-        - features_extractor_class (Type[BaseFeaturesExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
+        - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
         - features_extractor_kwargs (Optional[Dict[str, Any]], optional): Keyword arguments
             to pass to the features extractor. Defaults to None.
         - normalize_images (bool, optional): Whether to normalize images or not,
@@ -661,8 +748,8 @@ class SACPolicyWithMPC(BasePolicy):
     """
 
     actor: SACMPCActor
-    critic: ContinuousCritic
-    critic_target: ContinuousCritic
+    critic: CustomContinuousCritic
+    critic_target: CustomContinuousCritic
 
     def __init__(
         self,
@@ -675,11 +762,8 @@ class SACPolicyWithMPC(BasePolicy):
         mpc_param_provider_kwargs: Dict[str, Any] = {},
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        use_sde: bool = False,
-        std_init: np.ndarray | float = np.array([2.0, 2.0, 0.5]),
-        use_expln: bool = False,
-        clip_mean: float = 2.0,
-        features_extractor_class: Type[BaseFeaturesExtractor] = rlmpc_fe.CombinedExtractor,
+        std_init: np.ndarray | float = np.array([2.0, 2.0]),
+        features_extractor_class: Type[rlmpc_fe.CombinedExtractor] = rlmpc_fe.CombinedExtractor,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         normalize_images: bool = True,
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
@@ -716,19 +800,11 @@ class SACPolicyWithMPC(BasePolicy):
             "mpc_config": mpc_config,
             "observation_type": self.observation_type,
             "action_type": self.action_type,
-        }
-        sde_kwargs = {
-            "use_sde": use_sde,
             "std_init": std_init,
-            "use_expln": use_expln,
-            "clip_mean": clip_mean,
         }
-        self.actor_kwargs.update(sde_kwargs)
 
         self._build_critic(lr_schedule)
-
         self._build_actor(lr_schedule)
-        print("Actor and critic built!")
 
     def _build_critic(self, lr_schedule: Schedule) -> None:
         # Create a separate features extractor for the critic
@@ -784,9 +860,9 @@ class SACPolicyWithMPC(BasePolicy):
         )
         return data
 
-    def make_critic(self, features_extractor: Optional[BaseFeaturesExtractor] = None) -> ContinuousCritic:
+    def make_critic(self, features_extractor: Optional[rlmpc_fe.CombinedExtractor] = None) -> CustomContinuousCritic:
         critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
-        return ContinuousCritic(**critic_kwargs).to(self.device)
+        return CustomContinuousCritic(**critic_kwargs).to(self.device)
 
     def _predict(
         self,

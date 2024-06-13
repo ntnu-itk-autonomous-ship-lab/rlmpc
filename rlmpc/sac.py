@@ -13,14 +13,14 @@ import pathlib
 import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
+import colav_simulator.gym.environment as csgym_env
 import numpy as np
 import rlmpc.buffers as rlmpc_buffers
 import rlmpc.off_policy_algorithm as opa
+import rlmpc.policies as rlmpc_policies
 import stable_baselines3.common.noise as sb3_noise
 import torch as th
-from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
-from rlmpc.policies import SACMPCActor, SACPolicyWithMPC
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import get_parameters_by_name, polyak_update, set_random_seed, update_learning_rate
 from stable_baselines3.sac.policies import ContinuousCritic
@@ -46,7 +46,7 @@ class SAC(opa.OffPolicyAlgorithm):
     in https://github.com/hill-a/stable-baselines/issues/270
 
     Args:
-        - policy (SACPolicyWithMPC): The MPC policy model to use (SACPolicyWithMPC)
+        - policy (rlmpc_policies.SACPolicyWithMPC): The MPC policy model to use (rlmpc_policies.SACPolicyWithMPC)
         - env (Union[GymEnv, str]): The environment to learn from (if registered in Gym, can be str)
         - learning_rate (Union[float, Schedule]): learning rate for adam optimizer,
             the same learning rate will be used for all networks (Q-Values, Actor and Value function)
@@ -92,14 +92,14 @@ class SAC(opa.OffPolicyAlgorithm):
         - _init_setup_model (bool): Whether or not to build the network at the creation of the instance
     """
 
-    policy: SACPolicyWithMPC
-    actor: SACMPCActor
+    policy: rlmpc_policies.SACPolicyWithMPC
+    actor: rlmpc_policies.SACMPCActor
     critic: ContinuousCritic
     critic_target: ContinuousCritic
 
     def __init__(
         self,
-        policy: Type[SACPolicyWithMPC],
+        policy: Type[rlmpc_policies.SACPolicyWithMPC],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         buffer_size: int = 1_000,  # 1e6
@@ -115,9 +115,6 @@ class SAC(opa.OffPolicyAlgorithm):
         ent_coef: Union[str, float] = "auto",
         target_update_interval: int = 1,
         target_entropy: Union[str, float] = "auto",
-        use_sde: bool = False,
-        sde_sample_freq: int = -1,
-        use_sde_at_warmup: bool = False,
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         data_path: Optional[str] = None,
@@ -156,9 +153,6 @@ class SAC(opa.OffPolicyAlgorithm):
             verbose=verbose,
             device=device,
             seed=seed,
-            use_sde=use_sde,
-            sde_sample_freq=sde_sample_freq,
-            use_sde_at_warmup=use_sde_at_warmup,
             supported_action_spaces=(spaces.Box,),
             support_multi_env=True,
         )
@@ -212,7 +206,11 @@ class SAC(opa.OffPolicyAlgorithm):
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
     def custom_save(self, path: pathlib.Path) -> None:
-        """Saves the model parameters (NN critic and MPC actor)"""
+        """Saves the model parameters (NN critic and MPC actor)
+
+        Args:
+            - path (pathlib.Path): The path to save the model, includes the base model name.
+        """
         th.save(self.critic.state_dict(), pathlib.Path(str(path) + "_critic.pth"))
         th.save(self.critic_target.state_dict(), pathlib.Path(str(path) + "_critic_target.pth"))
         th.save(self.log_ent_coef, pathlib.Path(str(path) + "_log_ent_coef.pth"))
@@ -220,7 +218,11 @@ class SAC(opa.OffPolicyAlgorithm):
         th.save(self.actor.mpc_param_provider.state_dict(), pathlib.Path(str(path) + "_mpc_param_provider.pth"))
 
     def custom_load(self, path: pathlib.Path) -> None:
-        """Loads the model parameters (NN critic and MPC actor)"""
+        """Loads the model parameters (NN critic and MPC actor)
+
+        Args:
+            - path (pathlib.Path): The path to the saved model, includes the base model name.
+        """
         self.critic.load_state_dict(th.load(pathlib.Path(str(path) + "_critic.pth")))
         self.critic_target.load_state_dict(th.load(pathlib.Path(str(path) + "_critic_target.pth")))
         self.log_ent_coef = th.load(pathlib.Path(str(path) + "_log_ent_coef.pth"))
@@ -236,12 +238,12 @@ class SAC(opa.OffPolicyAlgorithm):
 
     def initialize_mpc_actor(
         self,
-        env: COLAVEnvironment,
+        env: csgym_env.COLAVEnvironment,
     ) -> None:
         self.policy.initialize_mpc_actor(env)
 
     def _create_aliases(self) -> None:
-        self.actor: SACMPCActor = self.policy.actor
+        self.actor: rlmpc_policies.SACMPCActor = self.policy.actor
         self.critic = self.policy.critic
         self.critic_target = self.policy.critic_target
 
@@ -257,6 +259,8 @@ class SAC(opa.OffPolicyAlgorithm):
 
         ent_coef_losses, ent_coefs = [], []
         actor_losses, critic_losses = [], []
+        mean_actor_loss = 0.0
+        mean_actor_grad_norm = 0.0
 
         for gradient_step in range(gradient_steps):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
@@ -319,6 +323,23 @@ class SAC(opa.OffPolicyAlgorithm):
             current_q_values = self.critic(replay_data.observations, replay_data.actions)
 
             # Compute critic loss
+            if self.only_train_critic:
+                # use cost function value from mpc
+                mpc_cost_scale = 1000.0
+                target_q_values = -th.from_numpy(
+                    np.array(
+                        [
+                            (
+                                info[0]["actor_info"]["cost_val"] / mpc_cost_scale
+                                if info[0]["actor_info"]["optimal"]
+                                else target_q_values[idx].item()
+                            )
+                            for idx, info in enumerate(replay_data.infos)
+                        ],
+                        dtype=np.float32,
+                    ).reshape(-1, 1)
+                )
+
             critic_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
             assert isinstance(critic_loss, th.Tensor)  # for type checker
             critic_losses.append(critic_loss.item())  # type: ignore[union-attr]
@@ -333,8 +354,6 @@ class SAC(opa.OffPolicyAlgorithm):
                 # Copy running stats, see GH issue #996
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
 
-            mean_actor_loss = 0.0
-            mean_actor_grad_norm = 0.0
             if not self.only_train_critic:
                 with th.no_grad():
                     sampled_log_prob = self.actor.action_log_prob(
@@ -400,8 +419,9 @@ class SAC(opa.OffPolicyAlgorithm):
                 self.actor.set_gradients(actor_grads.mean(dim=0))
                 self.actor.optimizer.step()
 
-        mean_actor_loss = actor_losses.clone().detach().mean().numpy()
-        mean_actor_grad_norm = np.linalg.norm(np.mean(actor_grads.clone().detach().numpy(), axis=0), ord=2)
+        if actor_losses:
+            mean_actor_loss = actor_losses.clone().detach().mean().numpy()
+            mean_actor_grad_norm = np.linalg.norm(np.mean(actor_grads.clone().detach().numpy(), axis=0), ord=2)
 
         self._n_updates += gradient_steps
 
@@ -415,14 +435,6 @@ class SAC(opa.OffPolicyAlgorithm):
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         if len(ent_coef_losses) > 0:
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
-
-        # log:
-        # - actor loss
-        # - actor gradient
-        # - critic loss
-        # - entropy coefficient loss
-        # - entropy coefficient
-        # - reward
 
     def learn(
         self: SelfSAC,

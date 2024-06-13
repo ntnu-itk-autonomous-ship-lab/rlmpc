@@ -22,7 +22,7 @@ rrtstar:
     params:
       max_nodes: 500
       max_iter: 10000
-      max_time: 1.0
+      max_time: 0.5
       iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
       goal_radius: 1000.0
@@ -75,7 +75,7 @@ midlevel_mpc:
     w_L2: 0.0
     w_L1: 2000.0 # 100000.0
     r_safe_so: 1.0
-    r_safe_do: 10.0
+    r_safe_do: 100.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
     max_num_so_constr: 10

@@ -19,11 +19,11 @@ from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 if platform == "linux" or platform == "linux2":
-    VAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/data/vae/")
-    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/data/tracking_vae")
+    VAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/perception_vae/")
+    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/tracking_vae/")
 elif platform == "darwin":
     VAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/vae_models/")
-    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/data/tracking_vae")
+    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/tracking_vae")
 
 
 class PerceptionImageVAE(BaseFeaturesExtractor):
@@ -139,13 +139,17 @@ class TrackingVAE(BaseFeaturesExtractor):
         self.max_seq_len = observation_space.shape[1]
 
         if model_file is None:
-            model_file = TRACKINGVAE_DATADIR / "tracking_avae2_NL_1_nonbi_HD_100_LD_10_NH_6_ED_240_best.pth"
+            model_file = (
+                TRACKINGVAE_DATADIR
+                / "tracking_avae78_NL_1_nonbi_HD_256_LD_10_NH_8_ED_512"
+                / "tracking_avae78_NL_1_nonbi_HD_256_LD_10_NH_8_ED_512_best.pth"
+            )
 
         self.vae: tracking_vae.VAE = tracking_vae.VAE(
             input_dim=self.input_dim,
-            embedding_dim=240,
-            num_heads=6,
-            rnn_hidden_dim=100,
+            embedding_dim=512,
+            num_heads=8,
+            rnn_hidden_dim=256,
             latent_dim=10,
             num_layers=1,
             rnn_type=th.nn.GRU,

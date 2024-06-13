@@ -94,7 +94,7 @@ def train_vae(
     best_train_loss = 1e20
     best_epoch = 0
 
-    beta = 0.5
+    beta = 0.7
     training_losses = []
     testing_losses = []
 
@@ -240,12 +240,12 @@ def train_vae(
 if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dims = [8, 10, 15]  # , 10, 15, 20]
+    latent_dims = [8, 10, 12, 15]  # , 10, 15, 20]
     rnn_types = [torch.nn.GRU]
     num_rnn_layers_decoder = 1
-    rnn_hidden_dim_decoder = 128
+    rnn_hidden_dims = [32, 64, 128, 256]
     num_heads = 8
-    embedding_dims = [32, 64, 128, 256]
+    embedding_dims = [32, 64, 128, 256, 512]
     input_dim = 7
 
     load_model = False
@@ -286,75 +286,77 @@ if __name__ == "__main__":
 
     best_experiment = ""
     best_loss_sofar = 1e20
+    opt_loss, opt_train_loss, opt_epoch = 0.0, 0.0, 0
     exp_counter = 0
-    for embedding_dim in embedding_dims:
-        for latent_dim in latent_dims:
-            vae = VAE(
-                latent_dim=latent_dim,
-                input_dim=input_dim,
-                embedding_dim=embedding_dim,
-                num_heads=num_heads,
-                num_layers=num_rnn_layers_decoder,
-                rnn_type=torch.nn.GRU,
-                rnn_hidden_dim=rnn_hidden_dim_decoder,
-                bidirectional=False,
-            ).to(device)
+    for decoder_hidden_dim in rnn_hidden_dims:
+        for embedding_dim in embedding_dims:
+            for latent_dim in latent_dims:
+                vae = VAE(
+                    latent_dim=latent_dim,
+                    input_dim=input_dim,
+                    embedding_dim=embedding_dim,
+                    num_heads=num_heads,
+                    num_layers=num_rnn_layers_decoder,
+                    rnn_type=torch.nn.GRU,
+                    rnn_hidden_dim=decoder_hidden_dim,
+                    bidirectional=False,
+                ).to(device)
 
-            name = f"tracking_avae{exp_counter+1}_NL_{num_rnn_layers_decoder}_nonbi_HD_{rnn_hidden_dim_decoder}_LD_{latent_dim}_NH_{num_heads}_ED_{embedding_dim}"
-            experiment_path = BASE_PATH / name
+                name = f"tracking_avae{exp_counter+1}_NL_{num_rnn_layers_decoder}_nonbi_HD_{decoder_hidden_dim}_LD_{latent_dim}_NH_{num_heads}_ED_{embedding_dim}"
+                experiment_path = BASE_PATH / name
 
-            writer = SummaryWriter(log_dir=log_dir / name)
-            optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
-            # T_max = len(train_dataloader) * num_epochs
-            # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
-            lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
-            # lr_schedule = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
+                writer = SummaryWriter(log_dir=log_dir / name)
+                optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
+                # T_max = len(train_dataloader) * num_epochs
+                # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
+                lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
+                # lr_schedule = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
-            if not experiment_path.exists():
-                experiment_path.mkdir(parents=True)
+                if not experiment_path.exists():
+                    experiment_path.mkdir(parents=True)
 
-            training_config = {
-                "base_path": BASE_PATH,
-                "experiment_path": experiment_path,
-                "experiment_name": name,
-                "latent_dim": latent_dim,
-                "num_rnn_layers_decoder": num_rnn_layers_decoder,
-                "rnn_hidden_dim_decoder": rnn_hidden_dim_decoder,
-                "num_heads": num_heads,
-                "embedding_dim": embedding_dim,
-                "input_dim": input_dim,
-                "batch_size": batch_size,
-                "num_epochs": num_epochs,
-                "learning_rate": learning_rate,
-                "save_interval": save_interval,
-                "load_model": load_model,
-            }
-            with Path(experiment_path / "config.yaml").open(mode="w", encoding="utf-8") as fp:
-                yaml.dump(training_config, fp)
+                training_config = {
+                    "base_path": BASE_PATH,
+                    "experiment_path": experiment_path,
+                    "experiment_name": name,
+                    "latent_dim": latent_dim,
+                    "num_rnn_layers_decoder": num_rnn_layers_decoder,
+                    "rnn_hidden_dim_decoder": decoder_hidden_dim,
+                    "num_heads": num_heads,
+                    "embedding_dim": embedding_dim,
+                    "input_dim": input_dim,
+                    "batch_size": batch_size,
+                    "num_epochs": num_epochs,
+                    "learning_rate": learning_rate,
+                    "save_interval": save_interval,
+                    "load_model": load_model,
+                }
+                with Path(experiment_path / "config.yaml").open(mode="w", encoding="utf-8") as fp:
+                    yaml.dump(training_config, fp)
 
-            model, opt_loss, opt_train_loss, opt_epoch = train_vae(
-                model=vae,
-                training_dataloader=train_dataloader,
-                test_dataloader=test_dataloader,
-                writer=writer,
-                n_epochs=num_epochs,
-                batch_size=batch_size,
-                optimizer=optimizer,
-                lr_schedule=lr_schedule,
-                save_interval=save_interval,
-                device=device,
-                early_stopping_patience=10,  # num_epochs,
-                experiment_path=experiment_path,
-            )
+                model, opt_loss, opt_train_loss, opt_epoch = train_vae(
+                    model=vae,
+                    training_dataloader=train_dataloader,
+                    test_dataloader=test_dataloader,
+                    writer=writer,
+                    n_epochs=num_epochs,
+                    batch_size=batch_size,
+                    optimizer=optimizer,
+                    lr_schedule=lr_schedule,
+                    save_interval=save_interval,
+                    device=device,
+                    early_stopping_patience=10,  # num_epochs,
+                    experiment_path=experiment_path,
+                )
 
-            print(
-                f"[EXPERIMENT: {exp_counter + 1}]: LD={latent_dim}, NL={num_rnn_layers_decoder}, HD={rnn_hidden_dim_decoder}, NH={num_heads}, ED={embedding_dim} | Optimal loss: {opt_loss} at epoch {opt_epoch}"
-            )
+                print(
+                    f"[EXPERIMENT: {exp_counter + 1}]: LD={latent_dim}, NL={num_rnn_layers_decoder}, HD={decoder_hidden_dim}, NH={num_heads}, ED={embedding_dim} | Optimal loss: {opt_loss} at epoch {opt_epoch}"
+                )
 
-            if opt_loss < best_loss_sofar:
-                best_loss_sofar = opt_loss
-                best_experiment = name
+                if opt_loss < best_loss_sofar:
+                    best_loss_sofar = opt_loss
+                    best_experiment = name
 
-            exp_counter += 1
+                exp_counter += 1
 
     print(f"BEST EXPERIMENT: {best_experiment} WITH LOSS: {best_loss_sofar}")

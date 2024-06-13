@@ -258,14 +258,18 @@ class RLMPC(ci.ICOLAV):
         self._rrtstar.transfer_safe_sea_triangulation(planning_cdt)
         self._rrtstar.set_goal_state(self._goal_state.tolist())
 
-        if self._debug:
-            self.plot_path()
-
         os_poly = mapf.create_ship_polygon(
-            ownship_csog_state[0], ownship_csog_state[1], ownship_csog_state[2], 8.0, 3.0, 1.0, 1.0
+            ownship_csog_state[0],
+            ownship_csog_state[1],
+            ownship_csog_state[2],
+            self._config.ship_length,
+            self._config.ship_width,
+            1.0,
+            1.0,
         )
 
         if self._debug:
+            self.plot_path()
             self._enc.draw_polygon(os_poly, color="pink")
             self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=3.0, color="black")
             # self.plot_surfaces(ownship_state)
@@ -357,9 +361,9 @@ class RLMPC(ci.ICOLAV):
             ]
         )
 
-        print(
-            f"t: {t} | U_mpc: {U_0_ref:.4f} | U: {U:.4f} | chi_mpc: {180.0 * chi_0_ref / np.pi:.4f} | chi: {180.0 * chi / np.pi:.4f} | chi_diff: {180.0 * cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi) / np.pi:.4f} | r_mpc: {0.0} | r: {ownship_state[5]:.4f}"
-        )
+        # print(
+        #     f"t: {t} | U_mpc: {U_0_ref:.4f} | U: {U:.4f} | chi_mpc: {180.0 * chi_0_ref / np.pi:.4f} | chi: {180.0 * chi / np.pi:.4f} | chi_diff: {180.0 * cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi) / np.pi:.4f} | r_mpc: {0.0} | r: {ownship_state[5]:.4f}"
+        # )
         # double check action indices:
         # nx, nu, ns, _ = self._mpc.dims()
         # n_samples = self._mpc.params.T / self._mpc.params.dt
@@ -545,7 +549,6 @@ class RLMPC(ci.ICOLAV):
 
     def plot_path(self) -> None:
         """Plot the nominal path."""
-        self._enc.start_display()
         nominal_trajectory = self._ktp.compute_reference_trajectory(2.0)
         nominal_trajectory = nominal_trajectory + np.array(
             [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

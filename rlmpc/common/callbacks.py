@@ -12,14 +12,14 @@ import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import colav_simulator.gym.environment as colav_env
+import colav_simulator.gym.logger as colav_env_logger
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch as th
 import torchvision.transforms.v2 as transforms_v2
-from colav_simulator.gym.environment import COLAVEnvironment
-from colav_simulator.gym.logger import Logger as COLAVEnvironmentLogger
 from stable_baselines3.common import type_aliases
 from stable_baselines3.common.callbacks import BaseCallback, EventCallback
 from stable_baselines3.common.logger import Image as sb3_Image
@@ -218,7 +218,7 @@ def report(env, report_dir: Path, lastn: int = 100) -> None:
 class CollectStatisticsCallback(BaseCallback):
     def __init__(
         self,
-        env: gym.Env,
+        env: colav_env.COLAVEnvironment,
         log_dir: Path,
         experiment_name: str,
         save_stats_freq: int = 1000,
@@ -229,7 +229,7 @@ class CollectStatisticsCallback(BaseCallback):
         """Initializes the CollectStatisticsCallback class.
 
         Args:
-            env (COLAVEnvironment): The environment to collect statistics from.
+            env (colav_env.COLAVEnvironment): The environment to collect statistics from.
             save_stats_freq (int): Frequency to save statistics.
             record_agent_freq (int): Frequency to record the agent.
             log_dir (Path): The directory to save all experiment data to.
@@ -249,7 +249,7 @@ class CollectStatisticsCallback(BaseCallback):
         self.vec_env = env
         self.reward_meter = RewardMeter()
 
-        self.envdata_logger: COLAVEnvironmentLogger = COLAVEnvironmentLogger(experiment_name, log_dir)
+        self.envdata_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name, log_dir)
 
         self.img_transform = transforms_v2.Compose(
             [
@@ -288,26 +288,28 @@ class CollectStatisticsCallback(BaseCallback):
             )
             mpc_params = self.model.actor.mpc.mpc_params
             self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
-            self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[2, 2])
+            self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
+            self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
             self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
             self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
             self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
-            self.logger.record("mpc/alpha_app_course_0", mpc_params.alpha_app_course[0])
-            self.logger.record("mpc/alpha_app_course_1", mpc_params.alpha_app_course[1])
-            self.logger.record("mpc/alpha_app_speed_0", mpc_params.alpha_app_speed[0])
-            self.logger.record("mpc/alpha_app_speed_1", mpc_params.alpha_app_speed[1])
             self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
             self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
-            self.logger.record("mpc/alpha_cr_0", mpc_params.alpha_cr[0])
-            self.logger.record("mpc/alpha_cr_1", mpc_params.alpha_cr[1])
-            self.logger.record("mpc/y_0_cr", mpc_params.y_0_cr)
-            self.logger.record("mpc/alpha_ho_0", mpc_params.alpha_ho[0])
-            self.logger.record("mpc/alpha_ho_1", mpc_params.alpha_ho[1])
-            self.logger.record("mpc/x_0_ho", mpc_params.x_0_ho)
-            self.logger.record("mpc/alpha_ot_0", mpc_params.alpha_ot[0])
-            self.logger.record("mpc/alpha_ot_1", mpc_params.alpha_ot[1])
-            self.logger.record("mpc/x_0_ot", mpc_params.x_0_ot)
-            self.logger.record("mpc/y_0_ot", mpc_params.y_0_ot)
+
+            # self.logger.record("mpc/alpha_app_course_0", mpc_params.alpha_app_course[0])
+            # self.logger.record("mpc/alpha_app_course_1", mpc_params.alpha_app_course[1])
+            # self.logger.record("mpc/alpha_app_speed_0", mpc_params.alpha_app_speed[0])
+            # self.logger.record("mpc/alpha_app_speed_1", mpc_params.alpha_app_speed[1])
+            # self.logger.record("mpc/alpha_cr_0", mpc_params.alpha_cr[0])
+            # self.logger.record("mpc/alpha_cr_1", mpc_params.alpha_cr[1])
+            # self.logger.record("mpc/y_0_cr", mpc_params.y_0_cr)
+            # self.logger.record("mpc/alpha_ho_0", mpc_params.alpha_ho[0])
+            # self.logger.record("mpc/alpha_ho_1", mpc_params.alpha_ho[1])
+            # self.logger.record("mpc/x_0_ho", mpc_params.x_0_ho)
+            # self.logger.record("mpc/alpha_ot_0", mpc_params.alpha_ot[0])
+            # self.logger.record("mpc/alpha_ot_1", mpc_params.alpha_ot[1])
+            # self.logger.record("mpc/x_0_ot", mpc_params.x_0_ot)
+            # self.logger.record("mpc/y_0_ot", mpc_params.y_0_ot)
 
             frame = self.vec_env.render()
             if frame is not None:
@@ -336,7 +338,7 @@ class CollectStatisticsCallback(BaseCallback):
             assert hasattr(
                 self.model, "custom_save"
             ), "Model must have a custom_save method, i.e. be a custom SAC model with an MPC actor."
-            self.model.custom_save(self.model_save_path / f"model_{self.experiment_name}_{self.num_timesteps}")
+            self.model.custom_save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
 
         return True
 
@@ -352,7 +354,7 @@ class EvalCallback(EventCallback):
       To account for that, you can use ``eval_freq = max(eval_freq // n_envs, 1)``
 
     Args:
-        - eval_env (Union[COLAVEnvironment, VecEnv]): The environment used for initialization
+        - eval_env (Union[colav_env.COLAVEnvironment, VecEnv]): The environment used for initialization
         - eval_model (Optional[BaseAlgorithm], optional): The model to evaluate. If not specified, uses the model associated with the callback.
         - callback_on_new_best (Optional[BaseCallback], optional): Callback to trigger
             when there is a new best model according to the ``mean_reward``
@@ -373,7 +375,7 @@ class EvalCallback(EventCallback):
 
     def __init__(
         self,
-        eval_env: Union[COLAVEnvironment, VecEnv],
+        eval_env: Union[colav_env.COLAVEnvironment, VecEnv],
         log_path: Path,
         callback_on_new_best: Optional[BaseCallback] = None,
         callback_after_eval: Optional[BaseCallback] = None,

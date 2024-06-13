@@ -367,29 +367,28 @@ class AcadosMPC:
         self._x_warm_start = warm_start["X"]
         self._u_warm_start = warm_start["U"]
 
-        if True:
-            self._update_ocp(self._acados_ocp_solver, xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
-            self.print_warm_start_info(xs_unwrapped)
-            try:
-                status = self._acados_ocp_solver.solve()
-                status_str = mpc_common.map_acados_error_code(status)
-                print(f"[ACADOS] OCP solution: {status_str}")
-            except Exception as _:  # pylint: disable=broad-except
-                c = mpc_common.map_acados_error_code(status)
-                print(f"[ACADOS] OCP solution: {status} error: {c}")
+        self._update_ocp(self._acados_ocp_solver, xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
+        # self.print_warm_start_info(xs_unwrapped)
+        try:
+            status = self._acados_ocp_solver.solve()
+            status_str = mpc_common.map_acados_error_code(status)
+        except Exception as _:  # pylint: disable=broad-except
+            c = mpc_common.map_acados_error_code(status)
+            print(f"[ACADOS] OCP solution: {status} error: {c}")
 
+        if status != 0:
             self._acados_ocp_solver.print_statistics()
-            t_solve = self._acados_ocp_solver.get_stats("time_tot")
-            cost_val = self._acados_ocp_solver.get_cost()
-            n_iter = self._acados_ocp_solver.get_stats("sqp_iter")
-            final_residuals = self._acados_ocp_solver.get_stats("residuals")
-            success = True if status == 0 else False
+        t_solve = self._acados_ocp_solver.get_stats("time_tot")
+        cost_val = self._acados_ocp_solver.get_cost()
+        n_iter = self._acados_ocp_solver.get_stats("sqp_iter")
+        final_residuals = self._acados_ocp_solver.get_stats("residuals")
+        success = True if status == 0 else False
 
-            # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
-            inputs, trajectory, slacks, lam_g = self._get_solution(self._acados_ocp_solver)
-            so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
-            self._x_warm_start = trajectory.copy()
-            self._u_warm_start = inputs.copy()
+        # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
+        inputs, trajectory, slacks, lam_g = self._get_solution(self._acados_ocp_solver)
+        so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
+        self._x_warm_start = trajectory.copy()
+        self._u_warm_start = inputs.copy()
 
         # self._update_ocp(self._acados_ocp_solver_nonreg, xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
         # status = self._acados_ocp_solver_nonreg.solve()
@@ -561,7 +560,7 @@ class AcadosMPC:
             p_i = self.create_parameter_values(xs, do_cr_list, do_ho_list, do_ot_list, i)
             self._parameter_values.append(p_i)
             solver.set(i, "p", p_i)
-        print("OCP updated")
+        # print("OCP updated")
 
     def construct_ocp(
         self,
@@ -776,11 +775,13 @@ class AcadosMPC:
             d_attenuation,
             colregs_weights,
         )
+        self._acados_ocp.model.cost_expr_ext_cost_0 = path_following_cost + speed_dev_cost + rate_cost + colregs_cost
         self._acados_ocp.model.cost_expr_ext_cost = path_following_cost + speed_dev_cost + rate_cost + colregs_cost
         self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + speed_dev_cost
 
         # self._acados_ocp.model.cost_expr_ext_cost = u.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u
         # self._acados_ocp.model.cost_expr_ext_cost_e = 0.0
+        self._acados_ocp.cost.cost_type_0 = "EXTERNAL"
         self._acados_ocp.cost.cost_type = "EXTERNAL"
         self._acados_ocp.cost.cost_type_e = "EXTERNAL"
 
@@ -809,9 +810,9 @@ class AcadosMPC:
         )
 
         # formulate non-regularized ocp
-        self._acados_ocp.solver_options.regularize_method = "NO_REGULARIZE"
-        solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
-        self._acados_ocp_solver_nonreg = AcadosOcpSolver(self._acados_ocp, json_file=solver_json)
+        # self._acados_ocp.solver_options.regularize_method = "NO_REGULARIZE"
+        # solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
+        # self._acados_ocp_solver_nonreg = AcadosOcpSolver(self._acados_ocp, json_file=solver_json)
 
     def _create_static_obstacle_constraint(
         self,

@@ -21,14 +21,11 @@ import rlmpc.buffers as rlmpc_buffers
 import rlmpc.common.paths as rl_dp
 import stable_baselines3.common.callbacks as sb3_callbacks
 import stable_baselines3.common.logger as sb3_logger
-import stable_baselines3.common.monitor as sb3_monitor
 import stable_baselines3.common.noise as sb3_noise
-import stable_baselines3.common.policies as sb3_policies
 import stable_baselines3.common.save_util as sb3_sutils
 import stable_baselines3.common.type_aliases as sb3_types
 import stable_baselines3.common.utils as sb3_utils
 import torch as th
-import torch.nn.functional as F
 from gymnasium import spaces
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecEnv
@@ -92,10 +89,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         support_multi_env: bool = False,
         monitor_wrapper: bool = True,
         seed: Optional[int] = None,
-        use_sde: bool = False,
-        sde_sample_freq: int = -1,
-        use_sde_at_warmup: bool = False,
-        sde_support: bool = True,
         supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ) -> None:
         super().__init__(
@@ -110,8 +103,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             support_multi_env=support_multi_env,
             monitor_wrapper=monitor_wrapper,
             seed=seed,
-            use_sde=use_sde,
-            sde_sample_freq=sde_sample_freq,
+            use_sde=False,  # Not applicable for RLMPC
+            sde_sample_freq=1.0,  # Not applicable for RLMPC
             supported_action_spaces=supported_action_spaces,
         )
         self.policy_kwargs.update(
@@ -142,12 +135,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self._episode_num: int = 0
         self.data_path: Path = data_path
 
-        # Update policy keyword arguments
-        if sde_support:
-            self.policy_kwargs["use_sde"] = self.use_sde
-        # For gSDE only
-        self.use_sde_at_warmup = use_sde_at_warmup
-
     @abstractmethod
     def train(self, gradient_steps: int, batch_size: int) -> None:
         """
@@ -165,7 +152,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         state: Optional[Tuple[np.ndarray, ...] | Dict] = None,
         episode_start: Optional[np.ndarray] = None,
         deterministic: bool = True,
-    ) -> Tuple[np.ndarray, List[Dict]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
         """
         Get the policy action from an observation (and optional hidden state).
         Includes sugar-coating to handle different observations (e.g. normalizing images).
@@ -179,7 +166,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - deterministic (bool): Whether or not to return deterministic actions.
 
         Returns:
-            - Tuple[np.ndarray, Dict]: the MPC's action and the corresponding MPC internal state (solution info etc.)
+            - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal states (solution info etc.)
         """
         return self.policy.predict_with_mpc(observation, state, episode_start, deterministic)
 
@@ -211,16 +198,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         """
         observation = self._last_obs if observation is None else observation
         actor_info = self._last_actor_info if actor_info is None else actor_info
-        # Note: when using continuous actions,
-        # we assume that the policy uses tanh to scale the action
-        # We use non-deterministic action in the case of SAC, for TD3, it does not matter
         unnormalized_actions, normalized_actions, actor_infos = self.predict_with_mpc(
             observation=observation, state=actor_info, deterministic=False
         )
-
-        # # Add noise to the action (improve exploration)
-        # if action_noise is not None:
-        #     normalized_actions = np.clip(normalized_actions + action_noise(), -1.0, 1.0)
 
         # We store the normalized action in the buffer
         actions = normalized_actions

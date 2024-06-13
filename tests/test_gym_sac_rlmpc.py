@@ -9,6 +9,7 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.paths as rl_dp
+import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rewards
 import rlmpc.sac as sac_rlmpc
 import torch as th
@@ -17,7 +18,6 @@ from matplotlib import animation
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_mpc_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
-from stable_baselines3.common.logger import configure
 from stable_baselines3.common.monitor import Monitor
 
 # Depending on your OS, you might need to change these paths
@@ -180,43 +180,42 @@ def main():
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    actor_noise_std_dev = np.array([0.003, 0.003])  # normalized std dev for the action space [course, speed]
+    actor_noise_std_dev = np.array([0.005, 0.002])  # normalized std dev for the action space [course, speed]
 
     mpc_param_provider_kwargs = {
-        "param_list": ["Q_p", "r_safe_do"],
+        "param_list": ["r_safe_do"],
         "hidden_sizes": [256],
-        "activation_fn": th.nn.ReLU,
+        "activation_fn": th.nn.ELU,
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [258],
+        "critic_arch": [258, 128],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "mpc_config": mpc_config_file,
-        "activation_fn": th.nn.ReLU,
-        "use_sde": False,
+        "activation_fn": th.nn.ELU,
         "std_init": actor_noise_std_dev,
-        "use_expln": False,
-        "clip_mean": 2.0,
     }
     model = sac_rlmpc.SAC(
-        sac_rlmpc.SACPolicyWithMPC,
+        rlmpc_policies.SACPolicyWithMPC,
         env,
         policy_kwargs=policy_kwargs,
-        learning_rate=0.001,
+        learning_rate=0.002,
         buffer_size=500,
         learning_starts=0,
-        batch_size=4,
+        batch_size=8,
         gradient_steps=1,
-        train_freq=(4, "step"),
+        train_freq=(10, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
         only_train_critic=True,
         verbose=1,
     )
-    # model.load_critics(base_dir=base_dir, base_name="best_model_eval")
-
     exp_name_str = "sac_rlmpc1"
+    load_model = False
+    if load_model:
+        model.custom_load(base_dir / "sac_rlmpc1_500")
+
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
         eval_env,
@@ -239,10 +238,10 @@ def main():
         log_stats_freq=4,
         verbose=1,
     )
-    total_training_timesteps = 10000
+    total_training_timesteps = 50000
     model.learn(
         total_timesteps=total_training_timesteps,
-        progress_bar=True,
+        progress_bar=False,
         log_interval=2,
         callback=CallbackList([stats_callback, eval_callback]),
     )

@@ -501,6 +501,7 @@ class MPCRewarder(cs_reward.IReward):
 
     def __init__(self, env: "COLAVEnvironment", config: Config = Config()) -> None:
         super().__init__(env)
+        self.reward_scale: float = 10.0
         self._config = config
         self.anti_grounding_rewarder = AntiGroundingRewarder(env, config.anti_grounding)
         self.collision_avoidance_rewarder = CollisionAvoidanceRewarder(env, config.collision_avoidance)
@@ -521,13 +522,16 @@ class MPCRewarder(cs_reward.IReward):
         self.r_colreg = self.colreg_rewarder(state, action, **kwargs)
         self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
-        # print(
-        #     f"r_antigrounding: {self.r_antigrounding:.2f}, r_collision_avoidance: {self.r_collision_avoidance:.2f}, r_colreg: {self.r_colreg:.2f}, r_trajectory_tracking: {self.r_trajectory_tracking:.2f}, r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.2f}"
-        # )
-        return (
+
+        reward = (
             self.r_antigrounding
             + self.r_collision_avoidance
             + self.r_colreg
             + self.r_trajectory_tracking
             + self.r_readily_apparent_maneuvering
         )
+        reward = reward / self.reward_scale
+        print(
+            f"r_scaled: {reward} | r_antigrounding: {self.r_antigrounding:.2f} | r_collision_avoidance: {self.r_collision_avoidance:.2f} | r_colreg: {self.r_colreg:.2f} | r_trajectory_tracking: {self.r_trajectory_tracking:.2f} | r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.2f}"
+        )
+        return reward
