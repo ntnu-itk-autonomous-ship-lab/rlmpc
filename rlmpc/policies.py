@@ -23,11 +23,9 @@ import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
-from stable_baselines3.common.distributions import (
-    DiagGaussianDistribution, StateDependentNoiseDistribution)
+from stable_baselines3.common.distributions import DiagGaussianDistribution, StateDependentNoiseDistribution
 from stable_baselines3.common.policies import BaseModel
-from stable_baselines3.common.preprocessing import (get_action_dim,
-                                                    is_image_space)
+from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 from torch.nn import functional as F
@@ -704,6 +702,8 @@ class SACMPCActor(BasePolicy):
     ) -> None:
         """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
         the OCP"""
+        self.observation_type = env.unwrapped.observation_type
+        self.action_type = env.unwrapped.action_type
         t = env.unwrapped.time
         waypoints = env.unwrapped.ownship.waypoints
         speed_plan = env.unwrapped.ownship.speed_plan

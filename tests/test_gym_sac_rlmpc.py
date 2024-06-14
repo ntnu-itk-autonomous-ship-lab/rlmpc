@@ -238,12 +238,12 @@ def main():
         verbose=1,
     )
     total_training_timesteps = 10
-    # model.learn(
-    #     total_timesteps=total_training_timesteps,
-    #     progress_bar=False,
-    #     log_interval=2,
-    #     callback=CallbackList([stats_callback, eval_callback]),
-    # )
+    model.learn(
+        total_timesteps=total_training_timesteps,
+        progress_bar=False,
+        log_interval=2,
+        callback=CallbackList([stats_callback, eval_callback]),
+    )
     mean_reward, std_reward = evaluate_mpc_policy(
         model, eval_env, n_eval_episodes=10, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
     )

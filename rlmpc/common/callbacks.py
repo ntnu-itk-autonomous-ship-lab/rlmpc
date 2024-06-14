@@ -657,9 +657,7 @@ def evaluate_mpc_policy(
             record_path.mkdir(parents=True, exist_ok=True)
         env = VecVideoRecorder(env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0)
 
-    observations, _ = env.envs[0].unwrapped.reset()
-    # unnorm_obs = env.envs[0].unwrapped.observation_type.unnormalize(observations)
-    # FIX BUG IN RESET; WRONG INITIAL OS STATE
+    observations = env.reset()
     states = None
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     while (episode_counts < episode_count_targets).any():
