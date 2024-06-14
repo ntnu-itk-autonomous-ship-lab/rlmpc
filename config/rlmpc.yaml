@@ -22,12 +22,12 @@ rrtstar:
     params:
       max_nodes: 500
       max_iter: 10000
-      max_time: 0.5
+      max_time: 1.0
       iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
       goal_radius: 1000.0
       step_size: 2.0
-      min_steering_time: 1.0
+      min_steering_time: 2.0
       max_steering_time: 30.0
       steering_acceptance_radius: 10.0
       gamma: 2000.0
@@ -50,7 +50,7 @@ rrtstar:
       cross_track_error_int_threshold: 30.0
 
 
-midlevel_mpc:
+mpc:
   params:
     rate: 0.5
     reference_traj_bbox_buffer: 200.0

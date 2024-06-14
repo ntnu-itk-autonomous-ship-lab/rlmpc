@@ -566,6 +566,7 @@ class CasadiMPC:
         map_origin: np.ndarray = np.array([0.0, 0.0]),
         min_depth: int = 1,
         tau: float | None = None,
+        debug: bool = False,
     ) -> None:
         """Constructs the OCP for the NMPC problem using pure Casadi.
 
@@ -592,6 +593,7 @@ class CasadiMPC:
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
             - tau (float, optional): Primal-dual Interior point method barrier parameter. Defaults to None
+            - debug (bool, optional): Whether to print debug information and show plots. Defaults to False.
         """
         if tau is not None:
             self._solver_options.mu_target = tau
@@ -707,7 +709,7 @@ class CasadiMPC:
         # Static obstacle constraint parameters
         max_num_so_constr = self._params.max_num_so_constr
         so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
-            so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=True
+            so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=debug
         )
         so_surfaces = so_surfaces[0]
         self._so_surfaces = so_surfaces
@@ -1128,9 +1130,10 @@ class CasadiMPC:
         self._nlp_hess_lag = self._solver.get_function("nlp_hess_l")
         # self.build_sensitivities(tau=self._solver_options.mu_target)
 
-        print(
-            f"dim g_eq (G) = {g_eq.shape[0]}, dim g_ineq (H) = {g_ineq.shape[0]} | dim_g = {g_eq.shape[0] + g_ineq.shape[0]} | dim Sigma = {csd.vertcat(*Sigma).shape[0]} | dim w = {self._opt_vars.shape[0]}"
-        )
+        if debug:
+            print(
+                f"dim g_eq (G) = {g_eq.shape[0]}, dim g_ineq (H) = {g_ineq.shape[0]} | dim_g = {g_eq.shape[0] + g_ineq.shape[0]} | dim Sigma = {csd.vertcat(*Sigma).shape[0]} | dim w = {self._opt_vars.shape[0]}"
+            )
 
     def _create_static_obstacle_constraint(
         self,

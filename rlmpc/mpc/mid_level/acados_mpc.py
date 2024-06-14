@@ -569,6 +569,7 @@ class AcadosMPC:
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
         min_depth: int = 5,
+        debug: bool = False,
     ) -> None:
         """Constructs the OCP for the NMPC problem using ACADOS.
 
@@ -588,6 +589,7 @@ class AcadosMPC:
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
+            - debug (bool, optional): Whether to print debug info. Defaults to False.
 
         """
         self._initialized = False
@@ -688,7 +690,7 @@ class AcadosMPC:
         nx_do = 6
         X_do = csd.MX.sym("X_do", nx_do * self._params.max_num_do_constr_per_zone * n_colregs_zones)
         so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
-            so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=True
+            so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=debug
         )
         p_fixed.append(X_do)
         so_surfaces = so_surfaces[0]

@@ -153,7 +153,6 @@ def main():
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
-        "test_mode": False,
         "render_update_rate": 1.0,
         "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
@@ -161,7 +160,7 @@ def main():
         "show_loaded_scenario_data": False,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env1",
-        "seed": 15,
+        "seed": 0,
     }
     env = Monitor(gym.make(id=env_id, **env_config))
     env_config.update(
@@ -169,8 +168,7 @@ def main():
             "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
-            "seed": 100,
-            "test_mode": True,
+            "seed": 1,
             "simulator_config": eval_sim_config,
             "reload_map": False,
             "identifier": "eval_env1",
@@ -194,6 +192,7 @@ def main():
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ELU,
         "std_init": actor_noise_std_dev,
+        "debug": True,
     }
     model = sac_rlmpc.SAC(
         rlmpc_policies.SACPolicyWithMPC,
@@ -208,13 +207,13 @@ def main():
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
-        only_train_critic=True,
+        only_train_critic=False,
         verbose=1,
     )
     exp_name_str = "sac_rlmpc1"
-    load_model = False
+    load_model = True
     if load_model:
-        model.custom_load(base_dir / "sac_rlmpc1_500")
+        model.custom_load(base_dir / "sac_rlmpc1_800")
 
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
@@ -238,13 +237,13 @@ def main():
         log_stats_freq=4,
         verbose=1,
     )
-    total_training_timesteps = 50000
-    model.learn(
-        total_timesteps=total_training_timesteps,
-        progress_bar=False,
-        log_interval=2,
-        callback=CallbackList([stats_callback, eval_callback]),
-    )
+    total_training_timesteps = 10
+    # model.learn(
+    #     total_timesteps=total_training_timesteps,
+    #     progress_bar=False,
+    #     log_interval=2,
+    #     callback=CallbackList([stats_callback, eval_callback]),
+    # )
     mean_reward, std_reward = evaluate_mpc_policy(
         model, eval_env, n_eval_episodes=10, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
     )
@@ -252,4 +251,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import cProfile
+
+    cProfile.run("main()", sort="cumulative")
+    # main()

@@ -291,10 +291,10 @@ class CollectStatisticsCallback(BaseCallback):
             self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
             self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
             self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
-            self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
-            self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
-            self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
-            self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
+            # self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
+            # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
+            # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
+            # self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
 
             # self.logger.record("mpc/alpha_app_course_0", mpc_params.alpha_app_course[0])
             # self.logger.record("mpc/alpha_app_course_1", mpc_params.alpha_app_course[1])
@@ -657,19 +657,21 @@ def evaluate_mpc_policy(
             record_path.mkdir(parents=True, exist_ok=True)
         env = VecVideoRecorder(env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0)
 
-    observations = env.reset()
-
+    observations, _ = env.envs[0].unwrapped.reset()
+    # unnorm_obs = env.envs[0].unwrapped.observation_type.unnormalize(observations)
+    # FIX BUG IN RESET; WRONG INITIAL OS STATE
     states = None
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001:
+            states = None
             model.policy.initialize_mpc_actor(env.envs[0])
 
-        unnormalized_actions, normalized_actions, actor_infos = model.predict_with_mpc(
+        _, normalized_actions, actor_infos = model.predict_with_mpc(
             observations,  # type: ignore[arg-type]
             state=states,
             episode_start=episode_starts,
-            deterministic=deterministic,
+            deterministic=True,
         )
         states = actor_infos
 

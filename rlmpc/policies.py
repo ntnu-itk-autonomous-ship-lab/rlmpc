@@ -23,9 +23,11 @@ import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
-from stable_baselines3.common.distributions import DiagGaussianDistribution, StateDependentNoiseDistribution
+from stable_baselines3.common.distributions import (
+    DiagGaussianDistribution, StateDependentNoiseDistribution)
 from stable_baselines3.common.policies import BaseModel
-from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
+from stable_baselines3.common.preprocessing import (get_action_dim,
+                                                    is_image_space)
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 from torch.nn import functional as F
@@ -398,6 +400,7 @@ class SACMPCActor(BasePolicy):
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
         clip_mean: float = 2.0,
+        debug: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -409,6 +412,7 @@ class SACMPCActor(BasePolicy):
 
         self.observation_type = observation_type
         self.action_type = action_type
+        self.debug = debug
 
         action_dim = get_action_dim(self.action_space)
         if isinstance(std_init, float):
@@ -450,6 +454,7 @@ class SACMPCActor(BasePolicy):
             int(nu * n_samples + (2 * nx) + 2),  # chi 2
             int(nu * n_samples + (2 * nx) + 3),  # speed 2
         ]
+        self.mpc.set_action_indices(self.action_indices)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -553,6 +558,7 @@ class SACMPCActor(BasePolicy):
         current_mpc_params = self.mpc_param_provider.normalize(current_mpc_params)
 
         for idx in range(batch_size):
+            prev_soln = state[idx] if state is not None else None
             prev_action = (
                 th.zeros(self.action_space.shape[0])
                 if state is None
@@ -571,7 +577,6 @@ class SACMPCActor(BasePolicy):
             if t < 0.001:
                 self.t_prev = t
             # w.print()
-            prev_soln = state[idx] if state is not None else None
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
             norm_action = self.action_type.normalize(action)
             info.update(
@@ -708,7 +713,18 @@ class SACMPCActor(BasePolicy):
         goal_state = env.unwrapped.ownship.goal_state
         w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
 
-        self.mpc.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
+        self.mpc.initialize(
+            t=t,
+            waypoints=waypoints,
+            speed_plan=speed_plan,
+            ownship_state=ownship_state,
+            do_list=do_list,
+            enc=enc,
+            goal_state=goal_state,
+            w=w,
+            debug=self.debug,
+            **kwargs,
+        )
         self.mpc.set_action_indices(self.action_indices)
         self.mpc_sensitivities = self.mpc.build_sensitivities()
         print("SAC MPC Actor initialized!")
@@ -769,6 +785,7 @@ class SACPolicyWithMPC(BasePolicy):
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
+        debug: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -801,6 +818,7 @@ class SACPolicyWithMPC(BasePolicy):
             "observation_type": self.observation_type,
             "action_type": self.action_type,
             "std_init": std_init,
+            "debug": debug,
         }
 
         self._build_critic(lr_schedule)
@@ -846,10 +864,7 @@ class SACPolicyWithMPC(BasePolicy):
             dict(
                 net_arch=self.critic_kwargs["net_arch"],
                 activation_fn=self.critic_kwargs["activation_fn"],
-                use_sde=self.actor_kwargs["use_sde"],
                 log_std_init=self.actor_kwargs["log_std_init"],
-                use_expln=self.actor_kwargs["use_expln"],
-                clip_mean=self.actor_kwargs["clip_mean"],
                 n_critics=self.critic_kwargs["n_critics"],
                 lr_schedule=self._dummy_schedule,  # dummy lr schedule, not needed for loading policy alone
                 optimizer_class=self.optimizer_class,

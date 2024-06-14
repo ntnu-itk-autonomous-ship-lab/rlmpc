@@ -7,7 +7,7 @@ visualizer:
   show_liveplot_colav_results: True
   show_liveplot_measurements: False
   show_liveplot_target_tracks: True
-  show_liveplot_target_waypoints: True
+  show_liveplot_target_waypoints: False
   show_liveplot_target_trajectories: True
   show_liveplot_ownship_waypoints: True
   show_liveplot_ownship_trajectory: True

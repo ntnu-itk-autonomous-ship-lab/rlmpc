@@ -175,7 +175,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         learning_starts: int,
         observation: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
         actor_info: Optional[Union[Dict, List[Dict]]] = None,
-        action_noise: Optional[sb3_noise.ActionNoise] = None,
+        deterministic: bool = False,
         n_envs: int = 1,
     ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
         """
@@ -188,9 +188,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - learning_starts (int): Number of steps before learning for the warm-up phase.
             - observation (Optional[Union[np.ndarray, Dict[str, np.ndarray]]]): The current observation
             - actor_info (Optional[Union[Dict, List[Dict]]]): The last MPC internal states (solution info etc.)
-            - action_noise (Optional[ActionNoise]): Action noise that will be used for exploration
-                Required for deterministic policy (e.g. TD3). This can also be used
-                in addition to the stochastic policy for SAC.
+            - deterministic (bool): Whether or not to return deterministic actions.
             - n_envs (int): Number of parallel environments.
 
         Returns:
@@ -199,7 +197,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         observation = self._last_obs if observation is None else observation
         actor_info = self._last_actor_info if actor_info is None else actor_info
         unnormalized_actions, normalized_actions, actor_infos = self.predict_with_mpc(
-            observation=observation, state=actor_info, deterministic=False
+            observation=observation, state=actor_info, deterministic=deterministic
         )
 
         # We store the normalized action in the buffer
@@ -439,9 +437,15 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 learning_starts,
                 observation=self._current_obs,
                 actor_info=self._last_actor_info,
-                action_noise=action_noise,
+                deterministic=False,
                 n_envs=env.num_envs,
             )
+
+            # For plotting the predicted trajectory
+            for env_idx in range(env.num_envs):
+                env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
+                    actor_infos[env_idx]["trajectory"]
+                )
 
             # SARSA style buffer storage
             action_count += 1

@@ -226,7 +226,7 @@ class SAC(opa.OffPolicyAlgorithm):
         self.critic.load_state_dict(th.load(pathlib.Path(str(path) + "_critic.pth")))
         self.critic_target.load_state_dict(th.load(pathlib.Path(str(path) + "_critic_target.pth")))
         self.log_ent_coef = th.load(pathlib.Path(str(path) + "_log_ent_coef.pth"))
-        self.actor.mpc.load_params(pathlib.Path(str(path) + "_actor.yaml"))
+        # self.actor.mpc.load_params(pathlib.Path(str(path) + "_actor.yaml"))
         self.actor.mpc_param_provider.load_state_dict(th.load(pathlib.Path(str(path) + "_mpc_param_provider.pth")))
 
     def load_critics(self, base_dir: pathlib.Path, base_name: str) -> None:
@@ -259,6 +259,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
         ent_coef_losses, ent_coefs = [], []
         actor_losses, critic_losses = [], []
+        actor_grad_norms = []
         mean_actor_loss = 0.0
         mean_actor_grad_norm = 0.0
 
@@ -372,10 +373,14 @@ class SAC(opa.OffPolicyAlgorithm):
                     )
                 )
                 actor_dnn_old_mpc_param_inputs = th.from_numpy(
-                    np.array([info[0]["actor_info"]["old_mpc_params"] for info in replay_data.infos], dtype=np.float32)
+                    np.array(
+                        [info[0]["actor_info"]["norm_old_mpc_params"] for info in replay_data.infos], dtype=np.float32
+                    )
                 )
                 actor_dnn_prev_action_inputs = th.from_numpy(
-                    np.array([info[0]["actor_info"]["prev_action"] for info in replay_data.infos], dtype=np.float32)
+                    np.array(
+                        [info[0]["actor_info"]["norm_prev_action"] for info in replay_data.infos], dtype=np.float32
+                    )
                 )
                 dnn_input = th.cat(
                     [actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs, actor_dnn_prev_action_inputs], dim=1
@@ -384,7 +389,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input)
 
                 actor_grads = th.zeros((batch_size, self.actor.mpc_param_provider.num_params))
-                actor_losses = th.zeros((batch_size, 1))
+                actor_losses_g = th.zeros((batch_size, 1))
 
                 sens = self.policy.sensitivities()
                 cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
@@ -411,17 +416,19 @@ class SAC(opa.OffPolicyAlgorithm):
 
                     dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
                     actor_grads[b] = ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
-                    actor_losses[b] = ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b]
+                    actor_losses_g[b] = ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b]
                 print("Actor gradient computation time: ", time.time() - t_actor_start_now)
 
                 self.actor.optimizer.zero_grad()
                 # Equivalent to loss.backward()
                 self.actor.set_gradients(actor_grads.mean(dim=0))
                 self.actor.optimizer.step()
+            actor_losses.append(actor_losses_g.mean().item())
+            actor_grad_norms.append(actor_grads.mean(dim=0).norm().item())
 
         if actor_losses:
-            mean_actor_loss = actor_losses.clone().detach().mean().numpy()
-            mean_actor_grad_norm = np.linalg.norm(np.mean(actor_grads.clone().detach().numpy(), axis=0), ord=2)
+            mean_actor_loss = np.mean(actor_losses)
+            mean_actor_grad_norm = np.mean(actor_grad_norms)
 
         self._n_updates += gradient_steps
 

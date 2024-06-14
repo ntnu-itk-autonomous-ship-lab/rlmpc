@@ -42,7 +42,7 @@ class Config:
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        if "telemetron" in config_dict["model"]:
+        if "Telemetron" in config_dict["model"]:
             model = models.Telemetron()
         else:
             model = models.KinematicCSOGWithAccelerationAndPathtiming(
@@ -60,12 +60,19 @@ class Config:
         return config
 
     def to_dict(self):
-        return {
+        if isinstance(self.model, models.Telemetron):
+            model_dict = {"telemetron": ""}
+        else:
+            model_dict = {
+                "kinematic_csog_with_acceleration_and_path_timing": self.model.params().to_dict(),
+            }
+        output_dict = {
             "enable_acados": self.enable_acados,
             "params": self.mpc.to_dict(),
             "solver_options": self.solver_options.to_dict(),
-            "model": self.model.params().to_dict(),
+            "model": model_dict,
         }
+        return output_dict
 
 
 class MidlevelMPC:
@@ -119,6 +126,7 @@ class MidlevelMPC:
         self._casadi_mpc.reset()
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.reset()
+        self.sens = None
 
     def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
         """Computes the path variable and its derivative from the current state.
@@ -147,6 +155,7 @@ class MidlevelMPC:
         map_origin: np.ndarray = np.array([0.0, 0.0]),
         min_depth: int = 5,
         tau: Optional[float] = None,
+        debug: bool = False,
     ) -> None:
         """Constructs the Optimal Control Problem (OCP) for the RL-MPC COLAV algorithm.
 
@@ -157,10 +166,11 @@ class MidlevelMPC:
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
             - tau (Optional[float], optional): Barrier parameter for the primal-dual interior point formulation used in the casadi nlp. Defaults to None.
+            - debug (bool, optional): Debug flag. Defaults to False.
         """
-        self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, tau)
+        self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, tau, debug)
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth)
+            self._acados_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, debug)
 
         self.build_sensitivities(tau)
 
@@ -196,6 +206,9 @@ class MidlevelMPC:
             - common.NLPSensitivities: Class container of the sensitivity functions necessary for
                 computing the score function  gradient in RL context.
         """
+        if self.sens is not None:
+            return self.sens
+
         self.sens = self._casadi_mpc.build_sensitivities(tau)
         return self.sens
 
