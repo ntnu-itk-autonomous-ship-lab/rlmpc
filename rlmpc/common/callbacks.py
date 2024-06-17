@@ -8,6 +8,7 @@
 """
 
 import os
+import pickle
 import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -32,169 +33,6 @@ from stable_baselines3.common.vec_env import (
     is_vecenv_wrapped,
     sync_envs_normalization,
 )
-
-
-class RewardMeter:
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.min_reward: float = 0.0
-        self.max_reward: float = 0.0
-        self.mean_reward: float = 0.0
-        self.total_reward: float = 0.0
-        self.count: int = 0
-
-    def update(self, reward: float):
-        self.min_reward = min(self.min_reward, reward)
-        self.max_reward = max(self.max_reward, reward)
-        self.mean_reward = (self.mean_reward * float(self.count) + reward) / (self.count + 1)
-        self.total_reward += reward
-        self.count += 1
-
-
-def report(env, report_dir: Path, lastn: int = 100) -> None:
-    try:
-        if not report_dir.exists():
-            report_dir.mkdir(parents=True, exist_ok=True)
-
-        history = env  # env.history
-        # if lastn >= len(history["episodes"]):
-        #    lastn = len(history["episodes"])
-        collisions = np.array(history["collision"])
-        no_collisions = collisions == 0
-        cross_track_errors = np.array(history["cross_track_error"])
-        progresses = np.array(history["progress"])
-        rewards = np.array(history["reward"])
-        timesteps = np.array(history["timesteps"])
-        durations = np.array(history["duration"])
-        pathlengths = np.array(history["pathlength"])
-        speeds = np.array(
-            [
-                _path_len / _duration if _duration > 0 else np.nan
-                for (_path_len, _duration) in zip(pathlengths, durations)
-            ]
-        )
-        infeasible_solution = np.array(history["infeasible_solution"])
-
-        with open(os.path.join(report_dir, "report.txt"), "w") as f:
-            # f.write('# PERFORMANCE METRICS (LAST {} EPISODES AVG.)\n'.format(lastn))
-            f.write("{:<30}{:<30}\n".format("Episodes", len(pathlengths)))
-            f.write("{:<30}{:<30.2f}\n".format("Avg. Reward", rewards.mean()))
-            f.write("{:<30}{:<30.2f}\n".format("Std. Reward", rewards.std()))
-            f.write("{:<30}{:<30}\n".format("Goals reached", progresses[progresses > 0.99].size))
-            f.write("{:<30}{:<30.2%}\n".format("Avg. Progress", progresses.mean()))
-            f.write("{:<30}{:<30.2f}\n".format("Avg. Collisions", collisions.mean()))
-            f.write("{:<30}{:<30.2%}\n".format("No Collisions", no_collisions.mean()))
-            f.write("{:<30}{:<30.2f}\n".format("Avg. Cross-Track Error", cross_track_errors.mean()))
-            f.write("{:<30}{:<30.2f}\n".format("Avg. Timesteps", timesteps.mean()))
-            f.write("{:<30}{:<30.2f}\n".format("Avg. Duration", durations.mean()))
-            f.write("{:<30}{:<30.2f}\n".format("Avg. Pathlength", pathlengths.mean()))
-            f.write("{:<30}{:<30.2f}\n".format("Avg. Speed", speeds.mean()))
-            if len(speeds) > 0:
-                f.write("{:<30}{:<30.2f}\n".format("Max. Speed", speeds.max()))
-            if len(infeasible_solution) > 0:
-                print("infeasible_solutions", infeasible_solution.sum())
-                f.write("{:<30}{:<30}\n".format("Infeasible Solutions", infeasible_solution.sum()))
-            else:
-                f.write("{:<30}{:<30}\n".format("Infeasible Solutions", 0))
-
-    except PermissionError as e:
-        print("Warning: Report files are open - could not update report: " + str(repr(e)))
-    except OSError as e:
-        print("Warning: Ignoring OSError: " + str(repr(e)))
-        # write stats to file
-
-        data = {
-            "rewards": rewards,
-            "progresses": progresses,
-            "cross_track_errors": cross_track_errors,
-            "timesteps": timesteps,
-            "durations": durations,
-            "collisions": collisions,
-            "goals_reached": progresses[progresses > 0.99].size,
-        }
-
-    df = pd.DataFrame(data)
-    df.to_csv(os.path.join(report_dir, "stats.csv"), index=False)
-
-    plt.style.use("ggplot")
-    plt.rc("font", family="serif")
-    # plt.rc('font', family='serif', serif='Times')
-    # plt.rc('text', usetex=True) #RAISES FILENOTFOUNDERROR
-    plt.rc("xtick", labelsize=8)
-    plt.rc("ytick", labelsize=8)
-    plt.rc("axes", labelsize=8)
-
-    # collisions = np.array([obj['collision'] for obj in env.history])
-    smoothed_collisions = gaussian_filter1d(collisions.astype(float), sigma=100)
-    plt.axis("scaled")
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax.plot(collisions, color="blue", linewidth=0.5, alpha=0.2, label="Collisions")
-    ax.plot(smoothed_collisions, color="blue", linewidth=1, alpha=0.4)
-    ax.set_title("Collisions")
-    ax.set_ylabel(r"Collisions")
-    ax.set_xlabel(r"Episode")
-    ax.legend()
-    fig.savefig(os.path.join(report_dir, "collisions.pdf"), format="pdf", bbox_inches="tight")
-    plt.close(fig)
-
-    # cross_track_errors = np.array([obj['cross_track_error'] for obj in env.history])
-    smoothed_cross_track_errors = gaussian_filter1d(cross_track_errors, sigma=100)
-    plt.axis("scaled")
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax.plot(cross_track_errors, color="blue", linewidth=0.5, alpha=0.2)
-    ax.plot(smoothed_cross_track_errors, color="blue", linewidth=1, alpha=0.4)
-    ax.set_ylabel(r"Avg. Cross-Track Error")
-    ax.set_xlabel(r"Episode")
-    # ax.legend()
-    fig.savefig(os.path.join(report_dir, "cross_track_error.pdf"), format="pdf", bbox_inches="tight")
-    plt.close(fig)
-
-    # rewards = np.array([obj['reward'] for obj in env.history])
-    smoothed_rewards = gaussian_filter1d(rewards, sigma=100)
-    plt.axis("scaled")
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax.plot(rewards, color="blue", linewidth=0.5, alpha=0.2)
-    ax.plot(smoothed_rewards, color="blue", linewidth=1, alpha=0.4)
-    ax.set_ylabel(r"Reward")
-    ax.set_xlabel(r"Episode")
-    # ax.legend()
-    fig.savefig(os.path.join(report_dir, "reward.pdf"), format="pdf", bbox_inches="tight")
-    plt.close(fig)
-
-    # progresses = np.array([obj['progress'] for obj in env.history])
-    smoothed_progresses = gaussian_filter1d(progresses, sigma=100)
-    plt.axis("scaled")
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: "{:.0%}".format(y)))
-    ax.plot(progresses, color="blue", linewidth=0.5, alpha=0.2)
-    ax.plot(smoothed_progresses, color="blue", linewidth=1, alpha=0.4)
-    ax.set_ylabel(r"Progress [%]")
-    ax.set_xlabel(r"Episode")
-    # ax.legend()
-    fig.savefig(os.path.join(report_dir, "progress.pdf"), format="pdf", bbox_inches="tight")
-    plt.close(fig)
-
-    # timesteps = np.array([obj['timesteps'] for obj in env.history])
-    smoothed_timesteps = gaussian_filter1d(timesteps.astype(float), sigma=100)
-    plt.axis("scaled")
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax.plot(timesteps, color="blue", linewidth=0.5, alpha=0.2)
-    ax.plot(smoothed_timesteps, color="blue", linewidth=1, alpha=0.4)
-    ax.set_ylabel(r"Timesteps")
-    ax.set_xlabel(r"Episode")
-    # ax.legend()
-    fig.savefig(os.path.join(report_dir, "timesteps.pdf"), format="pdf", bbox_inches="tight")
-    plt.close(fig)
-
-    plt.clf()
-
 
 # I. How is the agent doing?
 
@@ -244,10 +82,9 @@ class CollectStatisticsCallback(BaseCallback):
         self.log_stats_freq = log_stats_freq
         self.log_dir = log_dir
         self.model_save_path = log_dir / "models"
-        self.envdata_save_path = log_dir / "envdata"
+        self.training_data_save_path = log_dir / "training_data"
         self.n_episodes = 0
         self.vec_env = env
-        self.reward_meter = RewardMeter()
 
         self.envdata_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name, log_dir)
 
@@ -268,8 +105,8 @@ class CollectStatisticsCallback(BaseCallback):
         if self.model_save_path is not None:
             self.model_save_path.mkdir(parents=True, exist_ok=True)
 
-        if self.envdata_save_path is not None:
-            self.envdata_save_path.mkdir(parents=True, exist_ok=True)
+        if self.training_data_save_path is not None:
+            self.training_data_save_path.mkdir(parents=True, exist_ok=True)
 
     def _on_step(self) -> bool:
         # Checking for both 'done' and 'dones' keywords because:
@@ -280,17 +117,17 @@ class CollectStatisticsCallback(BaseCallback):
         )
 
         if self.num_timesteps % self.log_stats_freq == 0:
-            # self.envdata_logger(self.vec_env)
+            self.envdata_logger(self.vec_env)
 
             self.logger.record(
                 "mpc/infeasible_solution_percentage",
                 100.0 * self.model.actor.infeasible_solutions / (self.num_timesteps + 1),
             )
             mpc_params = self.model.actor.mpc.mpc_params
-            self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
-            self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
-            self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
             self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
+            # self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
+            # self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
+            # self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
             # self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
             # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
             # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
@@ -319,15 +156,6 @@ class CollectStatisticsCallback(BaseCallback):
 
                 self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
                 self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
-
-            rel_tracking_obs = th.from_numpy(self.model._current_obs["RelativeTrackingObservation"])
-            trackinggru = self.model.critic.features_extractor.extractors["RelativeTrackingObservation"]
-            output = trackinggru(rel_tracking_obs)
-            # self.logger.record("sac/trackinggru_output_min", output.min().item())
-            # self.logger.record("sac/trackinggru_output_max", output.max().item())
-
-            # chi_d = self.model._
-            # self.logger.record("env/chi_d")
 
         if np.sum(done_array).item() > 0:
             self.n_episodes += np.sum(done_array).item()
@@ -414,9 +242,12 @@ class EvalCallback(EventCallback):
         self.log_path = log_path
         self.video_save_path = log_path / "eval_videos"
 
+        self.envdata_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name + "_envdata", log_path)
+
         self.evaluations_results = []
         self.evaluations_timesteps = []
         self.evaluations_length = []
+        self.evaluations_infos = []
         # For computing success rate
         self._is_success_buffer = []
         self.evaluations_successes = []
@@ -479,7 +310,7 @@ class EvalCallback(EventCallback):
 
             self.model.actor.mpc.close_enc_display()
 
-            episode_rewards, episode_lengths = evaluate_mpc_policy(
+            episode_rewards, episode_lengths, episode_infos = evaluate_mpc_policy(
                 self.model,
                 self.eval_env,
                 n_eval_episodes=self.n_eval_episodes,
@@ -491,12 +322,14 @@ class EvalCallback(EventCallback):
                 record_path=self.video_save_path,
                 record_name=f"eval_{self.experiment_name}_{self.num_timesteps}",
                 callback=self._log_success_callback,
+                envdata_logger=self.envdata_logger,
             )
 
             if self.log_path is not None:
                 self.evaluations_timesteps.append(self.num_timesteps)
                 self.evaluations_results.append(episode_rewards)
                 self.evaluations_length.append(episode_lengths)
+                self.evaluations_infos.append(episode_infos)
 
                 kwargs = {}
                 # Save success log if present
@@ -510,6 +343,11 @@ class EvalCallback(EventCallback):
                     results=self.evaluations_results,
                     ep_lengths=self.evaluations_length,
                     **kwargs,
+                )
+
+                pickle.dump(
+                    self.evaluations_infos,
+                    open(self.log_path / f"eval_infos_{self.experiment_name}_{self.num_timesteps}.pkl", "wb"),
                 )
 
             mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
@@ -569,7 +407,6 @@ def evaluate_mpc_policy(
     model: "type_aliases.PolicyPredictor",
     env: Union[gym.Env, VecEnv],
     n_eval_episodes: int = 5,
-    deterministic: bool = True,
     render: bool = True,
     callback: Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]] = None,
     reward_threshold: Optional[float] = None,
@@ -578,6 +415,7 @@ def evaluate_mpc_policy(
     record: bool = False,
     record_path: Optional[Path] = None,
     record_name: str = "eval_mpc_policy",
+    envdata_logger: Optional[colav_env_logger.Logger] = None,
 ) -> Union[Tuple[float, float], Tuple[List[float], List[int]]]:
     """
     Custom version of the evaluate_policy function from stable_baselines3.common.evaluation.py.
@@ -602,7 +440,6 @@ def evaluate_mpc_policy(
             or policy (``BasePolicy``).
         - env (Union[gym.Env, VecEnv]): The gym environment or ``VecEnv`` environment.
         - n_eval_episodes (int): Number of episode to evaluate the agent
-        - deterministic (bool): Whether to use deterministic or stochastic actions
         - render (bool): Whether to render the environment or not
         - callback (Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]): callback function to do additional checks,
             called after each step. Gets locals() and globals() passed as parameters.
@@ -615,9 +452,10 @@ def evaluate_mpc_policy(
         - record (bool): If True, records the evaluation episodes.
         - record_path (Optional[Path]): Path to the folder where the videos will be recorded.
         - record_name (str): Name of the video.
+        - envdata_logger (Optional[colav_env_logger.Logger]): Logger for environment data.
 
     Returns:
-        - Union[Tuple[float, float], Tuple[List[float], List[int]]]: Mean reward per episode, std of reward per episode.
+        - Union[Tuple[float, float], Tuple[List[float]]: Mean reward per episode, std of reward per episode.
             Returns ([float], [int]) when ``return_episode_rewards`` is True, first
             list containing per-episode rewards and second containing per-episode lengths
             (in number of steps).
@@ -644,7 +482,6 @@ def evaluate_mpc_policy(
     print("Evaluating policy...")
     episode_rewards = []
     episode_lengths = []
-
     episode_counts = np.zeros(n_envs, dtype="int")
     # Divides episodes among different sub environments in the vector as evenly as possible
     episode_count_targets = np.array([(n_eval_episodes + i) // n_envs for i in range(n_envs)], dtype="int")
@@ -660,6 +497,8 @@ def evaluate_mpc_policy(
     observations = env.reset()
     states = None
     episode_starts = np.ones((env.num_envs,), dtype=bool)
+    if envdata_logger is not None:
+        envdata_logger.reset_episode_data()
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001:
             states = None
@@ -682,6 +521,8 @@ def evaluate_mpc_policy(
         new_observations, rewards, dones, infos = env.step(normalized_actions)
         for actor_info, info in zip(actor_infos, infos):
             info.update({"actor_info": actor_info})
+
+        envdata_logger(env.envs[0])
 
         current_rewards += rewards
         current_lengths += 1

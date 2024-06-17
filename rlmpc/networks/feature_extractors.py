@@ -141,16 +141,16 @@ class TrackingVAE(BaseFeaturesExtractor):
         if model_file is None:
             model_file = (
                 TRACKINGVAE_DATADIR
-                / "tracking_avae78_NL_1_nonbi_HD_256_LD_10_NH_8_ED_512"
-                / "tracking_avae78_NL_1_nonbi_HD_256_LD_10_NH_8_ED_512_best.pth"
+                / "tracking_avae51_NL_1_nonbi_HD_128_LD_12_NH_8_ED_128"
+                / "tracking_avae51_NL_1_nonbi_HD_128_LD_12_NH_8_ED_128_best.pth"
             )
 
         self.vae: tracking_vae.VAE = tracking_vae.VAE(
             input_dim=self.input_dim,
-            embedding_dim=512,
+            embedding_dim=128,
             num_heads=8,
-            rnn_hidden_dim=256,
-            latent_dim=10,
+            rnn_hidden_dim=128,
+            latent_dim=12,
             num_layers=1,
             rnn_type=th.nn.GRU,
             bidirectional=False,

@@ -327,11 +327,11 @@ class SAC(opa.OffPolicyAlgorithm):
             if self.only_train_critic:
                 # use cost function value from mpc
                 mpc_cost_scale = 1000.0
-                target_q_values = -th.from_numpy(
+                target_q_values = th.from_numpy(
                     np.array(
                         [
                             (
-                                info[0]["actor_info"]["cost_val"] / mpc_cost_scale
+                                -info[0]["actor_info"]["cost_val"] / mpc_cost_scale
                                 if info[0]["actor_info"]["optimal"]
                                 else target_q_values[idx].item()
                             )
@@ -423,8 +423,8 @@ class SAC(opa.OffPolicyAlgorithm):
                 # Equivalent to loss.backward()
                 self.actor.set_gradients(actor_grads.mean(dim=0))
                 self.actor.optimizer.step()
-            actor_losses.append(actor_losses_g.mean().item())
-            actor_grad_norms.append(actor_grads.mean(dim=0).norm().item())
+                actor_losses.append(actor_losses_g.mean().item())
+                actor_grad_norms.append(actor_grads.mean(dim=0).norm().item())
 
         if actor_losses:
             mean_actor_loss = np.mean(actor_losses)

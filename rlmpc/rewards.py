@@ -206,6 +206,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
         self._so_surfaces: list = []
         self._map_origin: np.ndarray = np.zeros(2)
         self._initialized: bool = False
+        self.last_reward: float = 0.0
 
     def create_so_surfaces(self):
         self._map_origin = self.env.ownship.state[:2]
@@ -302,8 +303,11 @@ class AntiGroundingRewarder(cs_reward.IReward):
         # The above cost only gives a penalty if the ship CG is inside the grounding polygon approximations.
         if self.env.simulator.determine_ship_grounding():
             grounding_cost += self._config.rho_anti_grounding * 1.0
+        self.last_reward = -grounding_cost
+        return self.last_reward
 
-        return -grounding_cost
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_anti_grounding": self.last_reward}
 
 
 class CollisionAvoidanceRewarder(cs_reward.IReward):
@@ -311,6 +315,7 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
     def __init__(self, env: "COLAVEnvironment", config: CollisionAvoidanceRewarderParams) -> None:
         super().__init__(env)
         self._config = config
+        self.last_reward = 0.0
 
     def compute_dynamic_obstacle_constraint(self, do_tuple: Tuple[int, np.ndarray, np.ndarray, float, float]) -> float:
         """Compute the dynamic obstacle constraint for the given dynamic obstacle.
@@ -347,7 +352,11 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
                 print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}.")
 
         colav_cost = self._config.rho_colav * np.sum(g_do)
-        return -colav_cost
+        self.last_reward = -colav_cost
+        return self.last_reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_colav": self.last_reward}
 
 
 class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
@@ -355,6 +364,7 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
     def __init__(self, env: "COLAVEnvironment", config: ReadilyApparentManeuveringRewarderParams) -> None:
         super().__init__(env)
         self._config = config
+        self.last_reward = 0.0
         self._config.r_max = self.env.ownship.max_turn_rate
         self.K_app = np.array([self._config.K_app_course, self._config.K_app_speed])
         self.alpha_app = np.concatenate([self._config.alpha_app_course, self._config.alpha_app_speed])
@@ -376,7 +386,11 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
             a_max=self._config.a_max,
         )
         self._prev_speed = speed
-        return -rate_cost
+        self.last_reward = -rate_cost
+        return self.last_reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_ra_maneuvering": self.last_reward}
 
 
 class COLREGRewarder(cs_reward.IReward):
@@ -392,6 +406,7 @@ class COLREGRewarder(cs_reward.IReward):
         self._r_safe: float = 10.0
         self._min_depth: int = 0
         self._geometry_tree: Any = None
+        self.last_reward = 0.0
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
@@ -477,13 +492,18 @@ class COLREGRewarder(cs_reward.IReward):
             d_attenuation=self._config.d_attenuation,
             weights=self._config.w_colregs,
         )
-        return -colreg_cost.full()[0][0]
+        self.last_reward = -colreg_cost.full()[0][0]
+        return self.last_reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_colregs": self.last_reward}
 
 
 class TrajectoryTrackingRewarder(cs_reward.IReward):
 
     def __init__(self, env: "COLAVEnvironment", config: TrajectoryTrackingRewarderParams) -> None:
         super().__init__(env)
+        self.last_reward = 0.0
         self._config = config
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
@@ -491,7 +511,11 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
         huber_loss = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
         tt_cost = self._config.rho_path_dev * huber_loss + self._config.rho_speed_dev * path_obs[1] ** 2
-        return -tt_cost
+        self.last_reward = -tt_cost
+        return self.last_reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_trajectory_tracking": self.last_reward}
 
 
 class MPCRewarder(cs_reward.IReward):
@@ -502,6 +526,7 @@ class MPCRewarder(cs_reward.IReward):
     def __init__(self, env: "COLAVEnvironment", config: Config = Config()) -> None:
         super().__init__(env)
         self.reward_scale: float = 10.0
+        self.last_reward: float = 0.0
         self._config = config
         self.anti_grounding_rewarder = AntiGroundingRewarder(env, config.anti_grounding)
         self.collision_avoidance_rewarder = CollisionAvoidanceRewarder(env, config.collision_avoidance)
@@ -531,7 +556,18 @@ class MPCRewarder(cs_reward.IReward):
             + self.r_readily_apparent_maneuvering
         )
         reward = reward / self.reward_scale
-        # print(
-        #     f"r_scaled: {reward} | r_antigrounding: {self.r_antigrounding:.2f} | r_collision_avoidance: {self.r_collision_avoidance:.2f} | r_colreg: {self.r_colreg:.2f} | r_trajectory_tracking: {self.r_trajectory_tracking:.2f} | r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.2f}"
-        # )
+        print(
+            f"[MPC-REWARDER]:\n\t- r_scaled: {reward} \n\t- r_antigrounding: {self.r_antigrounding:.2f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.2f} \n\t- r_colreg: {self.r_colreg:.2f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.2f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.2f}"
+        )
+        self.last_reward = reward
         return reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {
+            "r_scaled": self.last_reward,
+            "r_antigrounding": self.r_antigrounding,
+            "r_collision_avoidance": self.r_collision_avoidance,
+            "r_colreg": self.r_colreg,
+            "r_trajectory_tracking": self.r_trajectory_tracking,
+            "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering,
+        }

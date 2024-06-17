@@ -164,7 +164,7 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        features_dim: int = 119,
+        features_dim: int = 121,
         action_dim: int = 2,
     ):
         super().__init__()
@@ -174,7 +174,7 @@ class MPCParameterDNN(th.nn.Module):
             "K_app_speed": [0.1, 200.0],
             "d_attenuation": [10.0, 1000.0],
             "w_colregs": [0.1, 500.0],
-            "r_safe_do": [2.5, 100.0],
+            "r_safe_do": [5.0, 100.0],
         }
         self.out_parameter_lengths = {
             "Q_p": 3,
@@ -563,9 +563,7 @@ class SACMPCActor(BasePolicy):
                 else th.from_numpy(state[idx]["norm_mpc_action"]).float()
             )
             dnn_input = th.cat([features[idx], current_mpc_params, prev_action], dim=-1)
-            mpc_param_increment = self.mpc_param_provider(dnn_input)
-            mpc_param_increment = mpc_param_increment.detach().numpy()
-
+            mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
             mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
                 mpc_param_increment, current_mpc_params.detach().numpy()
             )
