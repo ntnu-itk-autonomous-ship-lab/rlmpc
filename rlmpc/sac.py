@@ -10,12 +10,13 @@
 
 import copy
 import pathlib
+import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import colav_simulator.gym.environment as csgym_env
 import numpy as np
-import rlmpc.buffers as rlmpc_buffers
+import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.off_policy_algorithm as opa
 import rlmpc.policies as rlmpc_policies
 import stable_baselines3.common.noise as sb3_noise
@@ -122,7 +123,7 @@ class SAC(opa.OffPolicyAlgorithm):
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
-        only_train_critic: bool = False,
+        pretrain_critic_using_mpc: bool = False,
         _init_setup_model: bool = True,
     ):
         policy_kwargs.update(
@@ -157,7 +158,7 @@ class SAC(opa.OffPolicyAlgorithm):
             support_multi_env=True,
         )
 
-        self.only_train_critic: bool = only_train_critic
+        self.pretrain_critic_using_mpc: bool = pretrain_critic_using_mpc
         self.target_entropy = target_entropy
         self.log_ent_coef = None  # type: Optional[th.Tensor]
         # Entropy coefficient / Entropy temperature
@@ -257,7 +258,7 @@ class SAC(opa.OffPolicyAlgorithm):
             optimizers += [self.ent_coef_optimizer]
         self._update_learning_rate(optimizers)
 
-        ent_coef_losses, ent_coefs = [], []
+        ent_coeff_losses, ent_coeffs = [], []
         actor_losses, critic_losses = [], []
         actor_grad_norms = []
         mean_actor_loss = 0.0
@@ -288,11 +289,11 @@ class SAC(opa.OffPolicyAlgorithm):
                 # see https://github.com/rail-berkeley/softlearning/issues/60
                 ent_coef = th.exp(self.log_ent_coef.detach())
                 ent_coef_loss = -(self.log_ent_coef * (sampled_log_prob + self.target_entropy).detach()).mean()
-                ent_coef_losses.append(ent_coef_loss.item())
+                ent_coeff_losses.append(ent_coef_loss.item())
             else:
                 ent_coef = self.ent_coef_tensor
 
-            ent_coefs.append(ent_coef.item())
+            ent_coeffs.append(ent_coef.item())
 
             # Optimize entropy coefficient, also called
             # entropy temperature or alpha in the paper
@@ -314,32 +315,31 @@ class SAC(opa.OffPolicyAlgorithm):
                     self.critic_target(replay_data.next_observations, replay_data.next_actions), dim=1
                 )
                 next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
+                if self.pretrain_critic_using_mpc:
+                    mpc_cost_scale = 1000.0
+                    next_q_values = th.from_numpy(
+                        np.array(
+                            [
+                                (
+                                    -info[0]["next_actor_info"]["cost_val"] / mpc_cost_scale
+                                    if info[0]["next_actor_info"]["optimal"]
+                                    else next_q_values[idx].item()
+                                )
+                                for idx, info in enumerate(replay_data.infos)
+                            ],
+                            dtype=np.float32,
+                        ).reshape(-1, 1)
+                    )
+
                 # add entropy term
                 next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
+
                 # td error + entropy term
                 target_q_values = replay_data.rewards + (1.0 - replay_data.dones) * self.gamma * next_q_values
 
             # Get current Q-values estimates for each critic network
             # using action from the replay buffer
             current_q_values = self.critic(replay_data.observations, replay_data.actions)
-
-            # Compute critic loss
-            if self.only_train_critic:
-                # use cost function value from mpc
-                mpc_cost_scale = 1000.0
-                target_q_values = th.from_numpy(
-                    np.array(
-                        [
-                            (
-                                -info[0]["actor_info"]["cost_val"] / mpc_cost_scale
-                                if info[0]["actor_info"]["optimal"]
-                                else target_q_values[idx].item()
-                            )
-                            for idx, info in enumerate(replay_data.infos)
-                        ],
-                        dtype=np.float32,
-                    ).reshape(-1, 1)
-                )
 
             critic_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
             assert isinstance(critic_loss, th.Tensor)  # for type checker
@@ -355,7 +355,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 # Copy running stats, see GH issue #996
                 polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
 
-            if not self.only_train_critic:
+            if not self.pretrain_critic_using_mpc:
                 with th.no_grad():
                     sampled_log_prob = self.actor.action_log_prob(
                         replay_data.observations, actions=sampled_actions, infos=replay_data.infos
@@ -433,15 +433,28 @@ class SAC(opa.OffPolicyAlgorithm):
         self._n_updates += gradient_steps
 
         print(
-            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.4f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coef Loss: {np.mean(ent_coef_losses):.4f} | Ent Coef: {np.mean(ent_coefs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
+            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.4f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coeff_losses):.4f} | Ent Coeff: {np.mean(ent_coeffs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
         )
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/ent_coef", np.mean(ent_coefs))
+        self.logger.record("train/ent_coef", np.mean(ent_coeffs))
         self.logger.record("train/actor_loss", mean_actor_loss)
         self.logger.record("train/actor_grad_norm", mean_actor_grad_norm)
         self.logger.record("train/critic_loss", np.mean(critic_losses))
-        if len(ent_coef_losses) > 0:
-            self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
+        self.logger.record("train/ent_coef_loss", np.mean(ent_coeff_losses))
+
+        self.last_training_info.update(
+            {
+                "actor_loss": mean_actor_loss,
+                "actor_grad_norm": mean_actor_grad_norm,
+                "critic_loss": np.mean(critic_losses),
+                "ent_coeff_loss": np.mean(ent_coeff_losses),
+                "ent_coeff": np.mean(ent_coeffs),
+                "batch_processing_time": time.time() - batch_start_time,
+                "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
+                "training_timesteps": self._n_updates,
+                "infeasible_solutions": self.actor.infeasible_solutions,
+            }
+        )
 
     def learn(
         self: SelfSAC,

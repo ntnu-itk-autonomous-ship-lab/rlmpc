@@ -14,21 +14,20 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import colav_simulator.common.math_functions as csmf
 import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
-import rlmpc.buffers as rlmpc_buffers
+import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
 import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.rlmpc as rlmpc
-import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
-from stable_baselines3.common.distributions import DiagGaussianDistribution, StateDependentNoiseDistribution
+from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel
-from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
+from stable_baselines3.common.preprocessing import (get_action_dim,
+                                                    is_image_space)
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
-from torch.nn import functional as F
 
 # CAP the standard deviation of the actor
 LOG_STD_MAX = 2
@@ -95,6 +94,20 @@ class CustomContinuousCritic(BaseModel):
             q_net = th.nn.Sequential(*q_net_list)
             self.add_module(f"qf{idx}", q_net)
             self.q_networks.append(q_net)
+
+        self.initialize_parameters()
+
+    def initialize_parameters(self) -> None:
+        for q_net in self.q_networks:
+            q_net.apply(self.weights_init)
+
+    def weights_init(self, m):
+        if isinstance(m, th.nn.Conv2d):
+            th.nn.init.xavier_uniform_(m.weight, gain=th.nn.init.calculate_gain("linear"))
+            th.nn.init.zeros_(m.bias)
+        elif isinstance(m, th.nn.Linear):
+            th.nn.init.xavier_uniform_(m.weight, gain=th.nn.init.calculate_gain("linear"))
+            th.nn.init.zeros_(m.bias)
 
     def create_mlp(
         self,
@@ -184,9 +197,9 @@ class MPCParameterDNN(th.nn.Module):
             "w_colregs": 3,
             "r_safe_do": 1,
         }
-        self.parameter_weights = 10.0 * th.diag(th.Tensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]))
-        self.action_weight = 100.0 * th.diag(th.Tensor([1.0, 1.0]))
-        self.mpc_cost_val_scaling = 0.0001
+        # self.parameter_weights = 10.0 * th.diag(th.Tensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]))
+        # self.action_weight = 100.0 * th.diag(th.Tensor([1.0, 1.0]))
+        # self.mpc_cost_val_scaling = 0.0001
 
         offset = 0
         self.out_parameter_indices = {}
@@ -525,6 +538,11 @@ class SACMPCActor(BasePolicy):
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
         obs = self._convert_obs_tensor_to_numpy(observation)
         return self.predict_with_mpc(obs, deterministic)
+
+    def reset(self) -> None:
+        """Reset the policy."""
+        self.infeasible_solutions = 0
+        self.mpc_sensitivities = None
 
     def predict_with_mpc(
         self,

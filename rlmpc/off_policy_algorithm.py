@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
-import rlmpc.buffers as rlmpc_buffers
+import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.paths as rl_dp
 import stable_baselines3.common.callbacks as sb3_callbacks
 import stable_baselines3.common.logger as sb3_logger
@@ -134,6 +134,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.num_timesteps: int = 0
         self._episode_num: int = 0
         self.data_path: Path = data_path
+        self.last_training_info: Dict[str, Any] = {}
+        self.last_rollout_info: Dict[str, Any] = {}
+        self.just_trained: bool = False  # Used by callback for logging purposes
+        self.just_dumped_rollout_logs: bool = False  # Used by callback for logging purposes
 
     @abstractmethod
     def train(self, gradient_steps: int, batch_size: int) -> None:
@@ -374,6 +378,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 # Special case when the user passes `gradient_steps=0`
                 if gradient_steps > 0:
                     self.train(batch_size=self.batch_size, gradient_steps=gradient_steps)
+                    self.just_trained = True
 
         callback.on_training_end()
         return self
@@ -499,6 +504,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     num_collected_episodes += 1
                     self._episode_num += 1
                     action_count = 0
+                    self.env.envs[0].unwrapped.terminal_info.update({"actor_info": self._last_actor_info[idx]})
                     self._last_actor_info[idx] = {}
                     self._last_dones[idx] = False
 
@@ -509,6 +515,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     # Log training infos
                     if log_interval is not None and self._episode_num % log_interval == 0:
                         self._dump_logs()
+                        self.just_dumped_rollout_logs = True
 
                     self.save_replay_buffer(self.data_path / "replay_buffer.pkl")
 
@@ -630,20 +637,31 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         time_elapsed = max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
         fps = int((self.num_timesteps - self._num_timesteps_at_start) / time_elapsed)
         self.logger.record("time/episodes", self._episode_num, exclude="tensorboard")
+        ep_len_mean = 0.0
+        ep_rew_mean = 0.0
         if len(self.ep_info_buffer) > 0 and len(self.ep_info_buffer[0]) > 0:
-            self.logger.record(
-                "rollout/ep_rew_mean", sb3_utils.safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer])
-            )
-            self.logger.record(
-                "rollout/ep_len_mean", sb3_utils.safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer])
-            )
+            ep_rew_mean = sb3_utils.safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer])
+            ep_len_mean = sb3_utils.safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer])
+            self.logger.record("rollout/ep_rew_mean", ep_rew_mean)
+            self.logger.record("rollout/ep_len_mean", ep_len_mean)
         self.logger.record("time/fps", fps)
         self.logger.record("time/time_elapsed", int(time_elapsed))
         self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
-        if self.use_sde:
-            self.logger.record("train/std", (self.actor.log_std).mean().item())
 
+        success_rate = 0.0
         if len(self.ep_success_buffer) > 0:
-            self.logger.record("rollout/success_rate", sb3_utils.safe_mean(self.ep_success_buffer))
+            success_rate = sb3_utils.safe_mean(self.ep_success_buffer)
+            self.logger.record("rollout/success_rate", success_rate)
         # Pass the number of timesteps for tensorboard
         self.logger.dump(step=self.num_timesteps)
+        self.last_rollout_info.update(
+            {
+                "time_elapsed": time_elapsed,
+                "fps": fps,
+                "timesteps": self.num_timesteps,
+                "mean_episode_reward": ep_rew_mean,
+                "mean_episode_length": ep_len_mean,
+                "episodes": self._episode_num,
+                "success_rate": success_rate,
+            }
+        )

@@ -8,6 +8,7 @@
 """
 
 import copy
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -324,6 +325,7 @@ class RLMPC(ci.ICOLAV):
         Returns:
             Tuple[np.ndarray, Dict[str, Any]]: The reference action and the most recent MPC solution.
         """
+        t_now = time.time()
         if prev_soln:
             self._mpc_trajectory = prev_soln["trajectory"]
             self._mpc_inputs = prev_soln["inputs"]
@@ -373,7 +375,8 @@ class RLMPC(ci.ICOLAV):
         #     int(nu * n_samples + (2 * nx) + 3),  # speed 3
         # ]
         # action_vals = self._mpc_soln["soln"]["x"].full().flatten()[action_indices]
-
+        t_elapsed = time.time() - t_now
+        mpc_output["runtime"] = t_elapsed
         return action, mpc_output
 
     def get_mpc_params(self) -> mpc_params.MidlevelMPCParams:
@@ -619,17 +622,6 @@ class RLMPC(ci.ICOLAV):
                 csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
             )
 
-            # if self._debug:
-            #     plotters.plot_dynamic_obstacles(
-            #         do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-            #     )
-            #     plotters.plot_dynamic_obstacles(
-            #         do_ho_list, "orange", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-            #     )
-            #     plotters.plot_dynamic_obstacles(
-            #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-            #     )
-
             warm_start = self.create_mpc_warm_start(t, ownship_state, **kwargs)
 
             self._mpc_soln = self._mpc.plan(
@@ -644,8 +636,8 @@ class RLMPC(ci.ICOLAV):
                 **kwargs,
             )
             self._mpc_trajectory = self._mpc_soln["trajectory"]
-            self._mpc_inputs = self._mpc_soln["inputs"]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
+            self._mpc_inputs = self._mpc_soln["inputs"]
 
             if self._debug:
                 if self._mpc_traj_handle:

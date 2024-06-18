@@ -165,7 +165,7 @@ def main():
     env = Monitor(gym.make(id=env_id, **env_config))
     env_config.update(
         {
-            "max_number_of_episodes": 400,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 1,
@@ -207,11 +207,11 @@ def main():
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
-        only_train_critic=True,
+        pretrain_critic_using_mpc=True,
         verbose=1,
     )
     exp_name_str = "sac_rlmpc1"
-    load_model = True
+    load_model = False
     if load_model:
         model.custom_load(model_dir / "sac_rlmpc1_100")
 
@@ -223,7 +223,6 @@ def main():
         n_eval_episodes=5,
         callback_after_eval=stop_train_callback,
         experiment_name=exp_name_str,
-        deterministic=True,
         record=True,
         render=True,
         verbose=1,
@@ -232,21 +231,21 @@ def main():
         env,
         log_dir=base_dir,
         experiment_name=exp_name_str,
-        save_stats_freq=4,
+        save_stats_freq=1,
         save_agent_model_freq=100,
-        log_stats_freq=4,
+        log_stats_freq=2,
         verbose=1,
     )
-    total_training_timesteps = 10
+    total_training_timesteps = 10000
     model.learn(
         total_timesteps=total_training_timesteps,
         progress_bar=False,
         log_interval=2,
         callback=CallbackList([stats_callback, eval_callback]),
     )
-    # mean_reward, std_reward = evaluate_mpc_policy(
-    #     model, eval_env, n_eval_episodes=10, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
-    # )
+    mean_reward, std_reward = evaluate_mpc_policy(
+        model, eval_env, n_eval_episodes=10, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+    )
     # print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 
 

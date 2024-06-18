@@ -36,7 +36,6 @@ rl:
 stochasticity:
   currents:
     constant: False
-    initial_direction: 180.0
     speed_range: [0.0, 1.5]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001
@@ -48,8 +47,6 @@ stochasticity:
     direction_impulses: [45.0]
   wind:
     constant: True
-    initial_speed: 0.0
-    initial_direction: 180.0
     speed_range: [0.0, 6.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001

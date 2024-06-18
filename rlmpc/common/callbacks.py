@@ -7,7 +7,6 @@
     Author: Trym Tengesdal
 """
 
-import os
 import pickle
 import warnings
 from pathlib import Path
@@ -16,15 +15,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import colav_simulator.gym.environment as colav_env
 import colav_simulator.gym.logger as colav_env_logger
 import gymnasium as gym
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+import rlmpc.common.logger as rlmpc_logger
 import torch as th
 import torchvision.transforms.v2 as transforms_v2
 from stable_baselines3.common import type_aliases
 from stable_baselines3.common.callbacks import BaseCallback, EventCallback
 from stable_baselines3.common.logger import Image as sb3_Image
-from stable_baselines3.common.logger import Logger as sb3_Logger
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
     VecEnv,
@@ -37,11 +34,7 @@ from stable_baselines3.common.vec_env import (
 # I. How is the agent doing?
 
 
-# Episode return -> care about this one most, and try to find sane baseline for your problem.
-# Episode length
 # Solve rate
-# Total environment steps
-# Training steps
 # Wall time -> tells you how fast you can progress or try new ideas.
 # Steps per second
 # State/Action value function
@@ -59,20 +52,20 @@ class CollectStatisticsCallback(BaseCallback):
         env: colav_env.COLAVEnvironment,
         log_dir: Path,
         experiment_name: str,
-        save_stats_freq: int = 1000,
+        save_stats_freq: int = 1,
         save_agent_model_freq: int = 100,
-        log_stats_freq: int = 100,
+        log_stats_freq: int = 4,
         verbose: int = 1,
     ):
         """Initializes the CollectStatisticsCallback class.
 
         Args:
             env (colav_env.COLAVEnvironment): The environment to collect statistics from.
-            save_stats_freq (int): Frequency to save statistics.
-            record_agent_freq (int): Frequency to record the agent.
             log_dir (Path): The directory to save all experiment data to.
-            model_dir (Path): The directory to save the models to.
             experiment_name (str): Name of the experiment.
+            save_stats_freq (int): Frequency to save statistics in number of episodes.
+            save_agent_model_freq (int): Frequency to save the agent model in number of steps.
+            log_stats_freq (int): Frequency to log statistics in number of steps.
             verbose (int, optional): Verbosity level. Defaults to 1.
         """
         super(CollectStatisticsCallback, self).__init__(verbose)
@@ -82,11 +75,11 @@ class CollectStatisticsCallback(BaseCallback):
         self.log_stats_freq = log_stats_freq
         self.log_dir = log_dir
         self.model_save_path = log_dir / "models"
-        self.training_data_save_path = log_dir / "training_data"
         self.n_episodes = 0
         self.vec_env = env
 
-        self.envdata_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name, log_dir)
+        self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name, self.log_dir)
+        self.training_stats_logger: rlmpc_logger.Logger = rlmpc_logger.Logger(experiment_name, self.log_dir)
 
         self.img_transform = transforms_v2.Compose(
             [
@@ -105,19 +98,29 @@ class CollectStatisticsCallback(BaseCallback):
         if self.model_save_path is not None:
             self.model_save_path.mkdir(parents=True, exist_ok=True)
 
-        if self.training_data_save_path is not None:
-            self.training_data_save_path.mkdir(parents=True, exist_ok=True)
-
     def _on_step(self) -> bool:
         # Checking for both 'done' and 'dones' keywords because:
         # Some models use keyword 'done' (e.g.,: SAC, TD3, DQN, DDPG)
         # While some models use keyword 'dones' (e.g.,: A2C, PPO)
         done_array = np.array(
-            self.locals.get("done") if self.locals.get("done") is not None else self.locals.get("dones")
+            [self.locals.get("done")] if self.locals.get("done") is not None else self.locals.get("dones")
         )
 
-        if self.num_timesteps % self.log_stats_freq == 0:
-            self.envdata_logger(self.vec_env)
+        if self.num_timesteps % self.log_stats_freq == 0 or np.sum(done_array).item() > 0:
+            infos = self.locals.get("infos")
+            for env_idx, done in enumerate(done_array):
+                if done:
+                    infos[env_idx] = self.locals["env"].envs[env_idx].unwrapped.terminal_info
+            self.env_data_logger(infos)
+            assert hasattr(self.model, "last_training_info"), "Model must have a last_training_info attribute."
+
+            if self.model.just_trained:
+                self.training_stats_logger.update_training_metrics(self.model.last_training_info)
+                self.model.just_trained = False
+
+            if self.model.just_dumped_rollout_logs:
+                self.training_stats_logger.update_rollout_metrics(self.model.last_rollout_info)
+                self.model.just_dumped_rollout_logs = False
 
             self.logger.record(
                 "mpc/infeasible_solution_percentage",
@@ -168,6 +171,12 @@ class CollectStatisticsCallback(BaseCallback):
             ), "Model must have a custom_save method, i.e. be a custom SAC model with an MPC actor."
             self.model.custom_save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
 
+        if self.n_episodes > 0 and self.n_episodes % self.save_stats_freq == 0:
+            print("Saving training data after", self.n_episodes, "episodes")
+            self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
+            self.training_stats_logger.push()
+            self.training_stats_logger.save_as_pickle(f"{self.experiment_name}_training_stats")
+
         return True
 
 
@@ -210,7 +219,6 @@ class EvalCallback(EventCallback):
         n_eval_episodes: int = 5,
         eval_freq: int = 10000,
         experiment_name: str = "eval",
-        deterministic: bool = True,
         record: bool = False,
         render: bool = False,
         verbose: int = 1,
@@ -227,7 +235,6 @@ class EvalCallback(EventCallback):
         self.eval_freq = eval_freq
         self.best_mean_reward = -np.inf
         self.last_mean_reward = -np.inf
-        self.deterministic = deterministic
         self.render = render
         self.record = record
         self.warn = warn
@@ -242,12 +249,12 @@ class EvalCallback(EventCallback):
         self.log_path = log_path
         self.video_save_path = log_path / "eval_videos"
 
-        self.envdata_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name + "_envdata", log_path)
+        self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name + "_envdata", log_path)
 
         self.evaluations_results = []
         self.evaluations_timesteps = []
         self.evaluations_length = []
-        self.evaluations_infos = []
+
         # For computing success rate
         self._is_success_buffer = []
         self.evaluations_successes = []
@@ -310,26 +317,24 @@ class EvalCallback(EventCallback):
 
             self.model.actor.mpc.close_enc_display()
 
-            episode_rewards, episode_lengths, episode_infos = evaluate_mpc_policy(
+            episode_rewards, episode_lengths = evaluate_mpc_policy(
                 self.model,
                 self.eval_env,
                 n_eval_episodes=self.n_eval_episodes,
                 render=self.render,
-                deterministic=self.deterministic,
                 return_episode_rewards=True,
                 warn=self.warn,
                 record=self.record,
                 record_path=self.video_save_path,
                 record_name=f"eval_{self.experiment_name}_{self.num_timesteps}",
                 callback=self._log_success_callback,
-                envdata_logger=self.envdata_logger,
+                env_data_logger=self.env_data_logger,
             )
 
             if self.log_path is not None:
                 self.evaluations_timesteps.append(self.num_timesteps)
                 self.evaluations_results.append(episode_rewards)
                 self.evaluations_length.append(episode_lengths)
-                self.evaluations_infos.append(episode_infos)
 
                 kwargs = {}
                 # Save success log if present
@@ -415,7 +420,7 @@ def evaluate_mpc_policy(
     record: bool = False,
     record_path: Optional[Path] = None,
     record_name: str = "eval_mpc_policy",
-    envdata_logger: Optional[colav_env_logger.Logger] = None,
+    env_data_logger: Optional[colav_env_logger.Logger] = None,
 ) -> Union[Tuple[float, float], Tuple[List[float], List[int]]]:
     """
     Custom version of the evaluate_policy function from stable_baselines3.common.evaluation.py.
@@ -452,7 +457,7 @@ def evaluate_mpc_policy(
         - record (bool): If True, records the evaluation episodes.
         - record_path (Optional[Path]): Path to the folder where the videos will be recorded.
         - record_name (str): Name of the video.
-        - envdata_logger (Optional[colav_env_logger.Logger]): Logger for environment data.
+        - env_data_logger (Optional[colav_env_logger.Logger]): Logger for environment data.
 
     Returns:
         - Union[Tuple[float, float], Tuple[List[float]]: Mean reward per episode, std of reward per episode.
@@ -497,8 +502,8 @@ def evaluate_mpc_policy(
     observations = env.reset()
     states = None
     episode_starts = np.ones((env.num_envs,), dtype=bool)
-    if envdata_logger is not None:
-        envdata_logger.reset_episode_data()
+    if env_data_logger is not None:
+        env_data_logger.reset_episode_data()
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001:
             states = None
@@ -522,7 +527,7 @@ def evaluate_mpc_policy(
         for actor_info, info in zip(actor_infos, infos):
             info.update({"actor_info": actor_info})
 
-        envdata_logger(env.envs[0])
+        env_data_logger(env.envs[0])
 
         current_rewards += rewards
         current_lengths += 1
