@@ -186,7 +186,7 @@ class MPCParameterDNN(th.nn.Module):
             "K_app_speed": [0.1, 200.0],
             "d_attenuation": [10.0, 1000.0],
             "w_colregs": [0.1, 500.0],
-            "r_safe_do": [5.0, 100.0],
+            "r_safe_do": [5.0, 150.0],
         }
         self.out_parameter_lengths = {
             "Q_p": 3,
@@ -590,7 +590,7 @@ class SACMPCActor(BasePolicy):
                 mpc_param_increment, current_mpc_params.detach().numpy()
             )
             print(f"Provided MPC parameters: {mpc_param_subset_dict} | Old: {old_mpc_params.tolist()}")
-            # self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
+            self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
             t, ownship_state, do_list, w = self.extract_mpc_observation_features(observation, idx)
             if t < 0.001:
                 self.t_prev = t

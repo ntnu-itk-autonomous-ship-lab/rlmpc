@@ -148,7 +148,7 @@ def main():
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 400,
+        "max_number_of_episodes": 300,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -239,7 +239,7 @@ def main():
     model.learn(
         total_timesteps=total_training_timesteps,
         progress_bar=False,
-        log_interval=2,
+        log_interval=1,
         callback=CallbackList([stats_callback, eval_callback]),
     )
     mean_reward, std_reward = evaluate_mpc_policy(

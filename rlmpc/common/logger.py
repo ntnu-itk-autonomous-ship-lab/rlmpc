@@ -135,6 +135,7 @@ class Logger:
         self.mean_episode_rewards.append(rollout_info["mean_episode_reward"])
         self.mean_episode_lengths.append(rollout_info["mean_episode_length"])
         self.success_rates.append(rollout_info["success_rate"])
+        self.infeasible_solutions.append(rollout_info["infeasible_solutions"])
 
     def update_training_metrics(self, training_info: dict) -> None:
         """Updates the logger with the latest training data (compatible with SAC only per now)
@@ -153,7 +154,6 @@ class Logger:
         self.mean_actor_grad_norms.append(training_info["actor_grad_norm"])
         self.ent_coeff_losses.append(training_info["ent_coeff_loss"])
         self.ent_coeffs.append(training_info["ent_coeff"])
-        self.infeasible_solutions.append(training_info["infeasible_solutions"])
 
     def push(self) -> None:
         """Updates the logger with the latest data."""

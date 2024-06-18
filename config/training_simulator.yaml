@@ -13,7 +13,7 @@ visualizer:
   show_liveplot_ownship_trajectory: True
   show_liveplot_ground_truth_target_pose: True
   zoom_in_liveplot_on_ownship: True
-  zoom_window_width: 1500.0
+  zoom_window_width: 1200.0
   show_liveplot_map_axes: False
   show_liveplot_scalebar: False
   show_liveplot_time: True
