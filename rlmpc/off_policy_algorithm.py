@@ -654,6 +654,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self.logger.record("rollout/success_rate", success_rate)
         # Pass the number of timesteps for tensorboard
         self.logger.dump(step=self.num_timesteps)
+
+        infeasible_solution_percentage = self.policy.actor.infeasible_solutions / self.num_timesteps
         self.last_rollout_info.update(
             {
                 "time_elapsed": time_elapsed,
@@ -663,5 +665,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "mean_episode_length": ep_len_mean,
                 "episodes": self._episode_num,
                 "success_rate": success_rate,
+                "infeasible_solutions": infeasible_solution_percentage,
             }
         )

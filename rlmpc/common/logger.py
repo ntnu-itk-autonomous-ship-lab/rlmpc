@@ -14,6 +14,34 @@ from typing import Any, Dict, List, NamedTuple, Optional
 import numpy as np
 
 
+class SmoothedRLData(NamedTuple):
+    """Smoothed data with std info from the RLMPC training process."""
+
+    timesteps: int
+    time_elapsed: float
+    episodes: int
+    critic_loss: List[float]
+    std_critic_loss: List[float]
+    actor_loss: List[float]
+    std_actor_loss: List[float]
+    mean_actor_grad_norm: List[float]
+    std_mean_actor_grad_norm: List[float]
+    ent_coeff_loss: List[float]
+    std_ent_coeff_loss: List[float]
+    ent_coeff: List[float]
+    std_ent_coeff: List[float]
+    infeasible_solutions: List[int]
+    std_infeasible_solutions: List[int]
+    mean_episode_reward: List[float]
+    std_mean_episode_reward: List[float]
+    mean_episode_length: List[float]
+    std_mean_episode_length: List[float]
+    batch_processing_time: List[float] = []
+    std_batch_processing_time: List[float] = []
+    success_rate: List[float] = []
+    std_success_rate: List[float] = []
+
+
 class RLData(NamedTuple):
     """Data from the RLMPC training process."""
 

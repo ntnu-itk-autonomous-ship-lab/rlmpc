@@ -24,8 +24,7 @@ from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel
-from stable_baselines3.common.preprocessing import (get_action_dim,
-                                                    is_image_space)
+from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -460,6 +459,11 @@ class SACMPCActor(BasePolicy):
         self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.mpc.get_mpc_params()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
+        self.mpc_adjustable_params_init = self.mpc.get_adjustable_mpc_params()
+        adjustable_params_dict = self.mpc_param_provider.map_to_parameter_dict(
+            np.zeros(self.mpc_param_provider.num_output_params), self.mpc_adjustable_params_init
+        )
+        self.mpc_adjustable_params_init = adjustable_params_dict
 
         self.action_indices = [
             int(nu * n_samples + (2 * nx) + 2),  # chi 2
@@ -743,6 +747,7 @@ class SACMPCActor(BasePolicy):
         )
         self.mpc.set_action_indices(self.action_indices)
         self.mpc_sensitivities = self.mpc.build_sensitivities()
+        self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
         print("SAC MPC Actor initialized!")
 
     def update_params(self, step: th.Tensor) -> None:

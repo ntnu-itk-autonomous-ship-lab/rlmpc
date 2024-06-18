@@ -88,7 +88,7 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
 # upd scen gen to spawn obstacles along waypoints instead of only near init pos
 # add more scenarios
 def main():
-    experiment_name = "sac_rlmpc"
+    experiment_name = "sac_rlmpc1"
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
 
     scenario_names = [
@@ -210,10 +210,9 @@ def main():
         pretrain_critic_using_mpc=True,
         verbose=1,
     )
-    exp_name_str = "sac_rlmpc1"
     load_model = False
     if load_model:
-        model.custom_load(model_dir / "sac_rlmpc1_100")
+        model.custom_load(model_dir / (experiment_name + "_100"))
 
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
@@ -222,7 +221,7 @@ def main():
         eval_freq=10000000,
         n_eval_episodes=5,
         callback_after_eval=stop_train_callback,
-        experiment_name=exp_name_str,
+        experiment_name=experiment_name,
         record=True,
         render=True,
         verbose=1,
@@ -230,7 +229,7 @@ def main():
     stats_callback = CollectStatisticsCallback(
         env,
         log_dir=base_dir,
-        experiment_name=exp_name_str,
+        experiment_name=experiment_name,
         save_stats_freq=1,
         save_agent_model_freq=100,
         log_stats_freq=2,

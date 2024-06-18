@@ -10,16 +10,18 @@
 import inspect
 import pathlib
 from contextlib import contextmanager
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import casadi as csd
 import colav_simulator.core.controllers as controllers
 import colav_simulator.core.guidances as guidances
 import colav_simulator.core.integrators as sim_integrators
 import colav_simulator.core.models as sim_models
+import colav_simulator.gym.logger as colav_logger
 import matplotlib
 import matplotlib.path as mpath
 import matplotlib.pyplot as plt
+import rlmpc.common.logger as rlmpc_logger
 
 matplotlib.use("Agg")
 import numpy as np
@@ -63,6 +65,134 @@ plt.rcParams.update(
         "ps.fonttype": 42,
     }
 )
+
+
+def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5) -> rlmpc_logger.RLData:
+
+    smoothed_critic_loss, std_critic_loss = compute_smooted_mean_and_std(data.critic_loss, window_size=ma_window_size)
+    smoothed_actor_loss, std_actor_loss = compute_smooted_mean_and_std(data.actor_loss, window_size=ma_window_size)
+    smoothed_mean_actor_grad_norm, std_mean_actor_grad_norm = compute_smooted_mean_and_std(
+        data.mean_actor_grad_norm, window_size=ma_window_size
+    )
+    smoothed_ent_coeff_loss, std_ent_coeff_loss = compute_smooted_mean_and_std(
+        data.ent_coeff_loss, window_size=ma_window_size
+    )
+    smoothed_ent_coeff, std_ent_coeff = compute_smooted_mean_and_std(data.ent_coeff, window_size=ma_window_size)
+
+    smoothed_infeasible_solutions, std_infeasible_solutions = compute_smooted_mean_and_std(
+        data.infeasible_solutions, window_size=ma_window_size
+    )
+    smoothed_mean_episode_reward, std_mean_episode_reward = compute_smooted_mean_and_std(
+        data.mean_episode_reward, window_size=ma_window_size
+    )
+    smoothed_mean_episode_length, std_mean_episode_length = compute_smooted_mean_and_std(
+        data.mean_episode_length, window_size=ma_window_size
+    )
+    batch_processing_time, std_batch_processing_time = compute_smooted_mean_and_std(
+        data.batch_processing_time, window_size=ma_window_size
+    )
+    success_rate, std_success_rate = compute_smooted_mean_and_std(data.success_rate, window_size=ma_window_size)
+
+    smoothed_data = rlmpc_logger.SmoothedRLData(
+        timesteps=data.timesteps,
+        time_elapsed=data.time_elapsed,
+        episodes=data.episodes,
+        critic_loss=smoothed_critic_loss,
+        std_critic_loss=std_critic_loss,
+        actor_loss=smoothed_actor_loss,
+        std_actor_loss=std_actor_loss,
+        mean_actor_grad_norm=smoothed_mean_actor_grad_norm,
+        std_mean_actor_grad_norm=std_mean_actor_grad_norm,
+        ent_coeff_loss=smoothed_ent_coeff_loss,
+        std_ent_coeff_loss=std_ent_coeff_loss,
+        ent_coeff=smoothed_ent_coeff,
+        std_ent_coeff=std_ent_coeff,
+        infeasible_solutions=smoothed_infeasible_solutions,
+        std_infeasible_solutions=std_infeasible_solutions,
+        mean_episode_reward=smoothed_mean_episode_reward,
+        std_mean_episode_reward=std_mean_episode_reward,
+        mean_episode_length=smoothed_mean_episode_length,
+        std_mean_episode_length=std_mean_episode_length,
+        batch_processing_time=batch_processing_time,
+        std_batch_processing_time=std_batch_processing_time,
+        success_rate=success_rate,
+        std_success_rate=std_success_rate,
+    )
+    return smoothed_data
+
+
+def exponential_moving_average(data: List[float], alpha: float = 0.9) -> List[float]:
+    ema = [data[0]]
+    for i in range(1, len(data)):
+        ema.append(alpha * ema[-1] + (1 - alpha) * data[i])
+    return ema
+
+
+def compute_smooted_mean_and_std(data: List[float], window_size: int = 10) -> Tuple[List[float], List[float]]:
+    mean = np.convolve(data, np.ones((window_size,)) / window_size, mode="valid")
+    std = [np.std(mean[max(0, i - window_size + 1) : i + 1]) for i in range(len(mean))]
+
+    return mean, std
+
+
+def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: int = 3) -> Dict[str, Any]:
+    """Extracts reward metrics from the environment data.
+
+    Args:
+        data (List[EpisodeData]): List of EpisodeData objects from training.
+        ma_window_size (int, optional): Window size for moving average. Defaults to 10.
+
+    Returns:
+        Dict[str, Any]: Dictionary containing reward metrics.
+    """
+    rewards = []
+    r_antigrounding = []
+    r_colav = []
+    r_colreg = []
+    r_trajectory_tracking = []
+    r_ra_maneuvering = []
+    for env_idx, env_data in enumerate(data):
+        for ep_data in env_data:
+            return_colreg_ep = np.sum([r["r_colreg"] for r in ep_data.reward_components])
+            return_colav_ep = np.sum([r["r_collision_avoidance"] for r in ep_data.reward_components])
+            return_antigrounding_ep = np.sum([r["r_antigrounding"] for r in ep_data.reward_components])
+            return_trajectory_tracking_ep = np.sum([r["r_trajectory_tracking"] for r in ep_data.reward_components])
+            return_readily_apparent_maneuvering_ep = np.sum(
+                [r["r_readily_apparent_maneuvering"] for r in ep_data.reward_components]
+            )
+
+            r_colreg.append(return_colreg_ep)
+            r_colav.append(return_colav_ep)
+            r_antigrounding.append(return_antigrounding_ep)
+            r_trajectory_tracking.append(return_trajectory_tracking_ep)
+            r_ra_maneuvering.append(return_readily_apparent_maneuvering_ep)
+            rewards.append(ep_data.cumulative_reward)
+
+    rewards_smoothed, std_rewards_smoothed = compute_smooted_mean_and_std(rewards, ma_window_size)
+    r_colreg, std_r_colreg = compute_smooted_mean_and_std(r_colreg, ma_window_size)
+    r_colav, std_r_colav = compute_smooted_mean_and_std(r_colav, ma_window_size)
+    r_antigrounding, std_r_antigrounding = compute_smooted_mean_and_std(r_antigrounding, ma_window_size)
+    r_trajectory_tracking, std_r_trajectory_tracking = compute_smooted_mean_and_std(
+        r_trajectory_tracking, ma_window_size
+    )
+    r_ra_maneuvering, std_r_ra_maneuvering = compute_smooted_mean_and_std(r_ra_maneuvering, ma_window_size)
+
+    out = {
+        "rewards": rewards,
+        "rewards_smoothed": rewards_smoothed,
+        "std_rewards_smoothed": std_rewards_smoothed,
+        "r_colreg": r_colreg,
+        "std_r_colreg": std_r_colreg,
+        "r_colav": r_colav,
+        "std_r_colav": std_r_colav,
+        "r_antigrounding": r_antigrounding,
+        "std_r_antigrounding": std_r_antigrounding,
+        "r_trajectory_tracking": r_trajectory_tracking,
+        "std_r_trajectory_tracking": std_r_trajectory_tracking,
+        "r_ra_maneuvering": r_ra_maneuvering,
+        "std_r_ra_maneuvering": std_r_ra_maneuvering,
+    }
+    return out
 
 
 def make_grid_for_tensorboard(batch_images, reconstructed_images, semantic_masks, n_rows: int = 2) -> torch.Tensor:

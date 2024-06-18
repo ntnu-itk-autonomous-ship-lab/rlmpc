@@ -452,7 +452,6 @@ class SAC(opa.OffPolicyAlgorithm):
                 "batch_processing_time": time.time() - batch_start_time,
                 "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
                 "training_timesteps": self._n_updates,
-                "infeasible_solutions": self.actor.infeasible_solutions,
             }
         )
 
