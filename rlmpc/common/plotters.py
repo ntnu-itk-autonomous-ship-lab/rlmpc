@@ -7,6 +7,7 @@
     Author: Trym Tengesdal
 """
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 import colav_simulator.common.image_helper_methods as ihm
@@ -18,13 +19,57 @@ import rlmpc.common.logger as rl_logger
 import seaborn as sns
 from matplotlib import gridspec
 
+SMALL_SIZE = 18
+MEDIUM_SIZE = 18
+BIGGER_SIZE = 18
 matplotlib.use("TkAgg")
+plt.rcParams.update(
+    {
+        "pgf.texsystem": "pdflatex",
+        "font.family": "serif",
+        "text.usetex": True,
+        "pgf.rcfonts": False,
+        "pgf.preamble": "\n".join(
+            [
+                r"\usepackage{bm}",
+                r"\usepackage{amsmath}",
+                r"\usepackage{amssymb}",
+            ]
+        ),
+        "font.serif": ["Computer Modern Roman"],
+        "text.latex.preamble": "\n".join(
+            [
+                r"\usepackage{bm}",
+                r"\usepackage{amsmath}",
+                r"\usepackage{amssymb}",
+            ]
+        ),
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "font.weight": "bold",
+        "font.size": SMALL_SIZE,
+        "axes.titlesize": SMALL_SIZE,
+        "axes.labelsize": MEDIUM_SIZE,
+        "xtick.labelsize": SMALL_SIZE,
+        "ytick.labelsize": SMALL_SIZE,
+        "legend.fontsize": SMALL_SIZE,
+        "figure.titlesize": BIGGER_SIZE,
+    }
+)
 
 
 def plot_single_model_training_enc_snapshots(
-    data: List[csgym_logger.EpisodeData], nrows: int = 5, ncols: int = 3
+    data: List[csgym_logger.EpisodeData],
+    nrows: int = 5,
+    ncols: int = 3,
+    name: str = None,
+    save_path: Path = None,
+    save_fig: bool = False,
 ) -> None:
-    fig = plt.figure(figsize=(10, 10))
+    if name is None:
+        name = "model"
+
+    fig = plt.figure(figsize=(10, 10), num=f"enc_snapshots_{name}")
     gs = gridspec.GridSpec(
         nrows,
         ncols,
@@ -45,16 +90,24 @@ def plot_single_model_training_enc_snapshots(
         ax.imshow(frame)
         ax.axis("off")
         ax.set_title(f"Episode {idx}")
+    if save_fig:
+        save_path = save_path if save_path is not None else Path("./")
+        plt.savefig(save_path / f"enc_snapshots_{name}.pdf", bbox_inches="tight", dpi=100)
     plt.show(block=False)
 
 
-def plot_multiple_model_reward_curves(model_data: List[Dict[str, Any]], model_names: List[str]) -> None:
+def plot_multiple_model_reward_curves(
+    model_data: List[Dict[str, Any]], model_names: List[str], save_path: Path, save_fig: bool = False
+) -> None:
     fig, axs = plt.subplots(2, 3, figsize=(15, 10), num="reward_curves")
-    fig.subplots_adjust(hspace=0.25, wspace=0.2)
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     colors = sns.color_palette("tab10", n_colors=len(model_data))
     for name, data in zip(model_names, model_data):
         color = colors.pop()
         plot_single_model_reward_curves(axs, data, name, color=color)
+    if save_fig:
+        save_path = save_path if save_path is not None else Path("./")
+        plt.savefig(save_path / "reward_curves.pdf", bbox_inches="tight", dpi=100)
 
 
 def plot_single_model_reward_curves(
@@ -152,13 +205,18 @@ def plot_single_model_reward_curves(
     plt.show(block=False)
 
 
-def plot_multiple_model_training_stats(model_data: List[rl_logger.RLData], model_names: List[str]) -> None:
+def plot_multiple_model_training_stats(
+    model_data: List[rl_logger.RLData], model_names: List[str], save_fig: bool = False, save_path: Path = None
+) -> None:
     fig, axs = plt.subplots(2, 3, figsize=(15, 10), num="training_stats")
-    fig.subplots_adjust(hspace=0.25, wspace=0.2)
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
     colors = sns.color_palette("tab10", n_colors=len(model_data))
     for name, data in zip(model_names, model_data):
         color = colors.pop()
         plot_single_model_training_stats(axs, data, name, color=color)
+    if save_fig:
+        save_path = save_path if save_path is not None else Path("./")
+        plt.savefig(save_path / "training_stats.pdf", bbox_inches="tight", dpi=100)
 
 
 def plot_single_model_training_stats(
@@ -250,7 +308,7 @@ def plot_single_model_training_stats(
         alpha=0.2,
         color=color,
     )
-    axs[1, 2].set_title("Infeasible solution %")
+    axs[1, 2].set_title("Non-optimal solution percentage")
     axs[1, 2].set_xlabel("Training step")
 
     plt.show(block=False)

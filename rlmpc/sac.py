@@ -310,6 +310,10 @@ class SAC(opa.OffPolicyAlgorithm):
                     infos=replay_data.infos,
                     is_next_action=True,
                 )
+                next_norm_mpc_action = replay_data.infos[0][0]["next_actor_info"]["norm_mpc_action"]
+                print(
+                    f"Next log probs: {next_log_prob} | actions: {replay_data.next_actions[0]} | mpc actions: {next_norm_mpc_action}"
+                )
                 # Compute the next Q values: min over all critics targets
                 next_q_values = th.cat(
                     self.critic_target(replay_data.next_observations, replay_data.next_actions), dim=1
@@ -332,6 +336,8 @@ class SAC(opa.OffPolicyAlgorithm):
                     )
 
                 # add entropy term
+                # low action probability gives very high negative entropy (log_prob) -> dominates the Q value
+                # leads to insanely high critic loss
                 next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
 
                 # td error + entropy term
@@ -433,7 +439,7 @@ class SAC(opa.OffPolicyAlgorithm):
         self._n_updates += gradient_steps
 
         print(
-            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.4f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coeff_losses):.4f} | Ent Coeff: {np.mean(ent_coeffs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
+            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coeff_losses):.4f} | Ent Coeff: {np.mean(ent_coeffs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
         )
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/ent_coef", np.mean(ent_coeffs))

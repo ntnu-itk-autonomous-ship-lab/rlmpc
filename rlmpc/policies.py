@@ -436,7 +436,7 @@ class SACMPCActor(BasePolicy):
 
         # Save arguments to re-create object at loading
         self.t_prev: float = 0.0
-        self.noise_application_duration: float = 40.0
+        self.noise_application_duration: float = 10.0
         self.log_std_init = self.log_std
         self.clip_mean = clip_mean
         self.infeasible_solutions: int = 0
@@ -455,16 +455,17 @@ class SACMPCActor(BasePolicy):
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
         self.mpc = rlmpc.RLMPC(mpc_config)
         self.mpc_sensitivities = None
-        nx, nu = self.mpc.get_mpc_model_dims()
         self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.mpc.get_mpc_params()
-        n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         self.mpc_adjustable_params_init = self.mpc.get_adjustable_mpc_params()
+        norm_mpc_params_init = self.mpc_param_provider.normalize(th.from_numpy(self.mpc_adjustable_params_init)).numpy()
         adjustable_params_dict = self.mpc_param_provider.map_to_parameter_dict(
-            np.zeros(self.mpc_param_provider.num_output_params), self.mpc_adjustable_params_init
+            np.zeros(self.mpc_param_provider.num_output_params), norm_mpc_params_init
         )
         self.mpc_adjustable_params_init = adjustable_params_dict
 
+        nx, nu = self.mpc.get_mpc_model_dims()
+        n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         self.action_indices = [
             int(nu * n_samples + (2 * nx) + 2),  # chi 2
             int(nu * n_samples + (2 * nx) + 3),  # speed 2
@@ -607,15 +608,17 @@ class SACMPCActor(BasePolicy):
                     "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
                     "old_mpc_params": old_mpc_params,
                     "norm_old_mpc_params": current_mpc_params.detach().numpy(),
+                    "norm_action": norm_action,
                 }
             )
             if not deterministic:
-                self.prev_noise_action = (
-                    self.sample_action(norm_action)
-                    if t == 0.0 or t - self.t_prev >= self.noise_application_duration
-                    else self.prev_noise_action
-                )
-                norm_action = self.prev_noise_action
+                norm_action = self.sample_action(norm_action)
+            #     self.prev_noise_action = (
+            #         self.sample_action(norm_action)
+            #         if t == 0.0 or t - self.t_prev >= self.noise_application_duration
+            #         else self.prev_noise_action
+            #     )
+            #     norm_action = self.prev_noise_action
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
 

@@ -15,7 +15,7 @@ n_random_ships_range: [3, 10]
 episode_generation:
   n_episodes: 10
   n_constant_os_state_episodes: 1
-  n_constant_os_plan_episodes: 100
+  n_constant_os_plan_episodes: 200
   n_constant_do_state_episodes: 1
   n_plans_per_do_state: 1
   n_constant_disturbance_episodes: 5
@@ -47,7 +47,7 @@ stochasticity:
     direction_impulses: [45.0]
   wind:
     constant: True
-    speed_range: [0.0, 6.0]
+    speed_range: [0.0, 7.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001
     mu_direction: 0.00001

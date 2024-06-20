@@ -110,7 +110,7 @@ def main():
                 save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=100,
+                n_episodes=200,
                 delete_existing_files=True,
             )
 
@@ -122,7 +122,7 @@ def main():
                 save_scenario_folder=rl_dp.scenarios / "test_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=40,
+                n_episodes=50,
                 delete_existing_files=True,
             )
 
@@ -148,7 +148,7 @@ def main():
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 300,
+        "max_number_of_episodes": 250,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -178,7 +178,7 @@ def main():
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    actor_noise_std_dev = np.array([0.005, 0.002])  # normalized std dev for the action space [course, speed]
+    actor_noise_std_dev = np.array([0.0005, 0.001])  # normalized std dev for the action space [course, speed]
 
     mpc_param_provider_kwargs = {
         "param_list": ["r_safe_do"],
@@ -199,17 +199,20 @@ def main():
         env,
         policy_kwargs=policy_kwargs,
         learning_rate=0.002,
-        buffer_size=500,
+        buffer_size=20000,
         learning_starts=0,
         batch_size=8,
         gradient_steps=1,
-        train_freq=(16, "step"),
+        train_freq=(8, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
-        pretrain_critic_using_mpc=True,
+        pretrain_critic_using_mpc=False,
         verbose=1,
     )
+    load_buffer = True
+    if load_buffer:
+        model.load_replay_buffer(base_dir / "replay_buffer")
     load_model = False
     if load_model:
         model.custom_load(model_dir / (experiment_name + "_100"))
@@ -230,7 +233,7 @@ def main():
         env,
         log_dir=base_dir,
         experiment_name=experiment_name,
-        save_stats_freq=1,
+        save_stats_freq=2,
         save_agent_model_freq=100,
         log_stats_freq=2,
         verbose=1,
