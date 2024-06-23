@@ -350,10 +350,7 @@ class EvalCallback(EventCallback):
                     **kwargs,
                 )
 
-                pickle.dump(
-                    self.evaluations_infos,
-                    open(self.log_path / f"eval_infos_{self.experiment_name}_{self.num_timesteps}.pkl", "wb"),
-                )
+                self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_eval_data")
 
             mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
             mean_ep_length, std_ep_length = np.mean(episode_lengths), np.std(episode_lengths)

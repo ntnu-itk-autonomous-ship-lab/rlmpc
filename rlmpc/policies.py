@@ -31,6 +31,7 @@ from stable_baselines3.sac.policies import BasePolicy
 # CAP the standard deviation of the actor
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
+LOG_PROB_MIN = -15.0
 
 
 class CustomContinuousCritic(BaseModel):
@@ -549,6 +550,89 @@ class SACMPCActor(BasePolicy):
         self.infeasible_solutions = 0
         self.mpc_sensitivities = None
 
+    def compute_distances_to_dynamic_obstacles(
+        self, ownship_state: np.ndarray, do_list: List
+    ) -> List[Tuple[int, float]]:
+        os_pos = ownship_state[0:2]
+        os_speed = np.linalg.norm(ownship_state[3:5])
+        os_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+        distances2do = []
+        for idx, (_, do_state, _, _, _) in enumerate(do_list):
+            d2do = np.linalg.norm(do_state[0:2] - os_pos)
+            bearing_do = np.arctan2(do_state[1] - os_pos[1], do_state[0] - os_pos[0]) - os_course
+            if bearing_do > np.pi:
+                distances2do.append((idx, 1e10))
+            else:
+                distances2do.append((idx, d2do))
+        distances2do = sorted(distances2do, key=lambda x: x[1])
+        return distances2do
+
+    def sample_collision_seeking_action(
+        self,
+        ownship_state: np.ndarray,
+        closest_do: Tuple[int, np.ndarray, np.ndarray, float, float],
+        norm_mpc_action: np.ndarray,
+    ) -> th.Tensor:
+        """Sample a collision-seeking action from the policy.
+
+        Args:
+            ownship_state (np.ndarray): The ownship state
+            closest_do (Tuple[int, np.ndarray, np.ndarray, float, float]): The closest dynamic obstacle info
+            norm_mpc_action (np.ndarray): The normalized MPC action
+
+        Returns:
+            np.ndarray: The collision-seeking action, normalized
+        """
+        do_state = closest_do[1]
+        os_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+        bearing_to_do = np.arctan2(do_state[1] - ownship_state[1], do_state[0] - ownship_state[0]) - os_course
+
+        action = np.array([bearing_to_do, 0.0])
+        norm_collision_seeking_action = self.action_type.normalize(action)
+        norm_collision_seeking_action[1] = norm_mpc_action[1]
+        return th.from_numpy(norm_collision_seeking_action)
+
+    def get_exploratory_action(
+        self,
+        norm_action: np.ndarray,
+        t: float,
+        ownship_state: np.ndarray,
+        do_list: List,
+        w: stochasticity.DisturbanceData,
+    ) -> np.ndarray:
+        """Get the exploratory action from the policy.
+
+        Args:
+            norm_action (np.ndarray): The normalized action
+            t (float): The current time
+            ownship_state (np.ndarray): The ownship state
+            do_list (List): The DO list
+            w (stochasticity.DisturbanceData): The disturbance data
+        """
+        distances2do = self.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
+
+        norm_action = th.from_numpy(norm_action)
+        sampled_collision_seeking_action = False
+        if t < 0.0001 or t - self.t_prev > self.noise_application_duration:
+            if distances2do[0][1] < 400.0:
+                self.prev_noise_action = self.sample_collision_seeking_action(
+                    ownship_state, do_list[distances2do[0][0]], norm_action.numpy()
+                )
+                sampled_collision_seeking_action = True
+            else:
+                self.prev_noise_action = self.sample_action(norm_action)
+            self.t_prev = t
+
+        # Check if probability of the previous noise action is too low
+        # given the current mean mpc action
+        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_action, log_std=self.log_std)
+        log_prob_noise_action = self.action_dist.log_prob(self.prev_noise_action)
+        if log_prob_noise_action < LOG_PROB_MIN and not sampled_collision_seeking_action:
+            self.prev_noise_action = self.sample_action(norm_action)
+        expln_action = self.prev_noise_action
+        norm_action = norm_action.numpy()
+        return expln_action.numpy()
+
     def predict_with_mpc(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
@@ -591,7 +675,7 @@ class SACMPCActor(BasePolicy):
                 mpc_param_increment, current_mpc_params.detach().numpy()
             )
             print(f"Provided MPC parameters: {mpc_param_subset_dict} | Old: {old_mpc_params.tolist()}")
-            self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
+            # self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
             t, ownship_state, do_list, w = self.extract_mpc_observation_features(observation, idx)
             if t < 0.001:
                 self.t_prev = t
@@ -602,30 +686,23 @@ class SACMPCActor(BasePolicy):
                 {
                     "norm_prev_action": prev_action.numpy(),
                     "unnorm_mpc_action": action,
-                    "norm_mpc_action": norm_action,
                     "dnn_input_features": features[idx].detach().cpu().numpy(),
                     "mpc_param_increment": mpc_param_increment,
                     "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
                     "old_mpc_params": old_mpc_params,
                     "norm_old_mpc_params": current_mpc_params.detach().numpy(),
-                    "norm_action": norm_action,
+                    "norm_mpc_action": norm_action,
                 }
             )
-            if not deterministic:
-                norm_action = self.sample_action(norm_action)
-            #     self.prev_noise_action = (
-            #         self.sample_action(norm_action)
-            #         if t == 0.0 or t - self.t_prev >= self.noise_application_duration
-            #         else self.prev_noise_action
-            #     )
-            #     norm_action = self.prev_noise_action
+            if False:  # not deterministic:
+                norm_action = self.get_exploratory_action(norm_action, t, ownship_state, do_list, w)
+
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
 
             actor_infos[idx] = info
             if not info["optimal"]:
                 self.infeasible_solutions += 1
-        self.t_prev = t
         return unnormalized_actions, normalized_actions, actor_infos
 
     def sample_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:

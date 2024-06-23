@@ -248,6 +248,21 @@ class SAC(opa.OffPolicyAlgorithm):
         self.critic = self.policy.critic
         self.critic_target = self.policy.critic_target
 
+    def extract_mpc_param_provider_inputs(self, replay_data: rlmpc_buffers.ReplayBufferSamples) -> th.Tensor:
+        actor_dnn_feature_inputs = th.from_numpy(
+            np.array([info[0]["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
+        )
+        actor_dnn_old_mpc_param_inputs = th.from_numpy(
+            np.array([info[0]["actor_info"]["norm_old_mpc_params"] for info in replay_data.infos], dtype=np.float32)
+        )
+        actor_dnn_prev_action_inputs = th.from_numpy(
+            np.array([info[0]["actor_info"]["norm_prev_action"] for info in replay_data.infos], dtype=np.float32)
+        )
+        dnn_input = th.cat(
+            [actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs, actor_dnn_prev_action_inputs], dim=1
+        )
+        return dnn_input
+
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         batch_start_time = time.time()
@@ -263,13 +278,9 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_grad_norms = []
         mean_actor_loss = 0.0
         mean_actor_grad_norm = 0.0
-
+        mean_mpc_param_grad_norm = 0.0
         for gradient_step in range(gradient_steps):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
-
-            # We need to sample because `log_std` may have changed between two gradient steps
-            if self.use_sde:
-                self.actor.reset_noise()
 
             # Action by the current actor for the sampled state
             # reparameterization trick
@@ -310,10 +321,10 @@ class SAC(opa.OffPolicyAlgorithm):
                     infos=replay_data.infos,
                     is_next_action=True,
                 )
-                next_norm_mpc_action = replay_data.infos[0][0]["next_actor_info"]["norm_mpc_action"]
-                print(
-                    f"Next log probs: {next_log_prob} | actions: {replay_data.next_actions[0]} | mpc actions: {next_norm_mpc_action}"
-                )
+                # next_norm_mpc_action = replay_data.infos[0][0]["next_actor_info"]["norm_mpc_action"]
+                # print(
+                #     f"Next log probs: {next_log_prob} | actions: {replay_data.next_actions[0]} | mpc actions: {next_norm_mpc_action}"
+                # )
                 # Compute the next Q values: min over all critics targets
                 next_q_values = th.cat(
                     self.critic_target(replay_data.next_observations, replay_data.next_actions), dim=1
@@ -338,6 +349,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 # add entropy term
                 # low action probability gives very high negative entropy (log_prob) -> dominates the Q value
                 # leads to insanely high critic loss
+                next_log_prob = th.clamp(next_log_prob, min=-15.0, max=1e12)
                 next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
 
                 # td error + entropy term
@@ -372,26 +384,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
                 min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
-                # extract the parameters and buffers for a funcional call
-                actor_dnn_feature_inputs = th.from_numpy(
-                    np.array(
-                        [info[0]["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32
-                    )
-                )
-                actor_dnn_old_mpc_param_inputs = th.from_numpy(
-                    np.array(
-                        [info[0]["actor_info"]["norm_old_mpc_params"] for info in replay_data.infos], dtype=np.float32
-                    )
-                )
-                actor_dnn_prev_action_inputs = th.from_numpy(
-                    np.array(
-                        [info[0]["actor_info"]["norm_prev_action"] for info in replay_data.infos], dtype=np.float32
-                    )
-                )
-                dnn_input = th.cat(
-                    [actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs, actor_dnn_prev_action_inputs], dim=1
-                )
-
+                dnn_input = self.extract_mpc_param_provider_inputs(replay_data)
                 dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input)
 
                 actor_grads = th.zeros((batch_size, self.actor.mpc_param_provider.num_params))
@@ -400,6 +393,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 sens = self.policy.sensitivities()
                 cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
                 t_actor_start_now = time.time()
+                mpc_param_grad_norms = []
                 for b in range(batch_size):
                     actor_info = replay_data.infos[b][0]["actor_info"]
                     if not actor_info["optimal"]:
@@ -411,6 +405,8 @@ class SAC(opa.OffPolicyAlgorithm):
                     z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
 
                     da_dp_mpc = sens.da_dp(z, p_fixed, p).full()
+                    mpc_param_grad_norms.append(np.linalg.norm(da_dp_mpc))
+                    print(f"da_dp_mpc: {da_dp_mpc.flatten()}")
                     da_dp_mpc = th.from_numpy(da_dp_mpc).float()
                     d_log_pi_dp = (
                         (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T
@@ -435,16 +431,18 @@ class SAC(opa.OffPolicyAlgorithm):
         if actor_losses:
             mean_actor_loss = np.mean(actor_losses)
             mean_actor_grad_norm = np.mean(actor_grad_norms)
+            mean_mpc_param_grad_norm = np.mean(mpc_param_grad_norms)
 
         self._n_updates += gradient_steps
 
         print(
-            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coeff_losses):.4f} | Ent Coeff: {np.mean(ent_coeffs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
+            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coeff_losses):.4f} | Ent Coeff: {np.mean(ent_coeffs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
         )
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self.logger.record("train/ent_coef", np.mean(ent_coeffs))
         self.logger.record("train/actor_loss", mean_actor_loss)
         self.logger.record("train/actor_grad_norm", mean_actor_grad_norm)
+        self.logger.record("train/mpc_param_grad_norm", mean_mpc_param_grad_norm)
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         self.logger.record("train/ent_coef_loss", np.mean(ent_coeff_losses))
 

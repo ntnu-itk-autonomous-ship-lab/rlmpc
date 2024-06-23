@@ -75,7 +75,7 @@ mpc:
     w_L2: 0.0
     w_L1: 2000.0 # 100000.0
     r_safe_so: 1.0
-    r_safe_do: 100.0
+    r_safe_do: 20.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
     max_num_so_constr: 10

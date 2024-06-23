@@ -47,6 +47,7 @@ stochasticity:
     direction_impulses: [45.0]
   wind:
     constant: True
+    initial_speed: 0.0
     speed_range: [0.0, 7.0]
     direction_range: [-360.0, 360.0]
     mu_speed: 0.00001

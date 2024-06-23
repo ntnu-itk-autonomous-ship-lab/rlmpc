@@ -161,6 +161,18 @@ class ReadilyApparentManeuveringRewarderParams:
 
 
 @dataclass
+class DNNParameterRewarderParams:
+    rho_dnn: float = 0.0
+
+    @classmethod
+    def from_dict(cls, config_dict: dict):
+        return cls(rho_dnn=config_dict["rho_dnn"])
+
+    def to_dict(self) -> dict:
+        return {"rho_dnn": self.rho_dnn}
+
+
+@dataclass
 class Config:
 
     trajectory_tracking: TrajectoryTrackingRewarderParams = field(
@@ -174,6 +186,7 @@ class Config:
     readily_apparent_maneuvering: ReadilyApparentManeuveringRewarderParams = field(
         default_factory=lambda: ReadilyApparentManeuveringRewarderParams()
     )
+    # dnn: DNNParameterRewarderParams = field(default_factory=lambda: DNNParameterRewarderParams())
 
     @classmethod
     def from_dict(cls, config_dict: dict):

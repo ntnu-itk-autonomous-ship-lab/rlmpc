@@ -902,6 +902,8 @@ class AcadosMPC:
             - np.ndarray: Parameter vector to be used as input to solver
         """
         adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
+        if stage_idx == 0:
+            print(f"Adjustable params: {adjustable_params}")
 
         _, nu = self._acados_ocp.dims.nx, self._acados_ocp.dims.nu
         fixed_parameter_values = []

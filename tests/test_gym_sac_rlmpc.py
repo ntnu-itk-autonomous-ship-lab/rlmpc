@@ -178,44 +178,45 @@ def main():
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    actor_noise_std_dev = np.array([0.0005, 0.001])  # normalized std dev for the action space [course, speed]
+    actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
 
     mpc_param_provider_kwargs = {
         "param_list": ["r_safe_do"],
-        "hidden_sizes": [256],
-        "activation_fn": th.nn.ELU,
+        "hidden_sizes": [256, 64],
+        "activation_fn": th.nn.ReLU,
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [258, 128],
+        "critic_arch": [256, 128],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "mpc_config": mpc_config_file,
-        "activation_fn": th.nn.ELU,
+        "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
         "debug": False,
     }
+    learning_rate = 0.004
     model = sac_rlmpc.SAC(
         rlmpc_policies.SACPolicyWithMPC,
         env,
         policy_kwargs=policy_kwargs,
         learning_rate=0.002,
-        buffer_size=20000,
+        buffer_size=15000,
         learning_starts=0,
-        batch_size=8,
+        batch_size=4,
         gradient_steps=1,
-        train_freq=(8, "step"),
+        train_freq=(4, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
-        pretrain_critic_using_mpc=False,
+        pretrain_critic_using_mpc=True,
         verbose=1,
     )
-    load_buffer = True
+    load_buffer = False
     if load_buffer:
-        model.load_replay_buffer(base_dir / "replay_buffer")
+        model.load_replay_buffer(base_dir / "replay_buffer1")
     load_model = False
     if load_model:
-        model.custom_load(model_dir / (experiment_name + "_100"))
+        model.custom_load(model_dir / (experiment_name + "_700"))
 
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
@@ -235,14 +236,14 @@ def main():
         experiment_name=experiment_name,
         save_stats_freq=2,
         save_agent_model_freq=100,
-        log_stats_freq=2,
+        log_stats_freq=10,
         verbose=1,
     )
     total_training_timesteps = 10000
     model.learn(
         total_timesteps=total_training_timesteps,
         progress_bar=False,
-        log_interval=1,
+        log_interval=2,
         callback=CallbackList([stats_callback, eval_callback]),
     )
     mean_reward, std_reward = evaluate_mpc_policy(
