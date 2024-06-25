@@ -1,11 +1,43 @@
 
 # rlmpc
-This repository implements a two-layer trajectory planning algorithm consisting of an RRT for top-level static obstacle collision-free motion planning and an RL-MPC for mid-level local collision-free trajectory planning.
+This repository contains
+- Functionality for ship collision avoidance motion planning using NMPC
+- Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and target tracks
+- A Soft Actor Critic (SAC) implementation with an NMPC actor (in progress), based on a modded version of stable baselines3
 
+using the colav-simulation framework in <https://github.com/NTNU-Autoship-Internal/colav_simulator>.
+
+<p align="center">
+    <img src="https://github.com/NTNU-Autoship-Internal/rlmpc/blob/main/mpc_teaser.gif?raw=true" width="1000px"><br/>
+    <em>Example run of an MPC-based COLAV planner in the simulator.</em>
+</p>
 
 [![platform](https://img.shields.io/badge/platform-linux-lightgrey)]()
 [![python version](https://img.shields.io/badge/python-3.10-blue)]()
-[![python version](https://img.shields.io/badge/python-3.11-blue)]()
+
+## Main Dependencies
+See `setup.cfg` file. Nonlisted dependencies here include
+
+- Acados for solving optimal control problems
+- Casadi -''-
+- The `colav-simulator` repo found in the same organisation at <https://github.com/NTNU-Autoship-Internal/colav_simulator>.
+- The `rrt-rs` library for Rapidly-exploring Random Trees at <https://github.com/NTNU-Autoship-Internal/rrt-rs>.
+
+## Citation
+If you are using code from this repository in your work, please use the following citation:
+```
+@Article{Tengesdal2024sacn,
+  author  = {Tengesdal, T and Gros, Sebastien and Johansen, T. A.},
+  journal = {IEEE Access},
+  title   = {Soft Actor Critic with a Nonlinear Model Predictive Control Actor for Adaptable Collision-free Ship Trajectory Planning},
+  year={2024},
+  volume={},
+  number={},
+  pages={},
+  doi={},
+  note={Unpublished},
+}
+```
 
 ## Usage
-See the test file for example usage.
+See the test files for usage.
