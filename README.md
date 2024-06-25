@@ -11,6 +11,10 @@ using the colav-simulation framework in <https://github.com/NTNU-Autoship-Intern
     <img src="https://github.com/NTNU-Autoship-Internal/rlmpc/blob/main/mpc_teaser.gif?raw=true" width="1000px"><br/>
     <em>Example run of an MPC-based COLAV planner in the simulator.</em>
 </p>
+<p align="center">
+    <img src="https://github.com/NTNU-Autoship-Internal/rlmpc/blob/main/simple_planning_example_ep1.gif?raw=true" width="1000px"><br/>
+    <em>Example run of an anti-grounding tracking NMPC controller in the simulator.</em>
+</p>
 
 [![platform](https://img.shields.io/badge/platform-linux-lightgrey)]()
 [![python version](https://img.shields.io/badge/python-3.10-blue)]()
@@ -27,7 +31,7 @@ See `setup.cfg` file. Nonlisted dependencies here include
 If you are using code from this repository in your work, please use the following citation:
 ```
 @Article{Tengesdal2024sacn,
-  author  = {Tengesdal, T and Gros, Sebastien and Johansen, T. A.},
+  author  = {Tengesdal, T and Gros, S. and Johansen, T. A.},
   journal = {IEEE Access},
   title   = {Soft Actor Critic with a Nonlinear Model Predictive Control Actor for Adaptable Collision-free Ship Trajectory Planning},
   year={2024},
