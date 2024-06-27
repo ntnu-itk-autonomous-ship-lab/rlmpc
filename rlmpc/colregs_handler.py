@@ -66,6 +66,7 @@ class COLREGSHandler:
     def __init__(self, params: COLREGSHandlerParams = COLREGSHandlerParams()) -> None:
         self._params = params
         self.reset()
+        self.verbose: bool = False
 
     def reset(self) -> None:
         """Resets the COLREGS handler."""
@@ -112,7 +113,8 @@ class COLREGSHandler:
             situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
 
             if ID in self._do_labels and (do_passed_by):
-                print(f"Removed DO{i} | do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
+                if self.verbose:
+                    print(f"Removed DO{i} | do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
                 self._remove_do(ID)
                 self._already_removed_labels.append(ID)
                 continue
@@ -136,9 +138,10 @@ class COLREGSHandler:
 
             self._do_situations.append((ID, situation))
             self._do_labels.append(ID)
-            print(
-                f"DO{i} Added | Start situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
-            )
+            if self.verbose:
+                print(
+                    f"DO{i} Added | Start situation: {situation.name}, do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
+                )
 
         # sort do lists by distance to own-ship
         self._do_cr_list.sort(key=lambda x: np.linalg.norm(x[1][0:2] - p_os))

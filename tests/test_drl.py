@@ -42,7 +42,7 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
 
     def _init():
         env_config.update({"identifier": env_config["identifier"] + str(rank), "seed": seed + rank})
-        env = gym.make(env_id, **env_config)
+        env = Monitor(gym.make(env_id, **env_config))
         return env
 
     set_random_seed(seed)
@@ -71,7 +71,7 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     return base_dir, log_dir, model_dir, best_model_dir
 
 
-if __name__ == "__main__":
+def main():
     config_file = dp.scenarios / "rl_scenario.yaml"
     experiment_name = "sac_drl1"
     base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 1,
+        "max_number_of_episodes": 300,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -114,7 +114,7 @@ if __name__ == "__main__":
         "seed": 0,
     }
 
-    num_cpu = 1
+    num_cpu = 10
     training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
 
     policy_kwargs = {
@@ -125,23 +125,26 @@ if __name__ == "__main__":
     model = SAC(
         "MultiInputPolicy",
         training_vec_env,
-        learning_rate=0.0005,
+        learning_rate=0.0002,
         buffer_size=50000,
-        batch_size=128,
-        gradient_steps=8,
-        train_freq=(8, "step"),
+        batch_size=64,
+        gradient_steps=2,
+        train_freq=(10, "step"),
         learning_starts=1000,
+        tau=0.01,
         use_sde=True,
+        sde_sample_freq=-1,
         device="cpu",
         ent_coef="auto",
         verbose=1,
         tensorboard_log=str(log_dir),
         policy_kwargs=policy_kwargs,
+        replay_buffer_kwargs={"handle_timeout_termination": True},
     )
 
     load_model = True
     if load_model:
-        model.load(model_dir / "best_model.zip")
+        model.load(model_dir / "sac_drl1_3000_steps.zip")
 
     env_config.update(
         {
@@ -157,12 +160,12 @@ if __name__ == "__main__":
     eval_env = Monitor(gym.make(id=env_id, **env_config))
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     checkpoint_callback = CheckpointCallback(
-        save_freq=2000,
+        save_freq=100,
         save_path=model_dir,
         name_prefix="sac_drl1",
         verbose=1,
-        save_replay_buffer=True,
-        save_vecnormalize=True,
+        save_replay_buffer=False,
+        save_vecnormalize=False,
     )
     eval_callback = EvalCallback(
         eval_env,
@@ -184,9 +187,20 @@ if __name__ == "__main__":
         callback=[eval_callback, checkpoint_callback],
         progress_bar=True,
     )
-    model.save(model_dir / "best_model")
-    mean_reward, std_reward = evaluate_policy(
-        model, eval_env, n_eval_episodes=5, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
-    )
+    # model.save(model_dir / "best_model")
+    # mean_reward, std_reward = evaluate_policy(
+    #     model, eval_env, n_eval_episodes=5, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+    # )
 
-    print("done")
+    # print("done")
+
+
+if __name__ == "__main__":
+    import cProfile
+    import pstats
+
+    cProfile.run("main()", sort="cumulative", filename="sac_drl.prof")
+
+    p = pstats.Stats("sac_drl.prof")
+    p.sort_stats("cumulative").print_stats(100)
+    # main()

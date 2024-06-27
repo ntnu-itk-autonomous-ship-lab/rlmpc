@@ -158,7 +158,21 @@ class ReadilyApparentManeuveringRewarderParams:
 
 @dataclass
 class DNNParameterRewarderParams:
-    rho: float = 0.0
+    rho_dnn: float = 0.0
+
+    @classmethod
+    def from_dict(cls, config_dict: dict):
+        cfg = cls(**config_dict)
+        return cfg
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class ActionChatterRewarderParams:
+    rho_course: float = 0.0
+    rho_speed: float = 0.0
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -184,6 +198,7 @@ class Config:
         default_factory=lambda: ReadilyApparentManeuveringRewarderParams()
     )
     dnn_parameter_provider: DNNParameterRewarderParams = field(default_factory=lambda: DNNParameterRewarderParams())
+    action_chatter: ActionChatterRewarderParams = field(default_factory=lambda: ActionChatterRewarderParams())
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -196,6 +211,7 @@ class Config:
             config_dict["readily_apparent_maneuvering"]
         )
         cfg.dnn_parameter_provider = DNNParameterRewarderParams.from_dict(config_dict["dnn_parameter_provider"])
+        cfg.action_chatter = ActionChatterRewarderParams.from_dict(config_dict["action_chatter"])
         return cfg
 
     @classmethod
@@ -532,12 +548,14 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         unnormalized_obs = self.env.observation_type.unnormalize(state)
-        path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
+        path_obs = unnormalized_obs[
+            "PathRelativeNavigationObservation"
+        ]  # [path_dev, final_path_var_dev, speed_dev, u, v, r]
         huber_loss_path = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
         huber_loss_final_path_var = mpc_common.huber_loss(path_obs[1] ** 2, 1.0)
         tt_cost = (
             self._config.rho_path_dev * huber_loss_path
-            + self._config.rho_final_path_var_dev * huber_loss_final_path_var
+            + self._config.rho_final_path_var_dev * huber_loss_final_path_var * self.env.time
             + self._config.rho_speed_dev * path_obs[2] ** 2
         )
         self.last_reward = -tt_cost
@@ -557,11 +575,32 @@ class DNNParameterRewarder(cs_reward.IReward):
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         unnormalized_obs = self.env.observation_type.unnormalize(state)
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
-        self.last_reward = -self._config.rho_dnn
+        self.last_reward = 0.0
         return self.last_reward
 
     def get_last_rewards_as_dict(self) -> dict:
         return {"r_dnn": self.last_reward}
+
+
+class ActionChatterRewarder(cs_reward.IReward):
+    """Used to penalize chattering actions for a relative course+speed action."""
+
+    def __init__(self, env: "COLAVEnvironment", config: ActionChatterRewarderParams) -> None:
+        super().__init__(env)
+        self._config = config
+        self.last_reward = 0.0
+
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+        if action is None:
+            return 0.0
+        unnorm_action = self.env.action_type.unnormalize(action)
+        course_change = unnorm_action[0]
+        speed_change = unnorm_action[1]
+        self.last_reward = -self._config.rho_course * course_change**2 - self._config.rho_speed * speed_change**2
+        return self.last_reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_action_chatter": self.last_reward}
 
 
 class MPCRewarder(cs_reward.IReward):
@@ -581,12 +620,14 @@ class MPCRewarder(cs_reward.IReward):
         self.readily_apparent_maneuvering_rewarder = ReadilyApparentManeuveringRewarder(
             env, config.readily_apparent_maneuvering
         )
+        self.action_chatter_rewarder = ActionChatterRewarder(env, config.action_chatter)
         self.r_antigrounding: float = 0.0
         self.r_collision_avoidance: float = 0.0
         self.r_colreg: float = 0.0
         self.r_trajectory_tracking: float = 0.0
         self.r_readily_apparent_maneuvering: float = 0.0
-        self.verbose: bool = False
+        self.r_action_chatter: float = 0.0
+        self.verbose: bool = True
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
@@ -594,6 +635,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_colreg = self.colreg_rewarder(state, action, **kwargs)
         self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
+        self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
 
         reward = (
             self.r_antigrounding
@@ -601,11 +643,12 @@ class MPCRewarder(cs_reward.IReward):
             + self.r_colreg
             + self.r_trajectory_tracking
             + self.r_readily_apparent_maneuvering
+            + self.r_action_chatter
         )
         reward = reward / self.reward_scale
         if self.verbose:
             print(
-                f"[MPC-REWARDER]:\n\t- r_scaled: {reward:.4f} \n\t- r_antigrounding: {self.r_antigrounding:.4f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.4f} \n\t- r_colreg: {self.r_colreg:.4f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.4f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.4f}"
+                f"[MPC-REWARDER | {self.env.env_id}]:\n\t- r_scaled: {reward:.4f} \n\t- r_antigrounding: {self.r_antigrounding:.4f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.4f} \n\t- r_colreg: {self.r_colreg:.4f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.4f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.4f} \n\t- r_action_chatter: {self.r_action_chatter:.4f}"
             )
         self.last_reward = reward
         return reward
@@ -618,4 +661,5 @@ class MPCRewarder(cs_reward.IReward):
             "r_colreg": self.r_colreg,
             "r_trajectory_tracking": self.r_trajectory_tracking,
             "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering,
+            "r_action_chatter": self.r_action_chatter,
         }
