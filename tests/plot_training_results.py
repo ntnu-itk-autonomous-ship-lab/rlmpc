@@ -6,21 +6,18 @@ import rlmpc.common.helper_functions as hf
 import rlmpc.common.plotters as plotters
 
 if __name__ == "__main__":
-    if platform.system() == "Linux":
-        base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
-    elif platform.system() == "Darwin":
-        base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
+    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
 
     base_experiment_name = "sac_rlmpc1"
-    experiment_names = ["3"]
+    experiment_names = ["4"]
     env_data_list = []
     training_stats_list = []
     reward_data_list = []
     training_stats_list = []
 
     plot_training_results = True
-    plot_env_snapshots = False
-    plot_reward_curves = False
+    plot_env_snapshots = True
+    plot_reward_curves = True
     for experiment_name in experiment_names:
         env_data_info_path = (
             base_dir / base_experiment_name / (base_experiment_name + f"_env_training_data{experiment_name}.pkl")

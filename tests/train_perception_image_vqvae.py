@@ -1,9 +1,7 @@
 #  Use argument parser to set arguments of experiment name
 import argparse
-import inspect
 import time
 from pathlib import Path
-from sys import platform
 
 import rlmpc.common.datasets as rl_ds
 import rlmpc.common.helper_functions as rl_hf
@@ -13,15 +11,11 @@ import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
 from rlmpc.common.datasets import PerceptionImageDataset
-from rlmpc.networks.vqvae3 import VQVAE
+from rlmpc.networks.vqvae2 import VQVAE
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchsummary import summary
 
-if platform == "linux" or platform == "linux2":
-    BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/data/vae/")
-elif platform == "darwin":
-    BASE_PATH: Path = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+BASE_PATH: Path = Path.home() / "Desktop/machine_learning/perception_vae/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")

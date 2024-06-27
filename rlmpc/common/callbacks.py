@@ -315,9 +315,10 @@ class EvalCallback(EventCallback):
             # Reset success rate buffer
             self._is_success_buffer = []
 
-            self.model.actor.mpc.close_enc_display()
+            if hasattr(self.model.actor, "mpc"):
+                self.model.actor.mpc.close_enc_display()
 
-            episode_rewards, episode_lengths = evaluate_mpc_policy(
+            episode_rewards, episode_lengths = evaluate_policy(
                 self.model,
                 self.eval_env,
                 n_eval_episodes=self.n_eval_episodes,
@@ -405,7 +406,7 @@ class EvalCallback(EventCallback):
             self.callback.update_locals(locals_)
 
 
-def evaluate_mpc_policy(
+def evaluate_policy(
     model: "type_aliases.PolicyPredictor",
     env: Union[gym.Env, VecEnv],
     n_eval_episodes: int = 5,
@@ -501,30 +502,41 @@ def evaluate_mpc_policy(
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     if env_data_logger is not None:
         env_data_logger.reset_episode_data()
+    is_mpc_policy = hasattr(model.policy.actor, "mpc")
     while (episode_counts < episode_count_targets).any():
-        if env.envs[0].unwrapped.time < 0.0001:
+        if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
             states = None
             model.policy.initialize_mpc_actor(env.envs[0])
 
-        _, normalized_actions, actor_infos = model.predict_with_mpc(
-            observations,  # type: ignore[arg-type]
-            state=states,
-            episode_start=episode_starts,
-            deterministic=True,
-        )
-        states = actor_infos
-
-        # For plotting the predicted trajectory
-        for env_idx in range(env.num_envs):
-            env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
-                actor_infos[env_idx]["trajectory"]
+        if is_mpc_policy:
+            _, normalized_actions, actor_infos = model.predict_with_mpc(
+                observations,  # type: ignore[arg-type]
+                state=states,
+                episode_start=episode_starts,
+                deterministic=True,
             )
+            states = actor_infos
+            actions = normalized_actions
+            # For plotting the predicted trajectory
+            for env_idx in range(env.num_envs):
+                env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
+                    actor_infos[env_idx]["trajectory"]
+                )
+        else:
+            actions, states = model.predict(
+                observations,  # type: ignore[arg-type]
+                state=states,
+                episode_start=episode_starts,
+                deterministic=True,
+            )
+            actor_infos = [{} for _ in range(n_envs)]
 
-        new_observations, rewards, dones, infos = env.step(normalized_actions)
+        new_observations, rewards, dones, infos = env.step(actions)
         for actor_info, info in zip(actor_infos, infos):
             info.update({"actor_info": actor_info})
 
-        env_data_logger(env.envs[0])
+        if env_data_logger is not None:
+            env_data_logger(env.envs[0])
 
         current_rewards += rewards
         current_lengths += 1
@@ -540,8 +552,9 @@ def evaluate_mpc_policy(
                     callback(locals(), globals())
 
                 if dones[i]:
-                    actor_infos[i] = {}
-                    model.actor.mpc.close_enc_display()
+                    if is_mpc_policy:
+                        actor_infos[i] = {}
+                        model.actor.mpc.close_enc_display()
                     if is_monitor_wrapped:
                         if "episode" in info.keys():
                             # Do not trust "done" with episode endings.

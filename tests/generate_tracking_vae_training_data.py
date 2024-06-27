@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from sys import platform
 from typing import Callable, Tuple
 
 import colav_simulator.behavior_generator as cs_bg
@@ -48,13 +47,9 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-if platform == "linux" or platform == "linux2":
-    TRACKINGOBS_DATADIR: Path = Path("/home/doctor/Desktop/machine_learning/tracking_vae/data")
-elif platform == "darwin":
-    TRACKINGOBS_DATADIR: Path = Path("/Users/trtengesdal/Desktop/machine_learning/tracking_vae/data")
-
-
 if __name__ == "__main__":
+    TRACKINGOBS_DATADIR: Path = Path.home() / "Desktop/machine_learning/tracking_vae/data"
+
     scenario_names = [
         "rlmpc_scenario_ms_channel",
         "rlmpc_scenario_random_many_vessels",

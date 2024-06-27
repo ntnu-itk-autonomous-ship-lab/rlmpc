@@ -1,5 +1,4 @@
 from pathlib import Path
-from sys import platform
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -8,12 +7,8 @@ import rlmpc.buffers as buffers
 import stable_baselines3.common.save_util as sb3_sutils
 
 if __name__ == "__main__":
-    if platform == "linux" or platform == "linux2":
-        BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/rlmpc/sac_rlmpc/")
-    elif platform == "darwin":
-        BASE_PATH: Path = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/sac_rlmpc/")
-
-    rb_file = BASE_PATH / "replay_buffer.pkl"
+    base_path: Path = Path.home() / "Desktop/machine_learning/rlmpc/sac_rlmpc/"
+    rb_file = base_path / "replay_buffer.pkl"
 
     replay_buffer = sb3_sutils.load_from_pkl(rb_file)
 

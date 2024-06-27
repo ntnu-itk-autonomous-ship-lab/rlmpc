@@ -21,11 +21,6 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmResta
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-if platform == "linux" or platform == "linux2":
-    BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/tracking_vae/")
-elif platform == "darwin":
-    BASE_PATH: Path = Path("/Users/trtengesdal/Desktop/machine_learning/tracking_vae/")
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
@@ -216,6 +211,8 @@ def train_critic(
 
 
 if __name__ == "__main__":
+    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     feature_extractor = rl_fe.CombinedExtractor

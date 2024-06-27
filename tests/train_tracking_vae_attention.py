@@ -3,7 +3,6 @@ import argparse
 import inspect
 import time
 from pathlib import Path
-from sys import platform
 from typing import List, Tuple
 
 import numpy as np
@@ -18,10 +17,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmResta
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-if platform == "linux" or platform == "linux2":
-    BASE_PATH: Path = Path("/home/doctor/Desktop/machine_learning/tracking_vae/")
-elif platform == "darwin":
-    BASE_PATH: Path = Path("/Users/trtengesdal/Desktop/machine_learning/tracking_vae/")
+BASE_PATH: Path = Path.home() / "Desktop/machine_learning/tracking_vae/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")

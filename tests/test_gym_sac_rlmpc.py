@@ -1,5 +1,3 @@
-import argparse
-import platform
 from pathlib import Path
 from typing import Tuple
 
@@ -15,7 +13,7 @@ import rlmpc.sac as sac_rlmpc
 import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_mpc_policy
+from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.monitor import Monitor
@@ -51,10 +49,7 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
 
 
 def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
-    if platform.system() == "Linux":
-        base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
-    elif platform.system() == "Darwin":
-        base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
+    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
@@ -97,7 +92,7 @@ def main():
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = False
+    generate = True
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
@@ -110,7 +105,7 @@ def main():
                 save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=200,
+                n_episodes=250,
                 delete_existing_files=True,
             )
 
@@ -135,8 +130,6 @@ def main():
             "relative_tracking_observation",
             "navigation_3dof_state_observation",
             "tracking_observation",
-            "ground_truth_tracking_observation",
-            "disturbance_observation",
             "time_observation",
         ]
     }
@@ -209,6 +202,7 @@ def main():
         tensorboard_log=str(log_dir),
         data_path=base_dir,
         pretrain_critic_using_mpc=True,
+        tau=0.001
         verbose=1,
     )
     load_buffer = False
@@ -246,7 +240,7 @@ def main():
         log_interval=2,
         callback=CallbackList([stats_callback, eval_callback]),
     )
-    mean_reward, std_reward = evaluate_mpc_policy(
+    mean_reward, std_reward = evaluate_policy(
         model, eval_env, n_eval_episodes=10, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
     )
     # print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")

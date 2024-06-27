@@ -8,7 +8,6 @@
 """
 
 import pathlib
-from sys import platform
 from typing import Tuple
 
 import rlmpc.networks.perception_vae.vae as perception_vae
@@ -18,16 +17,11 @@ import torch.nn as nn
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
-if platform == "linux" or platform == "linux2":
-    VAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/perception_vae/")
-    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/home/doctor/Desktop/machine_learning/tracking_vae/")
-elif platform == "darwin":
-    VAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/vae_models/")
-    TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path("/Users/trtengesdal/Desktop/machine_learning/tracking_vae")
+VAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/perception_vae/"
+TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/tracking_vae/"
 
 
 class PerceptionImageVAE(BaseFeaturesExtractor):
-    """ """
 
     def __init__(
         self,
@@ -216,9 +210,9 @@ class CombinedExtractor(BaseFeaturesExtractor):
             elif key == "RelativeTrackingObservation":
                 extractors[key] = TrackingVAE(subspace, features_dim=10, num_layers=1)
                 total_concat_size += extractors[key].latent_dim
-            elif key == "DisturbanceObservation":
-                extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
-                total_concat_size += subspace.shape[-1]
+            # elif key == "DisturbanceObservation":
+            #     extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
+            #     total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)
         self._features_dim = total_concat_size

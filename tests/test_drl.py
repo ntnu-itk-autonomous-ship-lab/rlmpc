@@ -2,7 +2,7 @@
 """
 
 from pathlib import Path
-from typing import Tuple
+from typing import Callable, Tuple
 
 import colav_simulator.common.paths as dp
 import colav_simulator.simulator as cs_sim
@@ -13,23 +13,44 @@ import numpy as np
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
 from colav_simulator.gym.environment import COLAVEnvironment
-from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback
+from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3 import PPO, SAC
-from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.utils import set_random_seed
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
 plt.rcParams["animation.ffmpeg_path"] = "/usr/bin/ffmpeg"
-import platform
+
+
+def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callable:
+    """
+    Utility function for multiprocessed env.
+
+    Args:
+        env_id: (str) the environment ID
+        env_config: (dict) the environment config
+        rank: (int) index of the subprocess
+        seed: (int) the inital seed for RNG
+
+    Returns:
+        (Callable): a function that creates the environment
+    """
+
+    def _init():
+        env_config.update({"identifier": env_config["identifier"] + str(rank), "seed": seed + rank})
+        env = gym.make(env_id, **env_config)
+        return env
+
+    set_random_seed(seed)
+    return _init
 
 
 def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
-    if platform.system() == "Linux":
-        base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
-    elif platform.system() == "Darwin":
-        base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
+    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
@@ -67,7 +88,6 @@ if __name__ == "__main__":
             "perception_image_observation",
             "relative_tracking_observation",
             "navigation_3dof_state_observation",
-            "ground_truth_tracking_observation",
         ]
     }
 
@@ -86,30 +106,79 @@ if __name__ == "__main__":
         "render_update_rate": 1.0,
         "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
-        "reload_map": True,
+        "reload_map": False,
         "show_loaded_scenario_data": False,
         "shuffle_loaded_scenario_data": True,
-        "identifier": "training_env1",
+        "identifier": "training_env",
         "seed": 0,
     }
-    env = Monitor(gym.make(id=env_id, **env_config))
+
+    num_cpu = 15
+    training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
 
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "arch": [258, 128],
+        "net_arch": [512, 256],
+        "log_std_init": -3.0,
     }
     model = SAC(
-        "MlpPolicy",
-        env,
-        learning_rate=0.001,
-        buffer_size=100000,
-        batch_size=32,
-        gradient_steps=1,
+        "MultiInputPolicy",
+        training_vec_env,
+        learning_rate=0.0005,
+        buffer_size=50000,
+        batch_size=128,
+        gradient_steps=8,
         train_freq=(8, "step"),
+        learning_starts=1000,
+        use_sde=True,
         device="cpu",
+        ent_coef="auto",
+        verbose=1,
         tensorboard_log=str(log_dir),
         policy_kwargs=policy_kwargs,
     )
 
-    model.learn(total_timesteps=100, log_interval=4, tb_log_name=experiment_name)
+    load_model = True
+    if load_model:
+        model.load(model_dir / "best_model.zip")
+
+    env_config.update(
+        {
+            "max_number_of_episodes": 50,
+            "scenario_file_folder": test_scenario_folders,
+            "merge_loaded_scenario_episodes": True,
+            "seed": 1,
+            "simulator_config": eval_sim_config,
+            "reload_map": False,
+            "identifier": "eval_env",
+        }
+    )
+    eval_env = Monitor(gym.make(id=env_id, **env_config))
+    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
+    checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=model_dir, name_prefix="sac_drl1", verbose=1)
+    eval_callback = EvalCallback(
+        eval_env,
+        log_path=base_dir / "eval_data",
+        eval_freq=20000,
+        n_eval_episodes=5,
+        callback_after_eval=stop_train_callback,
+        experiment_name=experiment_name,
+        record=True,
+        render=False,
+        verbose=1,
+    )
+
+    model.learn(
+        total_timesteps=1_000_000,
+        log_interval=4,
+        tb_log_name=experiment_name,
+        reset_num_timesteps=True,
+        callback=[eval_callback, checkpoint_callback],
+        progress_bar=True,
+    )
+    model.save(model_dir / "best_model")
+    mean_reward, std_reward = evaluate_policy(
+        model, eval_env, n_eval_episodes=5, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+    )
+
     print("done")

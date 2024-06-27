@@ -15,6 +15,7 @@ import colav_simulator.common.math_functions as csmf
 import colav_simulator.core.stochasticity as stochasticity
 import numpy as np
 import rlmpc.common.buffers as rlmpc_buffers
+import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
 import rlmpc.networks.feature_extractors as rlmpc_fe
@@ -550,23 +551,6 @@ class SACMPCActor(BasePolicy):
         self.infeasible_solutions = 0
         self.mpc_sensitivities = None
 
-    def compute_distances_to_dynamic_obstacles(
-        self, ownship_state: np.ndarray, do_list: List
-    ) -> List[Tuple[int, float]]:
-        os_pos = ownship_state[0:2]
-        os_speed = np.linalg.norm(ownship_state[3:5])
-        os_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
-        distances2do = []
-        for idx, (_, do_state, _, _, _) in enumerate(do_list):
-            d2do = np.linalg.norm(do_state[0:2] - os_pos)
-            bearing_do = np.arctan2(do_state[1] - os_pos[1], do_state[0] - os_pos[0]) - os_course
-            if bearing_do > np.pi:
-                distances2do.append((idx, 1e10))
-            else:
-                distances2do.append((idx, d2do))
-        distances2do = sorted(distances2do, key=lambda x: x[1])
-        return distances2do
-
     def sample_collision_seeking_action(
         self,
         ownship_state: np.ndarray,
@@ -609,13 +593,13 @@ class SACMPCActor(BasePolicy):
             do_list (List): The DO list
             w (stochasticity.DisturbanceData): The disturbance data
         """
-        distances2do = self.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
+        distances2do = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
 
         norm_action = th.from_numpy(norm_action)
         sampled_collision_seeking_action = False
         if t < 0.0001 or t - self.t_prev > self.noise_application_duration:
             if distances2do[0][1] < 400.0:
-                self.prev_noise_action = self.sample_collision_seeking_action(
+                self.prev_noise_action = hf.sample_collision_seeking_action(
                     ownship_state, do_list[distances2do[0][0]], norm_action.numpy()
                 )
                 sampled_collision_seeking_action = True

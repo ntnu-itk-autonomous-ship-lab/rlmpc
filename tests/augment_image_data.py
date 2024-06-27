@@ -11,8 +11,7 @@ plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
 plt.rcParams["animation.ffmpeg_path"] = "/usr/bin/ffmpeg"
 
 
-IMAGE_DATADIR = Path("/home/doctor/Desktop/machine_learning/data/vae/")
-# IMAGE_DATADIR = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/training")
+IMAGE_DATADIR = Path.home() / "Desktop/machine_learning/data/vae/"
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 

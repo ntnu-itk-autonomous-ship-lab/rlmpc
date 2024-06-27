@@ -108,21 +108,17 @@ class COLREGRewarderParams:
 
 @dataclass
 class TrajectoryTrackingRewarderParams:
-    rho_path_dev: float = 0.5  # path deviation reward weight
+    rho_path_dev: float = 1.0  # path deviation reward weight
     rho_speed_dev: float = 10.0  # speed deviation reward weight
+    rho_final_path_var_dev: float = 0.1  # final path deviation reward weight
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        params = cls()
-        params.rho_path_dev = config_dict["rho_path_dev"]
-        params.rho_speed_dev = config_dict["rho_speed_dev"]
+        params = cls(**config_dict)
         return params
 
     def to_dict(self) -> dict:
-        return {
-            "rho_path_dev": self.rho_path_dev,
-            "rho_speed_dev": self.rho_speed_dev,
-        }
+        return asdict(self)
 
 
 @dataclass
@@ -162,14 +158,15 @@ class ReadilyApparentManeuveringRewarderParams:
 
 @dataclass
 class DNNParameterRewarderParams:
-    rho_dnn: float = 0.0
+    rho: float = 0.0
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        return cls(rho_dnn=config_dict["rho_dnn"])
+        cfg = cls(**config_dict)
+        return cfg
 
     def to_dict(self) -> dict:
-        return {"rho_dnn": self.rho_dnn}
+        return asdict(self)
 
 
 @dataclass
@@ -186,23 +183,24 @@ class Config:
     readily_apparent_maneuvering: ReadilyApparentManeuveringRewarderParams = field(
         default_factory=lambda: ReadilyApparentManeuveringRewarderParams()
     )
-    # dnn: DNNParameterRewarderParams = field(default_factory=lambda: DNNParameterRewarderParams())
+    dnn_parameter_provider: DNNParameterRewarderParams = field(default_factory=lambda: DNNParameterRewarderParams())
 
     @classmethod
     def from_dict(cls, config_dict: dict):
-        return Config(
-            trajectory_tracking=TrajectoryTrackingRewarderParams.from_dict(config_dict["trajectory_tracking"]),
-            anti_grounding=AntiGroundingRewarderParams.from_dict(config_dict["anti_grounding"]),
-            collision_avoidance=CollisionAvoidanceRewarderParams.from_dict(config_dict["collision_avoidance"]),
-            colreg=COLREGRewarderParams.from_dict(config_dict["colreg"]),
-            readily_apparent_maneuvering=ReadilyApparentManeuveringRewarderParams.from_dict(
-                config_dict["readily_apparent_maneuvering"]
-            ),
+        cfg = Config()
+        cfg.trajectory_tracking = TrajectoryTrackingRewarderParams.from_dict(config_dict["trajectory_tracking"])
+        cfg.anti_grounding = AntiGroundingRewarderParams.from_dict(config_dict["anti_grounding"])
+        cfg.collision_avoidance = CollisionAvoidanceRewarderParams.from_dict(config_dict["collision_avoidance"])
+        cfg.colreg = COLREGRewarderParams.from_dict(config_dict["colreg"])
+        cfg.readily_apparent_maneuvering = ReadilyApparentManeuveringRewarderParams.from_dict(
+            config_dict["readily_apparent_maneuvering"]
         )
+        cfg.dnn_parameter_provider = DNNParameterRewarderParams.from_dict(config_dict["dnn_parameter_provider"])
+        return cfg
 
     @classmethod
     def from_file(cls, config_file: Path) -> "Config":
-        with open(config_file, "r") as file:
+        with open(config_file, "r", encoding="utf-8") as file:
             config_dict = yaml.safe_load(file)
         return cls.from_dict(config_dict)
 
@@ -215,11 +213,14 @@ class AntiGroundingRewarder(cs_reward.IReward):
         self._ktp: guidances.KinematicTrajectoryPlanner = guidances.KinematicTrajectoryPlanner()
         self._polygons: list = []
         self._rel_polygons: list = []
+        self._min_depth: int = 0
         self._show_plots: bool = False
         self._so_surfaces: list = []
         self._map_origin: np.ndarray = np.zeros(2)
         self._initialized: bool = False
+        self._nominal_path = None
         self.last_reward: float = 0.0
+        self._map_origin = np.zeros(2)
 
     def create_so_surfaces(self):
         self._map_origin = self.env.ownship.state[:2]
@@ -382,12 +383,22 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
         self.K_app = np.array([self._config.K_app_course, self._config.K_app_speed])
         self.alpha_app = np.concatenate([self._config.alpha_app_course, self._config.alpha_app_speed])
         self._prev_speed = self.env.ownship.speed
+        self._distance_threshold = 500.0
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._prev_speed = self.env.ownship.speed
         turn_rate = self.env.ownship.state[5]
         speed = self.env.ownship.speed
+
+        true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
+        do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0, add_empty_cov=True)
+        distances_to_obstacles = hf.compute_distances_to_dynamic_obstacles(
+            ownship_state=self.env.ownship.state, do_list=do_list
+        )
+        if distances_to_obstacles[0][1] > self._distance_threshold:
+            self.last_reward = 0.0
+            return self.last_reward
 
         acceleration = (speed - self._prev_speed) / self.env.dt_action
         rate_cost, _, _ = mpc_common.rate_cost(
@@ -431,8 +442,8 @@ class COLREGRewarder(cs_reward.IReward):
             )
             self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
-        do_arr = state["GroundTruthTrackingObservation"]
-        do_list = cs_mhm.extract_do_list_from_do_array(do_arr)
+        true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
+        do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0, add_empty_cov=True)
         ownship_state = self.env.ownship.state
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
@@ -447,13 +458,13 @@ class COLREGRewarder(cs_reward.IReward):
             translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
         ]
 
-        csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
-        csog_state_cpy = csog_state.copy()
-        csog_state[2] = csog_state_cpy[3]
-        csog_state[3] = csog_state_cpy[2]
-        do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
-            csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
+        csog_state_rel = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state) - np.array(
+            [self._map_origin[0], self._map_origin[1], 0.0, 0.0]
         )
+        csog_state_rel_cpy = csog_state_rel.copy()
+        csog_state_rel[2] = csog_state_rel_cpy[3]
+        csog_state_rel[3] = csog_state_rel_cpy[2]
+        do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(csog_state_rel, translated_do_list)
         # if self.__debug:
         #     plotters.plot_dynamic_obstacles(
         #         do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
@@ -490,7 +501,7 @@ class COLREGRewarder(cs_reward.IReward):
             )
 
         colreg_cost, _, _, _ = mpc_common.colregs_cost(
-            x=csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
+            x=csog_state_rel,
             X_do_cr=X_do_cr,
             X_do_ho=X_do_ho,
             X_do_ot=X_do_ot,
@@ -522,13 +533,35 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         unnormalized_obs = self.env.observation_type.unnormalize(state)
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
-        huber_loss = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
-        tt_cost = self._config.rho_path_dev * huber_loss + self._config.rho_speed_dev * path_obs[1] ** 2
+        huber_loss_path = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
+        huber_loss_final_path_var = mpc_common.huber_loss(path_obs[1] ** 2, 1.0)
+        tt_cost = (
+            self._config.rho_path_dev * huber_loss_path
+            + self._config.rho_final_path_var_dev * huber_loss_final_path_var
+            + self._config.rho_speed_dev * path_obs[2] ** 2
+        )
         self.last_reward = -tt_cost
         return self.last_reward
 
     def get_last_rewards_as_dict(self) -> dict:
         return {"r_trajectory_tracking": self.last_reward}
+
+
+class DNNParameterRewarder(cs_reward.IReward):
+
+    def __init__(self, env: "COLAVEnvironment", config: DNNParameterRewarderParams) -> None:
+        super().__init__(env)
+        self.last_reward = 0.0
+        self._config = config
+
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+        unnormalized_obs = self.env.observation_type.unnormalize(state)
+        path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
+        self.last_reward = -self._config.rho_dnn
+        return self.last_reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_dnn": self.last_reward}
 
 
 class MPCRewarder(cs_reward.IReward):
@@ -553,6 +586,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_colreg: float = 0.0
         self.r_trajectory_tracking: float = 0.0
         self.r_readily_apparent_maneuvering: float = 0.0
+        self.verbose: bool = True
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
@@ -569,9 +603,10 @@ class MPCRewarder(cs_reward.IReward):
             + self.r_readily_apparent_maneuvering
         )
         reward = reward / self.reward_scale
-        print(
-            f"[MPC-REWARDER]:\n\t- r_scaled: {reward} \n\t- r_antigrounding: {self.r_antigrounding:.2f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.2f} \n\t- r_colreg: {self.r_colreg:.2f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.2f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.2f}"
-        )
+        if self.verbose:
+            print(
+                f"[MPC-REWARDER]:\n\t- r_scaled: {reward:.4f} \n\t- r_antigrounding: {self.r_antigrounding:.4f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.4f} \n\t- r_colreg: {self.r_colreg:.4f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.4f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.4f}"
+            )
         self.last_reward = reward
         return reward
 

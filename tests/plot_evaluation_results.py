@@ -1,5 +1,4 @@
 import pickle
-import platform
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -11,11 +10,7 @@ def plot_evaluation_results() -> None:
 
 
 if __name__ == "__main__":
-    if platform.system() == "Linux":
-        base_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/")
-    elif platform.system() == "Darwin":
-        base_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/")
-
+    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
     experiment_name = "sac_rlmpc"
     data_dir = base_dir / experiment_name / "eval_data"
     eval_infos = None

@@ -438,6 +438,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 action_count = 0
                 self.policy.initialize_mpc_actor(env.envs[0])
 
+            t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
                 learning_starts,
                 observation=self._current_obs,
@@ -445,7 +446,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 deterministic=False,
                 n_envs=env.num_envs,
             )
+            print(f"Action sampling time: {time.time() - t_action_start:.2f}s")
 
+            t_env_plotting_and_step_start = time.time()
             # For plotting the predicted trajectory
             for env_idx in range(env.num_envs):
                 env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
@@ -480,10 +483,12 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self._last_rewards = rewards
             self._last_dones = dones
 
+            print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
             for idx, info in enumerate(infos):
                 info.update({"actor_info": self._last_actor_info[idx]})
             self._last_infos = infos
 
+            t_callback_start = time.time()
             # Give access to local variables
             callback.update_locals(locals())
             # Only stop training if return value is False, not when it is None.
@@ -492,6 +497,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     num_collected_steps * env.num_envs, num_collected_episodes, continue_training=False
                 )
 
+            print(f"Callback time: {time.time() - t_callback_start:.2f}s")
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
 

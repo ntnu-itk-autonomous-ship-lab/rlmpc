@@ -67,6 +67,22 @@ plt.rcParams.update(
 )
 
 
+def compute_distances_to_dynamic_obstacles(ownship_state: np.ndarray, do_list: List) -> List[Tuple[int, float]]:
+    os_pos = ownship_state[0:2]
+    os_speed = np.linalg.norm(ownship_state[3:5])
+    os_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+    distances2do = []
+    for idx, (_, do_state, _, _, _) in enumerate(do_list):
+        d2do = np.linalg.norm(do_state[0:2] - os_pos)
+        bearing_do = np.arctan2(do_state[1] - os_pos[1], do_state[0] - os_pos[0]) - os_course
+        if bearing_do > np.pi:
+            distances2do.append((idx, 1e10))
+        else:
+            distances2do.append((idx, d2do))
+    distances2do = sorted(distances2do, key=lambda x: x[1])
+    return distances2do
+
+
 def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5) -> rlmpc_logger.RLData:
 
     smoothed_critic_loss, std_critic_loss = compute_smooted_mean_and_std(data.critic_loss, window_size=ma_window_size)

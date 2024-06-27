@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from sys import platform
 from typing import Callable
 
 import colav_simulator.common.image_helper_methods as cs_ihm
@@ -77,13 +76,8 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-if platform == "linux" or platform == "linux2":
-    IMAGE_DATADIR: Path = Path("/home/doctor/Desktop/machine_learning/vae/data")
-elif platform == "darwin":
-    IMAGE_DATADIR: Path = Path("/Users/trtengesdal/Desktop/machine_learning/vae/data/")
-
-
 if __name__ == "__main__":
+    IMAGE_DATADIR: Path = Path.home() / "Desktop/machine_learning/vae/data"
     scenario_names = [
         "rlmpc_scenario_ms_channel",
         "rlmpc_scenario_random_many_vessels",
