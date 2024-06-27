@@ -98,22 +98,23 @@ if __name__ == "__main__":
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 300,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
-        "render_update_rate": 1.0,
+        "render_update_rate": 0.5,
         "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env",
+        "render_mode": "rgb_array",
         "seed": 0,
     }
 
-    num_cpu = 15
+    num_cpu = 1
     training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
 
     policy_kwargs = {
@@ -144,7 +145,7 @@ if __name__ == "__main__":
 
     env_config.update(
         {
-            "max_number_of_episodes": 50,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 1,
@@ -155,7 +156,14 @@ if __name__ == "__main__":
     )
     eval_env = Monitor(gym.make(id=env_id, **env_config))
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
-    checkpoint_callback = CheckpointCallback(save_freq=10000, save_path=model_dir, name_prefix="sac_drl1", verbose=1)
+    checkpoint_callback = CheckpointCallback(
+        save_freq=2000,
+        save_path=model_dir,
+        name_prefix="sac_drl1",
+        verbose=1,
+        save_replay_buffer=True,
+        save_vecnormalize=True,
+    )
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",

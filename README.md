@@ -24,7 +24,7 @@ See `setup.cfg` file. Nonlisted dependencies here include
 
 - Acados for solving optimal control problems
 - Casadi -''-
-- The `colav-simulator` repo found in the same organisation at <https://github.com/NTNU-Autoship-Internal/colav_simulator>.
+- The `colav-simulator` repo in <https://github.com/NTNU-Autoship-Internal/colav_simulator>.
 - The `rrt-rs` library for Rapidly-exploring Random Trees at <https://github.com/NTNU-Autoship-Internal/rrt-rs>.
 
 ## Citation
