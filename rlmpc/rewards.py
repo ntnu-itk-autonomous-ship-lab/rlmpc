@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Optional, Tuple
 import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.math_functions as mf
 import colav_simulator.common.miscellaneous_helper_methods as cs_mhm
-import colav_simulator.common.plotters as plotters
 import colav_simulator.core.guidances as guidances
 import colav_simulator.gym.action as csgym_action
 import colav_simulator.gym.observation as csgym_obs
@@ -112,6 +111,7 @@ class TrajectoryTrackingRewarderParams:
     rho_speed_dev: float = 10.0  # speed deviation reward weight
     rho_d2goal: float = 0.1  # final path deviation reward weight
     rho_course_dev: float = 0.0  # course deviation reward weight
+    rho_turn_rate: float = 0.0  # turn rate reward weight
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -383,6 +383,12 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
                 print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}.")
 
         colav_cost = self._config.rho_colav * np.sum(g_do)
+
+        # Add extra cost if the ship collides with a dynamic obstacle
+        # The above cost only gives a penalty if a dynamic obstacle is inside the set own-ship safety zone
+        if self.env.simulator.determine_ship_collision(ship_idx=0):
+            colav_cost += self._config.rho_colav * 1.0
+
         self.last_reward = -colav_cost
         return self.last_reward
 
@@ -560,8 +566,9 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         tt_cost = (
             self._config.rho_d2path * huber_loss_d2path
             + self._config.rho_d2goal * huber_loss_d2goal
-            + self._config.rho_course_dev * unwrapped_course_error ** 2
+            + self._config.rho_course_dev * unwrapped_course_error**2
             + self._config.rho_speed_dev * path_obs[3] ** 2
+            + self._config.rho_turn_rate * path_obs[4] ** 2
         )
         self.last_reward = -tt_cost
         return self.last_reward
