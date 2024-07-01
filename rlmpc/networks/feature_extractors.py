@@ -92,7 +92,7 @@ class PathRelativeNavigationNN(BaseFeaturesExtractor):
 
         Args:
             observation_space (gym.spaces.Box): Navigation state observation space.
-            features_dim (int, optional): Length of Features [d2path, speed_ref_diff, u, v, r]
+            features_dim (int, optional): Length of Features
         """
         super(PathRelativeNavigationNN, self).__init__(observation_space, features_dim=features_dim)
         self.passthrough = nn.Identity()

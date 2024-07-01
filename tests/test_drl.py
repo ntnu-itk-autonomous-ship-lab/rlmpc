@@ -7,12 +7,12 @@ from typing import Callable, Tuple
 import colav_simulator.common.paths as dp
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
 from colav_simulator.gym.environment import COLAVEnvironment
+from memory_profiler import profile
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3 import PPO, SAC
@@ -71,6 +71,7 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     return base_dir, log_dir, model_dir, best_model_dir
 
 
+@profile
 def main():
     config_file = dp.scenarios / "rl_scenario.yaml"
     experiment_name = "sac_drl1"
@@ -87,7 +88,7 @@ def main():
             "path_relative_navigation_observation",
             "perception_image_observation",
             "relative_tracking_observation",
-            "navigation_3dof_state_observation",
+            # "navigation_3dof_state_observation",
         ]
     }
 
@@ -98,7 +99,7 @@ def main():
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 300,
+        "max_number_of_episodes": 500,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -114,26 +115,26 @@ def main():
         "seed": 0,
     }
 
-    num_cpu = 10
+    num_cpu = 8
     training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
 
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
         "net_arch": [512, 256],
-        "log_std_init": -3.0,
+        "log_std_init": -5.0,
     }
     model = SAC(
         "MultiInputPolicy",
         training_vec_env,
-        learning_rate=0.0002,
+        learning_rate=0.0008,
         buffer_size=50000,
         batch_size=64,
-        gradient_steps=2,
-        train_freq=(10, "step"),
-        learning_starts=1000,
-        tau=0.01,
+        gradient_steps=1,
+        train_freq=(8, "step"),
+        learning_starts=500,
+        tau=0.005,
         use_sde=True,
-        sde_sample_freq=-1,
+        sde_sample_freq=40,
         device="cpu",
         ent_coef="auto",
         verbose=1,
@@ -144,11 +145,11 @@ def main():
 
     load_model = True
     if load_model:
-        model.load(model_dir / "sac_drl1_3000_steps.zip")
+        model.load(model_dir / "sac_drl1_60000_steps.zip")
 
     env_config.update(
         {
-            "max_number_of_episodes": 1,
+            "max_number_of_episodes": 10,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 1,
@@ -157,40 +158,40 @@ def main():
             "identifier": "eval_env",
         }
     )
-    eval_env = Monitor(gym.make(id=env_id, **env_config))
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     checkpoint_callback = CheckpointCallback(
-        save_freq=100,
+        save_freq=10000,
         save_path=model_dir,
         name_prefix="sac_drl1",
         verbose=1,
         save_replay_buffer=False,
         save_vecnormalize=False,
     )
+    eval_env = Monitor(gym.make(id=env_id, **env_config))
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
-        eval_freq=20000,
+        eval_freq=50000,
         n_eval_episodes=5,
         callback_after_eval=stop_train_callback,
         experiment_name=experiment_name,
         record=True,
-        render=False,
+        render=True,
         verbose=1,
     )
 
     model.learn(
-        total_timesteps=1_000_000,
-        log_interval=4,
+        total_timesteps=200_000,
+        log_interval=5,
         tb_log_name=experiment_name,
         reset_num_timesteps=True,
         callback=[eval_callback, checkpoint_callback],
         progress_bar=True,
     )
-    # model.save(model_dir / "best_model")
-    # mean_reward, std_reward = evaluate_policy(
-    #     model, eval_env, n_eval_episodes=5, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
-    # )
+    model.save(model_dir / "best_model")
+    mean_reward, std_reward = evaluate_policy(
+        model, eval_env, n_eval_episodes=5, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+    )
 
     # print("done")
 
@@ -199,8 +200,7 @@ if __name__ == "__main__":
     import cProfile
     import pstats
 
-    cProfile.run("main()", sort="cumulative", filename="sac_drl.prof")
-
-    p = pstats.Stats("sac_drl.prof")
-    p.sort_stats("cumulative").print_stats(100)
-    # main()
+    # cProfile.run("main()", sort="cumulative", filename="sac_drl.prof")
+    # p = pstats.Stats("sac_drl.prof")
+    # p.sort_stats("cumulative").print_stats(100)
+    main()

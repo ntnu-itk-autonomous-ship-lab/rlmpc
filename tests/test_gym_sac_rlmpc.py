@@ -105,7 +105,7 @@ def main():
                 save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=250,
+                n_episodes=600,
                 delete_existing_files=True,
             )
 
@@ -201,8 +201,8 @@ def main():
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
-        pretrain_critic_using_mpc=True,
-        tau=0.001
+        pretrain_critic_using_mpc=False,
+        tau=0.001,
         verbose=1,
     )
     load_buffer = False

@@ -29,7 +29,8 @@ See `setup.cfg` file. Nonlisted dependencies here include
 
 ## Citation
 If you are using code from this repository in your work, please use the following citation:
-```
+
+```bibtex
 @Article{Tengesdal2024sacn,
   author  = {Tengesdal, T and Gros, S. and Johansen, T. A.},
   journal = {IEEE Access},

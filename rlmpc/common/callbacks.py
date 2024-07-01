@@ -501,7 +501,7 @@ def evaluate_policy(
     states = None
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     if env_data_logger is not None:
-        env_data_logger.reset_episode_data()
+        env_data_logger.reset_data_structures(env_idx=0)
     is_mpc_policy = hasattr(model.policy.actor, "mpc")
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
@@ -536,7 +536,7 @@ def evaluate_policy(
             info.update({"actor_info": actor_info})
 
         if env_data_logger is not None:
-            env_data_logger(env.envs[0])
+            env_data_logger(infos)
 
         current_rewards += rewards
         current_lengths += 1

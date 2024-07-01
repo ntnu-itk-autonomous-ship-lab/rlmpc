@@ -108,9 +108,10 @@ class COLREGRewarderParams:
 
 @dataclass
 class TrajectoryTrackingRewarderParams:
-    rho_path_dev: float = 1.0  # path deviation reward weight
+    rho_d2path: float = 1.0  # path deviation reward weight
     rho_speed_dev: float = 10.0  # speed deviation reward weight
-    rho_final_path_var_dev: float = 0.1  # final path deviation reward weight
+    rho_d2goal: float = 0.1  # final path deviation reward weight
+    rho_course_dev: float = 0.0  # course deviation reward weight
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -545,18 +546,22 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         super().__init__(env)
         self.last_reward = 0.0
         self._config = config
+        self._last_course_error = 0.0
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+        if self.env.time < 0.0001:
+            self._last_course_error = 0.0
         unnormalized_obs = self.env.observation_type.unnormalize(state)
-        path_obs = unnormalized_obs[
-            "PathRelativeNavigationObservation"
-        ]  # [path_dev, final_path_var_dev, speed_dev, u, v, r]
-        huber_loss_path = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
-        huber_loss_final_path_var = mpc_common.huber_loss(path_obs[1] ** 2, 1.0)
+        path_obs = unnormalized_obs["PathRelativeNavigationObservation"]
+        huber_loss_d2path = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
+        huber_loss_d2goal = mpc_common.huber_loss(path_obs[1] ** 2, 1.0)
+        unwrapped_course_error = mf.unwrap_angle(self._last_course_error, path_obs[2])
+        self._last_course_error = path_obs[2]
         tt_cost = (
-            self._config.rho_path_dev * huber_loss_path
-            + self._config.rho_final_path_var_dev * huber_loss_final_path_var * self.env.time
-            + self._config.rho_speed_dev * path_obs[2] ** 2
+            self._config.rho_d2path * huber_loss_d2path
+            + self._config.rho_d2goal * huber_loss_d2goal
+            + self._config.rho_course_dev * unwrapped_course_error**2
+            + self._config.rho_speed_dev * path_obs[3] ** 2
         )
         self.last_reward = -tt_cost
         return self.last_reward
