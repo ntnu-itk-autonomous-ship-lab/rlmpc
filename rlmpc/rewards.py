@@ -560,7 +560,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         tt_cost = (
             self._config.rho_d2path * huber_loss_d2path
             + self._config.rho_d2goal * huber_loss_d2goal
-            + self._config.rho_course_dev * unwrapped_course_error**2
+            + self._config.rho_course_dev * unwrapped_course_error ** 2
             + self._config.rho_speed_dev * path_obs[3] ** 2
         )
         self.last_reward = -tt_cost
