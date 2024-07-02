@@ -121,17 +121,17 @@ def main():
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
         "net_arch": [512, 256],
-        "log_std_init": -5.0,
+        "log_std_init": -3.0,
     }
     model = SAC(
         "MultiInputPolicy",
         training_vec_env,
-        learning_rate=0.0008,
+        learning_rate=0.002,
         buffer_size=50000,
         batch_size=64,
         gradient_steps=1,
-        train_freq=(8, "step"),
-        learning_starts=500,
+        train_freq=(4, "step"),
+        learning_starts=1000,
         tau=0.005,
         use_sde=True,
         sde_sample_freq=40,
@@ -145,7 +145,7 @@ def main():
 
     load_model = True
     if load_model:
-        model.load(model_dir / "sac_drl1_60000_steps.zip")
+        model.load(model_dir / "sac_drl1_80000_steps.zip")
 
     env_config.update(
         {
@@ -181,8 +181,8 @@ def main():
     )
 
     model.learn(
-        total_timesteps=200_000,
-        log_interval=5,
+        total_timesteps=2_000_000,
+        log_interval=4,
         tb_log_name=experiment_name,
         reset_num_timesteps=True,
         callback=[eval_callback, checkpoint_callback],
