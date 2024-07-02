@@ -1,6 +1,8 @@
 """Test a standard SAC DRL agent on the COLAV environment.
 """
 
+import argparse
+import sys
 from pathlib import Path
 from typing import Callable, Tuple
 
@@ -49,8 +51,7 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
-    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
+def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
@@ -71,11 +72,25 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     return base_dir, log_dir, model_dir, best_model_dir
 
 
-@profile
-def main():
-    config_file = dp.scenarios / "rl_scenario.yaml"
-    experiment_name = "sac_drl1"
-    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
+def main(args):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
+    parser.add_argument("--experiment_name", type=str, default="sac_drl1")
+    parser.add_argument("--n_cpus", type=int, default=1)
+    parser.add_argument("--learning_rate", type=float, default=0.0005)
+    parser.add_argument("--buffer_size", type=int, default=50000)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--gradient_steps", type=int, default=1)
+    parser.add_argument("--train_freq", type=int, default=8)
+    args = parser.parse_args(args)
+    args.base_dir = Path(args.base_dir)
+    print("Provided args to SAC DRL training:")
+    print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
+
+    experiment_name = args.experiment_name
+    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(
+        base_dir=args.base_dir, experiment_name=experiment_name
+    )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
@@ -99,7 +114,7 @@ def main():
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 500,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -115,22 +130,22 @@ def main():
         "seed": 0,
     }
 
-    num_cpu = 8
+    num_cpu = args.n_cpus
     training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
 
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "net_arch": [512, 256],
+        "net_arch": [256, 256],
         "log_std_init": -3.0,
     }
     model = SAC(
         "MultiInputPolicy",
         training_vec_env,
-        learning_rate=0.002,
-        buffer_size=50000,
-        batch_size=64,
-        gradient_steps=1,
-        train_freq=(4, "step"),
+        learning_rate=args.learning_rate,
+        buffer_size=args.buffer_size,
+        batch_size=args.batch_size,
+        gradient_steps=args.gradient_steps,
+        train_freq=(args.train_freq, "step"),
         learning_starts=1000,
         tau=0.005,
         use_sde=True,
@@ -145,11 +160,11 @@ def main():
 
     load_model = True
     if load_model:
-        model.load(model_dir / "sac_drl1_80000_steps.zip")
+        model.load(model_dir / "sac_drl1_160000_steps.zip")
 
     env_config.update(
         {
-            "max_number_of_episodes": 10,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 1,
@@ -162,7 +177,7 @@ def main():
     checkpoint_callback = CheckpointCallback(
         save_freq=10000,
         save_path=model_dir,
-        name_prefix="sac_drl1",
+        name_prefix=args.experiment_name,
         verbose=1,
         save_replay_buffer=False,
         save_vecnormalize=False,
@@ -181,18 +196,18 @@ def main():
     )
 
     model.learn(
-        total_timesteps=2_000_000,
+        total_timesteps=50_000,
         log_interval=4,
-        tb_log_name=experiment_name,
+        tb_log_name=args.experiment_name,
         reset_num_timesteps=True,
         callback=[eval_callback, checkpoint_callback],
         progress_bar=True,
     )
     model.save(model_dir / "best_model")
     mean_reward, std_reward = evaluate_policy(
-        model, eval_env, n_eval_episodes=5, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+        model, eval_env, n_eval_episodes=1, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
     )
-
+    print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
     # print("done")
 
 
@@ -203,4 +218,4 @@ if __name__ == "__main__":
     # cProfile.run("main()", sort="cumulative", filename="sac_drl.prof")
     # p = pstats.Stats("sac_drl.prof")
     # p.sort_stats("cumulative").print_stats(100)
-    main()
+    main(sys.argv[1:])
