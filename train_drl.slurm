@@ -3,8 +3,8 @@
 #SBATCH --job-name=train_drl
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
-#SBATCH --time=0-05:00:00
-#SBATCH --nodes=20
+#SBATCH --time=0-10:00:00
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=30
 #SBATCH --mem=25G
@@ -34,6 +34,7 @@ TRAIN_FREQ=10
 GRADIENT_STEPS=1
 BUFFER_SIZE=50000
 EXPERIMENT_NAME="sac_drl1"
+TIMESTEPS=100000
 
 setArgs(){
   while [ "${1:-}" != "" ]; do
@@ -70,6 +71,10 @@ setArgs(){
 	shift
 	EXPERIMENT_NAME=$1
 	;;
+      "-t" | "--timesteps")
+	shift
+	TIMESTEPS=$1
+	;;
       *)
 	helpFunction
 	;;
@@ -87,8 +92,7 @@ echo "GRADIENT_STEPS = $GRADIENT_STEPS"
 echo "TRAIN_FREQ = $TRAIN_FREQ"
 echo "BUFFER_SIZE = $BUFFER_SIZE"
 echo "EXPERIMENT_NAME = $EXPERIMENT_NAME"
-
-
+echo "TIMESTEPS = $TIMESTEPS"
 
 echo "we are running from this directory: $SLURM_SUBMIT_DIR"
 echo " the name of the job is: $SLURM_JOB_NAME"
@@ -114,7 +118,6 @@ export BASE_SAVE_FOLDER=/cluster/work/trymte/drl_dir/
 
 # setting the matplotlib backend to be headless
 export MPLBACKEND="Agg"
-export PATH=$PATH:/cluster/apps/eb/software/Rust/1.76.0-GCCcore-12.2.0/bin
 
 # setting the UCX logging level
 export UCX_LOG_LEVEL=error
@@ -126,9 +129,7 @@ which python
 echo -e "\n\n"
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=20 python /cluster/home/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_SAVE_FOLDER
-
-python /cluster/home/Desktop/rlmpc/tests/test_drl.py batch_size=8 --n_cpus=3 --learning_rate=0.001 --buffer_size=10005 --train_freq=10 --gradient_steps=2
+srun --ntasks=1 python /cluster/home/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
 
 # running the analysis script sequentially after the srun command has finished
 
