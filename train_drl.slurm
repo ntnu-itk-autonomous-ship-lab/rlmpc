@@ -101,9 +101,9 @@ echo "Total of $SLURM_NTASKS cores"
 
 # loading required modules
 module purge
-module load GCCcore/12.3.0
-module load Python/3.11.3-GCCcore-12.3.0
-module load mpi4py/3.1.4-gompi-2023a
+module load GCCcore/13.2.0
+module load Python/3.11.5-GCCcore-13.2.0
+module load mpi4py/3.1.5-gompi-2023b
 module load TensorFlow/2.13.0-foss-2023a
 
 # enable virtual env
