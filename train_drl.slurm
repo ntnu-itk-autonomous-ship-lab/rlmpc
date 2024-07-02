@@ -1,0 +1,147 @@
+#!/bin/sh
+
+#SBATCH --job-name=train_drl
+#SBATCH --partition=CPUQ
+#SBATCH --account=share-ie-itk
+#SBATCH --time=0-05:00:00
+#SBATCH --nodes=20
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=30
+#SBATCH --mem=25G
+#SBATCH --output=R-%x.%j.out
+
+helpFunction()
+{
+   echo ""
+   echo "Usage: $0 -bd base_dir -bs batch_size -lr learning_rate -ncpus ncpus -gs gradient_steps -tf train_freq -bfs buffer_size -en experiment_name"
+   echo -e "\t-bd base directory for storing models, logs etc"
+   echo -e "\t-bs batch size"
+   echo -e "\t-lr learning rate"
+   echo -e "\t-ncpus number of cpu cores to use"
+   echo -e "\t-gs gradient steps in training"
+   echo -e "\t-tf training frequency in number of steps"
+   echo -e "\t-bfs replay buffer size"
+   echo -e "\t-en experiment name"
+   exit 1 # Exit script after printing help
+}
+
+
+BASE_DIR="/cluster/work/trymte/drl_dir"
+BATCH_SIZE=32
+LEARNING_RATE=0.0005
+NCPUS=1
+TRAIN_FREQ=10
+GRADIENT_STEPS=1
+BUFFER_SIZE=50000
+EXPERIMENT_NAME="sac_drl1"
+
+setArgs(){
+  while [ "${1:-}" != "" ]; do
+    case "$1" in
+      "-bd" | "--base_dir")
+        shift
+        BASE_DIR=$1
+        ;;
+      "-bs" | "--batch_size")
+	shift
+        BATCH_SIZE=$1
+        ;;
+      "-lr" | "--learning_rate")
+	shift
+	LEARNING_RATE=$1
+        ;;
+      "-ncpus" | "--ncpus")
+	shift	
+	NCPUS=$1
+	;;
+      "-gs" | "--gradient_steps")
+	shift
+	GRADIENT_STEPS=$1
+	;;
+      "-tf" | "--train_freq")
+	shift
+	TRAIN_FREQ=$1
+	;;
+      "-bfs" | "--buffer_size")
+	shift	
+	BUFFER_SIZE=$1
+	;;
+      "-en" | "--experiment_name")
+	shift
+	EXPERIMENT_NAME=$1
+	;;
+      *)
+	helpFunction
+	;;
+    esac
+    shift
+  done
+}
+setArgs "$@"
+
+echo "BASE_DIR = $BASE_DIR"
+echo "BATCH_SIZE = $BATCH_SIZE"
+echo "LEARNING_RATE = $LEARNING_RATE"
+echo "NCPUS = $NCPUS"
+echo "GRADIENT_STEPS = $GRADIENT_STEPS"
+echo "TRAIN_FREQ = $TRAIN_FREQ"
+echo "BUFFER_SIZE = $BUFFER_SIZE"
+echo "EXPERIMENT_NAME = $EXPERIMENT_NAME"
+
+
+
+echo "we are running from this directory: $SLURM_SUBMIT_DIR"
+echo " the name of the job is: $SLURM_JOB_NAME"
+echo "Th job ID is $SLURM_JOB_ID"
+echo "The job was run on these nodes: $SLURM_JOB_NODELIST"
+echo "Number of nodes: $SLURM_JOB_NUM_NODES"
+echo "We are using $SLURM_CPUS_ON_NODE cores"
+echo "We are using $SLURM_CPUS_ON_NODE cores per node"
+echo "Total of $SLURM_NTASKS cores"
+
+# loading required modules
+module purge
+module load GCCcore/12.3.0
+module load Python/3.11.3-GCCcore-12.3.0
+module load mpi4py/3.1.4-gompi-2023a
+module load TensorFlow/2.13.0-foss-2023a
+
+# enable virtual env
+source /cluster/home/trymte/Desktop/myenv/bin/activate
+
+export BASE_SAVE_FOLDER=/cluster/work/trymte/drl_dir/
+
+# setting the matplotlib backend to be headless
+export MPLBACKEND="Agg"
+export PATH=$PATH:/cluster/apps/eb/software/Rust/1.76.0-GCCcore-12.2.0/bin
+
+# setting the UCX logging level
+export UCX_LOG_LEVEL=error
+
+# debugging
+module list
+echo "which python: "
+which python
+echo -e "\n\n"
+
+# using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
+srun --ntasks=20 python /cluster/home/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_SAVE_FOLDER
+
+python /cluster/home/Desktop/rlmpc/tests/test_drl.py batch_size=8 --n_cpus=3 --learning_rate=0.001 --buffer_size=10005 --train_freq=10 --gradient_steps=2
+
+# running the analysis script sequentially after the srun command has finished
+
+
+# fetching the job information
+job_info=$(sacct --format=JobID,JobName,Elapsed,State,ExitCode --jobs=${SLURM_JOB_ID} --parsable2)
+
+# constructing the email body
+email_body=$(cat <<EOF
+Slurm Job Summary:
+$job_info
+
+EOF
+)
+
+# sending the log file via email with the job information in the email body
+echo "$email_body" | mailx -s "SLURM Job ${SLURM_JOB_NAME} Completed" -a R-${SLURM_JOB_NAME}.${SLURM_JOB_ID}.out trym.tengesdal@ntnu.no
