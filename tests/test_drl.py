@@ -82,6 +82,8 @@ def main(args):
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
+    parser.add_argument("--n_eval_episodes", type=int, default=5)
+    parser.add_argument("--timesteps", type=int, default=1000000)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC DRL training:")
