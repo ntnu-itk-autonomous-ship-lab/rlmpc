@@ -1,19 +1,19 @@
+import argparse
+import sys
 from pathlib import Path
 from typing import Tuple
 
 import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
-import argparse
-import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rewards
 import rlmpc.sac as sac_rlmpc
-import yaml
 import torch as th
+import yaml
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
@@ -50,6 +50,7 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
         progress_callback=lambda i, n: print(f"Saving frame {i} of {n}"),
     )
 
+
 def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
@@ -70,19 +71,14 @@ def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, 
         best_model_dir.mkdir(parents=True)
     return base_dir, log_dir, model_dir, best_model_dir
 
+
 # tuning:
 # horizon
 # tau/barrier param
 # edge case shit
 # constraint satisfaction highly dependent on tau/barrier
 # if ship gets too much off path/course it will just continue off course
-
-
-# optimize runtime?
-# fix enc display whiteness in training
-# upd scen gen to spawn obstacles along waypoints instead of only near init pos
-# add more scenarios
-def main():
+def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
@@ -93,7 +89,7 @@ def main():
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=5)
-    parser.add_argument("--timesteps", type=int, default=50)
+    parser.add_argument("--timesteps", type=int, default=5)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC training:")
@@ -159,7 +155,7 @@ def main():
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 250,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -203,9 +199,8 @@ def main():
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "debug": False,
+        "debug": True,
     }
-    learning_rate = 0.004
     model = sac_rlmpc.SAC(
         rlmpc_policies.SACPolicyWithMPC,
         env,
@@ -230,13 +225,13 @@ def main():
     if load_model:
         model.custom_load(model_dir / (experiment_name + "_700"))
 
-    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
+    # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
         eval_freq=10000000,
         n_eval_episodes=5,
-        callback_after_eval=stop_train_callback,
+        # callback_after_eval=stop_train_callback,
         experiment_name=experiment_name,
         record=True,
         render=True,
@@ -246,9 +241,9 @@ def main():
         env,
         log_dir=base_dir,
         experiment_name=args.experiment_name,
-        save_stats_freq=2,
+        save_stats_freq=1,
         save_agent_model_freq=100,
-        log_stats_freq=10,
+        log_stats_freq=4,
         verbose=1,
     )
     model.learn(
@@ -258,7 +253,12 @@ def main():
         callback=CallbackList([stats_callback, eval_callback]),
     )
     mean_reward, std_reward = evaluate_policy(
-        model, eval_env, n_eval_episodes=args.n_eval_episodes, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+        model,
+        eval_env,
+        n_eval_episodes=args.n_eval_episodes,
+        record=True,
+        record_path=base_dir / "eval_videos",
+        record_name="final_eval",
     )
     # print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
 
