@@ -11,9 +11,9 @@ import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
-import yaml
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
+import yaml
 from colav_simulator.gym.environment import COLAVEnvironment
 from memory_profiler import profile
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
@@ -167,7 +167,7 @@ def main(args):
 
     env_config.update(
         {
-            "max_number_of_episodes": 1,
+            "max_number_of_episodes": 5,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 1,
@@ -207,7 +207,12 @@ def main(args):
         progress_bar=True,
     )
     mean_reward, std_reward = evaluate_policy(
-        model, eval_env, n_eval_episodes=args.n_eval_episodes, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+        model,
+        eval_env,
+        n_eval_episodes=args.n_eval_episodes,
+        record=True,
+        record_path=base_dir / "final_eval_videos",
+        record_name=experiment_name + "_final_eval",
     )
     model.save(model_dir / "best_model")
     print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
@@ -221,7 +226,7 @@ def main(args):
         "final_mean_eval_reward": mean_reward,
         "final_std_eval_reward": std_reward,
         "n_cpus": args.n_cpus,
-        "buffer_size": args.buffer_size
+        "buffer_size": args.buffer_size,
     }
     with (base_dir / "train_config.yaml").open(mode="w", encoding="utf-8") as fp:
         yaml.dump(train_cfg, fp)
