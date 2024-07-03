@@ -20,9 +20,10 @@ from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, eval
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
@@ -77,14 +78,14 @@ def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_drl1")
-    parser.add_argument("--n_cpus", type=int, default=2)
+    parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.0005)
     parser.add_argument("--buffer_size", type=int, default=50000)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=5)
-    parser.add_argument("--timesteps", type=int, default=50)
+    parser.add_argument("--timesteps", type=int, default=1000)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC DRL training:")
@@ -116,8 +117,7 @@ def main(args):
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
-        "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 1,
+        "max_number_of_episodes": 600,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -127,6 +127,7 @@ def main(args):
         "action_type": "relative_course_speed_reference_sequence_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
+        "merge_loaded_scenario_episodes": True,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env",
         "render_mode": "rgb_array",
@@ -134,7 +135,17 @@ def main(args):
     }
 
     num_cpu = args.n_cpus
-    training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+    # training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+    training_vec_env = VecMonitor(
+        make_vec_env(
+            env_id=env_id,
+            env_kwargs=env_config,
+            n_envs=num_cpu,
+            seed=0,
+            monitor_dir=str(log_dir),
+            vec_env_cls=SubprocVecEnv,
+        )
+    )
 
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
@@ -149,10 +160,10 @@ def main(args):
         batch_size=args.batch_size,
         gradient_steps=args.gradient_steps,
         train_freq=(args.train_freq, "step"),
-        learning_starts=1000,
-        tau=0.005,
+        learning_starts=10,
+        tau=0.01,
         use_sde=True,
-        sde_sample_freq=40,
+        sde_sample_freq=50,
         device="cpu",
         ent_coef="auto",
         verbose=1,
@@ -167,9 +178,8 @@ def main(args):
 
     env_config.update(
         {
-            "max_number_of_episodes": 1,
+            "max_number_of_episodes": 50,
             "scenario_file_folder": test_scenario_folders,
-            "merge_loaded_scenario_episodes": True,
             "seed": 1,
             "simulator_config": eval_sim_config,
             "reload_map": False,
