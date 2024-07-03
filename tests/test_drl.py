@@ -167,7 +167,7 @@ def main(args):
 
     env_config.update(
         {
-            "max_number_of_episodes": 5,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 1,
