@@ -178,8 +178,7 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        features_dim: int = 121,
-        action_dim: int = 2,
+        features_dim: int = 117,
     ):
         super().__init__()
         self.out_parameter_ranges = {
@@ -214,9 +213,7 @@ class MPCParameterDNN(th.nn.Module):
         self.activation_fn = activation_fn()
         self.layers = th.nn.ModuleList()
 
-        self.input_dim = (
-            features_dim + offset + action_dim
-        )  # Add the number of parameters to the input features, and the action dim
+        self.input_dim = features_dim + offset  # Add the number of parameters to the input features, and the action dim
         prev_size = self.input_dim
         for size in hidden_sizes:
             self.layers.append(th.nn.Linear(prev_size, size))
@@ -653,7 +650,7 @@ class SACMPCActor(BasePolicy):
                 if state is None
                 else th.from_numpy(state[idx]["norm_mpc_action"]).float()
             )
-            dnn_input = th.cat([features[idx], current_mpc_params, prev_action], dim=-1)
+            dnn_input = th.cat([features[idx], current_mpc_params], dim=-1)
             mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
             mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
                 mpc_param_increment, current_mpc_params.detach().numpy()
@@ -723,7 +720,6 @@ class SACMPCActor(BasePolicy):
         t = obs_b["TimeObservation"].flatten()[0]
         unnorm_obs_b = self.observation_type.unnormalize(obs_b)
         ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
-        disturbance_vector = unnorm_obs_b["DisturbanceObservation"].flatten()
         max_num_do = do_arr.shape[1]
         do_list = []
         for i in range(max_num_do):
@@ -732,6 +728,7 @@ class SACMPCActor(BasePolicy):
                 do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
 
         ownship_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+        disturbance_vector = np.array([0.0, 0.0, 0.0, 0.0])
         w = stochasticity.DisturbanceData()
         w.currents = {"speed": disturbance_vector[0], "direction": (disturbance_vector[1] + ownship_course)}
         w.wind = {"speed": disturbance_vector[2], "direction": disturbance_vector[3] + ownship_course}

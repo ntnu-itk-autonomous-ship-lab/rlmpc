@@ -8,6 +8,8 @@
 """
 
 import copy
+import pathlib
+import shutil
 import time
 from typing import Dict, Tuple
 
@@ -32,7 +34,7 @@ class AcadosMPC:
         self, model: models.MPCModel, params: parameters.MidlevelMPCParams, solver_options: AcadosOcpOptions
     ) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
-        self._acados_ocp.solver_options = mpc_common.parse_acados_solver_options(solver_options)
+        self._solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self._acados_ocp_solver: AcadosOcpSolver = None
         self._acados_ocp_solver_nonreg: AcadosOcpSolver = None
 
@@ -558,6 +560,8 @@ class AcadosMPC:
             if i < self._acados_ocp.dims.N:
                 solver.set(i, "u", self._u_warm_start[:, i])
             p_i = self.create_parameter_values(xs, do_cr_list, do_ho_list, do_ot_list, i)
+            if p_i.size != self._p_adjustable.shape[0] + self._p_fixed.shape[0]:
+                print(f"Parameter size mismatch: {p_i.size} vs {len(self._p_list)}")
             self._parameter_values.append(p_i)
             solver.set(i, "p", p_i)
         # print("OCP updated")
@@ -596,6 +600,8 @@ class AcadosMPC:
         self._set_path_information(nominal_path)
         N = int(self._params.T / self._params.dt)
 
+        self._acados_ocp = AcadosOcp()
+        self._acados_ocp.solver_options = self._solver_options
         self._min_depth = min_depth
         self._map_origin = map_origin
         self._acados_ocp.model = self.model.as_acados()
@@ -739,6 +745,12 @@ class AcadosMPC:
         self._acados_ocp.cost.zu_e = self._params.w_L1 * np.ones(ns)
 
         # Cost function
+        # self._acados_ocp.model.cost_expr_ext_cost = u.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u
+        # self._acados_ocp.model.cost_expr_ext_cost_e = 0.0
+        self._acados_ocp.cost.cost_type_0 = "EXTERNAL"
+        self._acados_ocp.cost.cost_type = "EXTERNAL"
+        self._acados_ocp.cost.cost_type_e = "EXTERNAL"
+
         x_path = self._x_path(x[4], self._x_path_coeffs)
         y_path = self._y_path(x[4], self._y_path_coeffs)
         path_ref = csd.vertcat(x_path, y_path, s_dot_ref)
@@ -781,12 +793,6 @@ class AcadosMPC:
         self._acados_ocp.model.cost_expr_ext_cost = path_following_cost + speed_dev_cost + rate_cost + colregs_cost
         self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + speed_dev_cost
 
-        # self._acados_ocp.model.cost_expr_ext_cost = u.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u
-        # self._acados_ocp.model.cost_expr_ext_cost_e = 0.0
-        self._acados_ocp.cost.cost_type_0 = "EXTERNAL"
-        self._acados_ocp.cost.cost_type = "EXTERNAL"
-        self._acados_ocp.cost.cost_type_e = "EXTERNAL"
-
         # Parameters consist of RL adjustable parameters and fixed parameters
         # (either nominal path or dynamic obstacle related).
         self._p_fixed = csd.vertcat(*p_fixed)
@@ -803,8 +809,14 @@ class AcadosMPC:
         )
 
         solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
+        # remove files in the code export directory
+        if rl_dp.acados_code_gen.exists():
+            shutil.rmtree(rl_dp.acados_code_gen)
+            rl_dp.acados_code_gen.mkdir(parents=True, exist_ok=True)
+
         self._acados_ocp.code_export_directory = rl_dp.acados_code_gen.as_posix()
-        self._acados_ocp_solver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json)
+        self._acados_ocp_solver = None
+        self._acados_ocp_solver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json, build=True)
 
         self._static_obstacle_constraints = csd.Function("so_constr", [x], [csd.vertcat(*so_constr_list)])
         self._dynamic_obstacle_constraints = csd.Function(

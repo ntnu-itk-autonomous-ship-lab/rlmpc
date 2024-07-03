@@ -208,6 +208,7 @@ class RLMPC(ci.ICOLAV):
         self._mpc_soln: dict = {}
         self._mpc_trajectory: np.ndarray = np.array([])
         self._mpc_inputs: np.ndarray = np.array([])
+        self._mpc.reset()
         self._colregs_handler.reset()
         self._debug = debug
         enc.close_display()

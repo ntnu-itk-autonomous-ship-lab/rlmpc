@@ -8,7 +8,7 @@
 """
 
 import platform
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type
 
@@ -36,9 +36,11 @@ else:
 @dataclass
 class Config:
     enable_acados: bool = False
-    mpc: mpc_parameters.MidlevelMPCParams = mpc_parameters.MidlevelMPCParams()
-    solver_options: common.SolverConfig = common.SolverConfig()
-    model: Type[models.MPCModel] = models.KinematicCSOGWithAccelerationAndPathtimingParams()
+    mpc: mpc_parameters.MidlevelMPCParams = field(default_factory=lambda: mpc_parameters.MidlevelMPCParams())
+    solver_options: common.SolverConfig = field(default_factory=lambda: common.SolverConfig())
+    model: Type[models.MPCModel] = field(
+        default_factory=lambda: models.KinematicCSOGWithAccelerationAndPathtimingParams()
+    )
 
     @classmethod
     def from_dict(self, config_dict: dict):
