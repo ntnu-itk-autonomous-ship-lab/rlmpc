@@ -6,7 +6,7 @@
 #SBATCH --time=0-00:10:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=30
+#SBATCH --cpus-per-task=20
 #SBATCH --mem=25G
 #SBATCH --output=R-%x.%j.out
 
