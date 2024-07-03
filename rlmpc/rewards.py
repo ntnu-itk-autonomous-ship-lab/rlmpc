@@ -63,15 +63,15 @@ class CollisionAvoidanceRewarderParams:
 
 @dataclass
 class COLREGRewarderParams:
-    alpha_cr: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])  # Crossing potential function parameters
+    alpha_cr: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))  # Crossing potential function parameters
     y_0_cr: float = 100.0  # Crossing potential function parameters
-    alpha_ho: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])  # Head-on potential function parameters
+    alpha_ho: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))  # Head-on potential function parameters
     x_0_ho: float = 200.0  # Head-on potential function parameters
-    alpha_ot: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])  # Overtaking potential function parameters
+    alpha_ot: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))  # Overtaking potential function parameters
     x_0_ot: float = 200.0  # Overtaking potential function parameters
     y_0_ot: float = 100.0  # Overtaking potential function parameters
     d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
-    w_colregs: np.ndarray = np.array([1.0, 1.0, 1.0])  # Weights for the COLREGS potential functions
+    w_colregs: np.ndarray = field(default_factory=lambda: np.array([1.0, 1.0, 1.0]))  # Weights for the COLREGS potential functions
 
     colregs_handler: ch.COLREGSHandlerParams = field(default_factory=lambda: ch.COLREGSHandlerParams())
 
@@ -639,7 +639,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_trajectory_tracking: float = 0.0
         self.r_readily_apparent_maneuvering: float = 0.0
         self.r_action_chatter: float = 0.0
-        self.verbose: bool = True
+        self.verbose: bool = False
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)

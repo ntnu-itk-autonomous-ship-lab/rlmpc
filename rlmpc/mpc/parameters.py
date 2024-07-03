@@ -8,7 +8,7 @@
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Dict, Optional
 
@@ -55,14 +55,14 @@ class TTMPCParams(IParams):
     reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box
     T: float = 10.0  # prediction horizon
     dt: float = 0.5  # time step
-    Q: np.ndarray = np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])  # state cost matrix
-    R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
+    Q: np.ndarray = field(default_factory=lambda: np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0]))  # state cost matrix
+    R: np.ndarray = field(default_factory=lambda: np.diag([1.0, 1.0]))  # input cost matrix
     w_L2: float = 1e4  # slack variable weight L2 norm
     w_L1: float = 1e2  # slack variable weight L1 norm
     gamma: float = 0.9  # discount factor in RL setting
     d_safe_so: float = 5.0  # safety distance to static obstacles
     d_safe_do: float = 5.0  # safety distance to dynamic obstacles
-    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
+    so_constr_type: StaticObstacleConstraint = field(default_factory=lambda: StaticObstacleConstraint.PARAMETRICSURFACE)
     max_num_so_constr: int = 5  # maximum number of static obstacle constraints
     max_num_do_constr: int = 0  # maximum number of dynamic obstacle constraints
     path_following: bool = False  # whether to use path following or trajectory tracking
@@ -105,7 +105,7 @@ class MidlevelMPCParams(IParams):
     reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
-    so_constr_type: StaticObstacleConstraint = StaticObstacleConstraint.PARAMETRICSURFACE
+    so_constr_type: StaticObstacleConstraint = field(default_factory=lambda: StaticObstacleConstraint.PARAMETRICSURFACE)
     max_num_so_constr: int = 5  # maximum number of static obstacle constraints
     max_num_do_constr_per_zone: int = 5  # maximum number of dynamic obstacle constraints
 
@@ -115,24 +115,24 @@ class MidlevelMPCParams(IParams):
     r_safe_so: float = 5.0  # safety distance radius to static obstacles
 
     # Adjustable
-    Q_p: np.ndarray = np.diag(
+    Q_p: np.ndarray = field(default_factory=lambda: np.diag(
         [0.1, 0.1, 1.0]
-    )  # path following cost matrix, position (x, y), speed deviation and speed assignment path variable deviation.
+    ))  # path following cost matrix, position (x, y), speed deviation and speed assignment path variable deviation.
     # R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
-    alpha_app_course: np.ndarray = np.array([112.0, 0.0006])
-    alpha_app_speed: np.ndarray = np.array([8.0, 0.00025])
+    alpha_app_course: np.ndarray = field(default_factory=lambda: np.array([112.0, 0.0006]))
+    alpha_app_speed: np.ndarray = field(default_factory=lambda: np.array([8.0, 0.00025]))
     K_app_course: float = 0.5  # turn rate penalty
     K_app_speed: float = 0.6  # speed deviation penalty
 
-    alpha_cr: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
+    alpha_cr: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))
     y_0_cr: float = 100.0
-    alpha_ho: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
+    alpha_ho: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))
     x_0_ho: float = 200.0
-    alpha_ot: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])
+    alpha_ot: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))
     x_0_ot: float = 200.0
     y_0_ot: float = 100.0
     d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
-    w_colregs: np.ndarray = np.array([1.0, 1.0, 1.0])  # weights for the COLREGS potential functions
+    w_colregs: np.ndarray = field(default_factory=lambda: np.array([1.0, 1.0, 1.0]))  # weights for the COLREGS potential functions
     r_safe_do: float = 10.0  # safety distance radius to dynamic obstacles
 
     @classmethod

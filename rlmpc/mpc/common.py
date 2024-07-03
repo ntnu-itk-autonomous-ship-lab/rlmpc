@@ -115,7 +115,7 @@ def parse_acados_solver_options(config_dict: dict):
 @dataclass
 class SolverConfig:
     acados: dict = field(default_factory=dict)
-    casadi: CasadiSolverOptions = CasadiSolverOptions()
+    casadi: CasadiSolverOptions = field(default_factory=CasadiSolverOptions())
 
     @classmethod
     def from_dict(self, config_dict: dict):

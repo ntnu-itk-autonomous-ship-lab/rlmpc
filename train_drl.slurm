@@ -3,12 +3,13 @@
 #SBATCH --job-name=train_drl
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
-#SBATCH --time=0-10:00:00
+#SBATCH --time=0-00:10:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=30
 #SBATCH --mem=25G
 #SBATCH --output=R-%x.%j.out
+
 
 helpFunction()
 {
@@ -28,8 +29,8 @@ helpFunction()
 
 BASE_DIR="/cluster/work/trymte/drl_dir"
 BATCH_SIZE=32
-LEARNING_RATE=0.0005
-NCPUS=1
+LEARNING_RATE=0.0002
+NCPUS=30
 TRAIN_FREQ=10
 GRADIENT_STEPS=1
 BUFFER_SIZE=50000
@@ -52,7 +53,7 @@ setArgs(){
 	LEARNING_RATE=$1
         ;;
       "-ncpus" | "--ncpus")
-	shift	
+	shift
 	NCPUS=$1
 	;;
       "-gs" | "--gradient_steps")
@@ -64,7 +65,7 @@ setArgs(){
 	TRAIN_FREQ=$1
 	;;
       "-bfs" | "--buffer_size")
-	shift	
+	shift
 	BUFFER_SIZE=$1
 	;;
       "-en" | "--experiment_name")
@@ -110,11 +111,11 @@ module load Python/3.11.3-GCCcore-12.3.0
 module load mpi4py/3.1.4-gompi-2023a
 module load TensorFlow/2.13.0-foss-2023a
 module load Rust/1.70.0-GCCcore-12.3.0
+module load GDAL/3.7.1-foss-2023amodule
+load FFmpeg/6.0-GCCcore-12.3.0
 
 # enable virtual env
-source /cluster/home/trymte/Desktop/myenv/bin/activate
-
-export BASE_SAVE_FOLDER=/cluster/work/trymte/drl_dir/
+source /cluster/home/trymte/Desktop/mpy3.11.3/bin/activate
 
 # setting the matplotlib backend to be headless
 export MPLBACKEND="Agg"
@@ -129,7 +130,7 @@ which python
 echo -e "\n\n"
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python /cluster/home/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
+srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
 
 # running the analysis script sequentially after the srun command has finished
 

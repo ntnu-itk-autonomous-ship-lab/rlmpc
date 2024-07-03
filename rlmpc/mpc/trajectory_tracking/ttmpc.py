@@ -36,9 +36,9 @@ else:
 @dataclass
 class Config:
     enable_acados: bool = False
-    mpc: mpc_parameters.TTMPCParams = mpc_parameters.TTMPCParams()
-    solver_options: common.SolverConfig = common.SolverConfig()
-    model: Type[models.MPCModel] = models.Telemetron()
+    mpc: mpc_parameters.TTMPCParams = field(default_factory=lambda: mpc_parameters.TTMPCParams())
+    solver_options: common.SolverConfig = field(default_factory=lambda:common.SolverConfig())
+    model: Type[models.MPCModel] = field(default_factory=lambda:models.Telemetron())
 
     @classmethod
     def from_dict(self, config_dict: dict):
@@ -59,7 +59,7 @@ class Config:
         return config
 
 
-class TTMPC(mpc_interface.IMPC):
+class TTMPC:
     """Class for the trajectory tracking MPC with COLAV. Quadratic cost in states and inputs. Nonlinear obstacle constraints."""
 
     def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:

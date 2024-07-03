@@ -11,6 +11,7 @@ import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
+import yaml
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
 from colav_simulator.gym.environment import COLAVEnvironment
@@ -160,7 +161,7 @@ def main(args):
         replay_buffer_kwargs={"handle_timeout_termination": True},
     )
 
-    load_model = True
+    load_model = False
     if load_model:
         model.load(model_dir / "sac_drl1_160000_steps.zip")
 
@@ -198,19 +199,32 @@ def main(args):
     )
 
     model.learn(
-        total_timesteps=50_000,
+        total_timesteps=args.timesteps,
         log_interval=4,
         tb_log_name=args.experiment_name,
         reset_num_timesteps=True,
         callback=[eval_callback, checkpoint_callback],
         progress_bar=True,
     )
-    model.save(model_dir / "best_model")
     mean_reward, std_reward = evaluate_policy(
-        model, eval_env, n_eval_episodes=1, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+        model, eval_env, n_eval_episodes=args.n_eval_episodes, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
     )
+    model.save(model_dir / "best_model")
     print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
-    # print("done")
+    train_cfg = {
+        "experiment_name": args.experiment_name,
+        "timesteps": args.timesteps,
+        "train_freq": args.train_freq,
+        "gradient_steps": args.gradient_steps,
+        "batch_size": args.batch_size,
+        "n_eval_episodes": args.n_eval_episodes,
+        "final_mean_eval_reward": mean_reward,
+        "final_std_eval_reward": std_reward,
+        "n_cpus": args.n_cpus,
+        "buffer_size": args.buffer_size
+    }
+    with (base_dir / "train_config.yaml").open(mode="w", encoding="utf-8") as fp:
+        yaml.dump(train_cfg, fp)
 
 
 if __name__ == "__main__":
