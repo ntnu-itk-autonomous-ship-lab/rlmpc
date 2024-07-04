@@ -228,7 +228,7 @@ def main(args):
         replay_buffer_kwargs={"handle_timeout_termination": True},
     )
 
-    load_model = True
+    load_model = False
     if load_model:
         model.load(model_dir / "sac_drl1_240000_steps.zip")
 

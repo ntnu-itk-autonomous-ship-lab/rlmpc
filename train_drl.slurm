@@ -3,11 +3,11 @@
 #SBATCH --job-name=train_drl
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
-#SBATCH --time=0-00:10:00
+#SBATCH --time=0-40:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=25G
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=256G
 #SBATCH --output=R-%x.%j.out
 
 
@@ -30,12 +30,12 @@ helpFunction()
 BASE_DIR="/cluster/work/trymte/drl_dir"
 BATCH_SIZE=32
 LEARNING_RATE=0.0002
-NCPUS=30
+NCPUS=24
 TRAIN_FREQ=10
 GRADIENT_STEPS=1
-BUFFER_SIZE=50000
+BUFFER_SIZE=70000
 EXPERIMENT_NAME="sac_drl1"
-TIMESTEPS=100000
+TIMESTEPS=10000000
 
 setArgs(){
   while [ "${1:-}" != "" ]; do
@@ -111,8 +111,8 @@ module load Python/3.11.3-GCCcore-12.3.0
 module load mpi4py/3.1.4-gompi-2023a
 module load TensorFlow/2.13.0-foss-2023a
 module load Rust/1.70.0-GCCcore-12.3.0
-module load GDAL/3.7.1-foss-2023amodule
-load FFmpeg/6.0-GCCcore-12.3.0
+module load GDAL/3.7.1-foss-2023a
+module load FFmpeg/6.0-GCCcore-12.3.0
 
 # enable virtual env
 source /cluster/home/trymte/Desktop/mpy3.11.3/bin/activate
