@@ -2,11 +2,15 @@
 """
 
 import argparse
+import linecache
+import resource
 import sys
+import tracemalloc
 from pathlib import Path
 from typing import Callable, Tuple
 
 import colav_simulator.common.paths as dp
+import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
@@ -74,7 +78,57 @@ def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, 
     return base_dir, log_dir, model_dir, best_model_dir
 
 
+def set_memory_limit(n_bytes: int = 20_000_000_000) -> None:
+    """Force Python to raise an exception when it uses more than
+    n_bytes bytes of memory.
+
+    Args:
+        n_bytes: (int) the maximum number of bytes of memory that Python
+        can use before raising an exception
+    """
+    if n_bytes <= 0:
+        return
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+
+    resource.setrlimit(resource.RLIMIT_AS, (n_bytes, hard))
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
+
+    if n_bytes < soft * 1024:
+
+        resource.setrlimit(resource.RLIMIT_DATA, (n_bytes, hard))
+
+
+def display_top(snapshot, key_type="lineno", limit=10):
+    snapshot = snapshot.filter_traces(
+        (
+            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
+            tracemalloc.Filter(False, "<unknown>"),
+        )
+    )
+    top_stats = snapshot.statistics(key_type)
+
+    print("Top %s lines" % limit)
+    for index, stat in enumerate(top_stats[:limit], 1):
+        frame = stat.traceback[0]
+        print("#%s: %s:%s: %.1f KiB" % (index, frame.filename, frame.lineno, stat.size / 1024))
+        line = linecache.getline(frame.filename, frame.lineno).strip()
+        if line:
+            print("    %s" % line)
+
+    other = top_stats[limit:]
+    if other:
+        size = sum(stat.size for stat in other)
+        print("%s other: %.1f KiB" % (len(other), size / 1024))
+    total = sum(stat.size for stat in top_stats)
+    print("Total allocated size: %.1f KiB" % (total / 1024))
+
+
+@profile
 def main(args):
+    # set_memory_limit(28_000_000_000)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_drl1")
@@ -86,6 +140,8 @@ def main(args):
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--timesteps", type=int, default=1000)
+    parser.add_argument("--tau", type=float, default=0.005)
+    parser.add_argument("--sde_sample_freq", type=int, default=60)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC DRL training:")
@@ -114,15 +170,18 @@ def main(args):
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
     training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
+    scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
+        "scenario_generator_config": scen_gen_config,
         "max_number_of_episodes": 600,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "render_update_rate": 0.5,
+        "render_mode": "rgb_array",
         "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
         "reload_map": False,
@@ -130,21 +189,18 @@ def main(args):
         "merge_loaded_scenario_episodes": True,
         "shuffle_loaded_scenario_data": True,
         "identifier": "training_env",
-        "render_mode": "rgb_array",
         "seed": 0,
     }
 
     num_cpu = args.n_cpus
     # training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
-    training_vec_env = VecMonitor(
-        make_vec_env(
-            env_id=env_id,
-            env_kwargs=env_config,
-            n_envs=num_cpu,
-            seed=0,
-            monitor_dir=str(log_dir),
-            vec_env_cls=SubprocVecEnv,
-        )
+    training_vec_env = make_vec_env(
+        env_id=env_id,
+        env_kwargs=env_config,
+        n_envs=num_cpu,
+        seed=0,
+        monitor_dir=str(log_dir),
+        vec_env_cls=SubprocVecEnv,
     )
 
     policy_kwargs = {
@@ -161,9 +217,9 @@ def main(args):
         gradient_steps=args.gradient_steps,
         train_freq=(args.train_freq, "step"),
         learning_starts=10,
-        tau=0.01,
+        tau=args.tau,
         use_sde=True,
-        sde_sample_freq=50,
+        sde_sample_freq=args.sde_sample_freq,
         device="cpu",
         ent_coef="auto",
         verbose=1,
@@ -172,9 +228,9 @@ def main(args):
         replay_buffer_kwargs={"handle_timeout_termination": True},
     )
 
-    load_model = False
+    load_model = True
     if load_model:
-        model.load(model_dir / "sac_drl1_160000_steps.zip")
+        model.load(model_dir / "sac_drl1_240000_steps.zip")
 
     env_config.update(
         {
@@ -186,7 +242,9 @@ def main(args):
             "identifier": "eval_env",
         }
     )
-    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
+    eval_env = Monitor(gym.make(id=env_id, **env_config))
+
+    # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     checkpoint_callback = CheckpointCallback(
         save_freq=10000,
         save_path=model_dir,
@@ -195,19 +253,17 @@ def main(args):
         save_replay_buffer=False,
         save_vecnormalize=False,
     )
-    eval_env = Monitor(gym.make(id=env_id, **env_config))
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
         eval_freq=50000,
         n_eval_episodes=5,
-        callback_after_eval=stop_train_callback,
+        # callback_after_eval=stop_train_callback,
         experiment_name=experiment_name,
         record=True,
         render=True,
         verbose=1,
     )
-
     model.learn(
         total_timesteps=args.timesteps,
         log_interval=4,
@@ -216,6 +272,7 @@ def main(args):
         callback=[eval_callback, checkpoint_callback],
         progress_bar=True,
     )
+
     mean_reward, std_reward = evaluate_policy(
         model,
         eval_env,
@@ -243,10 +300,10 @@ def main(args):
 
 
 if __name__ == "__main__":
-    import cProfile
-    import pstats
-
+    # import cProfile
+    # import pstats
     # cProfile.run("main()", sort="cumulative", filename="sac_drl.prof")
     # p = pstats.Stats("sac_drl.prof")
     # p.sort_stats("cumulative").print_stats(100)
+
     main(sys.argv[1:])
