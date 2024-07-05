@@ -2,12 +2,10 @@
 """
 
 import argparse
-import linecache
-import resource
+import copy
 import sys
 import tracemalloc
 from pathlib import Path
-from typing import Callable, Tuple
 
 import colav_simulator.common.paths as dp
 import colav_simulator.scenario_generator as cs_sg
@@ -15,6 +13,7 @@ import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
+import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
 import yaml
@@ -26,117 +25,28 @@ from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.utils import set_random_seed
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
 plt.rcParams["animation.ffmpeg_path"] = "/usr/bin/ffmpeg"
 
 
-def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callable:
-    """
-    Utility function for multiprocessed env.
-
-    Args:
-        env_id: (str) the environment ID
-        env_config: (dict) the environment config
-        rank: (int) index of the subprocess
-        seed: (int) the inital seed for RNG
-
-    Returns:
-        (Callable): a function that creates the environment
-    """
-
-    def _init():
-        env_config.update({"identifier": env_config["identifier"] + str(rank), "seed": seed + rank})
-        env = Monitor(gym.make(env_id, **env_config))
-        return env
-
-    set_random_seed(seed)
-    return _init
-
-
-def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path]:
-    base_dir = base_dir / experiment_name
-    log_dir = base_dir / "logs"
-    model_dir = base_dir / "models"
-    if not log_dir.exists():
-        log_dir.mkdir(parents=True)
-    else:
-        # remove folders in log_dir
-        for file in log_dir.iterdir():
-            if file.is_dir():
-                for f in file.iterdir():
-                    f.unlink()
-                file.rmdir()
-    if not model_dir.exists():
-        model_dir.mkdir(parents=True)
-    return base_dir, log_dir, model_dir
-
-
-def set_memory_limit(n_bytes: int = 20_000_000_000) -> None:
-    """Force Python to raise an exception when it uses more than
-    n_bytes bytes of memory.
-
-    Args:
-        n_bytes: (int) the maximum number of bytes of memory that Python
-        can use before raising an exception
-    """
-    if n_bytes <= 0:
-        return
-
-    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-
-    resource.setrlimit(resource.RLIMIT_AS, (n_bytes, hard))
-
-    soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
-
-    if n_bytes < soft * 1024:
-
-        resource.setrlimit(resource.RLIMIT_DATA, (n_bytes, hard))
-
-
-def display_top(snapshot, key_type="lineno", limit=10):
-    snapshot = snapshot.filter_traces(
-        (
-            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
-            tracemalloc.Filter(False, "<unknown>"),
-        )
-    )
-    top_stats = snapshot.statistics(key_type)
-
-    print("Top %s lines" % limit)
-    for index, stat in enumerate(top_stats[:limit], 1):
-        frame = stat.traceback[0]
-        print("#%s: %s:%s: %.1f KiB" % (index, frame.filename, frame.lineno, stat.size / 1024))
-        line = linecache.getline(frame.filename, frame.lineno).strip()
-        if line:
-            print("    %s" % line)
-
-    other = top_stats[limit:]
-    if other:
-        size = sum(stat.size for stat in other)
-        print("%s other: %.1f KiB" % (len(other), size / 1024))
-    total = sum(stat.size for stat in top_stats)
-    print("Total allocated size: %.1f KiB" % (total / 1024))
-
-
-# @profile
+@profile
 def main(args):
-    set_memory_limit(28_000_000_000)
+    hf.set_memory_limit(28_000_000_000)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_drl1")
-    parser.add_argument("--n_cpus", type=int, default=1)
+    parser.add_argument("--n_cpus", type=int, default=2)
     parser.add_argument("--learning_rate", type=float, default=0.0005)
     parser.add_argument("--buffer_size", type=int, default=50000)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--timesteps", type=int, default=1000)
+    parser.add_argument("--timesteps", type=int, default=400)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--sde_sample_freq", type=int, default=60)
     args = parser.parse_args(args)
@@ -145,7 +55,7 @@ def main(args):
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
     experiment_name = args.experiment_name
-    base_dir, log_dir, model_dir = create_data_dirs(base_dir=args.base_dir, experiment_name=experiment_name)
+    base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=experiment_name)
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
@@ -167,7 +77,7 @@ def main(args):
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
-    env_config = {
+    training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
         "max_number_of_episodes": 1,
@@ -188,10 +98,10 @@ def main(args):
     }
 
     num_cpu = args.n_cpus
-    # training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+    # training_vec_env = SubprocVecEnv([make_env(env_id, training_env_config, i + 1) for i in range(num_cpu)])
     training_vec_env = make_vec_env(
         env_id=env_id,
-        env_kwargs=env_config,
+        env_kwargs=training_env_config,
         n_envs=num_cpu,
         seed=0,
         monitor_dir=str(log_dir),
@@ -227,38 +137,38 @@ def main(args):
     if load_model:
         model.load(model_dir / "sac_drl1_240000_steps.zip")
 
-    env_config.update(
+    eval_env_config = copy.deepcopy(training_env_config)
+    eval_env_config.update(
         {
             "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
-            "reload_map": False,
             "identifier": "eval_env",
         }
     )
-    eval_env = Monitor(gym.make(id=env_id, **env_config))
+    eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
 
     # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     checkpoint_callback = CheckpointCallback(
-        save_freq=10000,
+        save_freq=40000,
         save_path=model_dir,
         name_prefix=args.experiment_name,
         verbose=1,
         save_replay_buffer=True,
     )
-    stats_callback = CollectStatisticsCallback(
-        env=training_vec_env,
-        log_dir=base_dir,
-        model_dir=model_dir,
-        experiment_name=args.experiment_name,
-        save_stats_freq=10,
-        save_agent_model_freq=50000,
-        log_freq=5,
-        max_num_env_episodes=2,
-        max_num_training_stats_entries=5,
-        verbose=1,
-    )
+    # stats_callback = CollectStatisticsCallback(
+    #     env=training_vec_env,
+    #     log_dir=base_dir,
+    #     model_dir=model_dir,
+    #     experiment_name=args.experiment_name,
+    #     save_stats_freq=1000,
+    #     save_agent_model_freq=50000,
+    #     log_freq=10,
+    #     max_num_env_episodes=1000,
+    #     max_num_training_stats_entries=30000,
+    #     verbose=1,
+    # )
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
@@ -271,22 +181,25 @@ def main(args):
         verbose=1,
     )
 
-    n_timesteps_per_learn = 100
-    l_learn_iterations = args.timesteps // n_timesteps_per_learn
+    n_timesteps_per_learn = 100000
+    n_learn_iterations = args.timesteps // n_timesteps_per_learn
 
     # tracemalloc.start(20)
     # t_start = tracemalloc.take_snapshot()
-    for i in range(l_learn_iterations):
+    for i in range(n_learn_iterations):
         model.learn(
-            total_timesteps=args.timesteps,
+            total_timesteps=n_timesteps_per_learn,
             log_interval=4,
             tb_log_name=args.experiment_name,
             reset_num_timesteps=False,
-            callback=[eval_callback, checkpoint_callback, stats_callback],
+            callback=[eval_callback, checkpoint_callback],
             progress_bar=True,
         )
-        model.save(model_dir / f"{args.experiment_name}_{i * n_timesteps_per_learn}_steps")
+        model.save(model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}_steps")
         model.save_replay_buffer(model_dir / f"{args.experiment_name}__replay_buffer")
+        print(
+            f"[SAC DRL] Finished learning iteration {i + 1}. Progress: {(i + 1) * n_timesteps_per_learn}/{args.timesteps} steps. "
+        )
 
     # tm_end = tracemalloc.take_snapshot()
     # stats = tm_end.compare_to(t_start, "lineno")
@@ -303,6 +216,8 @@ def main(args):
     )
     print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
     train_cfg = {
+        "n_timsteps_per_learn": n_timesteps_per_learn,
+        "n_learn_iterations": n_learn_iterations,
         "experiment_name": args.experiment_name,
         "timesteps": args.timesteps,
         "train_freq": args.train_freq,
@@ -311,8 +226,8 @@ def main(args):
         "n_eval_episodes": args.n_eval_episodes,
         "tau": args.tau,
         "sde_sample_freq": args.sde_sample_freq,
-        "final_mean_eval_reward": mean_reward,
-        "final_std_eval_reward": std_reward,
+        "final_mean_eval_reward": np.mean(mean_reward),
+        "final_std_eval_reward": np.mean(std_reward),
         "n_cpus": args.n_cpus,
         "buffer_size": args.buffer_size,
     }

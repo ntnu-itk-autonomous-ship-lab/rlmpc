@@ -186,7 +186,7 @@ class CollectStatisticsCallback(BaseCallback):
 
         if self.num_timesteps % self.log_freq == 0 or np.sum(done_array).item() > 0:
             for env_idx in range(self.vec_env.num_envs):
-                if done_array[env_idx]:
+                if np.any(done_array):  # only one element in done_array for SAC
                     infos[env_idx] = (
                         self.prev_infos[env_idx]
                         if isinstance(self.locals["env"], SubprocVecEnv)
@@ -329,8 +329,8 @@ class EvalCallback(EventCallback):
 
     def _init_callback(self) -> None:
         # Does not work in some corner cases, where the wrapper is not the same
-        if not isinstance(self.training_env, type(self.eval_env)):
-            warnings.warn("Training and eval env are not of the same type" f"{self.training_env} != {self.eval_env}")
+        # if not isinstance(self.training_env, type(self.eval_env)):
+        #     warnings.warn("Training and eval env are not of the same type" f"{self.training_env} != {self.eval_env}")
 
         if not self.log_path.exists():
             self.log_path.mkdir(parents=True, exist_ok=True)

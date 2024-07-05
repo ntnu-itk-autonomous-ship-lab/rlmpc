@@ -8,9 +8,13 @@
 """
 
 import inspect
+import linecache
 import pathlib
+import resource
+import tracemalloc
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import casadi as csd
 import colav_simulator.core.controllers as controllers
@@ -18,10 +22,13 @@ import colav_simulator.core.guidances as guidances
 import colav_simulator.core.integrators as sim_integrators
 import colav_simulator.core.models as sim_models
 import colav_simulator.gym.logger as colav_logger
+import gymnasium as gym
 import matplotlib
 import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import rlmpc.common.logger as rlmpc_logger
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.utils import set_random_seed
 
 matplotlib.use("Agg")
 import numpy as np
@@ -65,6 +72,94 @@ plt.rcParams.update(
         "ps.fonttype": 42,
     }
 )
+
+
+def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callable:
+    """
+    Utility function for multiprocessed env.
+
+    Args:
+        env_id: (str) the environment ID
+        env_config: (dict) the environment config
+        rank: (int) index of the subprocess
+        seed: (int) the inital seed for RNG
+
+    Returns:
+        (Callable): a function that creates the environment
+    """
+
+    def _init():
+        env_config.update({"identifier": env_config["identifier"] + str(rank), "seed": seed + rank})
+        env = Monitor(gym.make(env_id, **env_config))
+        return env
+
+    set_random_seed(seed)
+    return _init
+
+
+def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path]:
+    base_dir = base_dir / experiment_name
+    log_dir = base_dir / "logs"
+    model_dir = base_dir / "models"
+    if not log_dir.exists():
+        log_dir.mkdir(parents=True)
+    else:
+        # remove folders in log_dir
+        for file in log_dir.iterdir():
+            if file.is_dir():
+                for f in file.iterdir():
+                    f.unlink()
+                file.rmdir()
+    if not model_dir.exists():
+        model_dir.mkdir(parents=True)
+    return base_dir, log_dir, model_dir
+
+
+def set_memory_limit(n_bytes: int = 20_000_000_000) -> None:
+    """Force Python to raise an exception when it uses more than
+    n_bytes bytes of memory.
+
+    Args:
+        n_bytes: (int) the maximum number of bytes of memory that Python
+        can use before raising an exception
+    """
+    if n_bytes <= 0:
+        return
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+
+    resource.setrlimit(resource.RLIMIT_AS, (n_bytes, hard))
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
+
+    if n_bytes < soft * 1024:
+
+        resource.setrlimit(resource.RLIMIT_DATA, (n_bytes, hard))
+
+
+def display_top(snapshot, key_type="lineno", limit=10):
+    snapshot = snapshot.filter_traces(
+        (
+            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
+            tracemalloc.Filter(False, "<unknown>"),
+        )
+    )
+    top_stats = snapshot.statistics(key_type)
+
+    print("Top %s lines" % limit)
+    for index, stat in enumerate(top_stats[:limit], 1):
+        frame = stat.traceback[0]
+        print("#%s: %s:%s: %.1f KiB" % (index, frame.filename, frame.lineno, stat.size / 1024))
+        line = linecache.getline(frame.filename, frame.lineno).strip()
+        if line:
+            print("    %s" % line)
+
+    other = top_stats[limit:]
+    if other:
+        size = sum(stat.size for stat in other)
+        print("%s other: %.1f KiB" % (len(other), size / 1024))
+    total = sum(stat.size for stat in top_stats)
+    print("Total allocated size: %.1f KiB" % (total / 1024))
 
 
 def compute_distances_to_dynamic_obstacles(ownship_state: np.ndarray, do_list: List) -> List[Tuple[int, float]]:
