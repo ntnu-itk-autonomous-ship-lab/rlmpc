@@ -273,7 +273,7 @@ class SAC(opa.OffPolicyAlgorithm):
             optimizers += [self.ent_coef_optimizer]
         self._update_learning_rate(optimizers)
 
-        ent_coeff_losses, ent_coeffs = [], []
+        ent_coef_losses, ent_coef = [], []
         actor_losses, critic_losses = [], []
         actor_grad_norms = []
         mean_actor_loss = 0.0
@@ -300,11 +300,11 @@ class SAC(opa.OffPolicyAlgorithm):
                 # see https://github.com/rail-berkeley/softlearning/issues/60
                 ent_coef = th.exp(self.log_ent_coef.detach())
                 ent_coef_loss = -(self.log_ent_coef * (sampled_log_prob + self.target_entropy).detach()).mean()
-                ent_coeff_losses.append(ent_coef_loss.item())
+                ent_coef_losses.append(ent_coef_loss.item())
             else:
                 ent_coef = self.ent_coef_tensor
 
-            ent_coeffs.append(ent_coef.item())
+            ent_coef.append(ent_coef.item())
 
             # Optimize entropy coefficient, also called
             # entropy temperature or alpha in the paper
@@ -436,26 +436,26 @@ class SAC(opa.OffPolicyAlgorithm):
         self._n_updates += gradient_steps
 
         print(
-            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coeff_losses):.4f} | Ent Coeff: {np.mean(ent_coeffs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
+            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coef_losses):.4f} | Ent Coeff: {np.mean(ent_coef):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
         )
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/ent_coef", np.mean(ent_coeffs))
+        self.logger.record("train/ent_coef", np.mean(ent_coef))
         self.logger.record("train/actor_loss", mean_actor_loss)
         self.logger.record("train/actor_grad_norm", mean_actor_grad_norm)
         self.logger.record("train/mpc_param_grad_norm", mean_mpc_param_grad_norm)
         self.logger.record("train/critic_loss", np.mean(critic_losses))
-        self.logger.record("train/ent_coef_loss", np.mean(ent_coeff_losses))
+        self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
 
         self.last_training_info.update(
             {
                 "actor_loss": mean_actor_loss,
                 "actor_grad_norm": mean_actor_grad_norm,
                 "critic_loss": np.mean(critic_losses),
-                "ent_coeff_loss": np.mean(ent_coeff_losses),
-                "ent_coeff": np.mean(ent_coeffs),
+                "ent_coef_loss": np.mean(ent_coef_losses),
+                "ent_coef": np.mean(ent_coef),
                 "batch_processing_time": time.time() - batch_start_time,
                 "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
-                "training_timesteps": self._n_updates,
+                "n_updates": self._n_updates,
             }
         )
 

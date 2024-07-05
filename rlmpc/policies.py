@@ -24,7 +24,7 @@ import torch as th
 from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
-from stable_baselines3.common.policies import BaseModel
+from stable_baselines3.common.policies import BaseModel, ContinuousCritic
 from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
@@ -214,9 +214,7 @@ class MPCParameterDNN(th.nn.Module):
         self.activation_fn = activation_fn()
         self.layers = th.nn.ModuleList()
 
-        self.input_dim = (
-            features_dim + offset + action_dim
-        )  # Add the number of parameters to the input features, and the action dim
+        self.input_dim = features_dim + offset  # Add the number of parameters to the input features
         prev_size = self.input_dim
         for size in hidden_sizes:
             self.layers.append(th.nn.Linear(prev_size, size))
@@ -599,7 +597,7 @@ class SACMPCActor(BasePolicy):
         sampled_collision_seeking_action = False
         if t < 0.0001 or t - self.t_prev > self.noise_application_duration:
             if distances2do[0][1] < 400.0:
-                self.prev_noise_action = hf.sample_collision_seeking_action(
+                self.prev_noise_action = self.sample_collision_seeking_action(
                     ownship_state, do_list[distances2do[0][0]], norm_action.numpy()
                 )
                 sampled_collision_seeking_action = True
@@ -653,7 +651,7 @@ class SACMPCActor(BasePolicy):
                 if state is None
                 else th.from_numpy(state[idx]["norm_mpc_action"]).float()
             )
-            dnn_input = th.cat([features[idx], current_mpc_params, prev_action], dim=-1)
+            dnn_input = th.cat([features[idx], current_mpc_params], dim=-1)
             mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
             mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
                 mpc_param_increment, current_mpc_params.detach().numpy()
@@ -849,8 +847,8 @@ class SACPolicyWithMPC(BasePolicy):
     """
 
     actor: SACMPCActor
-    critic: CustomContinuousCritic
-    critic_target: CustomContinuousCritic
+    critic: ContinuousCritic
+    critic_target: ContinuousCritic
 
     def __init__(
         self,

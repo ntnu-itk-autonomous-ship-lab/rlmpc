@@ -71,7 +71,7 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     return base_dir, log_dir, model_dir, best_model_dir
 
 
-@profile
+# @profile
 def main():
     config_file = dp.scenarios / "rl_scenario.yaml"
     experiment_name = "sac_drl1"
@@ -99,7 +99,7 @@ def main():
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 500,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -115,7 +115,7 @@ def main():
         "seed": 0,
     }
 
-    num_cpu = 8
+    num_cpu = 2
     training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
 
     policy_kwargs = {
@@ -127,7 +127,7 @@ def main():
         "MultiInputPolicy",
         training_vec_env,
         learning_rate=0.0008,
-        buffer_size=50000,
+        buffer_size=10000,
         batch_size=64,
         gradient_steps=1,
         train_freq=(8, "step"),
@@ -143,13 +143,13 @@ def main():
         replay_buffer_kwargs={"handle_timeout_termination": True},
     )
 
-    load_model = True
+    load_model = False
     if load_model:
         model.load(model_dir / "sac_drl1_60000_steps.zip")
 
     env_config.update(
         {
-            "max_number_of_episodes": 10,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "merge_loaded_scenario_episodes": True,
             "seed": 1,
@@ -159,6 +159,16 @@ def main():
         }
     )
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
+    stats_callback = CollectStatisticsCallback(
+        env=training_vec_env,
+        log_dir=log_dir / "training_data",
+        model_dir=model_dir,
+        experiment_name=experiment_name,
+        save_stats_freq=5,
+        save_agent_model_freq=10000,
+        log_stats_freq=4,
+        verbose=1,
+    )
     checkpoint_callback = CheckpointCallback(
         save_freq=10000,
         save_path=model_dir,
@@ -181,11 +191,11 @@ def main():
     )
 
     model.learn(
-        total_timesteps=200_000,
+        total_timesteps=5000,
         log_interval=5,
         tb_log_name=experiment_name,
         reset_num_timesteps=True,
-        callback=[eval_callback, checkpoint_callback],
+        callback=[eval_callback, checkpoint_callback, stats_callback],
         progress_bar=True,
     )
     model.save(model_dir / "best_model")

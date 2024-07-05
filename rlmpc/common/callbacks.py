@@ -8,6 +8,8 @@
 """
 
 import pickle
+import sys
+import time
 import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -24,6 +26,7 @@ from stable_baselines3.common.callbacks import BaseCallback, EventCallback
 from stable_baselines3.common.logger import Image as sb3_Image
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
+    SubprocVecEnv,
     VecEnv,
     VecMonitor,
     VecVideoRecorder,
@@ -49,8 +52,9 @@ from stable_baselines3.common.vec_env import (
 class CollectStatisticsCallback(BaseCallback):
     def __init__(
         self,
-        env: colav_env.COLAVEnvironment,
+        env: SubprocVecEnv,
         log_dir: Path,
+        model_dir: Path,
         experiment_name: str,
         save_stats_freq: int = 1,
         save_agent_model_freq: int = 100,
@@ -60,8 +64,9 @@ class CollectStatisticsCallback(BaseCallback):
         """Initializes the CollectStatisticsCallback class.
 
         Args:
-            env (colav_env.COLAVEnvironment): The environment to collect statistics from.
+            env (SubprocVecEnv): The environment to collect statistics from.
             log_dir (Path): The directory to save all experiment data to.
+            model_dir (Path): The directory to save the model to.
             experiment_name (str): Name of the experiment.
             save_stats_freq (int): Frequency to save statistics in number of episodes.
             save_agent_model_freq (int): Frequency to save the agent model in number of steps.
@@ -74,11 +79,14 @@ class CollectStatisticsCallback(BaseCallback):
         self.save_agent_freq = save_agent_model_freq
         self.log_stats_freq = log_stats_freq
         self.log_dir = log_dir
-        self.model_save_path = log_dir / "models"
+        self.model_save_path = model_dir
         self.n_episodes = 0
         self.vec_env = env
-
-        self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name, self.log_dir)
+        self.n_updates_prev: int = 0
+        self.last_ep_rew_mean: float = 0.0
+        self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(
+            experiment_name, self.log_dir, save_freq=save_stats_freq, n_envs=env.num_envs
+        )
         self.training_stats_logger: rlmpc_logger.Logger = rlmpc_logger.Logger(experiment_name, self.log_dir)
 
         self.img_transform = transforms_v2.Compose(
@@ -98,6 +106,53 @@ class CollectStatisticsCallback(BaseCallback):
         if self.model_save_path is not None:
             self.model_save_path.mkdir(parents=True, exist_ok=True)
 
+    def extract_training_info(self, model: "type_aliases.PolicyPredictor") -> Tuple[Dict[str, Any], bool]:
+        """Extracts training information from the model.
+
+        Args:
+            model (type_aliases.PolicyPredictor): The model to extract training information from.
+
+        Returns:
+            Tuple[Dict[str, Any], bool]: A dictionary containing training information and a boolean indicating if the model was just trained.
+        """
+        if hasattr(model, "last_training_info"):
+            return model.last_training_info, model.just_trained
+
+        info = {
+            "n_updates": model.logger.name_to_value["train/n_updates"],
+            "time_elapsed": max((time.time_ns() - model.start_time) / 1e9, sys.float_info.epsilon),
+            "batch_processing_time": 0.0,
+            "ep_rew_mean": model.logger.name_to_value["train/ep_rew_mean"],
+            "actor_loss": model.logger.name_to_value["train/actor_loss"],
+            "critic_loss": model.logger.name_to_value["train/critic_loss"],
+            "ent_coef_loss": model.logger.name_to_value["train/ent_coef_loss"],
+            "ent_coef": model.logger.name_to_value["train/ent_coef"],
+            "learning_rate": model.logger.name_to_value["train/learning_rate"],
+            "actor_grad_norm": 0.0,
+        }
+        just_trained = False
+        if info["n_updates"] > self.n_updates_prev:
+            just_trained = True
+        self.n_updates_prev = info["n_updates"]
+        return info, just_trained
+
+    def extract_rollout_info(self, model: "type_aliases.PolicyPredictor") -> Tuple[Dict[str, Any], bool]:
+        if hasattr(model, "last_rollout_info"):
+            return model.last_rollout_info, model.just_dumped_rollout_logs
+
+        info = {
+            "mean_episode_reward": model.logger.name_to_value["rollout/ep_rew_mean"],
+            "success_rate": model.logger.name_to_value["rollout/success_rate"],
+            "mean_episode_length": model.logger.name_to_value["rollout/ep_len_mean"],
+            "infeasible_solutions": model.logger.name_to_value["rollout/infeasible_solutions"],
+        }
+        just_dumped_rollout_logs = False
+        if info["mean_episode_reward"] != self.last_ep_rew_mean:
+            just_dumped_rollout_logs = True
+        self.last_ep_rew_mean = info["mean_episode_reward"]
+
+        return info, just_dumped_rollout_logs
+
     def _on_step(self) -> bool:
         # Checking for both 'done' and 'dones' keywords because:
         # Some models use keyword 'done' (e.g.,: SAC, TD3, DQN, DDPG)
@@ -107,53 +162,59 @@ class CollectStatisticsCallback(BaseCallback):
         )
 
         if self.num_timesteps % self.log_stats_freq == 0 or np.sum(done_array).item() > 0:
-            infos = self.locals.get("infos")
+            infos = list(self.locals.get("infos"))
             for env_idx, done in enumerate(done_array):
                 if done:
-                    infos[env_idx] = self.locals["env"].envs[env_idx].unwrapped.terminal_info
+                    infos[env_idx] = (
+                        self.locals.get("infos")[env_idx]
+                        if isinstance(self.locals["env"], SubprocVecEnv)
+                        else self.locals["env"].envs[env_idx].unwrapped.terminal_info
+                    )
+
             self.env_data_logger(infos)
-            assert hasattr(self.model, "last_training_info"), "Model must have a last_training_info attribute."
 
-            if self.model.just_trained:
-                self.training_stats_logger.update_training_metrics(self.model.last_training_info)
-                self.model.just_trained = False
+            last_training_info, just_trained = self.extract_training_info(self.model)
+            if just_trained:
+                self.training_stats_logger.update_training_metrics(last_training_info)
+                if hasattr(self.model, "just_trained"):
+                    self.model.just_trained = False
 
-            if self.model.just_dumped_rollout_logs:
-                self.training_stats_logger.update_rollout_metrics(self.model.last_rollout_info)
-                self.model.just_dumped_rollout_logs = False
+            last_rollout_info, just_dumped_rollout_logs = self.extract_rollout_info(self.model)
+            if just_dumped_rollout_logs:
+                self.training_stats_logger.update_rollout_metrics(last_rollout_info)
+                if hasattr(self.model, "just_dumped_rollout_logs"):
+                    self.model.just_dumped_rollout_logs = False
 
-            self.logger.record(
-                "mpc/infeasible_solution_percentage",
-                100.0 * self.model.actor.infeasible_solutions / (self.num_timesteps + 1),
-            )
-            mpc_params = self.model.actor.mpc.mpc_params
-            self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
-            # self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
-            # self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
-            # self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
-            # self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
-            # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
-            # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
-            # self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
-
-            # self.logger.record("mpc/alpha_app_course_0", mpc_params.alpha_app_course[0])
-            # self.logger.record("mpc/alpha_app_course_1", mpc_params.alpha_app_course[1])
-            # self.logger.record("mpc/alpha_app_speed_0", mpc_params.alpha_app_speed[0])
-            # self.logger.record("mpc/alpha_app_speed_1", mpc_params.alpha_app_speed[1])
-            # self.logger.record("mpc/alpha_cr_0", mpc_params.alpha_cr[0])
-            # self.logger.record("mpc/alpha_cr_1", mpc_params.alpha_cr[1])
-            # self.logger.record("mpc/y_0_cr", mpc_params.y_0_cr)
-            # self.logger.record("mpc/alpha_ho_0", mpc_params.alpha_ho[0])
-            # self.logger.record("mpc/alpha_ho_1", mpc_params.alpha_ho[1])
-            # self.logger.record("mpc/x_0_ho", mpc_params.x_0_ho)
-            # self.logger.record("mpc/alpha_ot_0", mpc_params.alpha_ot[0])
-            # self.logger.record("mpc/alpha_ot_1", mpc_params.alpha_ot[1])
-            # self.logger.record("mpc/x_0_ot", mpc_params.x_0_ot)
-            # self.logger.record("mpc/y_0_ot", mpc_params.y_0_ot)
-
-            frame = self.vec_env.render()
-            if frame is not None:
-                pimg = th.from_numpy(self.model._current_obs["PerceptionImageObservation"])
+                    self.logger.record(
+                        "mpc/infeasible_solution_percentage",
+                        100.0 * self.model.actor.infeasible_solutions / (self.num_timesteps + 1),
+                    )
+                    mpc_params = self.model.actor.mpc.mpc_params
+                    self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
+                    # self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
+                    # self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
+                    # self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
+                    # self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
+                    # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
+                    # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
+                    # self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
+                    # self.logger.record("mpc/alpha_app_course_0", mpc_params.alpha_app_course[0])
+                    # self.logger.record("mpc/alpha_app_course_1", mpc_params.alpha_app_course[1])
+                    # self.logger.record("mpc/alpha_app_speed_0", mpc_params.alpha_app_speed[0])
+                    # self.logger.record("mpc/alpha_app_speed_1", mpc_params.alpha_app_speed[1])
+                    # self.logger.record("mpc/alpha_cr_0", mpc_params.alpha_cr[0])
+                    # self.logger.record("mpc/alpha_cr_1", mpc_params.alpha_cr[1])
+                    # self.logger.record("mpc/y_0_cr", mpc_params.y_0_cr)
+                    # self.logger.record("mpc/alpha_ho_0", mpc_params.alpha_ho[0])
+                    # self.logger.record("mpc/alpha_ho_1", mpc_params.alpha_ho[1])
+                    # self.logger.record("mpc/x_0_ho", mpc_params.x_0_ho)
+                    # self.logger.record("mpc/alpha_ot_0", mpc_params.alpha_ot[0])
+                    # self.logger.record("mpc/alpha_ot_1", mpc_params.alpha_ot[1])
+                    # self.logger.record("mpc/x_0_ot", mpc_params.x_0_ot)
+                    # self.logger.record("mpc/y_0_ot", mpc_params.y_0_ot)
+            current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
+            if "PerceptionImageObservation" in current_obs:
+                pimg = th.from_numpy(current_obs["PerceptionImageObservation"]).type(th.float32)
                 pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
                 recon_frame = pvae.reconstruct(self.img_transform(pimg))
 
@@ -166,10 +227,11 @@ class CollectStatisticsCallback(BaseCallback):
 
         if self.num_timesteps % self.save_agent_freq == 0:
             print("Saving agent after", self.num_timesteps, "timesteps")
-            assert hasattr(
-                self.model, "custom_save"
-            ), "Model must have a custom_save method, i.e. be a custom SAC model with an MPC actor."
-            self.model.custom_save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
+            # NMPC SAC model must have a custom_save method
+            if hasattr(self.model, "custom_save"):
+                self.model.custom_save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
+            else:
+                self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
 
         if self.n_episodes > 0 and self.n_episodes % self.save_stats_freq == 0:
             print("Saving training data after", self.n_episodes, "episodes")
