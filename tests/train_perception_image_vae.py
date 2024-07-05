@@ -1,4 +1,3 @@
-#  Use argument parser to set arguments of experiment name
 import argparse
 import time
 from pathlib import Path
@@ -12,7 +11,8 @@ import torch
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rlmpc.networks.perception_vae.vae import VAE
+from rlmpc.networks.perception_vae_128.vae import VAE
+from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -23,8 +23,10 @@ parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "perception_vae_LD_85"
+EXPERIMENT_NAME: str = "perception_vae_LD_80_128x128"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
+if not EXPERIMENT_PATH.exists():
+    EXPERIMENT_PATH.mkdir(parents=True)
 
 
 class RunningLoss:
@@ -263,10 +265,10 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 85
+    latent_dim = 80
     fc_dim = 512
     encoder_conv_block_dims = [64, 128, 256, 256]
-    input_image_dim = (1, 256, 256)
+    input_image_dim = (1, 128, 128)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(
         input_image_dim=input_image_dim,
@@ -279,12 +281,12 @@ if __name__ == "__main__":
 
     load_model = False
     save_interval = 10
-    batch_size = 32
+    batch_size = 64
     num_epochs = 60
-    learning_rate = 1e-04
+    learning_rate = 2e-04
 
     log_dir = BASE_PATH / "logs"
-    data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
+    data_dir = Path.home() / "Desktop/machine_learning/perception_vae/"
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
     training_data_npy_filename1 = "perception_data_rogaland_random_everything_land_only.npy"
     training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything_land_only.npy"
@@ -334,6 +336,7 @@ if __name__ == "__main__":
 
     writer = SummaryWriter(log_dir=log_dir)
     optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
+    lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
 
     training_config = {
         "base_path": BASE_PATH,

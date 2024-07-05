@@ -57,11 +57,10 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path, Path]:
+def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path]:
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
-    best_model_dir = model_dir / "best_model"
     if not log_dir.exists():
         log_dir.mkdir(parents=True)
     else:
@@ -73,9 +72,7 @@ def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, 
                 file.rmdir()
     if not model_dir.exists():
         model_dir.mkdir(parents=True)
-    if not best_model_dir.exists():
-        best_model_dir.mkdir(parents=True)
-    return base_dir, log_dir, model_dir, best_model_dir
+    return base_dir, log_dir, model_dir
 
 
 def set_memory_limit(n_bytes: int = 20_000_000_000) -> None:
@@ -125,9 +122,9 @@ def display_top(snapshot, key_type="lineno", limit=10):
     print("Total allocated size: %.1f KiB" % (total / 1024))
 
 
-@profile
+# @profile
 def main(args):
-    # set_memory_limit(28_000_000_000)
+    set_memory_limit(28_000_000_000)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
@@ -138,7 +135,7 @@ def main(args):
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
-    parser.add_argument("--n_eval_episodes", type=int, default=5)
+    parser.add_argument("--n_eval_episodes", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1000)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--sde_sample_freq", type=int, default=60)
@@ -148,9 +145,7 @@ def main(args):
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
     experiment_name = args.experiment_name
-    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(
-        base_dir=args.base_dir, experiment_name=experiment_name
-    )
+    base_dir, log_dir, model_dir = create_data_dirs(base_dir=args.base_dir, experiment_name=experiment_name)
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
@@ -175,7 +170,7 @@ def main(args):
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 600,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -234,7 +229,7 @@ def main(args):
 
     env_config.update(
         {
-            "max_number_of_episodes": 50,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -250,38 +245,62 @@ def main(args):
         save_path=model_dir,
         name_prefix=args.experiment_name,
         verbose=1,
-        save_replay_buffer=False,
-        save_vecnormalize=False,
+        save_replay_buffer=True,
+    )
+    stats_callback = CollectStatisticsCallback(
+        env=training_vec_env,
+        log_dir=base_dir,
+        model_dir=model_dir,
+        experiment_name=args.experiment_name,
+        save_stats_freq=10,
+        save_agent_model_freq=50000,
+        log_freq=5,
+        max_num_env_episodes=2,
+        max_num_training_stats_entries=5,
+        verbose=1,
     )
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
         eval_freq=50000,
-        n_eval_episodes=5,
+        n_eval_episodes=1,
         # callback_after_eval=stop_train_callback,
         experiment_name=experiment_name,
         record=True,
         render=True,
         verbose=1,
     )
-    model.learn(
-        total_timesteps=args.timesteps,
-        log_interval=4,
-        tb_log_name=args.experiment_name,
-        reset_num_timesteps=True,
-        callback=[eval_callback, checkpoint_callback, stats_callback],
-        progress_bar=True,
-    )
+
+    n_timesteps_per_learn = 100
+    l_learn_iterations = args.timesteps // n_timesteps_per_learn
+
+    # tracemalloc.start(20)
+    # t_start = tracemalloc.take_snapshot()
+    for i in range(l_learn_iterations):
+        model.learn(
+            total_timesteps=args.timesteps,
+            log_interval=4,
+            tb_log_name=args.experiment_name,
+            reset_num_timesteps=False,
+            callback=[eval_callback, checkpoint_callback, stats_callback],
+            progress_bar=True,
+        )
+        model.save(model_dir / f"{args.experiment_name}_{i * n_timesteps_per_learn}_steps")
+        model.save_replay_buffer(model_dir / f"{args.experiment_name}__replay_buffer")
+
+    # tm_end = tracemalloc.take_snapshot()
+    # stats = tm_end.compare_to(t_start, "lineno")
+    # for stat in stats[:10]:
+    #     print(stat)
 
     mean_reward, std_reward = evaluate_policy(
         model,
         eval_env,
         n_eval_episodes=args.n_eval_episodes,
         record=True,
-        record_path=base_dir / "final_eval_videos",
+        record_path=base_dir / "eval_data" / "final_eval_videos",
         record_name=experiment_name + "_final_eval",
     )
-    model.save(model_dir / "best_model")
     print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
     train_cfg = {
         "experiment_name": args.experiment_name,
@@ -290,6 +309,8 @@ def main(args):
         "gradient_steps": args.gradient_steps,
         "batch_size": args.batch_size,
         "n_eval_episodes": args.n_eval_episodes,
+        "tau": args.tau,
+        "sde_sample_freq": args.sde_sample_freq,
         "final_mean_eval_reward": mean_reward,
         "final_std_eval_reward": std_reward,
         "n_cpus": args.n_cpus,

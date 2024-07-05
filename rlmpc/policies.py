@@ -178,16 +178,16 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        features_dim: int = 117,
+        features_dim: int = 82,
     ):
         super().__init__()
         self.out_parameter_ranges = {
-            "Q_p": [0.001, 200.0],
+            "Q_p": [0.001, 100.0],
             "K_app_course": [0.1, 200.0],
             "K_app_speed": [0.1, 200.0],
             "d_attenuation": [10.0, 1000.0],
             "w_colregs": [0.1, 500.0],
-            "r_safe_do": [5.0, 150.0],
+            "r_safe_do": [5.0, 120.0],
         }
         self.out_parameter_lengths = {
             "Q_p": 3,

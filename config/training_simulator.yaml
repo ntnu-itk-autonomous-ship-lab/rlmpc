@@ -17,7 +17,7 @@ visualizer:
   show_liveplot_map_axes: False
   show_liveplot_scalebar: False
   show_liveplot_time: True
-  show_liveplot_disturbances: True
+  show_liveplot_disturbances: False
   show_liveplot_target_ships: True
   show_target_tracking_results: True
   show_trajectory_tracking_results: True
@@ -34,7 +34,7 @@ visualizer:
   ownship_waypoint_color: "xkcd:white"
   target_trajectory_color: "xkcd:peach"
   target_waypoint_color: "xkcd:orange"
-  fig_size: [256, 256]
+  fig_size: [128, 128]
   fig_dpi: 64
   margins: [0.0, 0.0]
   ship_linewidth: 1.7

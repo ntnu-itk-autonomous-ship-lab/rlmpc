@@ -59,7 +59,9 @@ class CollectStatisticsCallback(BaseCallback):
         experiment_name: str,
         save_stats_freq: int = 1,
         save_agent_model_freq: int = 100,
-        log_stats_freq: int = 4,
+        log_freq: int = 1,
+        max_num_env_episodes: int = 5_000,
+        max_num_training_stats_entries: int = 30_000,
         verbose: int = 1,
     ):
         """Initializes the CollectStatisticsCallback class.
@@ -69,31 +71,39 @@ class CollectStatisticsCallback(BaseCallback):
             log_dir (Path): The directory to save all experiment data to.
             model_dir (Path): The directory to save the model to.
             experiment_name (str): Name of the experiment.
-            save_stats_freq (int): Frequency to save statistics in number of episodes.
+            save_stats_freq (int): Frequency to save statistics in number of steps.
             save_agent_model_freq (int): Frequency to save the agent model in number of steps.
-            log_stats_freq (int): Frequency to log statistics in number of steps.
+            log_freq (int): Frequency to log statistics in number of steps.
             verbose (int, optional): Verbosity level. Defaults to 1.
+            max_num_env_episodes (int, optional): Maximum number of episodes to log before save and reset. Defaults to 5_000.
+            max_num_training_stats_entries (int, optional): Maximum number of training statistics entries to store. Defaults to 30_000.
         """
         super(CollectStatisticsCallback, self).__init__(verbose)
         self.experiment_name = experiment_name
         self.save_stats_freq = save_stats_freq
         self.save_agent_freq = save_agent_model_freq
-        self.log_stats_freq = log_stats_freq
-        self.log_dir = log_dir
-        self.model_save_path = model_dir
-        self.n_episodes = 0
+        self.log_freq = log_freq
         self.vec_env = env
         self.n_updates_prev: int = 0
+        self.n_episodes: int = 0
         self.last_ep_rew_mean: float = 0.0
+        self.model_save_path = model_dir
+        self.log_dir = log_dir
         self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(
-            experiment_name, self.log_dir, save_freq=save_stats_freq, n_envs=env.num_envs
+            experiment_name,
+            self.log_dir,
+            save_freq=save_stats_freq,
+            n_envs=env.num_envs,
+            max_num_logged_episodes=max_num_env_episodes,
         )
-        self.training_stats_logger: rlmpc_logger.Logger = rlmpc_logger.Logger(experiment_name, self.log_dir)
+        self.training_stats_logger: rlmpc_logger.Logger = rlmpc_logger.Logger(
+            experiment_name, self.log_dir, max_num_entries=max_num_training_stats_entries
+        )
 
         self.img_transform = transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(th.float32, scale=True),
-                transforms_v2.Resize((256, 256)),
+                transforms_v2.Resize((128, 128)),
             ]
         )
         self.display_transform = transforms_v2.Compose(
@@ -101,11 +111,18 @@ class CollectStatisticsCallback(BaseCallback):
                 transforms_v2.ToDtype(th.uint8, scale=True),
             ]
         )
+        self.prev_infos: List[Dict[str, Any]] = [{} for _ in range(env.num_envs)]
 
     def _init_callback(self) -> None:
         # Create folder if needed
         if self.model_save_path is not None:
             self.model_save_path.mkdir(parents=True, exist_ok=True)
+
+        if self.log_dir is not None:
+            self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        self.n_updates_prev = 0
+        self.last_ep_rew_mean = 0.0
 
     def extract_training_info(self, model: "type_aliases.PolicyPredictor") -> Tuple[Dict[str, Any], bool]:
         """Extracts training information from the model.
@@ -142,10 +159,11 @@ class CollectStatisticsCallback(BaseCallback):
             return model.last_rollout_info, model.just_dumped_rollout_logs
 
         info = {
+            "episodes": self.n_episodes,
             "mean_episode_reward": model.logger.name_to_value["rollout/ep_rew_mean"],
             "success_rate": model.logger.name_to_value["rollout/success_rate"],
             "mean_episode_length": model.logger.name_to_value["rollout/ep_len_mean"],
-            "infeasible_solutions": model.logger.name_to_value["rollout/infeasible_solutions"],
+            "non_optimal_solution_rate": model.logger.name_to_value["rollout/non_optimal_solution_rate"],
         }
         just_dumped_rollout_logs = False
         if info["mean_episode_reward"] != self.last_ep_rew_mean:
@@ -158,27 +176,23 @@ class CollectStatisticsCallback(BaseCallback):
         # Checking for both 'done' and 'dones' keywords because:
         # Some models use keyword 'done' (e.g.,: SAC, TD3, DQN, DDPG)
         # While some models use keyword 'dones' (e.g.,: A2C, PPO)
-        done_array = np.array(
-            [self.locals.get("done")] if self.locals.get("done") is not None else self.locals.get("dones")
-        )
+        done_array = np.array(self.locals.get("dones"))
+        if self.locals.get("done") is not None:
+            done_array = np.array([self.locals.get("done")])
 
-        if self.num_timesteps % self.log_stats_freq == 0 or np.sum(done_array).item() > 0:
-            infos = list(self.locals.get("infos"))
-            for env_idx, done in enumerate(done_array):
-                if done:
+        infos = list(self.locals.get("infos"))
+        if np.any(done_array):
+            self.n_episodes += np.sum(done_array).item()
+
+        if self.num_timesteps % self.log_freq == 0 or np.sum(done_array).item() > 0:
+            for env_idx in range(self.vec_env.num_envs):
+                if done_array[env_idx]:
                     infos[env_idx] = (
-                        self.locals.get("infos")[env_idx]
+                        self.prev_infos[env_idx]
                         if isinstance(self.locals["env"], SubprocVecEnv)
                         else self.locals["env"].envs[env_idx].unwrapped.terminal_info
                     )
-
             self.env_data_logger(infos)
-
-            last_training_info, just_trained = self.extract_training_info(self.model)
-            if just_trained:
-                self.training_stats_logger.update_training_metrics(last_training_info)
-                if hasattr(self.model, "just_trained"):
-                    self.model.just_trained = False
 
             last_rollout_info, just_dumped_rollout_logs = self.extract_rollout_info(self.model)
             if just_dumped_rollout_logs:
@@ -199,20 +213,13 @@ class CollectStatisticsCallback(BaseCallback):
                     # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
                     # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
                     # self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
-                    # self.logger.record("mpc/alpha_app_course_0", mpc_params.alpha_app_course[0])
-                    # self.logger.record("mpc/alpha_app_course_1", mpc_params.alpha_app_course[1])
-                    # self.logger.record("mpc/alpha_app_speed_0", mpc_params.alpha_app_speed[0])
-                    # self.logger.record("mpc/alpha_app_speed_1", mpc_params.alpha_app_speed[1])
-                    # self.logger.record("mpc/alpha_cr_0", mpc_params.alpha_cr[0])
-                    # self.logger.record("mpc/alpha_cr_1", mpc_params.alpha_cr[1])
-                    # self.logger.record("mpc/y_0_cr", mpc_params.y_0_cr)
-                    # self.logger.record("mpc/alpha_ho_0", mpc_params.alpha_ho[0])
-                    # self.logger.record("mpc/alpha_ho_1", mpc_params.alpha_ho[1])
-                    # self.logger.record("mpc/x_0_ho", mpc_params.x_0_ho)
-                    # self.logger.record("mpc/alpha_ot_0", mpc_params.alpha_ot[0])
-                    # self.logger.record("mpc/alpha_ot_1", mpc_params.alpha_ot[1])
-                    # self.logger.record("mpc/x_0_ot", mpc_params.x_0_ot)
-                    # self.logger.record("mpc/y_0_ot", mpc_params.y_0_ot)
+
+            last_training_info, just_trained = self.extract_training_info(self.model)
+            if just_trained:
+                self.training_stats_logger.update_training_metrics(last_training_info)
+                if hasattr(self.model, "just_trained"):
+                    self.model.just_trained = False
+
             current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
             if "PerceptionImageObservation" in current_obs:
                 pimg = th.from_numpy(current_obs["PerceptionImageObservation"]).type(th.float32)
@@ -222,10 +229,6 @@ class CollectStatisticsCallback(BaseCallback):
                 self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
                 self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
-        if np.sum(done_array).item() > 0:
-            self.n_episodes += np.sum(done_array).item()
-            self.logger.record("time/episodes", self.n_episodes)
-
         if self.num_timesteps % self.save_agent_freq == 0:
             print("Saving agent after", self.num_timesteps, "timesteps")
             # NMPC SAC model must have a custom_save method
@@ -233,13 +236,15 @@ class CollectStatisticsCallback(BaseCallback):
                 self.model.custom_save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
             else:
                 self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
+            if hasattr(self.model, "save_replay_buffer"):
+                self.model.save_replay_buffer(self.model_save_path / f"{self.experiment_name}_replay_buffer")
 
-        if self.n_episodes > 0 and self.n_episodes % self.save_stats_freq == 0:
-            print("Saving training data after", self.n_episodes, "episodes")
+        if self.num_timesteps % self.save_stats_freq == 0:
+            print("Saving training data after", self.num_timesteps, "timesteps")
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
-            self.training_stats_logger.push()
-            self.training_stats_logger.save_as_pickle(f"{self.experiment_name}_training_stats")
+            self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
 
+        self.prev_infos = list(self.locals.get("infos"))
         return True
 
 
@@ -381,6 +386,7 @@ class EvalCallback(EventCallback):
             if hasattr(self.model.actor, "mpc"):
                 self.model.actor.mpc.close_enc_display()
 
+            print(f"Evaluating policy after {self.num_timesteps} timesteps...")
             episode_rewards, episode_lengths = evaluate_policy(
                 self.model,
                 self.eval_env,
@@ -444,7 +450,10 @@ class EvalCallback(EventCallback):
                 if self.verbose >= 1:
                     print("New best mean reward!")
                 if self.best_model_save_path is not None:
-                    self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
+                    if hasattr(self.model, "custom_save"):
+                        self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
+                    else:
+                        self.model.save(Path(self.best_model_save_path / "best_model_eval"))
                 self.best_mean_reward = mean_reward
                 # Trigger callback on new best model, if needed
                 if self.callback_on_new_best is not None:
@@ -547,7 +556,6 @@ def evaluate_policy(
 
     n_envs = env.num_envs
     assert n_envs == 1, "Only one environment is supported for now."
-    print("Evaluating policy...")
     episode_rewards = []
     episode_lengths = []
     episode_counts = np.zeros(n_envs, dtype="int")

@@ -671,6 +671,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "mean_episode_length": ep_len_mean,
                 "episodes": self._episode_num,
                 "success_rate": success_rate,
-                "infeasible_solutions": infeasible_solution_percentage,
+                "non_optimal_solution_rate": infeasible_solution_percentage,
             }
         )

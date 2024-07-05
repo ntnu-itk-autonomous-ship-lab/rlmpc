@@ -246,9 +246,6 @@ def main(args):
         log_stats_freq=4,
         verbose=1,
     )
-    tracemalloc.start(5)
-    self.t_prev_malloc_snapshot = tracemalloc.take_snapshot()
-
     model.learn(
         total_timesteps=args.timesteps,
         progress_bar=False,

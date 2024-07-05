@@ -10,7 +10,7 @@
 import pathlib
 from typing import Tuple
 
-import rlmpc.networks.perception_vae.vae as perception_vae
+import rlmpc.networks.perception_vae_128.vae as perception_vae
 import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 import torch as th
 import torch.nn as nn
@@ -26,10 +26,10 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Box,
-        encoder_conv_block_dims=[32, 128, 256, 256],
-        decoder_conv_block_dims=[256, 128, 128, 64, 32],
+        encoder_conv_block_dims=[64, 128, 128, 256],
+        decoder_conv_block_dims=[256, 128, 128, 64, 3],
         fc_dim=512,
-        latent_dim: int = 100,
+        latent_dim: int = 64,
         model_file: str | None = None,
     ):
         super(PerceptionImageVAE, self).__init__(observation_space, features_dim=latent_dim)
@@ -37,7 +37,7 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
         if model_file is None:
-            model_file = VAE_DATADIR / "training_vae3_model_LD_100_best.pth"
+            model_file = VAE_DATADIR / "perception_vae_LD_64_128x128_best.pth"
         self.vae: perception_vae.VAE = perception_vae.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
