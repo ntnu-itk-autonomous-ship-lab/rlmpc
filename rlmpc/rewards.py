@@ -63,15 +63,15 @@ class CollisionAvoidanceRewarderParams:
 
 @dataclass
 class COLREGRewarderParams:
-    alpha_cr: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])  # Crossing potential function parameters
+    alpha_cr: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))  # Crossing potential function parameters
     y_0_cr: float = 100.0  # Crossing potential function parameters
-    alpha_ho: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])  # Head-on potential function parameters
+    alpha_ho: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))  # Head-on potential function parameters
     x_0_ho: float = 200.0  # Head-on potential function parameters
-    alpha_ot: np.ndarray = np.array([1.0 / 500.0, 1.0 / 500.0])  # Overtaking potential function parameters
+    alpha_ot: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))  # Overtaking potential function parameters
     x_0_ot: float = 200.0  # Overtaking potential function parameters
     y_0_ot: float = 100.0  # Overtaking potential function parameters
     d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
-    w_colregs: np.ndarray = np.array([1.0, 1.0, 1.0])  # Weights for the COLREGS potential functions
+    w_colregs: np.ndarray = field(default_factory=lambda: np.array([1.0, 1.0, 1.0]))  # Weights for the COLREGS potential functions
 
     colregs_handler: ch.COLREGSHandlerParams = field(default_factory=lambda: ch.COLREGSHandlerParams())
 

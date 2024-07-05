@@ -14,6 +14,7 @@ import warnings
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import colav_simulator.common.image_helper_methods as ihm
 import colav_simulator.gym.environment as colav_env
 import colav_simulator.gym.logger as colav_env_logger
 import gymnasium as gym
@@ -479,7 +480,8 @@ def evaluate_policy(
     warn: bool = True,
     record: bool = False,
     record_path: Optional[Path] = None,
-    record_name: str = "eval_mpc_policy",
+    record_name: str = "eval",
+    record_type: str = "gif",
     env_data_logger: Optional[colav_env_logger.Logger] = None,
 ) -> Union[Tuple[float, float], Tuple[List[float], List[int]]]:
     """
@@ -517,6 +519,7 @@ def evaluate_policy(
         - record (bool): If True, records the evaluation episodes.
         - record_path (Optional[Path]): Path to the folder where the videos will be recorded.
         - record_name (str): Name of the video.
+        - record_type (str): Type of the video. Can be 'mp4' or 'gif'.
         - env_data_logger (Optional[colav_env_logger.Logger]): Logger for environment data.
 
     Returns:
@@ -557,7 +560,11 @@ def evaluate_policy(
         assert record_path is not None, "record_path must be provided if record is True."
         if not record_path.exists():
             record_path.mkdir(parents=True, exist_ok=True)
-        env = VecVideoRecorder(env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0)
+
+        if record_type == "mp4":
+            env = VecVideoRecorder(
+                env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0
+            )
 
     observations = env.reset()
     states = None
@@ -565,6 +572,7 @@ def evaluate_policy(
     if env_data_logger is not None:
         env_data_logger.reset_data_structures(env_idx=0)
     is_mpc_policy = hasattr(model.policy.actor, "mpc")
+    frames = []
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
             states = None
@@ -636,9 +644,13 @@ def evaluate_policy(
         observations = new_observations
 
         if render:
-            env.render()
+            frame = env.render()
+            frames.append(frame)
 
     env.close()
+
+    if record_type == "gif":
+        ihm.save_frames_as_gif(frames, record_path / f"{record_name}.gif", verbose=True)
 
     mean_reward = np.mean(episode_rewards)
     std_reward = np.std(episode_rewards)

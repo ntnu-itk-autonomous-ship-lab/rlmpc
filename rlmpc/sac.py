@@ -255,12 +255,10 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_dnn_old_mpc_param_inputs = th.from_numpy(
             np.array([info[0]["actor_info"]["norm_old_mpc_params"] for info in replay_data.infos], dtype=np.float32)
         )
-        actor_dnn_prev_action_inputs = th.from_numpy(
-            np.array([info[0]["actor_info"]["norm_prev_action"] for info in replay_data.infos], dtype=np.float32)
-        )
-        dnn_input = th.cat(
-            [actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs, actor_dnn_prev_action_inputs], dim=1
-        )
+        # actor_dnn_prev_action_inputs = th.from_numpy(
+        #     np.array([info[0]["actor_info"]["norm_prev_action"] for info in replay_data.infos], dtype=np.float32)
+        # )
+        dnn_input = th.cat([actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs], dim=1)
         return dnn_input
 
     def train(self, gradient_steps: int, batch_size: int = 64) -> None:

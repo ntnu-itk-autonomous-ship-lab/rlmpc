@@ -13,7 +13,7 @@ __pycache__/
 *.so
 
 *.zip
-
+*.out
 # Distribution / packaging
 .Python
 build/

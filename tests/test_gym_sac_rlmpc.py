@@ -1,3 +1,5 @@
+import argparse
+import sys
 from pathlib import Path
 from typing import Tuple
 
@@ -11,6 +13,7 @@ import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rewards
 import rlmpc.sac as sac_rlmpc
 import torch as th
+import yaml
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
@@ -48,8 +51,7 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
     )
 
 
-def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
-    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
+def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path, Path]:
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
@@ -76,15 +78,27 @@ def create_data_dirs(experiment_name: str) -> Tuple[Path, Path, Path, Path]:
 # edge case shit
 # constraint satisfaction highly dependent on tau/barrier
 # if ship gets too much off path/course it will just continue off course
+def main(args):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
+    parser.add_argument("--n_cpus", type=int, default=2)
+    parser.add_argument("--learning_rate", type=float, default=0.0001)
+    parser.add_argument("--buffer_size", type=int, default=10000)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--gradient_steps", type=int, default=1)
+    parser.add_argument("--train_freq", type=int, default=8)
+    parser.add_argument("--n_eval_episodes", type=int, default=5)
+    parser.add_argument("--timesteps", type=int, default=5)
+    args = parser.parse_args(args)
+    args.base_dir = Path(args.base_dir)
+    print("Provided args to SAC RLMPC training:")
+    print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
-
-# optimize runtime?
-# fix enc display whiteness in training
-# upd scen gen to spawn obstacles along waypoints instead of only near init pos
-# add more scenarios
-def main():
-    experiment_name = "sac_rlmpc1"
-    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(experiment_name=experiment_name)
+    experiment_name = args.experiment_name
+    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(
+        base_dir=args.base_dir, experiment_name=experiment_name
+    )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
@@ -92,7 +106,7 @@ def main():
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = True
+    generate = False
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
@@ -141,7 +155,7 @@ def main():
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 250,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -185,19 +199,18 @@ def main():
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "debug": False,
+        "debug": True,
     }
-    learning_rate = 0.004
     model = sac_rlmpc.SAC(
         rlmpc_policies.SACPolicyWithMPC,
         env,
         policy_kwargs=policy_kwargs,
-        learning_rate=0.002,
-        buffer_size=15000,
+        learning_rate=args.learning_rate,
+        buffer_size=args.buffer_size,
         learning_starts=0,
-        batch_size=4,
-        gradient_steps=1,
-        train_freq=(4, "step"),
+        batch_size=args.batch_size,
+        gradient_steps=args.gradient_steps,
+        train_freq=(args.train_freq, "step"),
         device="cpu",
         tensorboard_log=str(log_dir),
         data_path=base_dir,
@@ -212,13 +225,13 @@ def main():
     if load_model:
         model.custom_load(model_dir / (experiment_name + "_700"))
 
-    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
+    # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
         eval_freq=10000000,
         n_eval_episodes=5,
-        callback_after_eval=stop_train_callback,
+        # callback_after_eval=stop_train_callback,
         experiment_name=experiment_name,
         record=True,
         render=True,
@@ -227,31 +240,54 @@ def main():
     stats_callback = CollectStatisticsCallback(
         env,
         log_dir=base_dir,
-        experiment_name=experiment_name,
-        save_stats_freq=2,
+        experiment_name=args.experiment_name,
+        save_stats_freq=1,
         save_agent_model_freq=100,
-        log_stats_freq=10,
+        log_stats_freq=4,
         verbose=1,
     )
-    total_training_timesteps = 10000
+    tracemalloc.start(5)
+    self.t_prev_malloc_snapshot = tracemalloc.take_snapshot()
+
     model.learn(
-        total_timesteps=total_training_timesteps,
+        total_timesteps=args.timesteps,
         progress_bar=False,
         log_interval=2,
         callback=CallbackList([stats_callback, eval_callback]),
     )
     mean_reward, std_reward = evaluate_policy(
-        model, eval_env, n_eval_episodes=10, record=True, record_path=base_dir / "eval_videos", record_name="final_eval"
+        model,
+        eval_env,
+        n_eval_episodes=args.n_eval_episodes,
+        record=True,
+        record_path=base_dir / "eval_videos",
+        record_name="final_eval",
     )
     # print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
+
+    model.custom_save(model_dir / "best_model")
+    print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
+    train_cfg = {
+        "experiment_name": args.experiment_name,
+        "timesteps": args.timesteps,
+        "train_freq": args.train_freq,
+        "gradient_steps": args.gradient_steps,
+        "batch_size": args.batch_size,
+        "n_eval_episodes": args.n_eval_episodes,
+        "final_mean_eval_reward": mean_reward,
+        "final_std_eval_reward": std_reward,
+        "n_cpus": args.n_cpus,
+        "buffer_size": args.buffer_size,
+    }
+    with (base_dir / "train_config.yaml").open(mode="w", encoding="utf-8") as fp:
+        yaml.dump(train_cfg, fp)
 
 
 if __name__ == "__main__":
     import cProfile
     import pstats
 
-    cProfile.run("main()", sort="cumulative", filename="sac_rlmpc.prof")
-
-    p = pstats.Stats("sac_rlmpc.prof")
-    p.sort_stats("cumulative").print_stats(50)
-    # main()
+    # cProfile.run("main()", sort="cumulative", filename="sac_rlmpc.prof")
+    # p = pstats.Stats("sac_rlmpc.prof")
+    # p.sort_stats("cumulative").print_stats(50)
+    main(sys.argv[1:])
