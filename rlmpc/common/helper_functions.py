@@ -74,6 +74,11 @@ plt.rcParams.update(
 )
 
 
+# Depending on your OS, you might need to change these paths
+plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
+plt.rcParams["animation.ffmpeg_path"] = "/usr/bin/ffmpeg"
+
+
 def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callable:
     """
     Utility function for multiprocessed env.

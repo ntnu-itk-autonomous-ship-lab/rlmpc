@@ -18,12 +18,9 @@ from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
+from rlmpc.train_rlmpc_sac import train_rlmpc_sac
 from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.monitor import Monitor
-
-# Depending on your OS, you might need to change these paths
-plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
-plt.rcParams["animation.ffmpeg_path"] = "/usr/bin/ffmpeg"
 
 
 def save_frames_as_gif(frame_list: list, filename: Path) -> None:
@@ -218,40 +215,37 @@ def main(args):
         tau=0.001,
         verbose=1,
     )
-    load_buffer = False
-    if load_buffer:
-        model.load_replay_buffer(base_dir / "replay_buffer1")
-    load_model = False
-    if load_model:
-        model.custom_load(model_dir / (experiment_name + "_700"))
 
-    # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=5, min_evals=5, verbose=1)
-    eval_callback = EvalCallback(
-        eval_env,
-        log_path=base_dir / "eval_data",
-        eval_freq=10000000,
-        n_eval_episodes=5,
-        # callback_after_eval=stop_train_callback,
-        experiment_name=experiment_name,
-        record=True,
-        render=True,
-        verbose=1,
-    )
-    stats_callback = CollectStatisticsCallback(
-        env,
-        log_dir=base_dir,
-        experiment_name=args.experiment_name,
-        save_stats_freq=1,
-        save_agent_model_freq=100,
-        log_stats_freq=4,
-        verbose=1,
-    )
-    model.learn(
-        total_timesteps=args.timesteps,
-        progress_bar=False,
-        log_interval=2,
-        callback=CallbackList([stats_callback, eval_callback]),
-    )
+    n_timesteps_per_learn = 1000
+    n_learn_iterations = args.timesteps // n_timesteps_per_learn
+    for i in range(n_learn_iterations):
+        if i > 0:
+            load_model = True
+            load_model_name = args.experiment_name + f"_{i * n_timesteps_per_learn}_steps"
+
+        model = train_sac(
+            model_kwargs=model_kwargs,
+            n_timesteps=n_timesteps_per_learn,
+            env_id=env_id,
+            training_env_config=copy.deepcopy(training_env_config),
+            n_training_envs=args.n_cpus,
+            eval_env_config=copy.deepcopy(eval_env_config),
+            base_dir=base_dir,
+            log_dir=log_dir,
+            model_dir=model_dir,
+            experiment_name=args.experiment_name,
+            load_model=load_model,
+            load_model_name=load_model_name,
+            load_rb_name=args.experiment_name + "_replay_buffer",
+            seed=0,
+            iteration=i + 1,
+        )
+        model.save(model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}_steps")
+        model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
+        print(
+            f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn}/{args.timesteps}%"
+        )
+
     mean_reward, std_reward = evaluate_policy(
         model,
         eval_env,
@@ -281,9 +275,8 @@ def main(args):
 
 
 if __name__ == "__main__":
-    import cProfile
-    import pstats
-
+    # import cProfile
+    # import pstats
     # cProfile.run("main()", sort="cumulative", filename="sac_rlmpc.prof")
     # p = pstats.Stats("sac_rlmpc.prof")
     # p.sort_stats("cumulative").print_stats(50)

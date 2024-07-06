@@ -268,6 +268,7 @@ if __name__ == "__main__":
     latent_dim = 80
     fc_dim = 512
     encoder_conv_block_dims = [64, 128, 256, 256]
+    decoder_conv_block_dims = [256, 128, 128, 64, 32]
     input_image_dim = (1, 128, 128)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(
@@ -275,6 +276,7 @@ if __name__ == "__main__":
         latent_dim=latent_dim,
         fc_dim=fc_dim,
         encoder_conv_block_dims=encoder_conv_block_dims,
+        decoder_conv_block_dims=decoder_conv_block_dims,
     ).to(device)
 
     # summary(vae, (3, 400, 400))
