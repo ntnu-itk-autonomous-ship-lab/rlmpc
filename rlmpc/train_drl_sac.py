@@ -67,7 +67,6 @@ def train_sac(
         n_envs=n_training_envs,
         monitor_dir=str(log_dir),
         vec_env_cls=SubprocVecEnv,
-        seed=seed,
     )
     checkpoint_callback = CheckpointCallback(
         save_freq=20000,

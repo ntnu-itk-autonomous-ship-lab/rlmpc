@@ -29,7 +29,7 @@ def main(args):
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_drl1")
+    parser.add_argument("--experiment_name", type=str, default="sac_drl2")
     parser.add_argument("--n_cpus", type=int, default=2)
     parser.add_argument("--learning_rate", type=float, default=0.0005)
     parser.add_argument("--buffer_size", type=int, default=100_000)
@@ -37,7 +37,8 @@ def main(args):
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--timesteps", type=int, default=400)
+    parser.add_argument("--n_experiments", type=int, default=3)
+    parser.add_argument("--timesteps", type=int, default=20)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--sde_sample_freq", type=int, default=60)
     args = parser.parse_args(args)
@@ -70,7 +71,7 @@ def main(args):
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 600,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -90,7 +91,7 @@ def main(args):
     eval_env_config = copy.deepcopy(training_env_config)
     eval_env_config.update(
         {
-            "max_number_of_episodes": 50,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -107,7 +108,6 @@ def main(args):
         "train_freq": (args.train_freq, "step"),
         "learning_starts": 0,
         "tau": args.tau,
-        "use_sde": True,
         "sde_sample_freq": args.sde_sample_freq,
         "device": "cpu",
         "ent_coef": "auto",
@@ -124,38 +124,46 @@ def main(args):
 
     # tracemalloc.start(20)
     # t_start = tracemalloc.take_snapshot()
-    load_model = True
+    load_model = False
     load_model_name = args.experiment_name + "_1000000_steps"
-    n_timesteps_per_learn = 100_000
+    n_timesteps_per_learn = 10
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
 
-    for i in range(n_learn_iterations):
-        if i > 0:
+    for e in range(args.n_experiments):
+        seed = e
+        training_env_config["seed"] = seed
+        eval_env_config["seed"] = seed + 1
+        if e > 0:
             load_model = True
-            load_model_name = args.experiment_name + f"_{i * n_timesteps_per_learn}_steps"
+            load_model_name = args.experiment_name + f"_exp{e}_{args.timesteps}_steps"
+        for i in range(n_learn_iterations):
+            if i > 0:
+                load_model = True
+                load_model_name = args.experiment_name + f"_exp{e + 1}_{i * n_timesteps_per_learn}_steps"
 
-        model = train_sac(
-            model_kwargs=model_kwargs,
-            n_timesteps=n_timesteps_per_learn,
-            env_id=env_id,
-            training_env_config=copy.deepcopy(training_env_config),
-            n_training_envs=args.n_cpus,
-            eval_env_config=copy.deepcopy(eval_env_config),
-            base_dir=base_dir,
-            log_dir=log_dir,
-            model_dir=model_dir,
-            experiment_name=args.experiment_name,
-            load_model=load_model,
-            load_model_name=load_model_name,
-            load_rb_name=args.experiment_name + "_replay_buffer",
-            seed=0,
-            iteration=i + 1,
-        )
-        model.save(model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}_steps")
-        model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
-        print(
-            f"[SAC DRL] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn}/{args.timesteps}%"
-        )
+            model = train_sac(
+                model_kwargs=model_kwargs,
+                n_timesteps=n_timesteps_per_learn,
+                env_id=env_id,
+                training_env_config=copy.deepcopy(training_env_config),
+                n_training_envs=args.n_cpus,
+                eval_env_config=copy.deepcopy(eval_env_config),
+                base_dir=base_dir,
+                log_dir=log_dir,
+                model_dir=model_dir,
+                experiment_name=args.experiment_name,
+                load_model=load_model,
+                load_model_name=load_model_name,
+                load_rb_name=args.experiment_name + "_replay_buffer",
+                seed=seed,
+                iteration=i + 1,
+            )
+            model.save(model_dir / f"{args.experiment_name}_exp{e + 1}_{(i + 1) * n_timesteps_per_learn}_steps")
+            model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
+            print(
+                f"[SAC DRL] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn / args.timesteps}%"
+            )
+        print(f"[SAC DRL] Finished experiment {e + 1}/{args.n_experiments}")
 
     # tm_end = tracemalloc.take_snapshot()
     # stats = tm_end.compare_to(t_start, "lineno")
@@ -174,6 +182,7 @@ def main(args):
     train_cfg = {
         "n_timsteps_per_learn": n_timesteps_per_learn,
         "n_learn_iterations": n_learn_iterations,
+        "n_experiments": args.n_experiments,
         "experiment_name": args.experiment_name,
         "timesteps": args.timesteps,
         "train_freq": args.train_freq,
