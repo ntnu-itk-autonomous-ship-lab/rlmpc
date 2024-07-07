@@ -81,7 +81,7 @@ def main(args):
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
     parser.add_argument("--n_cpus", type=int, default=2)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--buffer_size", type=int, default=10000)
+    parser.add_argument("--buffer_size", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)

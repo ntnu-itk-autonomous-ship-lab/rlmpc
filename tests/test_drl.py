@@ -115,7 +115,7 @@ def main(args):
         "tensorboard_log": str(log_dir),
         "policy_kwargs": {
             "features_extractor_class": CombinedExtractor,
-            "net_arch": [256, 256],
+            "net_arch": [512, 512],
             "log_std_init": -3.0,
             "use_sde": True,
         },
@@ -125,7 +125,7 @@ def main(args):
     # tracemalloc.start(20)
     # t_start = tracemalloc.take_snapshot()
     load_model = True
-    load_model_name = args.experiment_name + "_900000_steps"
+    load_model_name = args.experiment_name + "_1000000_steps"
     n_timesteps_per_learn = 100_000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
 
