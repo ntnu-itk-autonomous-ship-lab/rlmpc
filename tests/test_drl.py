@@ -40,7 +40,7 @@ def main(args):
     parser.add_argument("--n_experiments", type=int, default=3)
     parser.add_argument("--timesteps", type=int, default=20)
     parser.add_argument("--tau", type=float, default=0.005)
-    parser.add_argument("--sde_sample_freq", type=int, default=60)
+    parser.add_argument("--sde_sample_freq", type=int, default=50)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC DRL training:")
@@ -71,7 +71,7 @@ def main(args):
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 1,
+        "max_number_of_episodes": 600,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -91,7 +91,7 @@ def main(args):
     eval_env_config = copy.deepcopy(training_env_config)
     eval_env_config.update(
         {
-            "max_number_of_episodes": 1,
+            "max_number_of_episodes": 50,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -116,7 +116,7 @@ def main(args):
         "policy_kwargs": {
             "features_extractor_class": CombinedExtractor,
             "net_arch": [512, 512],
-            "log_std_init": -3.0,
+            "log_std_init": -5.0,
             "use_sde": True,
         },
         "replay_buffer_kwargs": {"handle_timeout_termination": True},
@@ -126,7 +126,7 @@ def main(args):
     # t_start = tracemalloc.take_snapshot()
     load_model = False
     load_model_name = args.experiment_name + "_1000000_steps"
-    n_timesteps_per_learn = 10
+    n_timesteps_per_learn = 100_000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
 
     for e in range(args.n_experiments):
