@@ -1,4 +1,5 @@
 import argparse
+import copy
 import sys
 from pathlib import Path
 from typing import Tuple
@@ -148,37 +149,38 @@ def main(args):
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
     training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
+    scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
-    env_config = {
+    training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
-        "merge_loaded_scenario_episodes": True,
-        "max_number_of_episodes": 1,
+        "scenario_generator_config": scen_gen_config,
+        "max_number_of_episodes": 600,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
-        "render_update_rate": 1.0,
+        "render_update_rate": 0.5,
+        "render_mode": "rgb_array",
         "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
+        "merge_loaded_scenario_episodes": True,
         "shuffle_loaded_scenario_data": True,
-        "identifier": "training_env1",
+        "identifier": "training_env",
         "seed": 0,
     }
-    env = Monitor(gym.make(id=env_id, **env_config))
-    env_config.update(
+
+    eval_env_config = copy.deepcopy(training_env_config)
+    eval_env_config.update(
         {
-            "max_number_of_episodes": 1,
+            "max_number_of_episodes": 50,
             "scenario_file_folder": test_scenario_folders,
-            "merge_loaded_scenario_episodes": True,
             "seed": 1,
             "simulator_config": eval_sim_config,
-            "reload_map": False,
-            "identifier": "eval_env1",
+            "identifier": "eval_env",
         }
     )
-    eval_env = Monitor(gym.make(id=env_id, **env_config))
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
@@ -191,30 +193,28 @@ def main(args):
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [256, 128],
+        "critic_arch": [512, 512],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
         "debug": True,
     }
-    model = sac_rlmpc.SAC(
-        rlmpc_policies.SACPolicyWithMPC,
-        env,
-        policy_kwargs=policy_kwargs,
-        learning_rate=args.learning_rate,
-        buffer_size=args.buffer_size,
-        learning_starts=0,
-        batch_size=args.batch_size,
-        gradient_steps=args.gradient_steps,
-        train_freq=(args.train_freq, "step"),
-        device="cpu",
-        tensorboard_log=str(log_dir),
-        data_path=base_dir,
-        pretrain_critic_using_mpc=False,
-        tau=0.001,
-        verbose=1,
-    )
+
+    model_kwargs = {
+        "policy_kwargs": policy_kwargs,
+        "learning_rate": args.learning_rate,
+        "buffer_size": args.buffer_size,
+        "batch_size": args.batch_size,
+        "gradient_steps": args.gradient_steps,
+        "train_freq": (args.train_freq, "step"),
+        "learning_starts": 0,
+        "tau": 0.001,
+        "device": "cpu",
+        "ent_coef": "auto",
+        "verbose": 1,
+        "tensorboard_log": str(log_dir),
+    }
 
     n_timesteps_per_learn = 1000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
@@ -223,7 +223,7 @@ def main(args):
             load_model = True
             load_model_name = args.experiment_name + f"_{i * n_timesteps_per_learn}_steps"
 
-        model = train_sac(
+        model = train_rlmpc_sac(
             model_kwargs=model_kwargs,
             n_timesteps=n_timesteps_per_learn,
             env_id=env_id,
