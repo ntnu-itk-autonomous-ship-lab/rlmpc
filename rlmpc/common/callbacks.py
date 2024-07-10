@@ -89,11 +89,12 @@ class CollectStatisticsCallback(BaseCallback):
         self.last_ep_rew_mean: float = 0.0
         self.model_save_path = model_dir
         self.log_dir = log_dir
+        self.num_envs = env.num_envs if isinstance(env, SubprocVecEnv) else 1
         self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(
             experiment_name,
             self.log_dir,
             save_freq=save_stats_freq,
-            n_envs=env.num_envs,
+            n_envs=self.num_envs,
             max_num_logged_episodes=max_num_env_episodes,
         )
         self.training_stats_logger: rlmpc_logger.Logger = rlmpc_logger.Logger(
@@ -111,7 +112,7 @@ class CollectStatisticsCallback(BaseCallback):
                 transforms_v2.ToDtype(th.uint8, scale=True),
             ]
         )
-        self.prev_infos: List[Dict[str, Any]] = [{} for _ in range(env.num_envs)]
+        self.prev_infos: List[Dict[str, Any]] = [{} for _ in range(self.num_envs)]
 
     def _init_callback(self) -> None:
         # Create folder if needed

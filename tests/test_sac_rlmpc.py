@@ -80,14 +80,14 @@ def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
-    parser.add_argument("--n_cpus", type=int, default=2)
+    parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--buffer_size", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
-    parser.add_argument("--n_eval_episodes", type=int, default=5)
-    parser.add_argument("--timesteps", type=int, default=5)
+    parser.add_argument("--n_eval_episodes", type=int, default=4)
+    parser.add_argument("--timesteps", type=int, default=10000)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC training:")
@@ -202,6 +202,7 @@ def main(args):
     }
 
     model_kwargs = {
+        "policy": rlmpc_policies.SACPolicyWithMPC,
         "policy_kwargs": policy_kwargs,
         "learning_rate": args.learning_rate,
         "buffer_size": args.buffer_size,
@@ -216,6 +217,8 @@ def main(args):
         "tensorboard_log": str(log_dir),
     }
 
+    load_model = False
+    load_model_name = "sac_rlmpc1_0_steps"
     n_timesteps_per_learn = 1000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
@@ -246,27 +249,31 @@ def main(args):
             f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn}/{args.timesteps}%"
         )
 
+    eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
     mean_reward, std_reward = evaluate_policy(
         model,
         eval_env,
         n_eval_episodes=args.n_eval_episodes,
         record=True,
-        record_path=base_dir / "eval_videos",
-        record_name="final_eval",
+        record_path=base_dir / "eval_data" / "final_eval_videos",
+        record_name=args.experiment_name + "_final_eval",
     )
-    # print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
-
-    model.custom_save(model_dir / "best_model")
     print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
     train_cfg = {
+        "n_timsteps_per_learn": n_timesteps_per_learn,
+        "n_learn_iterations": n_learn_iterations,
+        "n_experiments": args.n_experiments,
         "experiment_name": args.experiment_name,
         "timesteps": args.timesteps,
         "train_freq": args.train_freq,
         "gradient_steps": args.gradient_steps,
         "batch_size": args.batch_size,
         "n_eval_episodes": args.n_eval_episodes,
-        "final_mean_eval_reward": mean_reward,
-        "final_std_eval_reward": std_reward,
+        "tau": args.tau,
+        "sde_sample_freq": args.sde_sample_freq,
+        "final_mean_eval_reward": np.mean(mean_reward),
+        "final_std_eval_reward": np.mean(std_reward),
+        "policy_kwargs": policy_kwargs,
         "n_cpus": args.n_cpus,
         "buffer_size": args.buffer_size,
     }

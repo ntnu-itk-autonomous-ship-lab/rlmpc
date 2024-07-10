@@ -59,33 +59,27 @@ def train_rlmpc_sac(
     Returns:
         rlmpc_sac.SAC: The trained RL agent.
     """
-    training_vec_env = make_vec_env(
-        env_id=env_id,
-        env_kwargs=training_env_config,
-        n_envs=n_training_envs,
-        monitor_dir=str(log_dir),
-        vec_env_cls=SubprocVecEnv,
-        seed=seed,
-    )
-    checkpoint_callback = CheckpointCallback(
-        save_freq=20000,
-        save_path=model_dir,
-        name_prefix=experiment_name,
-        verbose=1,
-        save_replay_buffer=True,
-    )
-    # stats_callback = CollectStatisticsCallback(
-    #     env=training_vec_env,
-    #     log_dir=base_dir,
-    #     model_dir=model_dir,
-    #     experiment_name=args.experiment_name,
-    #     save_stats_freq=1000,
-    #     save_agent_model_freq=50000,
-    #     log_freq=10,
-    #     max_num_env_episodes=1000,
-    #     max_num_training_stats_entries=30000,
-    #     verbose=1,
+    # training_env = make_vec_env(
+    #     env_id=env_id,
+    #     env_kwargs=training_env_config,
+    #     n_envs=n_training_envs,
+    #     monitor_dir=str(log_dir),
+    #     vec_env_cls=SubprocVecEnv,
+    #     seed=seed,
     # )
+    training_env = Monitor(gym.make(id=env_id, **training_env_config))
+    stats_callback = CollectStatisticsCallback(
+        env=training_env,
+        log_dir=base_dir,
+        model_dir=model_dir,
+        experiment_name=experiment_name,
+        save_stats_freq=100,
+        save_agent_model_freq=100,
+        log_freq=10,
+        max_num_env_episodes=1000,
+        max_num_training_stats_entries=30000,
+        verbose=1,
+    )
     eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
     eval_callback = EvalCallback(
         eval_env,
@@ -100,10 +94,10 @@ def train_rlmpc_sac(
     )
 
     if load_model:
-        model = rlmpc_sac.SAC.load(path=model_dir / load_model_name, env=training_vec_env, **model_kwargs)
+        model = rlmpc_sac.SAC.custom_load(path=model_dir / load_model_name, env=training_env, **model_kwargs)
         model.load_replay_buffer(path=model_dir / load_rb_name)
     else:
-        model = rlmpc_sac.SAC(env=training_vec_env, **model_kwargs)
+        model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
 
     model.set_random_seed(seed)
     model.learn(
@@ -111,7 +105,7 @@ def train_rlmpc_sac(
         log_interval=2,
         tb_log_name=experiment_name + f"_{iteration}",
         reset_num_timesteps=True,
-        callback=CallbackList(callbacks=[eval_callback, checkpoint_callback]),
+        callback=CallbackList(callbacks=[eval_callback, stats_callback]),
         progress_bar=True,
     )
     return model

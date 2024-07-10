@@ -171,6 +171,7 @@ class MPCParameterDNN(th.nn.Module):
     """The DNN for predicting the MPC parameter increments, based on the
     current situation, parameters and action. The DNN outputs are normalized to [-1, 1] and then mapped to the
     actual parameter ranges.
+
     """
 
     def __init__(
@@ -178,7 +179,7 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        features_dim: int = 82,
+        features_dim: int = 81,
     ):
         super().__init__()
         self.out_parameter_ranges = {
