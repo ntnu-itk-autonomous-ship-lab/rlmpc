@@ -1,18 +1,18 @@
 import argparse
 import copy
+import pickle
 import sys
 from pathlib import Path
-from typing import Tuple
 
 import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
+import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rewards
-import rlmpc.sac as sac_rlmpc
 import torch as th
 import yaml
 from colav_simulator.gym.environment import COLAVEnvironment
@@ -20,8 +20,8 @@ from matplotlib import animation
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.train_rlmpc_sac import train_rlmpc_sac
-from stable_baselines3.common.callbacks import CallbackList, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.monitor import Monitor
+from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 
 
 def save_frames_as_gif(frame_list: list, filename: Path) -> None:
@@ -49,27 +49,6 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
     )
 
 
-def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path, Path]:
-    base_dir = base_dir / experiment_name
-    log_dir = base_dir / "logs"
-    model_dir = base_dir / "models"
-    best_model_dir = model_dir / "best_model"
-    if not log_dir.exists():
-        log_dir.mkdir(parents=True)
-    else:
-        # remove folders in log_dir
-        for file in log_dir.iterdir():
-            if file.is_dir():
-                for f in file.iterdir():
-                    f.unlink()
-                file.rmdir()
-    if not model_dir.exists():
-        model_dir.mkdir(parents=True)
-    if not best_model_dir.exists():
-        best_model_dir.mkdir(parents=True)
-    return base_dir, log_dir, model_dir, best_model_dir
-
-
 # tuning:
 # horizon
 # tau/barrier param
@@ -81,11 +60,11 @@ def main(args):
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
     parser.add_argument("--n_cpus", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--buffer_size", type=int, default=1000)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--learning_rate", type=float, default=0.005)
+    parser.add_argument("--buffer_size", type=int, default=40000)
+    parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--gradient_steps", type=int, default=1)
-    parser.add_argument("--train_freq", type=int, default=8)
+    parser.add_argument("--train_freq", type=int, default=2)
     parser.add_argument("--n_eval_episodes", type=int, default=4)
     parser.add_argument("--timesteps", type=int, default=10000)
     args = parser.parse_args(args)
@@ -93,10 +72,7 @@ def main(args):
     print("Provided args to SAC RLMPC training:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
-    experiment_name = args.experiment_name
-    base_dir, log_dir, model_dir, best_model_dir = create_data_dirs(
-        base_dir=args.base_dir, experiment_name=experiment_name
-    )
+    base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=args.experiment_name)
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
@@ -154,7 +130,7 @@ def main(args):
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 600,
+        "max_number_of_episodes": 100,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -174,7 +150,8 @@ def main(args):
     eval_env_config = copy.deepcopy(training_env_config)
     eval_env_config.update(
         {
-            "max_number_of_episodes": 50,
+            "reload_map": False,
+            "max_number_of_episodes": 20,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -185,10 +162,9 @@ def main(args):
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
-
     mpc_param_provider_kwargs = {
-        "param_list": ["r_safe_do"],
-        "hidden_sizes": [256, 64],
+        "param_list": ["Q_p", "r_safe_do"],
+        "hidden_sizes": [512, 512],
         "activation_fn": th.nn.ReLU,
     }
     policy_kwargs = {
@@ -198,9 +174,9 @@ def main(args):
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "debug": True,
+        "disable_parameter_provider": True,
+        "debug": False,
     }
-
     model_kwargs = {
         "policy": rlmpc_policies.SACPolicyWithMPC,
         "policy_kwargs": policy_kwargs,
@@ -209,22 +185,24 @@ def main(args):
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
         "train_freq": (args.train_freq, "step"),
-        "learning_starts": 0,
-        "tau": 0.001,
+        "learning_starts": 10,
+        "tau": 0.005,
         "device": "cpu",
         "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
     }
+    with (base_dir / "model_kwargs.yaml").open(mode="w", encoding="utf-8") as fp:
+        pickle.dump(model_kwargs, fp)
 
     load_model = False
-    load_model_name = "sac_rlmpc1_0_steps"
+    load_model_name = "sac_rlmpc1_1000"
     n_timesteps_per_learn = 1000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
         if i > 0:
             load_model = True
-            load_model_name = args.experiment_name + f"_{i * n_timesteps_per_learn}_steps"
+            load_model_name = args.experiment_name + f"_{i * n_timesteps_per_learn}"
 
         model = train_rlmpc_sac(
             model_kwargs=model_kwargs,
@@ -243,7 +221,7 @@ def main(args):
             seed=0,
             iteration=i + 1,
         )
-        model.save(model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}_steps")
+        model.custom_save(model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}")
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
         print(
             f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn}/{args.timesteps}%"

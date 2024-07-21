@@ -657,6 +657,7 @@ class RLMPC(ci.ICOLAV):
             self._mpc_soln["cost_val"] = (
                 cost_max if self._mpc_soln["cost_val"] > cost_max else self._mpc_soln["cost_val"]
             )
+            self._mpc_soln["mpc_rate"] = self._mpc.params.rate
 
         chi_ref = self._mpc_trajectory[2, 2]
         U_ref = self._mpc_trajectory[3, 2]

@@ -170,25 +170,32 @@ class CustomContinuousCritic(BaseModel):
 class MPCParameterDNN(th.nn.Module):
     """The DNN for predicting the MPC parameter increments, based on the
     current situation, parameters and action. The DNN outputs are normalized to [-1, 1] and then mapped to the
-    actual parameter ranges.
-
+    actual parameter ranges. 64+12+5 = 81 features (64 latent enc, 12 latent tracking obs, 5 path rel obs)
     """
 
     def __init__(
         self,
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
-        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
+        activation_fn: Type[th.nn.Module] = th.nn.ELU,
         features_dim: int = 81,
     ):
         super().__init__()
         self.out_parameter_ranges = {
-            "Q_p": [0.001, 100.0],
+            "Q_p": [[0.001, 2.5], [0.1, 100.0], [0.1, 100.0]],
             "K_app_course": [0.1, 200.0],
             "K_app_speed": [0.1, 200.0],
             "d_attenuation": [10.0, 1000.0],
             "w_colregs": [0.1, 500.0],
             "r_safe_do": [5.0, 120.0],
+        }
+        self.out_parameter_incr_ranges = {
+            "Q_p": [-0.5, 0.5],
+            "K_app_course": [-5.0, 5.0],
+            "K_app_speed": [-5.0, 5.0],
+            "d_attenuation": [-50.0, 50.0],
+            "w_colregs": [-10.0, 10.0],
+            "r_safe_do": [-5.0, 5.0],
         }
         self.out_parameter_lengths = {
             "Q_p": 3,
@@ -225,12 +232,23 @@ class MPCParameterDNN(th.nn.Module):
         self.parameter_lengths = [p.numel() for p in self.parameters()]
         self.num_params = sum(self.parameter_lengths)
 
+        for layer in self.layers:
+            self.weights_init(layer)
+
+    def weights_init(self, m):
+        if isinstance(m, th.nn.Conv2d):
+            th.nn.init.xavier_uniform_(m.weight, gain=th.nn.init.calculate_gain("linear"))
+            th.nn.init.zeros_(m.bias)
+        elif isinstance(m, th.nn.Linear):
+            th.nn.init.xavier_uniform_(m.weight, gain=th.nn.init.calculate_gain("linear"))
+            th.nn.init.zeros_(m.bias)
+
     def forward(self, x: th.Tensor) -> th.Tensor:
         for layer in self.layers[:-1]:
             x = layer(x)
             x = self.activation_fn(x)
         x = self.layers[-1](x)
-        # x = self.tanh(x)
+        x = self.tanh(x)
         return x
 
     def set_gradients(self, grads: th.Tensor) -> None:
@@ -251,7 +269,7 @@ class MPCParameterDNN(th.nn.Module):
 
         Args:
             x (np.ndarray): The DNN output, consisting of normalized parameter increments.
-            current_params (np.ndarray): The current parameters
+            current_params (np.ndarray): The current parameters, unnormalized.
 
         Returns:
             Dict[str, Union[float, np.ndarray]]: The dictionary of unnormalized parameters
@@ -259,19 +277,24 @@ class MPCParameterDNN(th.nn.Module):
         params = {}
         x_np = x.copy()
         current_params_np = current_params.copy()
-        for param in self.param_list:
-            param_range = self.out_parameter_ranges[param]
-            param_length = self.out_parameter_lengths[param]
-            pindx = self.out_parameter_indices[param]
-            x_param_current = current_params_np[pindx : pindx + param_length]
-            x_param_new = (
-                x_np[pindx : pindx + param_length] + x_param_current
-            )  # Add the current parameter value to the increment
-            x_param_new = np.clip(x_param_new, -1.0, 1.0)
+        for param_name in self.param_list:
+            param_range = self.out_parameter_ranges[param_name]
+            param_incr_range = self.out_parameter_incr_ranges[param_name]
+            param_length = self.out_parameter_lengths[param_name]
+            pindx = self.out_parameter_indices[param_name]
 
-            for j in range(len(x_param_new)):  # pylint: disable=consider-using-enumerate
-                x_param_new[j] = csmf.linear_map(x_param_new[j], (-1.0, 1.0), tuple(param_range))
-            params[param] = x_param_new
+            x_param_incr = x_np[pindx : pindx + param_length]
+            for j in range(len(x_param_incr)):  # pylint: disable=consider-using-enumerate
+                x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range))
+
+            x_param_current = current_params_np[pindx : pindx + param_length]
+            x_param_new = x_param_current + x_param_incr
+            if param_name == "Q_p":
+                for j in range(3):
+                    x_param_new[j] = np.clip(x_param_new[j], param_range[j][0], param_range[j][1])
+            else:
+                x_param_new = np.clip(x_param_new, param_range[0], param_range[1])
+            params[param_name] = x_param_new
         return params
 
     def save(self, path: pathlib.Path) -> None:
@@ -283,10 +306,10 @@ class MPCParameterDNN(th.nn.Module):
         th.save(self.state_dict(), path)
 
     def unnormalize(self, x: th.Tensor | np.ndarray) -> np.ndarray:
-        """Unnormalize the DNN output.
+        """Unnormalize the input parameter tensor.
 
         Args:
-            x (th.Tensor | np.ndarray): The DNN output
+            x (th.Tensor | np.ndarray): The normalized parameter tensor
 
         Returns:
             np.ndarray: The unnormalized output as a numpy array
@@ -294,38 +317,40 @@ class MPCParameterDNN(th.nn.Module):
         if isinstance(x, th.Tensor):
             x = x.detach().numpy()
         x_unnorm = np.zeros_like(x)
-        for param in self.param_list:
-            param_range = self.out_parameter_ranges[param]
-            param_length = self.out_parameter_lengths[param]
-            pindx = self.out_parameter_indices[param]
+        for param_name in self.param_list:
+            param_range = self.out_parameter_ranges[param_name]
+            param_length = self.out_parameter_lengths[param_name]
+            pindx = self.out_parameter_indices[param_name]
             x_param = x[pindx : pindx + param_length]
 
             for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
                 x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
             x_unnorm[pindx : pindx + param_length] = x_param
-
         return x_unnorm
 
-    def normalize(self, p: th.Tensor) -> th.Tensor:
-        """Normalize the input parameter (not increment) tensor.
+    def normalize(self, x: th.Tensor) -> th.Tensor:
+        """Normalize the input parameter tensor.
 
         Args:
-            p (th.Tensor): The parameter tensor
+            x (th.Tensor): The unnormalized parameter tensor
 
         Returns:
             th.Tensor: The normalized parameter tensor
         """
-        p_norm = th.zeros_like(p)
-        for param in self.param_list:
-            param_range = self.out_parameter_ranges[param]
-            param_length = self.out_parameter_lengths[param]
-            pindx = self.out_parameter_indices[param]
-            p_param = p[pindx : pindx + param_length]
+        x_norm = th.zeros_like(x)
+        for param_name in self.param_list:
+            param_range = self.out_parameter_ranges[param_name]
+            param_length = self.out_parameter_lengths[param_name]
+            pindx = self.out_parameter_indices[param_name]
+            x_param = x[pindx : pindx + param_length]
 
-            for j in range(len(p_param)):  # pylint: disable=consider-using-enumerate
-                p_param[j] = csmf.linear_map(p_param[j], tuple(param_range), (-1.0, 1.0))
-            p_norm[pindx : pindx + param_length] = p_param
-        return p_norm
+            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+                if param_name == "Q_p":
+                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range[j]), (-1.0, 1.0))
+                else:
+                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range), (-1.0, 1.0))
+            x_norm[pindx : pindx + param_length] = x_param
+        return x_norm
 
     def parameter_jacobian(self, x: th.Tensor) -> th.Tensor:
         """Compute the Jacobian of the DNN output wrt its parameters.
@@ -410,6 +435,7 @@ class SACMPCActor(BasePolicy):
         mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
         clip_mean: float = 2.0,
+        disable_parameter_provider: bool = False,
         debug: bool = False,
     ):
         super().__init__(
@@ -422,6 +448,7 @@ class SACMPCActor(BasePolicy):
 
         self.observation_type = observation_type
         self.action_type = action_type
+        self.disable_parameter_provider = disable_parameter_provider
         self.debug = debug
 
         action_dim = get_action_dim(self.action_space)
@@ -458,11 +485,9 @@ class SACMPCActor(BasePolicy):
         self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.mpc.get_mpc_params()
         self.mpc_adjustable_params_init = self.mpc.get_adjustable_mpc_params()
-        norm_mpc_params_init = self.mpc_param_provider.normalize(th.from_numpy(self.mpc_adjustable_params_init)).numpy()
-        adjustable_params_dict = self.mpc_param_provider.map_to_parameter_dict(
-            np.zeros(self.mpc_param_provider.num_output_params), norm_mpc_params_init
+        self.mpc_adjustable_params_init = self.mpc_param_provider.map_to_parameter_dict(
+            np.zeros(self.mpc_param_provider.num_output_params), self.mpc_adjustable_params_init
         )
-        self.mpc_adjustable_params_init = adjustable_params_dict
 
         nx, nu = self.mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
@@ -636,13 +661,14 @@ class SACMPCActor(BasePolicy):
         normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         actor_infos = [{} for _ in range(batch_size)]
+
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
 
-        old_mpc_params = self.mpc.get_adjustable_mpc_params()
-        current_mpc_params = th.from_numpy(old_mpc_params).float()
-        current_mpc_params = self.mpc_param_provider.normalize(current_mpc_params)
+        unnorm_current_mpc_params = self.mpc.get_adjustable_mpc_params()
+        norm_current_mpc_params = th.from_numpy(unnorm_current_mpc_params).float()
+        norm_current_mpc_params = self.mpc_param_provider.normalize(norm_current_mpc_params)
 
         for idx in range(batch_size):
             prev_soln = state[idx] if state is not None else None
@@ -651,32 +677,35 @@ class SACMPCActor(BasePolicy):
                 if state is None
                 else th.from_numpy(state[idx]["norm_mpc_action"]).float()
             )
-            dnn_input = th.cat([features[idx], current_mpc_params], dim=-1)
-            mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
-            mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
-                mpc_param_increment, current_mpc_params.detach().numpy()
-            )
-            print(f"Provided MPC parameters: {mpc_param_subset_dict} | Old: {old_mpc_params.tolist()}")
-            # self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
+
+            dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
+
+            if not self.disable_parameter_provider:
+                mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
+                mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
+                    mpc_param_increment, unnorm_current_mpc_params
+                )
+                print(f"Provided MPC parameters: {mpc_param_subset_dict} | Old: {unnorm_current_mpc_params.tolist()}")
+                self.mpc.set_mpc_param_subset(mpc_param_subset_dict)
+
             t, ownship_state, do_list, w = self.extract_mpc_observation_features(observation, idx)
             if t < 0.001:
                 self.t_prev = t
-            # w.print()
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
             norm_action = self.action_type.normalize(action)
             info.update(
                 {
                     "norm_prev_action": prev_action.numpy(),
                     "unnorm_mpc_action": action,
-                    "dnn_input_features": features[idx].detach().cpu().numpy(),
+                    "dnn_input_features": dnn_input.detach().cpu().numpy(),
                     "mpc_param_increment": mpc_param_increment,
                     "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
-                    "old_mpc_params": old_mpc_params,
-                    "norm_old_mpc_params": current_mpc_params.detach().numpy(),
+                    "old_mpc_params": unnorm_current_mpc_params,
+                    "norm_old_mpc_params": norm_current_mpc_params.detach().numpy(),
                     "norm_mpc_action": norm_action,
                 }
             )
-            if False:  # not deterministic:
+            if not deterministic:
                 norm_action = self.get_exploratory_action(norm_action, t, ownship_state, do_list, w)
 
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
@@ -836,13 +865,13 @@ class SACPolicyWithMPC(BasePolicy):
         - clip_mean (float, optional): Clip the mean output when using gSDE to avoid numerical instability. Defaults to 2.0.
         - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
         - features_extractor_kwargs (Optional[Dict[str, Any]], optional): Keyword arguments
-            to pass to the features extractor. Defaults to None.
+            to pass to the features extractor.
         - normalize_images (bool, optional): Whether to normalize images or not,
-            dividing by 255.0 (True by default). Defaults to True.
+            dividing by 255.0 (True by default).
         - optimizer_class (Type[th.optim.Optimizer], optional): The optimizer to use,
             ``th.optim.Adam`` by default. Defaults to th.optim.Adam.
         - optimizer_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments,
-            excluding the learning rate, to pass to the optimizer. Defaults to None.
+            excluding the learning rate, to pass to the optimizer.
         - n_critics (int, optional): Number of critic networks to create. Defaults to 2.
     """
 

@@ -120,6 +120,8 @@ class TrajectoryTrackingRewarderParams:
     rho_d2goal: float = 0.1  # final path deviation reward weight
     rho_course_dev: float = 0.0  # course deviation reward weight
     rho_turn_rate: float = 0.0  # turn rate reward weight
+    rho_goal_not_reached: float = 100.0  # penalty for not reaching the goal
+    goal_radius: float = 30.0  # radius around the goal point where the goal is considered reached
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -167,7 +169,9 @@ class ReadilyApparentManeuveringRewarderParams:
 
 @dataclass
 class DNNParameterRewarderParams:
-    rho_dnn: float = 0.0
+    rho_solver_time: float = 0.0
+    rho_non_optimal_solution: float = 0.0
+    rho_non_relevant_safety_param_change: float = 0.0
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -565,6 +569,12 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._last_course_error = 0.0
+        truncated = kwargs.get("truncated", False)
+        goal_reached = self.env.simulator.determine_ship_goal_reached(radius=self._config.goal_radius)
+        if truncated and not goal_reached:
+            self.last_reward = -self._config.rho_goal_not_reached
+            return self.last_reward
+
         unnormalized_obs = self.env.observation_type.unnormalize(state)
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]
         huber_loss_d2path = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
@@ -593,9 +603,39 @@ class DNNParameterRewarder(cs_reward.IReward):
         self._config = config
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
-        unnormalized_obs = self.env.observation_type.unnormalize(state)
-        path_obs = unnormalized_obs["PathRelativeNavigationObservation"]  # [path_dev, speed_dev, u, v, r]
-        self.last_reward = 0.0
+        # t = self.env.time
+        # tspan = self.env.simulator.t_end - self.env.simulator.t_start
+        colav_info = self.env.ownship.get_colav_data()
+        r_param_dnn = 0.0
+
+        # Penalize long solver times
+        mpc_sampling_time = 1.0 / colav_info["mpc_rate"]
+        mpc_solve_time = colav_info["t_solve"]
+        if mpc_solve_time > mpc_sampling_time:
+            r_param_dnn += -self._config.rho_solver_time * (mpc_solve_time - mpc_sampling_time)
+
+        # Penalize non-optimal solutions
+        if not colav_info["optimal"]:
+            r_param_dnn += -self._config.rho_non_optimal_solution
+
+        # Penalize non-relevant safety parameter changes
+        do_arr = state["TrackingObservation"]
+        unnorm_obs_b = self.env.observation_type.unnormalize(state)
+        ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
+        max_num_do = do_arr.shape[1]
+        do_list = []
+        for i in range(max_num_do):
+            if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its vector
+                cov = do_arr[6:, i].reshape(4, 4)
+                do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
+
+        if len(do_list) > 0:
+            d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
+            r_safe_incr = colav_info["new_mpc_params"][-1] - colav_info["old_mpc_params"][-1]
+            if d2dos[0][1] > 500.0 and abs(r_safe_incr) > 0.0:
+                r_param_dnn += -self._config.rho_non_relevant_safety_param_change * abs(r_safe_incr)
+
+        self.last_reward = r_param_dnn
         return self.last_reward
 
     def get_last_rewards_as_dict(self) -> dict:
@@ -641,13 +681,15 @@ class MPCRewarder(cs_reward.IReward):
             env, config.readily_apparent_maneuvering
         )
         self.action_chatter_rewarder = ActionChatterRewarder(env, config.action_chatter)
+        self.dnn_parameter_provider_rewarder = DNNParameterRewarder(env, config.dnn_parameter_provider)
         self.r_antigrounding: float = 0.0
         self.r_collision_avoidance: float = 0.0
         self.r_colreg: float = 0.0
         self.r_trajectory_tracking: float = 0.0
         self.r_readily_apparent_maneuvering: float = 0.0
         self.r_action_chatter: float = 0.0
-        self.verbose: bool = False
+        self.r_dnn_parameters: float = 0.0
+        self.verbose: bool = True
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
@@ -656,7 +698,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
         self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
-
+        self.r_dnn_parameters = self.dnn_parameter_provider_rewarder(state, action, **kwargs)
         reward = (
             self.r_antigrounding
             + self.r_collision_avoidance
@@ -664,11 +706,12 @@ class MPCRewarder(cs_reward.IReward):
             + self.r_trajectory_tracking
             + self.r_readily_apparent_maneuvering
             + self.r_action_chatter
+            + self.r_dnn_parameters
         )
         reward = reward / self.reward_scale
         if self.verbose:
             print(
-                f"[MPC-REWARDER | {self.env.env_id}]:\n\t- r_scaled: {reward:.4f} \n\t- r_antigrounding: {self.r_antigrounding:.4f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.4f} \n\t- r_colreg: {self.r_colreg:.4f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.4f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.4f} \n\t- r_action_chatter: {self.r_action_chatter:.4f}"
+                f"[MPC-REWARDER | {self.env.env_id}]:\n\t- r_scaled: {reward:.4f} \n\t- r_antigrounding: {self.r_antigrounding:.4f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.4f} \n\t- r_colreg: {self.r_colreg:.4f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.4f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.4f} \n\t- r_action_chatter: {self.r_action_chatter:.4f} \n\t- r_dnn_parameters: {self.r_dnn_parameters:.4f}"
             )
         self.last_reward = reward
         return reward
@@ -682,4 +725,5 @@ class MPCRewarder(cs_reward.IReward):
             "r_trajectory_tracking": self.r_trajectory_tracking,
             "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering,
             "r_action_chatter": self.r_action_chatter,
+            "r_dnn_parameters": self.r_dnn_parameters,
         }

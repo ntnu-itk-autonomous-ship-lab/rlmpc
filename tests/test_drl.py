@@ -3,6 +3,7 @@
 
 import argparse
 import copy
+import pickle
 import sys
 import tracemalloc
 from pathlib import Path
@@ -121,6 +122,8 @@ def main(args):
         },
         "replay_buffer_kwargs": {"handle_timeout_termination": True},
     }
+    with (base_dir / "model_kwargs.yaml").open(mode="w", encoding="utf-8") as fp:
+        pickle.dump(model_kwargs, fp)
 
     # tracemalloc.start(20)
     # t_start = tracemalloc.take_snapshot()

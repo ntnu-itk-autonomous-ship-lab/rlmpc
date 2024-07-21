@@ -26,13 +26,9 @@ import gymnasium as gym
 import matplotlib
 import matplotlib.path as mpath
 import matplotlib.pyplot as plt
-import rlmpc.common.logger as rlmpc_logger
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.utils import set_random_seed
-
-matplotlib.use("Agg")
 import numpy as np
 import rlmpc.common.file_utils as fu
+import rlmpc.common.logger as rlmpc_logger
 import rlmpc.common.math_functions as mf
 import rlmpc.common.paths as dp
 import seacharts.enc as senc
@@ -46,6 +42,8 @@ import yaml
 from matplotlib import cm
 from scipy.interpolate import interp1d
 from scipy.stats import chi2
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.utils import set_random_seed
 
 plt.rcParams.update(
     {
@@ -184,7 +182,15 @@ def compute_distances_to_dynamic_obstacles(ownship_state: np.ndarray, do_list: L
 
 
 def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5) -> rlmpc_logger.RLData:
+    """Smooths out training data from the RL process, given the chosen window size.
 
+    Args:
+        data (rlmpc_logger.RLData): RLData structure
+        ma_window_size (int, optional): Smoothing (moving average) window size in number of episodes.
+
+    Returns:
+        rlmpc_logger.RLData: Smoothed RLData structure.
+    """
     smoothed_critic_loss, std_critic_loss = compute_smooted_mean_and_std(data.critic_loss, window_size=ma_window_size)
     smoothed_actor_loss, std_actor_loss = compute_smooted_mean_and_std(data.actor_loss, window_size=ma_window_size)
     smoothed_mean_actor_grad_norm, std_mean_actor_grad_norm = compute_smooted_mean_and_std(
@@ -195,8 +201,8 @@ def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5)
     )
     smoothed_ent_coeff, std_ent_coeff = compute_smooted_mean_and_std(data.ent_coeff, window_size=ma_window_size)
 
-    smoothed_infeasible_solutions, std_infeasible_solutions = compute_smooted_mean_and_std(
-        data.infeasible_solutions, window_size=ma_window_size
+    smoothed_non_optimal_solution_rate, std_non_optimal_solution_rate = compute_smooted_mean_and_std(
+        data.non_optimal_solution_rate, window_size=ma_window_size
     )
     smoothed_mean_episode_reward, std_mean_episode_reward = compute_smooted_mean_and_std(
         data.mean_episode_reward, window_size=ma_window_size
@@ -204,13 +210,10 @@ def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5)
     smoothed_mean_episode_length, std_mean_episode_length = compute_smooted_mean_and_std(
         data.mean_episode_length, window_size=ma_window_size
     )
-    batch_processing_time, std_batch_processing_time = compute_smooted_mean_and_std(
-        data.batch_processing_time, window_size=ma_window_size
-    )
     success_rate, std_success_rate = compute_smooted_mean_and_std(data.success_rate, window_size=ma_window_size)
 
     smoothed_data = rlmpc_logger.SmoothedRLData(
-        timesteps=data.timesteps,
+        n_updates=data.n_updates,
         time_elapsed=data.time_elapsed,
         episodes=data.episodes,
         critic_loss=smoothed_critic_loss,
@@ -223,14 +226,12 @@ def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5)
         std_ent_coeff_loss=std_ent_coeff_loss,
         ent_coeff=smoothed_ent_coeff,
         std_ent_coeff=std_ent_coeff,
-        infeasible_solutions=smoothed_infeasible_solutions,
-        std_infeasible_solutions=std_infeasible_solutions,
+        non_optimal_solution_rate=smoothed_non_optimal_solution_rate,
+        std_non_optimal_solution_rate=std_non_optimal_solution_rate,
         mean_episode_reward=smoothed_mean_episode_reward,
         std_mean_episode_reward=std_mean_episode_reward,
         mean_episode_length=smoothed_mean_episode_length,
         std_mean_episode_length=std_mean_episode_length,
-        batch_processing_time=batch_processing_time,
-        std_batch_processing_time=std_batch_processing_time,
         success_rate=success_rate,
         std_success_rate=std_success_rate,
     )
@@ -268,21 +269,20 @@ def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: in
     r_trajectory_tracking = []
     r_ra_maneuvering = []
     for env_idx, env_data in enumerate(data):
-        for ep_data in env_data:
-            return_colreg_ep = np.sum([r["r_colreg"] for r in ep_data.reward_components])
-            return_colav_ep = np.sum([r["r_collision_avoidance"] for r in ep_data.reward_components])
-            return_antigrounding_ep = np.sum([r["r_antigrounding"] for r in ep_data.reward_components])
-            return_trajectory_tracking_ep = np.sum([r["r_trajectory_tracking"] for r in ep_data.reward_components])
-            return_readily_apparent_maneuvering_ep = np.sum(
-                [r["r_readily_apparent_maneuvering"] for r in ep_data.reward_components]
-            )
+        return_colreg_ep = np.sum([r["r_colreg"] for r in env_data.reward_components])
+        return_colav_ep = np.sum([r["r_collision_avoidance"] for r in env_data.reward_components])
+        return_antigrounding_ep = np.sum([r["r_antigrounding"] for r in env_data.reward_components])
+        return_trajectory_tracking_ep = np.sum([r["r_trajectory_tracking"] for r in env_data.reward_components])
+        return_readily_apparent_maneuvering_ep = np.sum(
+            [r["r_readily_apparent_maneuvering"] for r in env_data.reward_components]
+        )
 
-            r_colreg.append(return_colreg_ep)
-            r_colav.append(return_colav_ep)
-            r_antigrounding.append(return_antigrounding_ep)
-            r_trajectory_tracking.append(return_trajectory_tracking_ep)
-            r_ra_maneuvering.append(return_readily_apparent_maneuvering_ep)
-            rewards.append(ep_data.cumulative_reward)
+        r_colreg.append(return_colreg_ep)
+        r_colav.append(return_colav_ep)
+        r_antigrounding.append(return_antigrounding_ep)
+        r_trajectory_tracking.append(return_trajectory_tracking_ep)
+        r_ra_maneuvering.append(return_readily_apparent_maneuvering_ep)
+        rewards.append(env_data.cumulative_reward)
 
     rewards_smoothed, std_rewards_smoothed = compute_smooted_mean_and_std(rewards, ma_window_size)
     r_colreg, std_r_colreg = compute_smooted_mean_and_std(r_colreg, ma_window_size)

@@ -218,7 +218,7 @@ class SAC(opa.OffPolicyAlgorithm):
         self.actor.mpc.save_params(pathlib.Path(str(path) + "_actor.yaml"))
         th.save(self.actor.mpc_param_provider.state_dict(), pathlib.Path(str(path) + "_mpc_param_provider.pth"))
 
-    def custom_load(self, path: pathlib.Path) -> None:
+    def inplace_load(self, path: pathlib.Path) -> None:
         """Loads the model parameters (NN critic and MPC actor)
 
         Args:
@@ -271,7 +271,7 @@ class SAC(opa.OffPolicyAlgorithm):
             optimizers += [self.ent_coef_optimizer]
         self._update_learning_rate(optimizers)
 
-        ent_coef_losses, ent_coef = [], []
+        ent_coef_losses, ent_coefs = [], []
         actor_losses, critic_losses = [], []
         actor_grad_norms = []
         mean_actor_loss = 0.0
@@ -302,7 +302,7 @@ class SAC(opa.OffPolicyAlgorithm):
             else:
                 ent_coef = self.ent_coef_tensor
 
-            ent_coef.append(ent_coef.item())
+            ent_coefs.append(ent_coef.item())
 
             # Optimize entropy coefficient, also called
             # entropy temperature or alpha in the paper
@@ -404,7 +404,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
                     da_dp_mpc = sens.da_dp(z, p_fixed, p).full()
                     mpc_param_grad_norms.append(np.linalg.norm(da_dp_mpc))
-                    print(f"da_dp_mpc: {da_dp_mpc.flatten()}")
+                    # print(f"da_dp_mpc: {da_dp_mpc.flatten()}")
                     da_dp_mpc = th.from_numpy(da_dp_mpc).float()
                     d_log_pi_dp = (
                         (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T
@@ -434,15 +434,17 @@ class SAC(opa.OffPolicyAlgorithm):
         self._n_updates += gradient_steps
 
         print(
-            f"[TRAINING] Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coef_losses):.4f} | Ent Coeff: {np.mean(ent_coef):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
+            f"[TRAINING] Updates: {self._n_updates} | Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coef_losses):.4f} | Ent Coeff: {np.mean(ent_coefs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
         )
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/ent_coef", np.mean(ent_coef))
+        self.logger.record("train/ent_coef", np.mean(ent_coefs))
         self.logger.record("train/actor_loss", mean_actor_loss)
         self.logger.record("train/actor_grad_norm", mean_actor_grad_norm)
         self.logger.record("train/mpc_param_grad_norm", mean_mpc_param_grad_norm)
         self.logger.record("train/critic_loss", np.mean(critic_losses))
         self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
+        self.logger.record("train/batch_processing_time", time.time() - batch_start_time)
+        self.logger.record("train/time_elapsed", max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon))
 
         self.last_training_info.update(
             {
@@ -450,7 +452,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 "actor_grad_norm": mean_actor_grad_norm,
                 "critic_loss": np.mean(critic_losses),
                 "ent_coef_loss": np.mean(ent_coef_losses),
-                "ent_coef": np.mean(ent_coef),
+                "ent_coef": np.mean(ent_coefs),
                 "batch_processing_time": time.time() - batch_start_time,
                 "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
                 "n_updates": self._n_updates,

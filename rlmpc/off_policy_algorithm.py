@@ -454,6 +454,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
                     actor_infos[env_idx]["trajectory"]
                 )
+                env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
 
             # SARSA style buffer storage
             action_count += 1
@@ -500,13 +501,11 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             print(f"Callback time: {time.time() - t_callback_start:.2f}s")
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
-
             self._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
 
             for idx, done in enumerate(dones):
                 if done:
                     print(f"Rollout collection for episode {self._episode_num} finished")
-                    # Update stats
                     num_collected_episodes += 1
                     self._episode_num += 1
                     action_count = 0
@@ -518,12 +517,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                         kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
                         action_noise.reset(**kwargs)
 
-                    # Log training infos
                     if log_interval is not None and self._episode_num % log_interval == 0:
                         self._dump_logs()
                         self.just_dumped_rollout_logs = True
-
-                    self.save_replay_buffer(self.data_path / "replay_buffer.pkl")
 
         callback.on_rollout_end()
         return sb3_types.RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)

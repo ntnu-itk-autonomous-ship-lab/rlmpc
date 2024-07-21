@@ -186,7 +186,7 @@ class CollectStatisticsCallback(BaseCallback):
             self.n_episodes += np.sum(done_array).item()
 
         if self.num_timesteps % self.log_freq == 0 or np.sum(done_array).item() > 0:
-            for env_idx in range(self.vec_env.num_envs):
+            for env_idx in range(self.num_envs):
                 if np.any(done_array):  # only one element in done_array for SAC
                     infos[env_idx] = (
                         self.prev_infos[env_idx]
@@ -601,6 +601,7 @@ def evaluate_policy(
                 env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
                     actor_infos[env_idx]["trajectory"]
                 )
+                env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
         else:
             actions, states = model.predict(
                 observations,  # type: ignore[arg-type]
@@ -634,6 +635,8 @@ def evaluate_policy(
                     if is_mpc_policy:
                         actor_infos[i] = {}
                         model.actor.mpc.close_enc_display()
+                        env.envs[i].unwrapped.terminal_info.update({"actor_info": last_actor_info[i]})
+                        last_actor_info[i] = {}
                     if is_monitor_wrapped:
                         if "episode" in info.keys():
                             # Do not trust "done" with episode endings.

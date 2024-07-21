@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type
 
-import colav_simulator.common.math_functions as cs_mf
 import numpy as np
 import rlmpc.common.config_parsing as cp
 import rlmpc.common.paths as dp
@@ -22,15 +21,11 @@ import rlmpc.mpc.models as models
 import rlmpc.mpc.parameters as mpc_parameters
 import scipy.interpolate as interp
 import seacharts.enc as senc
-import sympy as sp
 
 uname_result = platform.uname()
-if uname_result.machine == "arm64" and uname_result.system == "Darwin":
-    ACADOS_COMPATIBLE = False  # ACADOS does not support arm64 and macOS yet
-else:
-    import rlmpc.mpc.mid_level.acados_mpc as acados_mpc
+import rlmpc.mpc.mid_level.acados_mpc as acados_mpc
 
-    ACADOS_COMPATIBLE = True
+ACADOS_COMPATIBLE = True
 
 
 @dataclass

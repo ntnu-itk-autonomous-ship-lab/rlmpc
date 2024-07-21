@@ -73,7 +73,7 @@ def train_rlmpc_sac(
         log_dir=base_dir,
         model_dir=model_dir,
         experiment_name=experiment_name,
-        save_stats_freq=100,
+        save_stats_freq=20,
         save_agent_model_freq=100,
         log_freq=10,
         max_num_env_episodes=1000,
@@ -92,12 +92,11 @@ def train_rlmpc_sac(
         render=True,
         verbose=1,
     )
-
+    model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
     if load_model:
-        model = rlmpc_sac.SAC.custom_load(path=model_dir / load_model_name, env=training_env, **model_kwargs)
+        model.inplace_load(path=model_dir / load_model_name)
         model.load_replay_buffer(path=model_dir / load_rb_name)
-    else:
-        model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
+        model.set_env(training_env)
 
     model.set_random_seed(seed)
     model.learn(

@@ -1,11 +1,13 @@
 
 
 trajectory_tracking:
-  rho_d2path: 10.0
-  rho_speed_dev: 80.0
-  rho_d2goal: 0.005
+  rho_d2path: 20.0
+  rho_d2goal: 0.001
+  rho_speed_dev: 60.0
   rho_course_dev: 10.0
   rho_turn_rate: 1.0
+  rho_goal_not_reached: 3000.0
+  goal_radius: 30.0
 colreg:
   alpha_cr: [0.03, 0.003]
   y_0_cr: 400.0
@@ -41,7 +43,9 @@ anti_grounding:
   rho_anti_grounding: 10000.0
   r_safe: 5.0
 dnn_parameter_provider:
-  rho_dnn: 5.0
+  rho_solver_time: 200.0
+  rho_non_optimal_solution: 2000.0
+  rho_non_relevant_safety_param_change: 100.0
 action_chatter:
   rho_course: 10.0
   rho_speed: 10.0

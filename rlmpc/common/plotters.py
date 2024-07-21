@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 import colav_simulator.common.image_helper_methods as ihm
 import colav_simulator.gym.logger as csgym_logger
+import cv2
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -86,12 +87,16 @@ def plot_single_model_training_enc_snapshots(
         episode = data[idx]
         ep_len = len(episode.frames)
         frame = episode.frames[int(3 * ep_len / 4)]
+        # upscale the image
+        frame = cv2.resize(frame, (frame.shape[1] * 2, frame.shape[0] * 2))
         frame = ihm.remove_whitespace(frame)
         ax.imshow(frame)
         ax.axis("off")
         ax.set_title(f"Episode {idx}")
     if save_fig:
-        save_path = save_path if save_path is not None else Path("./")
+        save_path = save_path if save_path is not None else Path("./figures")
+        if not save_path.exists():
+            save_path.mkdir(parents=True)
         plt.savefig(save_path / f"enc_snapshots_{name}.pdf", bbox_inches="tight", dpi=100)
     plt.show(block=False)
 
@@ -295,16 +300,16 @@ def plot_single_model_training_stats(
     axs[1, 1].set_xlabel("Training step")
 
     sns.lineplot(
-        x=range(len(data.infeasible_solutions)),
-        y=data.infeasible_solutions,
+        x=range(len(data.non_optimal_solution_rate)),
+        y=data.non_optimal_solution_rate,
         ax=axs[1, 2],
         label=model_name,
         color=color,
     )
     axs[1, 2].fill_between(
-        range(len(data.infeasible_solutions)),
-        data.infeasible_solutions - data.std_infeasible_solutions,
-        data.infeasible_solutions + data.std_infeasible_solutions,
+        range(len(data.non_optimal_solution_rate)),
+        data.non_optimal_solution_rate - data.std_non_optimal_solution_rate,
+        data.non_optimal_solution_rate + data.std_non_optimal_solution_rate,
         alpha=0.2,
         color=color,
     )

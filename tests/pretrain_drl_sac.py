@@ -3,16 +3,16 @@ import argparse
 import inspect
 import time
 from pathlib import Path
-from sys import platform
 from typing import List, Tuple
 
 import gymnasium as gym
 import numpy as np
 import rlmpc.common.datasets as rl_ds
+import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.networks.feature_extractors as rl_fe
 import rlmpc.networks.loss_functions as loss_functions
-import rlmpc.policies as rl_policies
+import rlmpc.sac as rlmpc_sac
 import torch
 import yaml
 from rlmpc.networks.tracking_vae_attention.vae import VAE
@@ -210,21 +210,24 @@ def train_critic(
     return model, best_test_loss, best_train_loss, best_epoch
 
 
-if __name__ == "__main__":
-    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc/"
+def main(args):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
+    parser.add_argument("--n_cpus", type=int, default=1)
+    parser.add_argument("--learning_rate", type=float, default=0.0001)
+    parser.add_argument("--buffer_size", type=int, default=1000)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--gradient_steps", type=int, default=1)
+    parser.add_argument("--train_freq", type=int, default=8)
+    parser.add_argument("--n_eval_episodes", type=int, default=4)
+    parser.add_argument("--timesteps", type=int, default=10000)
+    args = parser.parse_args(args)
+    args.base_dir = Path(args.base_dir)
+    print("Provided args to SAC RLMPC training:")
+    print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    feature_extractor = rl_fe.CombinedExtractor
-
-    num_layers = [1, 2, 3]
-    hidden_dims = [64, 128, 256]
-    load_model = False
-    save_interval = 20
-    batch_size = 128
-    num_epochs = 40
-    learning_rate = 2e-4
-
     observation_type = {
         "dict_observation": [
             "path_relative_navigation_observation",
@@ -257,8 +260,45 @@ if __name__ == "__main__":
     }
     env = gym.make(id=env_id, **env_config)
 
-    data_dir = Path("/home/doctor/Desktop/machine_learning/rlmpc/critic_data/")
+    base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=args.experiment_name)
     # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/rlmpc/critic_data/")
+
+    mpc_config_file = rl_dp.config / "rlmpc.yaml"
+    # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
+    actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    mpc_param_provider_kwargs = {
+        "param_list": ["r_safe_do"],
+        "hidden_sizes": [256, 64],
+        "activation_fn": th.nn.ReLU,
+    }
+    policy_kwargs = {
+        "features_extractor_class": CombinedExtractor,
+        "critic_arch": [512, 512],
+        "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
+        "mpc_config": mpc_config_file,
+        "activation_fn": th.nn.ReLU,
+        "std_init": actor_noise_std_dev,
+        "debug": True,
+    }
+    model_kwargs = {
+        "policy": rlmpc_policies.SACPolicyWithMPC,
+        "policy_kwargs": policy_kwargs,
+        "learning_rate": args.learning_rate,
+        "buffer_size": args.buffer_size,
+        "batch_size": args.batch_size,
+        "gradient_steps": args.gradient_steps,
+        "train_freq": (args.train_freq, "step"),
+        "learning_starts": 0,
+        "tau": 0.001,
+        "device": "cpu",
+        "ent_coef": "auto",
+        "verbose": 1,
+        "tensorboard_log": str(log_dir),
+    }
+    load_model_name = "sac_rlmpc1_0_steps"
+    model = rlmpc_sac.SAC.custom_load(path=model_dir / load_model_name, env=env, **model_kwargs)
+    model.load_replay_buffer(path=model_dir / load_model_name + "_replay_buffer")
+
     training_data_filename_list = []
     for i in range(1, 2):
         training_data_filename = f"critic_training_data_rogaland{i}.npy"
@@ -286,7 +326,7 @@ if __name__ == "__main__":
     print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
     print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
 
-    log_dir = BASE_PATH / "logs"
+    log_dir = base_dir / "logs"
 
     best_experiment = ""
     best_loss_sofar = 1e20
@@ -306,28 +346,22 @@ if __name__ == "__main__":
             experiment_path = BASE_PATH / name
 
             writer = SummaryWriter(log_dir=log_dir / name)
-            optimizer = torch.optim.Adam(critic.parameters(), lr=learning_rate)
+            optimizer = torch.optim.Adam(critic.parameters(), lr=args.learning_rate)
             # T_max = len(train_dataloader) * num_epochs
             # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
-            lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
+            lr_schedule = CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=3e-5)
             # lr_schedule = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
             if not experiment_path.exists():
                 experiment_path.mkdir(parents=True)
 
             training_config = {
-                "base_path": BASE_PATH,
-                "experiment_path": experiment_path,
-                "experiment_name": name,
-                "num_layers": layers,
-                "hidden_dim": hidden_dim,
-                "input_dim": observation_dim,
-                "batch_size": batch_size,
-                "num_epochs": num_epochs,
-                "learning_rate": learning_rate,
-                "save_interval": save_interval,
-                "load_model": load_model,
+                "learning_rate": args.learning_rate,
+                "batch_size": args.batch_size,
+                "num_epochs": args.num_epochs,
+                "model_kwargs": model_kwargs,
             }
+
             with Path(experiment_path / "config.yaml").open(mode="w", encoding="utf-8") as fp:
                 yaml.dump(training_config, fp)
 
@@ -346,10 +380,6 @@ if __name__ == "__main__":
                 experiment_path=experiment_path,
             )
 
-            print(
-                f"[EXPERIMENT: {exp_counter + 1}]: LD={latent_dim}, NL={num_rnn_layers_decoder}, HD={rnn_hidden_dim_decoder}, NH={num_heads}, ED={embedding_dim} | Optimal loss: {opt_loss} at epoch {opt_epoch}"
-            )
-
             if opt_loss < best_loss_sofar:
                 best_loss_sofar = opt_loss
                 best_experiment = name
@@ -357,3 +387,8 @@ if __name__ == "__main__":
             exp_counter += 1
 
     print(f"BEST EXPERIMENT: {best_experiment} WITH LOSS: {best_loss_sofar}")
+
+
+if __name__ == "__main__":
+
+    main(sys.argv[1:])
