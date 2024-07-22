@@ -2,7 +2,7 @@ import unittest
 import warnings
 
 import rlmpc.common.paths as dp
-import rlmpc.rlmpc as rlmpc
+import rlmpc.rlmpc_cas as rlmpc_cas
 from colav_simulator.scenario_generator import ScenarioGenerator
 from colav_simulator.simulator import Simulator
 
@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", module="pandas")
 class TestRLMPC(unittest.TestCase):
 
     def setUp(self) -> None:
-        self.rlmpc_obj = rlmpc.RLMPC()
+        self.rlmpc_obj = rlmpc_cas.RLMPC()
         self.scenario_generator = ScenarioGenerator(seed=7)
         self.simulator = Simulator()
 

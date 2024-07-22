@@ -13,15 +13,15 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import colav_simulator.common.math_functions as csmf
 import colav_simulator.core.stochasticity as stochasticity
+import colav_simulator.gym.environment as csenv
 import numpy as np
 import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
 import rlmpc.networks.feature_extractors as rlmpc_fe
-import rlmpc.rlmpc as rlmpc
+import rlmpc.rlmpc_cas as rlmpc_cas
 import torch as th
-from colav_simulator.gym.environment import COLAVEnvironment
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel, ContinuousCritic
@@ -432,7 +432,7 @@ class SACMPCActor(BasePolicy):
         observation_type: Any,
         action_type: Any,
         mpc_param_provider_kwargs: Dict[str, Any],
-        mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
+        mpc_config: rlmpc_cas.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
         clip_mean: float = 2.0,
         disable_parameter_provider: bool = False,
@@ -480,7 +480,7 @@ class SACMPCActor(BasePolicy):
         #     }
         # ]
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
-        self.mpc = rlmpc.RLMPC(mpc_config)
+        self.mpc = rlmpc_cas.RLMPC(mpc_config)
         self.mpc_sensitivities = None
         self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.mpc.get_mpc_params()
@@ -698,7 +698,7 @@ class SACMPCActor(BasePolicy):
                     "norm_prev_action": prev_action.numpy(),
                     "unnorm_mpc_action": action,
                     "dnn_input_features": dnn_input.detach().cpu().numpy(),
-                    "mpc_param_increment": mpc_param_increment,
+                    "mpc_param_increment": mpc_param_increment if not self.disable_parameter_provider else None,
                     "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
                     "old_mpc_params": unnorm_current_mpc_params,
                     "norm_old_mpc_params": norm_current_mpc_params.detach().numpy(),
@@ -808,7 +808,7 @@ class SACMPCActor(BasePolicy):
 
     def initialize(
         self,
-        env: COLAVEnvironment,
+        env: csenv.COLAVEnvironment,
         **kwargs,
     ) -> None:
         """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
@@ -888,11 +888,12 @@ class SACPolicyWithMPC(BasePolicy):
         lr_schedule: Schedule,
         critic_arch: Optional[List[int]] = [256, 256],
         mpc_param_provider_kwargs: Dict[str, Any] = {},
-        mpc_config: rlmpc.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
+        mpc_config: rlmpc_cas.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
         features_extractor_class: Type[rlmpc_fe.CombinedExtractor] = rlmpc_fe.CombinedExtractor,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        disable_parameter_provider: bool = False,
         normalize_images: bool = True,
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
@@ -929,6 +930,7 @@ class SACPolicyWithMPC(BasePolicy):
             "mpc_config": mpc_config,
             "observation_type": self.observation_type,
             "action_type": self.action_type,
+            "disable_parameter_provider": disable_parameter_provider,
             "std_init": std_init,
             "debug": debug,
         }
@@ -964,7 +966,7 @@ class SACPolicyWithMPC(BasePolicy):
 
     def initialize_mpc_actor(
         self,
-        env: COLAVEnvironment,
+        env: csenv.COLAVEnvironment,
         **kwargs,
     ) -> None:
         self.actor.initialize(env, **kwargs)

@@ -255,7 +255,7 @@ class CasadiMPC:
         self._s_final_value = s_final
         self.model.set_min_path_variable(self._s)
         self.model.set_max_path_variable(s_final)  # margin
-        print("Path information set. | s_final: ", s_final)
+        # print("Path information set. | s_final: ", s_final)
 
         _, path_var_derivative_refs, _ = self._create_path_parameter_values()
         Q_p_vec = self._params.Q_p.diagonal().flatten()

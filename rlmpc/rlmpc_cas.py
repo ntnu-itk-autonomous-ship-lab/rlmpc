@@ -1,8 +1,8 @@
 """
-    rlmpc.py
+    rlmpc_cas.py
 
     Summary:
-        COLAV-simulator wrapper for the RL-MPC algorithm.
+        COLAV-simulator wrapper for the RL-MPC Collision Avoidance System (CAS).
 
     Author: Trym Tengesdal
 """
@@ -618,7 +618,9 @@ class RLMPC(ci.ICOLAV):
             csog_state_cpy = csog_state.copy()
             csog_state[2] = csog_state_cpy[3]
             csog_state[3] = csog_state_cpy[2]
-            print(f"len mpc do_list: {len(translated_do_list)}")
+            if self._debug:
+                print(f"len mpc do_list: {len(translated_do_list)}")
+
             do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
                 csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
             )

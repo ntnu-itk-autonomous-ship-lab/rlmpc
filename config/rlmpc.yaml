@@ -56,7 +56,7 @@ mpc:
     reference_traj_bbox_buffer: 200.0
     T: 60.0
     dt: 2.0
-    Q_p: [0.5, 3.0, 3.0] # [0.3, 1.0, 15.0]
+    Q_p: [0.2, 3.0, 3.0] # [0.3, 1.0, 15.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.001]
     K_app_course: 30.0
@@ -73,12 +73,12 @@ mpc:
     w_colregs: [70.0, 70.0, 30.0]
 
     w_L2: 0.0
-    w_L1: 2000.0 # 100000.0
+    w_L1: 3000.0 # 100000.0
     r_safe_so: 1.0
     r_safe_do: 15.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
-    max_num_so_constr: 10
+    max_num_so_constr: 13
     max_num_do_constr_per_zone: 3 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:

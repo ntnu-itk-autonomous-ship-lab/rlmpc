@@ -234,9 +234,9 @@ class CollectStatisticsCallback(BaseCallback):
             print("Saving agent after", self.num_timesteps, "timesteps")
             # NMPC SAC model must have a custom_save method
             if hasattr(self.model, "custom_save"):
-                self.model.custom_save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
+                self.model.custom_save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
             else:
-                self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}")
+                self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
             if hasattr(self.model, "save_replay_buffer"):
                 self.model.save_replay_buffer(self.model_save_path / f"{self.experiment_name}_replay_buffer")
 
@@ -586,6 +586,7 @@ def evaluate_policy(
         if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
             states = None
             model.policy.initialize_mpc_actor(env.envs[0])
+            last_actor_info = [{} for _ in range(n_envs)]
 
         if is_mpc_policy:
             _, normalized_actions, actor_infos = model.predict_with_mpc(

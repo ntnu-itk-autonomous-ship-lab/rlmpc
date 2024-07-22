@@ -59,6 +59,7 @@ class AcadosMPC:
             name for name in self._all_adjustable_param_str_list if name not in self._adjustable_param_str_list
         ]
         self._parameter_values: list = []
+        self.verbose: bool = False
 
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -401,10 +402,11 @@ class AcadosMPC:
         # so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
         # self._x_warm_start = trajectory.copy()
         # self._u_warm_start = inputs.copy()
-        np.set_printoptions(precision=3)
-        print(
-            f"[ACADOS] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
-        )
+        if self.verbose:
+            np.set_printoptions(precision=3)
+            print(
+                f"[ACADOS] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
+            )
         w = np.concatenate((inputs.flatten(), trajectory.flatten(), slacks.flatten())).reshape(-1, 1)
         soln = {"x": w, "lam_g": lam_g, "lam_x": np.zeros(w.shape, dtype=np.float32)}
         self._p_fixed_values = self.create_all_fixed_parameter_values(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
@@ -560,7 +562,7 @@ class AcadosMPC:
             if i < self._acados_ocp.dims.N:
                 solver.set(i, "u", self._u_warm_start[:, i])
             p_i = self.create_parameter_values(xs, do_cr_list, do_ho_list, do_ot_list, i)
-            if p_i.size != self._p_adjustable.shape[0] + self._p_fixed.shape[0]:
+            if p_i.size != self._p_adjustable.shape[0] + self._p_fixed.shape[0] and self.verbose:
                 print(f"Parameter size mismatch: {p_i.size} vs {len(self._p_list)}")
             self._parameter_values.append(p_i)
             solver.set(i, "p", p_i)
@@ -914,7 +916,7 @@ class AcadosMPC:
             - np.ndarray: Parameter vector to be used as input to solver
         """
         adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
-        if stage_idx == 0:
+        if stage_idx == 0 and self.verbose:
             print(f"Adjustable params: {adjustable_params}")
 
         _, nu = self._acados_ocp.dims.nx, self._acados_ocp.dims.nu
