@@ -25,7 +25,8 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel, ContinuousCritic
-from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
+from stable_baselines3.common.preprocessing import (get_action_dim,
+                                                    is_image_space)
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -190,7 +191,7 @@ class MPCParameterDNN(th.nn.Module):
             "r_safe_do": [5.0, 120.0],
         }
         self.out_parameter_incr_ranges = {
-            "Q_p": [-0.5, 0.5],
+            "Q_p": [[-0.5, 0.5], [-2.0, 2.0], [-2.0, 2.0]],
             "K_app_course": [-5.0, 5.0],
             "K_app_speed": [-5.0, 5.0],
             "d_attenuation": [-50.0, 50.0],
@@ -285,7 +286,10 @@ class MPCParameterDNN(th.nn.Module):
 
             x_param_incr = x_np[pindx : pindx + param_length]
             for j in range(len(x_param_incr)):  # pylint: disable=consider-using-enumerate
-                x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range))
+                if param_name == "Q_p":
+                    x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range[j]))
+                else:
+                    x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range))
 
             x_param_current = current_params_np[pindx : pindx + param_length]
             x_param_new = x_param_current + x_param_incr

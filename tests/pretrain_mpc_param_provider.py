@@ -247,10 +247,10 @@ def main(args):
     num_epochs = 40
     learning_rate = 2e-4
 
-    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1" / "final_eval"
+    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1" / "final_eval_baseline2"
     data_filename_list = []
     for i in range(1, 2):
-        data_filename = f"sac_rlmpc1_final_eval_env_data{i}"
+        data_filename = "sac_rlmpc1_final_eval_env_data"
         data_filename_list.append(data_filename)
 
     dataset = torch.utils.data.ConcatDataset(

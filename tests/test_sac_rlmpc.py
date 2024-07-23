@@ -80,7 +80,7 @@ def main(args):
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = False
+    generate = True
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
@@ -93,7 +93,7 @@ def main(args):
                 save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=600,
+                n_episodes=100,
                 delete_existing_files=True,
             )
 
@@ -105,7 +105,7 @@ def main(args):
                 save_scenario_folder=rl_dp.scenarios / "test_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
-                n_episodes=50,
+                n_episodes=20,
                 delete_existing_files=True,
             )
 

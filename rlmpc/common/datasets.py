@@ -10,6 +10,7 @@
 from pathlib import Path
 from typing import Optional, Tuple
 
+import colav_simulator.common.math_functions as csmf
 import colav_simulator.gym.logger as csenv_logger
 import matplotlib.pyplot as plt
 import numpy as np
@@ -109,8 +110,6 @@ class TrackingObservationDataset(Dataset):
     where n_samples is the number of samples, n_envs is the number of environments,
     max_num_do is the maximum number of dynamic obstacles in the environment,
     and do_info_dim is the dimension of the dynamic obstacle information.
-
-
     """
 
     def __init__(
@@ -178,7 +177,7 @@ class ParameterProviderDataset(Dataset):
         self.env_data_logger = csenv_logger.Logger(experiment_name="parameter_provider_dataset", log_dir=data_dir)
         self.env_data_logger.load_from_pickle(name=env_data_pkl_file)
         self.timestep = 2.0
-
+        self.param_list = ["Q_p", "r_safe_do"]
         self.dnn_out_parameter_ranges = {
             "Q_p": [[0.001, 2.5], [0.1, 100.0], [0.1, 100.0]],
             "K_app_course": [0.1, 200.0],
@@ -188,7 +187,7 @@ class ParameterProviderDataset(Dataset):
             "r_safe_do": [5.0, 120.0],
         }
         self.dnn_out_parameter_incr_ranges = {
-            "Q_p": [-0.5, 0.5],
+            "Q_p": [[-0.25, 0.25], [-2.0, 2.0], [-2.0, 2.0]],
             "K_app_course": [-5.0, 5.0],
             "K_app_speed": [-5.0, 5.0],
             "d_attenuation": [-50.0, 50.0],
@@ -203,6 +202,11 @@ class ParameterProviderDataset(Dataset):
             "w_colregs": 3,
             "r_safe_do": 1,
         }
+        offset = 0
+        self.out_parameter_indices = {}
+        for param in self.param_list:
+            self.out_parameter_indices[param] = offset
+            offset += self.dnn_out_parameter_lengths[param]
 
         self._setup_data()
 
@@ -220,26 +224,77 @@ class ParameterProviderDataset(Dataset):
                 n_timesteps=n_timesteps,
                 dnn_input_features=dnn_input_features,
                 dnn_input_current_norm_mpc_params=dnn_input_current_norm_mpc_params,
-                distances_to_collision=distances_to_collision
+                distances_to_collision=epdata.distances_to_collision,
             )
             # add param_incr_preferences to the dnn_input_current_norm_mpc_params for a well-posed dataset
             processed_epdata = list(zip(dnn_input_features, dnn_input_current_norm_mpc_params, param_incr_preferences))
             self.data.extend(processed_epdata)
 
     def _compute_ad_hoc_parameter_preferences(
-        self, n_timesteps: int, dnn_input_features: np.ndarray, dnn_input_current_norm_mpc_params: np.ndarray, distances_to_collision: np.ndarray
-    ) -> np.ndarray:
+        self,
+        n_timesteps: int,
+        dnn_input_features: np.ndarray,
+        dnn_input_current_norm_mpc_params: np.ndarray,
+        distances_to_collision: np.ndarray,
+        d2collision_threshold: float = 500.0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Computes ad hoc parameter preferences for the parameter provider dataset, based on the env data provided.
 
         Args:
             n_timesteps (int): Number of timesteps in the env data.
+            d2collision_threshold (float): The distance to collision threshold for which to apply a factor to the Q_p parameter.
 
 
         Returns:
-            np.ndarray: The parameter preferences.
+            Tuple[np.ndarray, np.ndarray]: The parameter preferences and updated current norm mpc params for the dataset.
         """
-        param_prefs = np.zeros((self.num_adjustable_mpc_params, n_timesteps))
-        for s in range(n_timesteps):
+        unnorm_param_increments = np.zeros((self.num_adjustable_mpc_params, n_timesteps))
+        param_increments = np.zeros((self.num_adjustable_mpc_params, n_timesteps))
+        unnorm_mpc_params_0 = self._unnormalize_parameters(dnn_input_current_norm_mpc_params[0])
+        unnorm_mpc_params_124 = self._unnormalize_parameters(
+            dnn_input_current_norm_mpc_params[int(124 // self.timestep)]
+        )
+        unnorm_mpc_params_190 = self._unnormalize_parameters(
+            dnn_input_current_norm_mpc_params[int(190 // self.timestep)]
+        )
+        unnorm_mpc_params_234 = self._unnormalize_parameters(
+            dnn_input_current_norm_mpc_params[int(234 // self.timestep)]
+        )
+        new_unnorm_mpc_params = np.zeros_like(dnn_input_current_norm_mpc_params)
+        for k in range(n_timesteps):
+            t = k * self.timestep
+            unnorm_mpc_params_k = self._unnormalize_parameters(dnn_input_current_norm_mpc_params[k])
+            if t >= 30.0 and t < 100.0:
+                ramp = (5.0 - unnorm_mpc_params_0[-1]) / ((100.0 - 30.0) / self.timestep)
+            elif t >= 124.0 and t < 160.0:
+                ramp = (15.0 - unnorm_mpc_params_124[-1]) / (160.0 - 124.0)
+            elif t >= 190.0 and t < 200.0:
+                ramp = (5.0 - unnorm_mpc_params_190[-1]) / (200.0 - 190.0)
+            elif t >= 234.0 and t < 254.0:
+                ramp = (30.0 - unnorm_mpc_params_234[-1]) / (254.0 - 234.0)
+            else:
+                ramp = 0.0
+
+            unnorm_param_increments[-1, k] = ramp
+            # if next_20s_d2collision > d2collision_threshold
+            idx_20s_ahead = min(k + int(20.0 / self.timestep), n_timesteps - 1)
+            if np.all(distances_to_collision[k:idx_20s_ahead] > d2collision_threshold):
+                unnorm_param_increments[0, k] = self.dnn_out_parameter_incr_ranges["Q_p"][0][1]
+                unnorm_param_increments[1, k] = self.dnn_out_parameter_incr_ranges["Q_p"][1][1]
+                unnorm_param_increments[2, k] = self.dnn_out_parameter_incr_ranges["Q_p"][2][1]
+
+            next_idx = min(k + 1, n_timesteps - 1)
+            if (
+                distances_to_collision[k] < 0.5 * d2collision_threshold
+                and distances_to_collision[next_idx] < distances_to_collision[k]
+            ):
+                unnorm_param_increments[0, k] = self.dnn_out_parameter_incr_ranges["Q_p"][0][0]
+                unnorm_param_increments[1, k] = self.dnn_out_parameter_incr_ranges["Q_p"][1][0]
+                unnorm_param_increments[2, k] = self.dnn_out_parameter_incr_ranges["Q_p"][2][0]
+
+            param_increments[:, k] = self._normalize_parameter_increments(unnorm_param_increments[:, k])
+            new_unnorm_mpc_params[k] = unnorm_mpc_params_k + unnorm_param_increments[:, k]
+
             # ramp1: ned til 5.0 m for r_safe_do i stredet ved ish t = 100.0s. => mink med (5 - r_safe_do_init) / (100.0 - 0.0) per
             # ramp2: Opp til 15.0m frå ish t = 124.0s til 160.0s.
             # ramp3: Ned til 5.0 m igjen frå ish t = 190.0s til 200.0s.
@@ -251,7 +306,100 @@ class ParameterProviderDataset(Dataset):
 
         # ramp function from initial norm mpc param
         # decrease to
-        return param_prefs
+        return param_increments, new_norm_mpc_params
+
+    def _unnormalize_parameters(self, x: np.ndarray) -> np.ndarray:
+        """Unnormalize the input parameter.
+
+        Args:
+            x  (np.ndarray): The normalized parameter
+
+        Returns:
+            np.ndarray: The unnormalized parameter
+        """
+        x_unnorm = np.zeros_like(x)
+        for param_name in self.param_list:
+            param_range = self.dnn_out_parameter_ranges[param_name]
+            param_length = self.dnn_out_parameter_lengths[param_name]
+            pindx = self.out_parameter_indices[param_name]
+            x_param = x[pindx : pindx + param_length]
+
+            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+                if param_name == "Q_p":
+                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range[j]))
+                else:
+                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+            x_unnorm[pindx : pindx + param_length] = x_param
+        return x_unnorm
+
+    def _normalize_parameters(self, x: np.ndarray) -> np.ndarray:
+        """Normalize the input parameter.
+
+        Args:
+            x (np.ndarray): The unnormalized parameter
+
+        Returns:
+            np.ndarray: The normalized parameter
+        """
+        x_norm = np.zeros_like(x)
+        for param_name in self.param_list:
+            param_range = self.dnn_out_parameter_ranges[param_name]
+            param_length = self.dnn_out_parameter_lengths[param_name]
+            pindx = self.out_parameter_indices[param_name]
+            x_param = x[pindx : pindx + param_length]
+
+            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+                if param_name == "Q_p":
+                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range[j]), (-1.0, 1.0))
+                else:
+                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range), (-1.0, 1.0))
+            x_norm[pindx : pindx + param_length] = x_param
+        return x_norm
+
+    def _normalize_parameter_increments(self, x: np.ndarray) -> np.ndarray:
+        """Normalize the input parameter increment.
+
+        Args:
+            x (np.ndarray): The unnormalized parameter increment
+
+        Returns:
+            np.ndarray: The normalized parameter increment
+        """
+        x_norm = np.zeros_like(x)
+        for param_name in self.param_list:
+            param_range = self.dnn_out_parameter_incr_ranges[param_name]
+            param_length = self.dnn_out_parameter_lengths[param_name]
+            pindx = self.out_parameter_indices[param_name]
+            x_param_norm = x[pindx : pindx + param_length].copy()
+
+            for j in range(len(x_param_norm)):  # pylint: disable=consider-using-enumerate
+                if param_name == "Q_p":
+                    x_param_norm[j] = csmf.linear_map(x_param_norm[j], tuple(param_range[j]), (-1.0, 1.0))
+                else:
+                    x_param_norm[j] = csmf.linear_map(x_param_norm[j], tuple(param_range), (-1.0, 1.0))
+            x_norm[pindx : pindx + param_length] = x_param_norm
+        return x_norm
+
+    def _unnormalize_parameter_increments(self, x: np.ndarray) -> np.ndarray:
+        """Unnormalize the input parameter increment.
+
+        Args:
+            x  (np.ndarray): The normalized parameter increment
+
+        Returns:
+            np.ndarray: The unnormalized parameter increment
+        """
+        x_unnorm = np.zeros_like(x)
+        for param_name in self.param_list:
+            param_range = self.dnn_out_parameter_incr_ranges[param_name]
+            param_length = self.dnn_out_parameter_lengths[param_name]
+            pindx = self.out_parameter_indices[param_name]
+            x_param = x[pindx : pindx + param_length]
+
+            for j in range(len(x_param)):
+                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+            x_unnorm[pindx : pindx + param_length] = x_param
+        return x_unnorm
 
     def get_data(self):
         return self.data

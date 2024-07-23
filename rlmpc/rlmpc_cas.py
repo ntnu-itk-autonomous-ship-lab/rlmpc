@@ -618,12 +618,15 @@ class RLMPC(ci.ICOLAV):
             csog_state_cpy = csog_state.copy()
             csog_state[2] = csog_state_cpy[3]
             csog_state[3] = csog_state_cpy[2]
-            if self._debug:
-                print(f"len mpc do_list: {len(translated_do_list)}")
 
             do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
                 csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
             )
+
+            if self._debug:
+                print(
+                    f"Total num DOs: {len(translated_do_list)} | Total num DOs considered in MPC: {len(do_cr_list) + len(do_ho_list) + len(do_ot_list)}"
+                )
 
             warm_start = self.create_mpc_warm_start(t, ownship_state, **kwargs)
 

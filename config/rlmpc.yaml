@@ -69,7 +69,7 @@ mpc:
     alpha_ot: [0.005, 0.01]
     x_0_ot: 300.0
     y_0_ot: 100.0
-    d_attenuation: 200.0
+    d_attenuation: 250.0
     w_colregs: [70.0, 70.0, 30.0]
 
     w_L2: 0.0
