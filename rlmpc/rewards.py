@@ -570,7 +570,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         if self.env.time < 0.0001:
             self._last_course_error = 0.0
         truncated = kwargs.get("truncated", False)
-        goal_reached = self.env.simulator.determine_ship_goal_reached(radius=self._config.goal_radius)
+        goal_reached = self.env.simulator.determine_ship_goal_reached()
         if truncated and not goal_reached:
             self.last_reward = -self._config.rho_goal_not_reached
             return self.last_reward

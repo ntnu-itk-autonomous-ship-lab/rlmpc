@@ -259,8 +259,7 @@ if __name__ == "__main__":
     learning_rate = 2e-4
 
     log_dir = EXPERIMENT_PATH / "logs"
-    data_dir = Path("/home/doctor/Desktop/machine_learning/data/vae/")
-    # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+    data_dir = Path.home() / "Desktop/machine_learning/data/vae/"
     training_data_npy_filename1 = "perception_data_rogaland_random_everything.npy"
     training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything.npy"
 

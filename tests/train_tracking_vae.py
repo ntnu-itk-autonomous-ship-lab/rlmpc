@@ -250,9 +250,7 @@ if __name__ == "__main__":
     batch_size = 128
     num_epochs = 60
     learning_rate = 1e-4
-
-    data_dir = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
-    # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+    data_dir = Path.home() / "Desktop/machine_learning/tracking_vae/data"
     training_data_npy_filename = "tracking_gru_training_data_rogaland.npy"
     test_data_npy_filename = "tracking_gru_test_data_rogaland.npy"
     training_data_npy_filename2 = "tracking_gru_training_data_rogaland2.npy"

@@ -93,7 +93,6 @@ class CollectStatisticsCallback(BaseCallback):
         self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(
             experiment_name,
             self.log_dir,
-            save_freq=save_stats_freq,
             n_envs=self.num_envs,
             max_num_logged_episodes=max_num_env_episodes,
         )
@@ -484,7 +483,6 @@ def evaluate_policy(
     env: Union[gym.Env, VecEnv],
     n_eval_episodes: int = 5,
     render: bool = True,
-    callback: Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]] = None,
     reward_threshold: Optional[float] = None,
     return_episode_rewards: bool = True,
     warn: bool = True,
@@ -518,8 +516,6 @@ def evaluate_policy(
         - env (Union[gym.Env, VecEnv]): The gym environment or ``VecEnv`` environment.
         - n_eval_episodes (int): Number of episode to evaluate the agent
         - render (bool): Whether to render the environment or not
-        - callback (Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]): callback function to do additional checks,
-            called after each step. Gets locals() and globals() passed as parameters.
         - reward_threshold (Optional[float]): Minimum expected reward per episode,
             this will raise an error if the performance is not met
         - return_episode_rewards (bool): If True, a list of rewards and episode lengths
@@ -629,10 +625,10 @@ def evaluate_policy(
                 info = infos[i]
                 episode_starts[i] = done
 
-                if callback is not None:
-                    callback(locals(), globals())
-
                 if dones[i]:
+                    if env_data_logger is not None:
+                        env_data_logger.save_as_pickle(f"{record_name}_env_data")
+
                     if is_mpc_policy:
                         actor_infos[i] = {}
                         model.actor.mpc.close_enc_display()

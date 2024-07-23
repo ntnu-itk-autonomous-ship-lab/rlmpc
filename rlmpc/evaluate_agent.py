@@ -23,7 +23,7 @@ import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.policies as rlmpc_policies
-import rlmpc.rewards as rewards
+import rlmpc.rewards as rlmpc_rewards
 import rlmpc.sac as rlmpc_sac
 import stable_baselines3.sac as sb3_sac
 import torch as th
@@ -54,14 +54,17 @@ def evaluate(
         Tuple[float, float, List[float]]: The mean reward, standard deviation of rewards, and rewards.
     """
     env_data_logger = csenv_logger.Logger(
-        log_dir=log_dir, experiment_name=experiment_name, save_freq=4, n_envs=1, max_num_logged_episodes=500
+        log_dir=log_dir,
+        experiment_name=experiment_name,
+        n_envs=1,
+        max_num_logged_episodes=500,
     )
     ep_rewards, ep_lengths = rlmpc_callbacks.evaluate_policy(
         model,
         env,
         n_eval_episodes=n_eval_episodes,
         record=record,
-        record_path=log_dir / "final_eval_videos",
+        record_path=log_dir / "videos",
         record_name=experiment_name + "_final_eval",
         return_episode_rewards=True,
         env_data_logger=env_data_logger,
@@ -107,7 +110,7 @@ def main(args):
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
+    rewarder_config = rlmpc_rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
@@ -117,11 +120,11 @@ def main(args):
         "max_number_of_episodes": 5,
         "simulator_config": eval_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
-        "rewarder_class": rewards.MPCRewarder,
-        "rewarder_kwargs": {"config": rewarder_config},
         "render_update_rate": 0.5,
         "render_mode": "rgb_array",
-        "rewarder" "observation_type": observation_type,
+        "rewarder_class": rlmpc_rewards.MPCRewarder,
+        "rewarder_kwargs": {"config": rewarder_config},
+        "observation_type": observation_type,
         "action_type": "relative_course_speed_reference_sequence_action",
         "reload_map": False,
         "show_loaded_scenario_data": False,
@@ -148,7 +151,7 @@ def main(args):
             "mpc_config": mpc_config_file,
             "activation_fn": th.nn.ReLU,
             "std_init": actor_noise_std_dev,
-            "disable_parameter_provider": True,
+            "disable_parameter_provider": args.disable_rlmpc_parameter_provider,
             "debug": True,
         }
         model_kwargs = {
@@ -160,8 +163,8 @@ def main(args):
             "tensorboard_log": str(log_dir),
         }
         model = rlmpc_sac.SAC(env=env, **model_kwargs)
-        model.inplace_load(path=model_dir / (args.experiment_name + "_2000"))
-        model.load_replay_buffer(path=model_dir / (args.experiment_name + "_replay_buffer"))
+        if not args.disable_rlmpc_parameter_provider:
+            model.inplace_load(path=model_dir / (args.experiment_name + "_2000"))
     else:
         model_kwargs = {
             "policy": "MultiInputPolicy",
@@ -182,7 +185,7 @@ def main(args):
     mean_reward, std_reward, rewards = evaluate(
         model=model,
         env=env,
-        log_dir=base_dir,
+        log_dir=base_dir / "final_eval",
         experiment_name=args.experiment_name,
         n_eval_episodes=args.n_eval_episodes,
         record=True,

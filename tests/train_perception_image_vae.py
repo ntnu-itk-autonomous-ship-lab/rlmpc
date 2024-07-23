@@ -289,7 +289,6 @@ if __name__ == "__main__":
 
     log_dir = BASE_PATH / "logs"
     data_dir = Path.home() / "Desktop/machine_learning/perception_vae/"
-    # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
     training_data_npy_filename1 = "perception_data_rogaland_random_everything_land_only.npy"
     training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything_land_only.npy"
     training_data_npy_filename2 = "perception_data_rogaland_random_everything_land_only2.npy"

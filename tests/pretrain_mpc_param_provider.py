@@ -1,4 +1,5 @@
 import argparse
+import sys
 import time
 from pathlib import Path
 from typing import List, Tuple
@@ -13,13 +14,6 @@ from rlmpc.policies import MPCParameterDNN
 from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-
-BASE_PATH: Path = Path.home() / "Desktop/machine_learning/tracking_vae/data/"
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--experiment_name", type=str, default="default")
-parser.add_argument("--load_model", type=str, default=None)
-parser.add_argument("--load_model_path", type=str, default=None)
 
 
 class RunningLoss:
@@ -226,16 +220,26 @@ def train(
     return model, best_test_loss, best_train_loss, best_epoch
 
 
-if __name__ == "__main__":
+def main(args):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment_name", type=str, default="default")
+    parser.add_argument("--load_model", type=str, default=None)
+    parser.add_argument("--load_model_path", type=str, default=None)
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dims = [7, 10, 15]  # , 10, 15, 20]
-    rnn_types = [torch.nn.GRU]
-    num_rnn_layers_decoder = 1
-    rnn_hidden_dim_decoder = 64
-    num_heads = 6
-    embedding_dims = [240, 12, 48, 60, 72]  # [12, 24, 48]
-    input_dim = 6
+    hidden_dims_list = [
+        [512],
+        [256, 256],
+        [512, 256],
+        [512, 512],
+        [512, 256, 64],
+        [512, 256, 128],
+        [512, 256, 256],
+        [512, 512, 512],
+    ]
+    activation_fn_list = [torch.nn.ReLU, torch.nn.SiLU, torch.nn.ELU, torch.nn.LeakyReLU]
+    input_dim = 64 + 12 + 5
 
     load_model = False
     save_interval = 20
@@ -243,55 +247,40 @@ if __name__ == "__main__":
     num_epochs = 40
     learning_rate = 2e-4
 
-    data_dir = Path("/home/doctor/Desktop/machine_learning/data/tracking_vae/")
-    # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
-    training_data_filename_list = []
-    for i in range(1, 9):
-        training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
-        training_data_filename_list.append(training_data_filename)
+    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1" / "final_eval"
+    data_filename_list = []
+    for i in range(1, 2):
+        data_filename = f"sac_rlmpc1_final_eval_env_data{i}"
+        data_filename_list.append(data_filename)
 
-    test_data_npy_filename1 = "tracking_vae_test_data_rogaland1.npy"
-    test_data_npy_filename2 = "tracking_vae_test_data_rogaland2.npy"
-
-    training_dataset = torch.utils.data.ConcatDataset(
-        [
-            rl_ds.TrackingObservationDataset(training_data_file, data_dir)
-            for training_data_file in training_data_filename_list
-        ]
+    dataset = torch.utils.data.ConcatDataset(
+        [rl_ds.ParameterProviderDataset(env_data_pkl_file=df, data_dir=data_dir) for df in data_filename_list]
     )
 
-    test_dataset1 = rl_ds.TrackingObservationDataset(test_data_npy_filename1, data_dir)
-    test_dataset2 = rl_ds.TrackingObservationDataset(test_data_npy_filename2, data_dir)
+    test_dataset2 = rl_ds.ParameterProviderDataset(test_data_npy_filename2, data_dir)
     test_dataset = torch.utils.data.ConcatDataset([test_dataset1, test_dataset2])
 
-    train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
     print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
 
-    log_dir = BASE_PATH / "logs"
+    log_dir = data_dir / "pretrain_dnn_logs"
 
     best_experiment = ""
     best_loss_sofar = 1e20
     exp_counter = 0
-    for embedding_dim in embedding_dims:
-        for latent_dim in latent_dims:
-            vae = VAE(
-                latent_dim=latent_dim,
-                input_dim=input_dim,
-                embedding_dim=embedding_dim,
-                num_heads=num_heads,
-                num_layers=num_rnn_layers_decoder,
-                rnn_type=torch.nn.GRU,
-                rnn_hidden_dim=rnn_hidden_dim_decoder,
-                bidirectional=False,
+    for hidden_dims in hidden_dims_list:
+        for actfn in activation_fn_list:
+            dnn_pp = MPCParameterDNN(
+                param_list=["Q_p", "r_safe_do"], hidden_sizes=hidden_dims, activation_fn=actfn, features_dim=input_dim
             ).to(device)
 
-            name = f"tracking_avae{exp_counter+1}_NL_{num_rnn_layers_decoder}_nonbi_HD_{rnn_hidden_dim_decoder}_LD_{latent_dim}_NH_{num_heads}_ED_{embedding_dim}"
-            experiment_path = BASE_PATH / name
+            name = f"pretrained_dnn_pp{exp_counter+1}_NL_{len(hidden_dims)}_HD_{hidden_dims[0]}_AF{actfn.__name__}"
+            experiment_path = data_dir / name
 
             writer = SummaryWriter(log_dir=log_dir / name)
-            optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
+            optimizer = torch.optim.Adam(dnn_pp.parameters(), lr=learning_rate)
             # T_max = len(train_dataloader) * num_epochs
             # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
             lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
@@ -345,3 +334,7 @@ if __name__ == "__main__":
             exp_counter += 1
 
     print(f"BEST EXPERIMENT: {best_experiment} WITH LOSS: {best_loss_sofar}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -123,7 +123,7 @@ class TrackingVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Space,
-        features_dim: int = 10,
+        features_dim: int = 12,
         num_layers: int = 1,
         model_file: str | None = None,
     ) -> None:
@@ -208,7 +208,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = TrackingVAE(subspace, features_dim=10, num_layers=1)
+                extractors[key] = TrackingVAE(subspace, features_dim=12, num_layers=1)
                 total_concat_size += extractors[key].latent_dim
             # elif key == "DisturbanceObservation":
             #     extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])

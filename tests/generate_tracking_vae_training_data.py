@@ -213,7 +213,7 @@ if __name__ == "__main__":
 
             # vae.load_state_dict(
             #     th.load(
-            #         "/home/doctor/Desktop/machine_learning/data/tracking_vae/tracking_vae2_BS_32_LD_10_GRU/tracking_vae2_BS_32_LD_10_GRU_best.pth",
+            #         str(Path.home() / "Desktop/machine_learning/data/tracking_vae/tracking_vae2_BS_32_LD_10_GRU/tracking_vae2_BS_32_LD_10_GRU_best.pth",
             #         map_location=th.device("cpu"),
             #     )
             # )

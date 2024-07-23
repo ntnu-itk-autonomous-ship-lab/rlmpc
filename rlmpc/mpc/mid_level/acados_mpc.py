@@ -59,7 +59,7 @@ class AcadosMPC:
             name for name in self._all_adjustable_param_str_list if name not in self._adjustable_param_str_list
         ]
         self._parameter_values: list = []
-        self.verbose: bool = False
+        self.verbose: bool = True
 
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
@@ -930,12 +930,18 @@ class AcadosMPC:
         fixed_parameter_values.extend(path_parameter_values)
 
         non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
-        fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 
         do_cr_parameter_values = self._create_do_parameter_values(xs, do_cr_list, stage_idx)
         do_ho_parameter_values = self._create_do_parameter_values(xs, do_ho_list, stage_idx)
         do_ot_parameter_values = self._create_do_parameter_values(xs, do_ot_list, stage_idx)
         self._X_do.append(np.array(do_cr_parameter_values + do_ho_parameter_values + do_ot_parameter_values))
+
+        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
+        if n_dos == 0:
+            non_adjustable_mpc_params[4] = 10.0
+            non_adjustable_mpc_params[5] = 5.0
+
+        fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
         fixed_parameter_values.extend(do_cr_parameter_values)
         fixed_parameter_values.extend(do_ho_parameter_values)
         fixed_parameter_values.extend(do_ot_parameter_values)

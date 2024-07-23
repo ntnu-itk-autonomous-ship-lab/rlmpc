@@ -10,6 +10,7 @@
 from pathlib import Path
 from typing import Optional, Tuple
 
+import colav_simulator.gym.logger as csenv_logger
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -145,6 +146,121 @@ class TrackingObservationDataset(Dataset):
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
         sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :].copy().astype(np.float32))
+        # sort sample after entry 0 (distance)
+        if self.transform:
+            sample = self.transform(sample)
+        return sample
+
+
+class ParameterProviderDataset(Dataset):
+    """Class for a dataset containing preferred parameter sets to provide to
+    an MPC scheme, given the current situation (environment state) processed through
+    the CombinedFeatureExtractor in this repo.
+    """
+
+    def __init__(
+        self,
+        env_data_pkl_file: str,
+        data_dir: Path,
+        num_adjustable_mpc_params: int = 4,
+        transform=None,
+    ):
+        """Initializes the dataset.
+        Args:
+            - env_data_pkl_file (str): The name of the pkl file containing the environment data.
+            - data_dir (Path): The path to the data directory in which the pkl file is found.
+            - num_adjustable_mpc_params (int): Number of paramters adjusted by the DNN param provider.
+            - transform (transforms_v2...): The transform to apply to the data.
+        """
+        self.data_dir = data_dir
+        self.transform = transform
+        self.num_adjustable_mpc_params = num_adjustable_mpc_params
+        self.env_data_logger = csenv_logger.Logger(experiment_name="parameter_provider_dataset", log_dir=data_dir)
+        self.env_data_logger.load_from_pickle(name=env_data_pkl_file)
+        self.timestep = 2.0
+
+        self.dnn_out_parameter_ranges = {
+            "Q_p": [[0.001, 2.5], [0.1, 100.0], [0.1, 100.0]],
+            "K_app_course": [0.1, 200.0],
+            "K_app_speed": [0.1, 200.0],
+            "d_attenuation": [10.0, 1000.0],
+            "w_colregs": [0.1, 500.0],
+            "r_safe_do": [5.0, 120.0],
+        }
+        self.dnn_out_parameter_incr_ranges = {
+            "Q_p": [-0.5, 0.5],
+            "K_app_course": [-5.0, 5.0],
+            "K_app_speed": [-5.0, 5.0],
+            "d_attenuation": [-50.0, 50.0],
+            "w_colregs": [-10.0, 10.0],
+            "r_safe_do": [-5.0, 5.0],
+        }
+        self.dnn_out_parameter_lengths = {
+            "Q_p": 3,
+            "K_app_course": 1,
+            "K_app_speed": 1,
+            "d_attenuation": 1,
+            "w_colregs": 3,
+            "r_safe_do": 1,
+        }
+
+        self._setup_data()
+
+    def _setup_data(self):
+        """Sets up the param provider dataset: Extracts input data from the env data file and computes ad hoc parameter preferences for the parameter provider dataset, based on the env data provided."""
+
+        env_data = self.env_data_logger.env_data
+        assert "ms_channel" in env_data[0].name, "must be the rlmpc_scenario_ms_channel"
+        self.data = []
+        for epdata in env_data:
+            dnn_input_features = [ainfo["dnn_input_features"] for ainfo in epdata.actor_infos]
+            dnn_input_current_norm_mpc_params = [ainfo["norm_old_mpc_params"] for ainfo in epdata.actor_infos]
+            n_timesteps = len(dnn_input_features)
+            param_incr_preferences = self._compute_ad_hoc_parameter_preferences(
+                n_timesteps=n_timesteps,
+                dnn_input_features=dnn_input_features,
+                dnn_input_current_norm_mpc_params=dnn_input_current_norm_mpc_params,
+                distances_to_collision=distances_to_collision
+            )
+            # add param_incr_preferences to the dnn_input_current_norm_mpc_params for a well-posed dataset
+            processed_epdata = list(zip(dnn_input_features, dnn_input_current_norm_mpc_params, param_incr_preferences))
+            self.data.extend(processed_epdata)
+
+    def _compute_ad_hoc_parameter_preferences(
+        self, n_timesteps: int, dnn_input_features: np.ndarray, dnn_input_current_norm_mpc_params: np.ndarray, distances_to_collision: np.ndarray
+    ) -> np.ndarray:
+        """Computes ad hoc parameter preferences for the parameter provider dataset, based on the env data provided.
+
+        Args:
+            n_timesteps (int): Number of timesteps in the env data.
+
+
+        Returns:
+            np.ndarray: The parameter preferences.
+        """
+        param_prefs = np.zeros((self.num_adjustable_mpc_params, n_timesteps))
+        for s in range(n_timesteps):
+            # ramp1: ned til 5.0 m for r_safe_do i stredet ved ish t = 100.0s. => mink med (5 - r_safe_do_init) / (100.0 - 0.0) per
+            # ramp2: Opp til 15.0m frå ish t = 124.0s til 160.0s.
+            # ramp3: Ned til 5.0 m igjen frå ish t = 190.0s til 200.0s.
+            # ramp4: Opp til 30.0m frå ish t = 234.0s til 254.0s.
+            # ved d2collision > 500.0m, ingen endring i r_safe_do pga irrelevant.
+            # søk unary op on numpy array, apply ramp func
+
+            # ved terskel på 500.0m + til kollisjon, auke Q_p med faktor på 10.0
+
+        # ramp function from initial norm mpc param
+        # decrease to
+        return param_prefs
+
+    def get_data(self):
+        return self.data
+
+    def __len__(self):
+        return self.data.shape[1]
+
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        sample = torch.from_numpy(self.data[sample_idx].copy().astype(np.float32))
         # sort sample after entry 0 (distance)
         if self.transform:
             sample = self.transform(sample)

@@ -8,7 +8,6 @@
     Author: Trym Tengesdal
 """
 
-import copy
 import pathlib
 import sys
 import time

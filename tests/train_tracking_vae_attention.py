@@ -250,8 +250,7 @@ if __name__ == "__main__":
     num_epochs = 40
     learning_rate = 2e-4
 
-    data_dir = Path("/home/doctor/Desktop/machine_learning/tracking_vae/data")
-    # data_dir = Path("/Users/trtengesdal/Desktop/machine_learning/data/vae/")
+    data_dir = Path.home() / "Desktop/machine_learning/tracking_vae/data"
     training_data_filename_list = []
     for i in range(1, 57):
         training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
