@@ -34,7 +34,7 @@ visualizer:
   ownship_waypoint_color: "xkcd:white"
   target_trajectory_color: "xkcd:peach"
   target_waypoint_color: "xkcd:orange"
-  matplotlib_backend: "TkAgg"
+  matplotlib_backend: "Agg"
   fig_size: [512, 512]
   fig_dpi: 64
   margins: [0.0, 0.0]

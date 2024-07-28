@@ -20,7 +20,7 @@ gaussian_csog_state_perturbation_covariance: [100.0, 100.0, 0.25, 1.0] # for sta
 perpendicular_csog_state_perturbation_pm_range: [100.0, 0.25, 2.0]
 
 t_cpa_threshold: 310.0
-d_cpa_threshold: 150.0
+d_cpa_threshold: 120.0
 
 behavior_generator:
   ownship_method: "PQRRTStar" # "ConstantSpeedRandomWaypoints" # "VaryingSpeedRandomWaypoints"

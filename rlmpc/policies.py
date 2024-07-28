@@ -180,10 +180,11 @@ class MPCParameterDNN(th.nn.Module):
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ELU,
         features_dim: int = 81,
+        model_file: Optional[pathlib.Path] = None,
     ):
         super().__init__()
         self.out_parameter_ranges = {
-            "Q_p": [[0.001, 2.5], [0.1, 100.0], [0.1, 100.0]],
+            "Q_p": [[0.05, 2.5], [2.0, 80.0], [2.0, 80.0]],
             "K_app_course": [0.1, 200.0],
             "K_app_speed": [0.1, 200.0],
             "d_attenuation": [10.0, 1000.0],
@@ -235,6 +236,9 @@ class MPCParameterDNN(th.nn.Module):
 
         for layer in self.layers:
             self.weights_init(layer)
+
+        if model_file is not None:
+            self.load_state_dict(th.load(model_file))
 
     def weights_init(self, m):
         if isinstance(m, th.nn.Conv2d):
@@ -750,17 +754,11 @@ class SACMPCActor(BasePolicy):
             Tuple[float, np.ndarray, List, stoch.DisturbanceData]: Time, ownship state, DO list and disturbance data
         """
         obs_b = {k: v[idx].numpy() if isinstance(v[idx], th.Tensor) else v[idx] for k, v in observation.items()}
-        do_arr = obs_b["TrackingObservation"]
         t = obs_b["TimeObservation"].flatten()[0]
         unnorm_obs_b = self.observation_type.unnormalize(obs_b)
-        ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
-        max_num_do = do_arr.shape[1]
-        do_list = []
-        for i in range(max_num_do):
-            if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its vector
-                cov = do_arr[6:, i].reshape(4, 4)
-                do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
+        do_list = hf.extract_do_list_from_tracking_observation(obs_b["TrackingObservation"])
 
+        ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
         ownship_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
         disturbance_vector = np.array([0.0, 0.0, 0.0, 0.0])
         w = stochasticity.DisturbanceData()
@@ -813,10 +811,17 @@ class SACMPCActor(BasePolicy):
     def initialize(
         self,
         env: csenv.COLAVEnvironment,
+        evaluate: bool = False,
         **kwargs,
     ) -> None:
         """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
-        the OCP"""
+        the OCP
+
+        Args:
+            env (csenv.COLAVEnvironment): The environment
+            evaluate (bool, optional): Whether to evaluate the MPC policy.
+
+        """
         self.observation_type = env.unwrapped.observation_type
         self.action_type = env.unwrapped.action_type
         t = env.unwrapped.time
@@ -841,8 +846,9 @@ class SACMPCActor(BasePolicy):
             **kwargs,
         )
         self.mpc.set_action_indices(self.action_indices)
-        self.mpc_sensitivities = self.mpc.build_sensitivities()
         self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
+        if not evaluate:  # only build sensitivities for training
+            self.mpc_sensitivities = self.mpc.build_sensitivities()
         print("SAC MPC Actor initialized!")
 
     def update_params(self, step: th.Tensor) -> None:
@@ -862,7 +868,7 @@ class SACPolicyWithMPC(BasePolicy):
         - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
         - activation_fn (Type[nn.Module], optional): Activation function. Defaults to nn.ReLU.
         - use_sde (bool, optional): Whether to use State Dependent Exploration or not. Defaults to False.
-        - log_std_init (float, optional): Initial value for the log standard deviation. Defaults to -3.
+        - std_init (float, optional): Initial value for the action standard deviation
         - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` when using gSDE to ensure
             a positive standard deviation (cf paper). It allows to keep variance
             above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
@@ -971,9 +977,10 @@ class SACPolicyWithMPC(BasePolicy):
     def initialize_mpc_actor(
         self,
         env: csenv.COLAVEnvironment,
+        evaluate: bool = False,
         **kwargs,
     ) -> None:
-        self.actor.initialize(env, **kwargs)
+        self.actor.initialize(env, evaluate, **kwargs)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -995,7 +1002,7 @@ class SACPolicyWithMPC(BasePolicy):
 
     def make_critic(self, features_extractor: Optional[rlmpc_fe.CombinedExtractor] = None) -> CustomContinuousCritic:
         critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
-        return CustomContinuousCritic(**critic_kwargs).to(self.device)
+        return ContinuousCritic(**critic_kwargs).to(self.device)
 
     def _predict(
         self,

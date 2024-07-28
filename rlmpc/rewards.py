@@ -477,8 +477,7 @@ class COLREGRewarder(cs_reward.IReward):
             )
             self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
-        true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
-        do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0, add_empty_cov=True)
+        do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
         ownship_state = self.env.ownship.state
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
@@ -500,16 +499,6 @@ class COLREGRewarder(cs_reward.IReward):
         csog_state_rel[2] = csog_state_rel_cpy[3]
         csog_state_rel[3] = csog_state_rel_cpy[2]
         do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(csog_state_rel, translated_do_list)
-        # if self.__debug:
-        #     plotters.plot_dynamic_obstacles(
-        #         do_cr_list, "blue", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-        #     )
-        #     plotters.plot_dynamic_obstacles(
-        #         do_ho_list, "orange", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-        #     )
-        #     plotters.plot_dynamic_obstacles(
-        #         do_ot_list, "magenta", enc, self._mpc.params.T, self._mpc.params.dt, map_origin=self._map_origin
-        #     )
 
         n_do_cr = len(do_cr_list)
         n_do_ho = len(do_ho_list)
@@ -571,7 +560,16 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
             self._last_course_error = 0.0
         truncated = kwargs.get("truncated", False)
         goal_reached = self.env.simulator.determine_ship_goal_reached()
-        if truncated and not goal_reached:
+
+        unnorm_obs_b = self.env.observation_type.unnormalize(state)
+        ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
+        do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
+
+        d2dos = np.array([1e12])
+        if len(do_list) > 0:
+            d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
+        no_dos_in_the_way = d2dos[0][1] > 100.0
+        if truncated and not goal_reached and no_dos_in_the_way:
             self.last_reward = -self._config.rho_goal_not_reached
             return self.last_reward
 
@@ -619,15 +617,9 @@ class DNNParameterRewarder(cs_reward.IReward):
             r_param_dnn += -self._config.rho_non_optimal_solution
 
         # Penalize non-relevant safety parameter changes
-        do_arr = state["TrackingObservation"]
         unnorm_obs_b = self.env.observation_type.unnormalize(state)
         ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
-        max_num_do = do_arr.shape[1]
-        do_list = []
-        for i in range(max_num_do):
-            if np.sum(do_arr[:, i]) > 1.0:  # A proper DO entry has non-zeros in its vector
-                cov = do_arr[6:, i].reshape(4, 4)
-                do_list.append((i, do_arr[0:4, i], cov, do_arr[4, i], do_arr[5, i]))
+        do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
 
         if len(do_list) > 0:
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)

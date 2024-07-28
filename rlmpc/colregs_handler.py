@@ -99,15 +99,14 @@ class COLREGSHandler:
         p_os = np.array([xs[0], xs[1]])
         v_os = np.array([xs[3] * np.cos(xs[2]), xs[3] * np.sin(xs[2])])
         for i, (ID, do_state, do_cov, length, width) in enumerate(do_list):
-            if ID in self._already_removed_labels:
-                continue
-
             p_do = do_state[0:2]
             v_do = do_state[2:]
             dist2do = float(np.linalg.norm(p_do - p_os))
             do_is_relevant = self.check_if_do_is_relevant(p_os, v_os, p_do, v_do)
 
-            if ID not in self._do_labels and not do_is_relevant:
+            if (
+                ID not in self._do_labels and not do_is_relevant
+            ):  # or (ID in self._already_removed_labels and not do_is_relevant):
                 continue
 
             situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
@@ -187,21 +186,22 @@ class COLREGSHandler:
             ID (int): ID of the dynamic obstacle to be removed.
         """
         _, situation = self._get_do_situation(ID)
-        if situation == COLREGSSituation.CRGW:
+        if situation.value == COLREGSSituation.CRGW.value or situation.value == COLREGSSituation.CRSO.value:
             for i, (do_ID, _, _, _, _) in enumerate(self._do_cr_list):
                 if ID == do_ID:
                     self._do_cr_list.pop(i)
                     break
-        elif situation == COLREGSSituation.HO:
+        elif situation.value == COLREGSSituation.HO.value:
             for i, (do_ID, _, _, _, _) in enumerate(self._do_ho_list):
                 if ID == do_ID:
                     self._do_ho_list.pop(i)
                     break
-        elif situation == COLREGSSituation.OTGW:
+        elif situation.value == COLREGSSituation.OTGW.value or situation.value == COLREGSSituation.OTSO.value:
             for i, (do_ID, _, _, _, _) in enumerate(self._do_ot_list):
                 if ID == do_ID:
                     self._do_ot_list.pop(i)
                     break
+
         for idx, do_ID in enumerate(self._do_labels):
             if do_ID == ID:
                 self._do_labels.pop(idx)

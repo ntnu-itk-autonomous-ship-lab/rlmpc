@@ -1,5 +1,5 @@
 """
-    train_sac.py
+    train_drl_sac.py
 
     Summary:
         This script trains the RL agent using the SAC algorithm.

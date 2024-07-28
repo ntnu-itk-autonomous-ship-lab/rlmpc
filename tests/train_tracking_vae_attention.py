@@ -12,6 +12,7 @@ import rlmpc.networks.loss_functions as loss_functions
 import torch
 import torchvision.transforms.v2 as transforms_v2
 import yaml
+from rlmpc.common.running_loss import RunningLoss
 from rlmpc.networks.tracking_vae_attention.vae import VAE
 from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
@@ -23,25 +24,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
-
-
-class RunningLoss:
-    def __init__(self, batch_size: int) -> None:
-        self.batch_size: int = batch_size
-        self.aggregated_loss: float = 0.0
-        self.n_samples: int = 0
-        self.average_loss: float = 0.0
-        self.reset()
-
-    def update(self, loss: float) -> None:
-        self.aggregated_loss += loss / self.batch_size
-        self.n_samples += 1
-        self.average_loss = self.aggregated_loss / (self.n_samples)
-
-    def reset(self):
-        self.aggregated_loss = 0.0
-        self.n_samples = 0
-        self.average_loss = 0.0
 
 
 def train_vae(

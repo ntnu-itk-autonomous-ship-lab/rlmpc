@@ -79,7 +79,7 @@ def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc"))
     parser.add_argument("--model_class", type=str, default="rlmpc_sac")  # either "rlmpc_sac" or "sb3_sac"
-    parser.add_argument("--n_eval_episodes", type=int, default=5)
+    parser.add_argument("--n_eval_episodes", type=int, default=20)
     parser.add_argument("--record", type=bool, default=True)
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
@@ -117,7 +117,7 @@ def main(args):
     eval_env_config = {
         "scenario_file_folder": test_scenario_folders,
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 5,
+        "max_number_of_episodes": 20,
         "simulator_config": eval_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "render_update_rate": 0.5,
@@ -152,7 +152,7 @@ def main(args):
             "activation_fn": th.nn.ReLU,
             "std_init": actor_noise_std_dev,
             "disable_parameter_provider": args.disable_rlmpc_parameter_provider,
-            "debug": True,
+            "debug": False,
         }
         model_kwargs = {
             "policy": rlmpc_policies.SACPolicyWithMPC,
@@ -174,11 +174,12 @@ def main(args):
             "tensorboard_log": str(log_dir),
             "policy_kwargs": {
                 "features_extractor_class": rlmpc_fe.CombinedExtractor,
-                "net_arch": [512, 512],
+                "net_arch": [1400, 1000, 600],
                 "log_std_init": -5.0,
                 "use_sde": True,
             },
             "replay_buffer_kwargs": {"handle_timeout_termination": True},
+            "seed": args.seed,
         }
         model = sb3_sac.SAC.load(path=model_dir / args.experiment_name, env=env, **model_kwargs)
 

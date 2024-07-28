@@ -15,6 +15,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def mpc_parameter_provider_loss(predicted_param_increment: th.Tensor, target_param_increment: th.Tensor) -> th.Tensor:
+    """Compute the loss for the MPC parameter provider.
+
+    Args:
+        predicted_param_increment (th.Tensor): Predicted parameter increment.
+        target_param_increment (th.Tensor): Target parameter increment.
+
+    Returns:
+        th.Tensor: The loss.
+    """
+    loss = F.mse_loss(predicted_param_increment, target_param_increment)
+    return loss
+
+
 def vqvae(
     recon_x: th.Tensor, z_e_x: th.Tensor, z_q_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor, beta: float = 1.0
 ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:

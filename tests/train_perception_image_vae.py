@@ -11,6 +11,7 @@ import torch
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
+from rlmpc.common.running_loss import RunningLoss
 from rlmpc.networks.perception_vae_128.vae import VAE
 from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
@@ -27,25 +28,6 @@ EXPERIMENT_NAME: str = "perception_vae_LD_80_128x128"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 if not EXPERIMENT_PATH.exists():
     EXPERIMENT_PATH.mkdir(parents=True)
-
-
-class RunningLoss:
-    def __init__(self, batch_size: int) -> None:
-        self.batch_size: int = batch_size
-        self.aggregated_loss: float = 0.0
-        self.n_samples: int = 0
-        self.average_loss: float = 0.0
-        self.reset()
-
-    def update(self, loss: float) -> None:
-        self.aggregated_loss += loss / self.batch_size
-        self.n_samples += 1
-        self.average_loss = self.aggregated_loss / (self.n_samples)
-
-    def reset(self):
-        self.aggregated_loss = 0.0
-        self.n_samples = 0
-        self.average_loss = 0.0
 
 
 def train_vae(

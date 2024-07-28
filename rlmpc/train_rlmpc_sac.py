@@ -27,8 +27,9 @@ def train_rlmpc_sac(
     training_env_config: Dict[str, Any],
     n_training_envs: int,
     eval_env_config: Dict[str, Any],
+    n_eval_episodes: int,
+    eval_freq: int,
     base_dir: Path,
-    log_dir: Path,
     model_dir: Path,
     experiment_name: str,
     load_model: bool = True,
@@ -46,8 +47,9 @@ def train_rlmpc_sac(
         training_env_config (Dict[str, Any]): The training environment configuration.
         n_training_envs (int): The number of training environments.
         eval_env_config (Dict[str, Any]): The evaluation environment configuration.
+        n_eval_episodes (int): The number of evaluation episodes.
+        eval_freq (int): Evaluation callback frequency in number of steps.
         base_dir (Path): The base directory.
-        log_dir (Path): The log directory.
         model_dir (Path): The model directory.
         experiment_name (str): The experiment name.
         load_model (bool, optional): Whether to load the model. Defaults to True.
@@ -84,8 +86,8 @@ def train_rlmpc_sac(
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
-        eval_freq=30000,
-        n_eval_episodes=1,
+        eval_freq=eval_freq,
+        n_eval_episodes=n_eval_episodes,
         # callback_after_eval=stop_train_callback,
         experiment_name=experiment_name,
         record=True,

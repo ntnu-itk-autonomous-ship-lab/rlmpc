@@ -11,6 +11,7 @@ import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
 from rlmpc.common.datasets import PerceptionImageDataset
+from rlmpc.common.running_loss import RunningLoss
 from rlmpc.networks.vqvae2 import VQVAE
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -26,25 +27,6 @@ EXPERIMENT_NAME: str = "training_vqvae3"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
 LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
-
-
-class RunningLoss:
-    def __init__(self, batch_size: int) -> None:
-        self.batch_size: int = batch_size
-        self.aggregated_loss: float = 0.0
-        self.n_samples: int = 0
-        self.average_loss: float = 0.0
-        self.reset()
-
-    def update(self, loss: float) -> None:
-        self.aggregated_loss += loss / self.batch_size
-        self.n_samples += 1
-        self.average_loss = self.aggregated_loss / (self.n_samples)
-
-    def reset(self):
-        self.aggregated_loss = 0.0
-        self.n_samples = 0
-        self.average_loss = 0.0
 
 
 def train(

@@ -484,6 +484,7 @@ def evaluate_policy(
     n_eval_episodes: int = 5,
     render: bool = True,
     reward_threshold: Optional[float] = None,
+    callback: Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]] = None,
     return_episode_rewards: bool = True,
     warn: bool = True,
     record: bool = False,
@@ -520,6 +521,8 @@ def evaluate_policy(
             this will raise an error if the performance is not met
         - return_episode_rewards (bool): If True, a list of rewards and episode lengths
             per episode will be returned instead of the mean.
+        - callback (Optional[Callable[[Dict[str, Any], Dict[str, Any]], None]): Callback function to do additional checks,
+        called after each step. Gets locals() and globals() passed as parameters.
         - warn (bool): If True (default), warns user about lack of a Monitor wrapper in the
             evaluation environment.
         - record (bool): If True, records the evaluation episodes.
@@ -581,7 +584,7 @@ def evaluate_policy(
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
             states = None
-            model.policy.initialize_mpc_actor(env.envs[0])
+            model.policy.initialize_mpc_actor(env.envs[0], evaluate=True)
             last_actor_info = [{} for _ in range(n_envs)]
 
         if is_mpc_policy:
@@ -624,6 +627,9 @@ def evaluate_policy(
                 done = dones[i]
                 info = infos[i]
                 episode_starts[i] = done
+
+                if callback is not None:
+                    callback(locals(), globals())
 
                 if dones[i]:
                     if env_data_logger is not None:

@@ -165,6 +165,26 @@ def display_top(snapshot, key_type="lineno", limit=10):
     print("Total allocated size: %.1f KiB" % (total / 1024))
 
 
+def extract_do_list_from_tracking_observation(
+    obs: np.ndarray,
+) -> List[Tuple[int, np.ndarray, np.ndarray, float, float]]:
+    """Extracts the dynamic obstacle list from the TrackingObservation.
+
+    Args:
+        obs (np.ndarray): The TrackingObservation
+
+    Returns:
+        List[Tuple[int, np.ndarray, np.ndarray, float, float]]: List of dynamic obstacles on the form (ID, state, cov, length, width).
+    """
+    max_num_do = obs.shape[1]
+    do_list = []
+    for i in range(max_num_do):
+        if np.sum(obs[1:, i]) > 1.0:  # A proper DO entry has non-zeros in its vector
+            cov = obs[7:, i].reshape(4, 4)
+            do_list.append((int(obs[0, i]), obs[1:5, i], cov, obs[5, i], obs[6, i]))
+    return do_list
+
+
 def compute_distances_to_dynamic_obstacles(ownship_state: np.ndarray, do_list: List) -> List[Tuple[int, float]]:
     os_pos = ownship_state[0:2]
     os_speed = np.linalg.norm(ownship_state[3:5])

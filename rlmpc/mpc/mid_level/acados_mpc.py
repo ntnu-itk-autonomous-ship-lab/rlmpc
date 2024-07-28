@@ -38,6 +38,9 @@ class AcadosMPC:
         self._acados_ocp_solver: AcadosOcpSolver = None
         self._acados_ocp_solver_nonreg: AcadosOcpSolver = None
 
+        self._prev_sol_status: int = 0
+        self._num_consecutive_qp_failures: int = 0
+
         self.model = copy.deepcopy(model)
         self._params: parameters.MidlevelMPCParams = copy.deepcopy(params)
         self._so_surfaces: list = []
@@ -127,6 +130,8 @@ class AcadosMPC:
         self._initialized = False
         self._xs_prev = np.array([])
         self._prev_cost = 1e6
+        self._prev_sol_status = 0
+        self._num_consecutive_qp_failures = 0
         self._t_prev = 0.0
         if self._acados_ocp_solver is not None:
             self._acados_ocp_solver.reset()
@@ -411,6 +416,11 @@ class AcadosMPC:
         soln = {"x": w, "lam_g": lam_g, "lam_x": np.zeros(w.shape, dtype=np.float32)}
         self._p_fixed_values = self.create_all_fixed_parameter_values(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
         self._t_prev = t
+
+        if status == 2 and status == self._prev_sol_status:
+            self._num_consecutive_qp_failures += 1
+        self._prev_sol_status = status
+
         output = {
             "soln": soln,
             "optimal": success,
@@ -425,6 +435,7 @@ class AcadosMPC:
             "cost_val": cost_val,
             "n_iter": n_iter,
             "final_residuals": final_residuals,
+            "num_consecutive_qp_failures": self._num_consecutive_qp_failures,
         }
         return output
 
@@ -873,7 +884,7 @@ class AcadosMPC:
             list: List of dynamic obstacle constraints at the current stage in the OCP.
         """
         do_constr_list = []
-        epsilon = 1e-6
+        epsilon = 1e-4
         n_do = int(X_do_k.shape[0] / nx_do)
         for i in range(n_do):
             x_aug_do_i = X_do_k[nx_do * i : nx_do * (i + 1)]
@@ -937,7 +948,9 @@ class AcadosMPC:
         self._X_do.append(np.array(do_cr_parameter_values + do_ho_parameter_values + do_ot_parameter_values))
 
         n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
-        if n_dos == 0:
+        p_goal = np.array(list(self.path_linestring.coords[-1]))
+        d2goal = np.linalg.norm(xs[0:2] - p_goal)
+        if n_dos == 0 or d2goal < 150.0:
             non_adjustable_mpc_params[4] = 10.0
             non_adjustable_mpc_params[5] = 5.0
 

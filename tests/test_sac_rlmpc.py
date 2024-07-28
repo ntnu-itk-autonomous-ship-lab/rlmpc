@@ -58,15 +58,16 @@ def save_frames_as_gif(frame_list: list, filename: Path) -> None:
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc2")
     parser.add_argument("--n_cpus", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=0.005)
+    parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--buffer_size", type=int, default=40000)
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=2)
-    parser.add_argument("--n_eval_episodes", type=int, default=4)
-    parser.add_argument("--timesteps", type=int, default=10000)
+    parser.add_argument("--n_eval_episodes", type=int, default=5)
+    parser.add_argument("--eval_freq", type=int, default=1000)
+    parser.add_argument("--timesteps", type=int, default=20000)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC training:")
@@ -80,12 +81,12 @@ def main(args):
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
 
-    generate = True
+    generate = False
     if generate:
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
 
-            scenario_generator.seed(idx + 2)
+            scenario_generator.seed(idx)
             _ = scenario_generator.generate(
                 config_file=rl_dp.scenarios / (name + ".yaml"),
                 new_load_of_map_data=False if idx == 0 else False,
@@ -130,7 +131,7 @@ def main(args):
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 100,
+        "max_number_of_episodes": 1,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -151,7 +152,7 @@ def main(args):
     eval_env_config.update(
         {
             "reload_map": False,
-            "max_number_of_episodes": 20,
+            "max_number_of_episodes": 1,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -164,17 +165,19 @@ def main(args):
     actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
     mpc_param_provider_kwargs = {
         "param_list": ["Q_p", "r_safe_do"],
-        "hidden_sizes": [512, 512],
+        "hidden_sizes": [1399, 1316, 662],
         "activation_fn": th.nn.ReLU,
+        "model_file": Path.home()
+        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [512, 512],
+        "critic_arch": [1500, 1000, 500],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "disable_parameter_provider": True,
+        "disable_parameter_provider": False,
         "debug": False,
     }
     model_kwargs = {
@@ -192,12 +195,12 @@ def main(args):
         "verbose": 1,
         "tensorboard_log": str(log_dir),
     }
-    with (base_dir / "model_kwargs.yaml").open(mode="w", encoding="utf-8") as fp:
+    with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
     load_model = False
     load_model_name = "sac_rlmpc1_1000"
-    n_timesteps_per_learn = 1000
+    n_timesteps_per_learn = 2000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
         if i > 0:
@@ -211,8 +214,9 @@ def main(args):
             training_env_config=copy.deepcopy(training_env_config),
             n_training_envs=args.n_cpus,
             eval_env_config=copy.deepcopy(eval_env_config),
+            n_eval_episodes=args.n_eval_episodes,
+            eval_freq=args.eval_freq,
             base_dir=base_dir,
-            log_dir=log_dir,
             model_dir=model_dir,
             experiment_name=args.experiment_name,
             load_model=load_model,
