@@ -417,7 +417,7 @@ class AcadosMPC:
         self._p_fixed_values = self.create_all_fixed_parameter_values(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
         self._t_prev = t
 
-        if status == 2 and status == self._prev_sol_status:
+        if status_str == "QPFailure" and status == self._prev_sol_status:
             self._num_consecutive_qp_failures += 1
         self._prev_sol_status = status
 

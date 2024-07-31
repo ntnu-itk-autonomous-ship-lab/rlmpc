@@ -345,7 +345,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
         # Add extra cost if the ship is grounded in the simulator (i.e. the ship is on land)
         # The above cost only gives a penalty if the ship CG is inside the grounding polygon approximations.
         if self.env.simulator.determine_ship_grounding():
-            grounding_cost += self._config.rho_anti_grounding * 1.0
+            grounding_cost = self._config.rho_anti_grounding
         self.last_reward = -grounding_cost
         return self.last_reward
 
@@ -394,12 +394,12 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
             if g_do[i] > 0.0:
                 print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}.")
 
-        colav_cost = self._config.rho_colav * np.sum(g_do)
+        colav_cost = self._config.rho_colav * g_do.sum()
 
         # Add extra cost if the ship collides with a dynamic obstacle
         # The above cost only gives a penalty if a dynamic obstacle is inside the set own-ship safety zone
         if self.env.simulator.determine_ship_collision(ship_idx=0):
-            colav_cost += self._config.rho_colav * 1.0
+            colav_cost = self._config.rho_colav
 
         self.last_reward = -colav_cost
         return self.last_reward
@@ -604,19 +604,19 @@ class DNNParameterRewarder(cs_reward.IReward):
         # t = self.env.time
         # tspan = self.env.simulator.t_end - self.env.simulator.t_start
         colav_info = self.env.ownship.get_colav_data()
+        if colav_info is None:
+            return 0.0
+
         r_param_dnn = 0.0
 
-        # Penalize long solver times
         mpc_sampling_time = 1.0 / colav_info["mpc_rate"]
         mpc_solve_time = colav_info["t_solve"]
         if mpc_solve_time > mpc_sampling_time:
             r_param_dnn += -self._config.rho_solver_time * (mpc_solve_time - mpc_sampling_time)
 
-        # Penalize non-optimal solutions
         if not colav_info["optimal"]:
             r_param_dnn += -self._config.rho_non_optimal_solution
 
-        # Penalize non-relevant safety parameter changes
         unnorm_obs_b = self.env.observation_type.unnormalize(state)
         ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
         do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])

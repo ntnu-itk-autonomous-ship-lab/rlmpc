@@ -118,7 +118,7 @@ mpc:
       nlp_solver_tol_eq: 0.00001
       nlp_solver_tol_ineq: 0.00001
       nlp_solver_tol_comp: 0.0001
-      nlp_solver_ext_qp_res: 1
+      nlp_solver_ext_qp_res: 0
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" # "FULL_CONDENSING_QPOASES"
       qp_solver_iter_max: 50
       qp_solver_warm_start: 1

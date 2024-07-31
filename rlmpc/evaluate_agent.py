@@ -84,7 +84,7 @@ def main(args):
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--disable_rlmpc_parameter_provider", type=bool, default=True)
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc3")
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC eval:")
@@ -142,7 +142,7 @@ def main(args):
         mpc_param_provider_kwargs = {
             "param_list": ["Q_p", "r_safe_do"],
             "hidden_sizes": [512, 512],
-            "activation_fn": th.nn.ELU,
+            "activation_fn": th.nn.ReLU,
         }
         policy_kwargs = {
             "features_extractor_class": rlmpc_fe.CombinedExtractor,

@@ -18,6 +18,7 @@ import rlmpc.rewards as rewards
 import yaml
 from colav_simulator.gym.environment import COLAVEnvironment
 from memory_profiler import profile
+from mpi4py import MPI
 from rlmpc.common.callbacks import evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.train_drl_sac import train_sac
@@ -26,6 +27,10 @@ from stable_baselines3.common.monitor import Monitor
 
 # @profile
 def main(args):
+
+    MPI.Init()
+    MPI.COMM_WORLD.Barrier()
+
     hf.set_memory_limit(28_000_000_000)
 
     parser = argparse.ArgumentParser()

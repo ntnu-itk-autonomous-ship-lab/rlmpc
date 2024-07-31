@@ -11,11 +11,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import colav_simulator.common.image_helper_methods as ihm
+import colav_simulator.gym.logger as csenv_logger
 import colav_simulator.gym.logger as csgym_logger
 import cv2
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import rlmpc.common.helper_functions as hf
+import rlmpc.common.logger as rlmpc_logger
 import rlmpc.common.logger as rl_logger
 import seaborn as sns
 from matplotlib import gridspec
@@ -59,7 +62,7 @@ plt.rcParams.update(
 )
 
 
-def plot_single_model_training_enc_snapshots(
+def plot_single_model_enc_snapshots(
     data: List[csgym_logger.EpisodeData],
     nrows: int = 5,
     ncols: int = 3,
@@ -317,3 +320,104 @@ def plot_single_model_training_stats(
     axs[1, 2].set_xlabel("Training step")
 
     plt.show(block=False)
+
+
+def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
+    """Plots results from training.
+
+    Args:
+        base_dir (Path): Base path to the experiment directories
+        experiment_names (List[str]): List of experiment names (experiment folder names).
+    """
+    env_data_list = []
+    training_stats_list = []
+    reward_data_list = []
+    training_stats_list = []
+
+    plot_env_snapshots = True
+    plot_reward_curves = True
+    for experiment_name in experiment_names:
+        log_dir = base_dir / experiment_name
+
+        rl_data_logger = rlmpc_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+        rl_data_logger.load_from_pickle(f"{experiment_name}_training_stats")
+        smoothed_training_stats = hf.process_rl_training_data(rl_data_logger.rl_data, ma_window_size=5)
+        training_stats_list.append(smoothed_training_stats)
+
+        if plot_env_snapshots or plot_reward_curves:
+            env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+            env_logger.load_from_pickle(f"{experiment_name}_env_training_data")
+            env_data_list.append(env_logger.env_data)
+
+            reward_data = hf.extract_reward_data(env_logger.env_data)
+            reward_data_list.append(reward_data)
+
+        if plot_env_snapshots:
+            plot_single_model_enc_snapshots(
+                env_logger.env_data,
+                nrows=5,
+                ncols=3,
+                save_fig=True,
+                save_path=base_dir / experiment_name / "figures",
+            )
+
+    plot_multiple_model_reward_curves(
+        model_data=reward_data_list,
+        model_names=experiment_names,
+        save_fig=True,
+        save_path=base_dir / "figures",
+    )
+    plot_multiple_model_training_stats(
+        model_data=training_stats_list,
+        model_names=experiment_names,
+        save_fig=True,
+        save_path=base_dir / "figures",
+    )
+
+
+def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None:
+    """Plots results from training.
+
+    Args:
+        base_dir (Path): Base path to the experiment directories
+        experiment_names (List[str]): List of experiment names (experiment folder names).
+    """
+    env_data_list = []
+    reward_data_list = []
+
+    plot_env_snapshots = True
+    plot_reward_curves = True
+    for experiment_name in experiment_names:
+        log_dir = base_dir / experiment_name
+
+        if plot_env_snapshots or plot_reward_curves:
+            env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+            env_logger.load_from_pickle(f"{experiment_name}_env_data")
+            env_data_list.append(env_logger.env_data)
+
+            reward_data = hf.extract_reward_data(env_logger.env_data)
+            reward_data_list.append(reward_data)
+
+        if plot_env_snapshots:
+            plot_single_model_enc_snapshots(
+                env_logger.env_data,
+                nrows=5,
+                ncols=3,
+                save_fig=True,
+                save_path=base_dir / experiment_name / "figures",
+            )
+
+    if plot_reward_curves:
+        plot_multiple_model_reward_curves(
+            reward_data_list,
+            model_names=experiment_names,
+            save_fig=True,
+            save_path=base_dir / experiment_name / "figures",
+        )
+
+
+if __name__ == "__main__":
+    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
+    experiment_names = ["sac_rlmpc1"]
+    plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
+    plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)

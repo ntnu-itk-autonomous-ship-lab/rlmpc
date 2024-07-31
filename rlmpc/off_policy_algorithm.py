@@ -203,14 +203,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         unnormalized_actions, normalized_actions, actor_infos = self.predict_with_mpc(
             observation=observation, state=actor_info, deterministic=deterministic
         )
-
-        # We store the normalized action in the buffer
-        actions = normalized_actions
-        batch_size = normalized_actions.shape[0]
-        for b in range(batch_size):
-            unnormalized_actions[b] = self.policy.action_type.unnormalize(normalized_actions[b])
-        buffer_actions = unnormalized_actions
-        return actions, buffer_actions, actor_infos
+        return normalized_actions, unnormalized_actions, actor_infos
 
     def _convert_train_freq(self) -> None:
         """
@@ -428,15 +421,17 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         callback.on_rollout_start()
         continue_training = True
+
         action_count = 0
         if self._current_obs is None:
             self._current_obs = self._last_obs
 
         while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
-            if env.envs[0].unwrapped.time < 0.0001:
-                self._last_actor_info = None
-                action_count = 0
-                self.policy.initialize_mpc_actor(env.envs[0])
+            for env_idx in range(env.num_envs):
+                if env.envs[env_idx].unwrapped.time < 0.0001:
+                    self._last_actor_info[env_idx] = {}
+                    action_count = 0
+                    self.policy.initialize_mpc_actor(env.envs[0])
 
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
@@ -487,6 +482,11 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
             for idx, info in enumerate(infos):
                 info.update({"actor_info": self._last_actor_info[idx]})
+
+                if info["actor_info"]["num_consecutive_qp_failures"] > 3:
+                    dones[idx] = True
+                    print("Episode terminated due to too many consecutive MPC QP failures")
+
             self._last_infos = infos
 
             t_callback_start = time.time()

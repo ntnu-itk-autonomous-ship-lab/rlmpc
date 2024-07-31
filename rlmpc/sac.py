@@ -245,13 +245,6 @@ class SAC(opa.OffPolicyAlgorithm):
         # self.actor.mpc.load_params(pathlib.Path(str(path) + "_actor.yaml"))
         self.actor.mpc_param_provider.load_state_dict(th.load(pathlib.Path(str(path) + "_mpc_param_provider.pth")))
 
-    def load_critics(self, base_dir: pathlib.Path, base_name: str) -> None:
-        """Loads the critic model"""
-        critic_path = base_dir / f"{base_name}_critic.pth"
-        critic_target_path = base_dir / f"{base_name}_critic_target.pth"
-        self.critic.load_state_dict(th.load(critic_path))
-        self.critic_target.load_state_dict(th.load(critic_target_path))
-
     def initialize_mpc_actor(
         self,
         env: csgym_env.COLAVEnvironment,
@@ -452,7 +445,6 @@ class SAC(opa.OffPolicyAlgorithm):
         critic_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
         assert isinstance(critic_loss, th.Tensor)  # for type checker
 
-        # Optimize the critic
         self.critic.optimizer.zero_grad()
         critic_loss.backward()
         self.critic.optimizer.step()
@@ -523,6 +515,7 @@ class SAC(opa.OffPolicyAlgorithm):
             mpc_param_grad_norms.append(np.linalg.norm(da_dp_mpc))
             # print(f"da_dp_mpc: {da_dp_mpc.flatten()}")
             da_dp_mpc = th.from_numpy(da_dp_mpc).float()
+            da_dp_mpc.requires_grad = False
             d_log_pi_dp = (
                 (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp_mpc @ dnn_jacobians[b]
             ).reshape(-1)

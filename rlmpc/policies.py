@@ -184,12 +184,12 @@ class MPCParameterDNN(th.nn.Module):
     ):
         super().__init__()
         self.out_parameter_ranges = {
-            "Q_p": [[0.05, 2.5], [2.0, 80.0], [2.0, 80.0]],
-            "K_app_course": [0.1, 200.0],
-            "K_app_speed": [0.1, 200.0],
-            "d_attenuation": [10.0, 1000.0],
+            "Q_p": [[0.05, 2.5], [2.0, 50.0], [2.0, 50.0]],
+            "K_app_course": [0.1, 150.0],
+            "K_app_speed": [0.1, 150.0],
+            "d_attenuation": [10.0, 800.0],
             "w_colregs": [0.1, 500.0],
-            "r_safe_do": [5.0, 120.0],
+            "r_safe_do": [5.0, 100.0],
         }
         self.out_parameter_incr_ranges = {
             "Q_p": [[-0.5, 0.5], [-2.0, 2.0], [-2.0, 2.0]],
@@ -681,9 +681,9 @@ class SACMPCActor(BasePolicy):
         for idx in range(batch_size):
             prev_soln = state[idx] if state is not None else None
             prev_action = (
-                th.zeros(self.action_space.shape[0])
-                if state is None
-                else th.from_numpy(state[idx]["norm_mpc_action"]).float()
+                th.from_numpy(state[idx]["norm_mpc_action"]).float()
+                if prev_soln
+                else th.zeros(self.action_space.shape[0])
             )
 
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)

@@ -316,8 +316,14 @@ class EvalCallback(EventCallback):
         self.best_model_save_path = log_path
         self.log_path = log_path
         self.video_save_path = log_path / "eval_videos"
+        self.num_envs = eval_env.num_envs if isinstance(eval_env, SubprocVecEnv) else 1
 
-        self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(experiment_name + "_envdata", log_path)
+        self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(
+            experiment_name=experiment_name + "_env_data",
+            log_dir=log_path,
+            n_envs=self.num_envs,
+            max_num_logged_episodes=100,
+        )
 
         self.evaluations_results = []
         self.evaluations_timesteps = []

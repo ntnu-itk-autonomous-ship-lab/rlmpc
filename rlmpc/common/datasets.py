@@ -180,12 +180,12 @@ class ParameterProviderDataset(Dataset):
         self.timestep = 2.0
         self.param_list = ["Q_p", "r_safe_do"]
         self.dnn_out_parameter_ranges = {
-            "Q_p": [[0.01, 2.5], [2.0, 80.0], [2.0, 80.0]],
-            "K_app_course": [0.1, 200.0],
-            "K_app_speed": [0.1, 200.0],
-            "d_attenuation": [10.0, 1000.0],
+            "Q_p": [[0.05, 2.5], [2.0, 50.0], [2.0, 50.0]],
+            "K_app_course": [0.1, 150.0],
+            "K_app_speed": [0.1, 150.0],
+            "d_attenuation": [10.0, 800.0],
             "w_colregs": [0.1, 500.0],
-            "r_safe_do": [5.0, 120.0],
+            "r_safe_do": [5.0, 100.0],
         }
         self.dnn_out_parameter_incr_ranges = {
             "Q_p": [[-0.25, 0.25], [-2.0, 2.0], [-2.0, 2.0]],

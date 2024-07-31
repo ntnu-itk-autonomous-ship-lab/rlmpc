@@ -55,7 +55,7 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
-        self.tanh = nn.Tanh()
+        self.scaling_factor = 20.0
 
     def set_inference_mode(self, inference_mode: bool) -> None:
         self.vae.set_inference_mode(inference_mode)
@@ -81,8 +81,9 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         with th.no_grad():
             z_e, _, _ = self.vae.encode(observations)
             # print(f"z_e shape: {z_e.shape}")
-            # normalize
-            z_e = self.tanh(z_e)
+            z_e = z_e / self.scaling_factor
+            if z_e.max() > 1.0 or z_e.min() < -1.0:
+                print("WARNING: z_e max value > 1.0 or min value < -1.0")
             return z_e
 
 
@@ -161,6 +162,7 @@ class TrackingVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
+        self.scaling_factor = 10.0
 
     def set_inference_mode(self, inference_mode: bool) -> None:
         self.vae.set_inference_mode(inference_mode)
@@ -178,8 +180,9 @@ class TrackingVAE(BaseFeaturesExtractor):
         with th.no_grad():
             observations, seq_lengths = self.preprocess_obs(observations)
             z_e, _, _ = self.vae.encode(observations, seq_lengths)
-            # print(f"z_e shape: {z_e.shape}")
-            z_e = th.tanh(z_e)
+            z_e = z_e / self.scaling_factor
+            if z_e.max() > 1.0 or z_e.min() < -1.0:
+                print("WARNING: z_e max value > 1.0 or min value < -1.0")
             return z_e
 
 

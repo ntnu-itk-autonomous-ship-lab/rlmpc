@@ -1,22 +1,16 @@
 import sys
 from pathlib import Path
 
-import colav_simulator.scenario_generator as cs_sg
-import colav_simulator.simulator as cs_sim
 import gymnasium as gym
-import matplotlib.pyplot as plt
 import numpy as np
 import optuna
-import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
-import rlmpc.rewards as rewards
 import torch as th
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.sac import SAC
 from rlmpc.train_critics import train_critics
-from rlmpc.train_mpc_param_provider import train_mpc_param_dnn
-from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
+from stable_baselines3.common.monitor import Monitor
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -29,46 +23,60 @@ def objective(trial: optuna.Trial) -> float:
     Returns:
         float: The loss value to minimize
     """
-
-    device = th.device("cuda:0" if th.cuda.is_available() else "cpu")
-
-    input_dim = 64 + 12 + 5
-
-    save_interval = 10
-    batch_size = 16
-    num_epochs = 30
-    learning_rate = 5e-5
-
-    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1"
-    data_filename_list = []
-    for i in range(1, 2):
-        data_filename = "sac_rlmpc1_final_eval_env_data"
-        data_filename_list.append(data_filename)
-
-    # print(f"Training dataset length: {len(train_dataset)} | Test dataset length: {len(test_dataset)}")
-    # print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
-
     base_dir = Path.home() / "Desktop/machine_learning/rlmpc/sac_critics"
     log_dir = base_dir / "logs"
 
     if not log_dir.exists():
         log_dir.mkdir(parents=True)
 
-    batch_size = 8  # trial.suggest_int("batch_size", 1, 32)
-    buffer_size = 50000
-    train_freq = 2
+    env_id = "COLAVEnvironment-v0"
+    observation_type = {
+        "dict_observation": [
+            "path_relative_navigation_observation",
+            "perception_image_observation",
+            "relative_tracking_observation",
+            "navigation_3dof_state_observation",
+            "tracking_observation",
+            "time_observation",
+        ]
+    }
+    scenario_names = ["rlmpc_scenario_ms_channel"]
+    scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
+    env_id = "COLAVEnvironment-v0"
+    env_config = {
+        "scenario_file_folder": [scenario_folders[0]],
+        "max_number_of_episodes": 1,
+        "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
+        "render_update_rate": 0.5,
+        "observation_type": observation_type,
+        "action_type": "relative_course_speed_reference_sequence_action",
+        "reload_map": False,
+        "identifier": "env",
+        "seed": 0,
+    }
+    env = Monitor(gym.make(id=env_id, **env_config))
+
+    save_interval = 5
+    batch_size = 32  # trial.suggest_int("batch_size", 1, 32)
+    buffer_size = 40000
     tau = 0.005
-    gradient_steps = 1
-    learning_rate = 5e-5  # trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
-    num_epochs = 30  # trial.suggest_int("num_epochs", 10, 100)
+    learning_rate = 1e-4  # trial.suggest_float("learning_rate", 1e-5, 5e-4)
+    num_epochs = 100  # trial.suggest_int("num_epochs", 10, 100)
     actfn = th.nn.ReLU
     actfn_str = "ReLU"
 
-    n_layers = trial.suggest_int("n_layers", 2, 4)
+    n_layers = trial.suggest_int("n_layers", 1, 3)
     hidden_dims = []
+    input_dim = 64 + 12 + 5 + 2  # enc + tracking + nav + action
+    prev_input_dim = input_dim
     for i in range(n_layers):
-        out_features = trial.suggest_int(f"n_units_l{i}", 32, 2048)
+        if i > 0:
+            out_features = trial.suggest_int(f"n_units_l{i}", 128, int(0.8 * prev_input_dim))
+        else:
+            out_features = trial.suggest_int(f"n_units_l{i}", 400, 3000)
+        prev_input_dim = out_features
         hidden_dims.append(out_features)
+    # hidden_dims = [1500, 1000, 500]
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
@@ -88,6 +96,8 @@ def objective(trial: optuna.Trial) -> float:
         "activation_fn": actfn,
         "std_init": actor_noise_std_dev,
         "disable_parameter_provider": False,
+        "optimizer_class": th.optim.Adam,
+        # "optimizer_kwargs": {"weight_decay": 5e-5},
         "debug": False,
     }
     model_kwargs = {
@@ -96,8 +106,8 @@ def objective(trial: optuna.Trial) -> float:
         "learning_rate": learning_rate,
         "buffer_size": buffer_size,
         "batch_size": batch_size,
-        "gradient_steps": gradient_steps,
-        "train_freq": (train_freq, "step"),
+        "gradient_steps": 1,
+        "train_freq": (2, "step"),
         "learning_starts": 0,
         "tau": tau,
         "device": "cpu",
@@ -105,34 +115,38 @@ def objective(trial: optuna.Trial) -> float:
         "verbose": 1,
         "tensorboard_log": str(log_dir),
     }
+
+    data_path = (
+        Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1" / "models" / "sac_rlmpc1_replay_buffer"
+    )
+
     model = SAC(env=env, **model_kwargs)
+    model.load_replay_buffer(path=data_path)
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
     name = "pretrained_sac_critics_HD_" + hidden_dims_str + f"_{actfn_str}"
     experiment_path = base_dir / name
-
-    writer = SummaryWriter(log_dir=log_dir / name)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
-    lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
-
     if not experiment_path.exists():
         experiment_path.mkdir(parents=True)
 
-    model, opt_loss, opt_train_loss, opt_epoch = train_sac_critics(
+    writer = SummaryWriter(log_dir=log_dir / name)
+
+    model, opt_train_loss, opt_epoch = train_critics(
         model=model,
         writer=writer,
         n_epochs=num_epochs,
         batch_size=batch_size,
-        save_interval=save_interval,
-        device=device,
         experiment_path=experiment_path,
+        save_interval=save_interval,
+        save_intermittent_models=False,
+        early_stopping_patience=6,
+        verbose=False,
     )
-
-    return opt_loss
+    return opt_train_loss
 
 
 def main(args):
-    study_name = "dnn_mpc_param_provider_hpo"
+    study_name = "sac_critics_hpo"
     storage_name = "sqlite:///{}.db".format(study_name)
     study = optuna.create_study(
         direction="minimize",
@@ -140,8 +154,9 @@ def main(args):
         study_name=study_name,
         storage=storage_name,
         sampler=optuna.samplers.RandomSampler(),
+        load_if_exists=True,
     )
-    study.optimize(objective, n_trials=50000)
+    study.optimize(objective, n_trials=200)
 
     print(f"Best objective value: {study.best_trial.value}")
     print(f"Best parameters: {study.best_trial.params}")
