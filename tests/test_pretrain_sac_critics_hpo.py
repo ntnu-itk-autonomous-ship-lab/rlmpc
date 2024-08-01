@@ -57,23 +57,20 @@ def objective(trial: optuna.Trial) -> float:
     env = Monitor(gym.make(id=env_id, **env_config))
 
     save_interval = 5
-    batch_size = 32  # trial.suggest_int("batch_size", 1, 32)
+    batch_size = 64  # trial.suggest_int("batch_size", 1, 32)
     buffer_size = 40000
-    tau = 0.005
-    learning_rate = 1e-4  # trial.suggest_float("learning_rate", 1e-5, 5e-4)
-    num_epochs = 100  # trial.suggest_int("num_epochs", 10, 100)
+    tau = 0.01
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3)
+    num_epochs = 200  # trial.suggest_int("num_epochs", 10, 100)
     actfn = th.nn.ReLU
     actfn_str = "ReLU"
 
-    n_layers = trial.suggest_int("n_layers", 1, 3)
+    n_layers = trial.suggest_int("n_layers", 1, 4)
     hidden_dims = []
     input_dim = 64 + 12 + 5 + 2  # enc + tracking + nav + action
     prev_input_dim = input_dim
     for i in range(n_layers):
-        if i > 0:
-            out_features = trial.suggest_int(f"n_units_l{i}", 128, int(0.8 * prev_input_dim))
-        else:
-            out_features = trial.suggest_int(f"n_units_l{i}", 400, 3000)
+        out_features = trial.suggest_int(f"n_units_l{i}", 64, 3000)
         prev_input_dim = out_features
         hidden_dims.append(out_features)
     # hidden_dims = [1500, 1000, 500]
@@ -83,10 +80,10 @@ def objective(trial: optuna.Trial) -> float:
     actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
     mpc_param_provider_kwargs = {
         "param_list": ["Q_p", "r_safe_do"],
-        "hidden_sizes": [1399, 1316, 662],
+        "hidden_sizes": [1315, 1579],
         "activation_fn": th.nn.ReLU,
         "model_file": Path.home()
-        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth",
+        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1315_1579_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,

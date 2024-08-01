@@ -36,7 +36,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc2")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
     parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--buffer_size", type=int, default=50000)

@@ -17,7 +17,7 @@ colreg:
   x_0_ot: 300.0
   y_0_ot: 100.0
   d_attenuation: 550.0
-  w_colregs: [100.0, 100.0, 100.0]
+  w_colregs: [80.0, 80.0, 80.0]
   colregs_handler:
     theta_critical_ot: 45.0  # contact angle threshold for OT situation
     theta_critical_ho: 13.0 # contact and bearing angle threshold for HO situation

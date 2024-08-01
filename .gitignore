@@ -12,6 +12,7 @@ __pycache__/
 # C extensions
 *.so
 
+*.db
 *.zip
 *.out
 # Distribution / packaging

@@ -30,10 +30,11 @@ def objective(trial: optuna.Trial) -> float:
     num_epochs = 30
     learning_rate = 5e-5
 
-    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1" / "final_eval_baseline2"
+    experiment_name = "sac_rlmpc3"
+    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
     data_filename_list = []
     for i in range(1, 2):
-        data_filename = "sac_rlmpc1_final_eval_env_data"
+        data_filename = f"{experiment_name}_final_eval_env_data"
         data_filename_list.append(data_filename)
 
     dataset = torch.utils.data.ConcatDataset(
@@ -59,11 +60,11 @@ def objective(trial: optuna.Trial) -> float:
         log_dir.mkdir(parents=True)
 
     batch_size = 8  # trial.suggest_int("batch_size", 1, 32)
-    learning_rate = 5e-5  # trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
     num_epochs = 30  # trial.suggest_int("num_epochs", 10, 100)
 
     n_layers = trial.suggest_int("n_layers", 1, 4)
-    actfn_str = trial.suggest_categorical("activation_fn", ["ReLU", "SiLU", "ELU"])
+    actfn_str = "ReLU"  # trial.suggest_categorical("activation_fn", ["ReLU"])
     actfn = getattr(torch.nn, actfn_str)
     hidden_dims = []
     for i in range(n_layers):
@@ -72,7 +73,7 @@ def objective(trial: optuna.Trial) -> float:
 
     model = MPCParameterDNN(
         param_list=["Q_p", "r_safe_do"], hidden_sizes=hidden_dims, activation_fn=actfn, features_dim=input_dim
-    )
+    ).to(device)
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
     name = "pretrained_dnn_pp_HD_" + hidden_dims_str + f"_{actfn_str}"

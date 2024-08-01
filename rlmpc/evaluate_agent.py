@@ -79,7 +79,7 @@ def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc"))
     parser.add_argument("--model_class", type=str, default="rlmpc_sac")  # either "rlmpc_sac" or "sb3_sac"
-    parser.add_argument("--n_eval_episodes", type=int, default=20)
+    parser.add_argument("--n_eval_episodes", type=int, default=50)
     parser.add_argument("--record", type=bool, default=True)
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
@@ -117,7 +117,7 @@ def main(args):
     eval_env_config = {
         "scenario_file_folder": test_scenario_folders,
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 20,
+        "max_number_of_episodes": args.n_eval_episodes,
         "simulator_config": eval_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "render_update_rate": 0.5,
