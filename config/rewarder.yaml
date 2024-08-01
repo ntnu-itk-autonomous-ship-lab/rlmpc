@@ -36,15 +36,15 @@ readily_apparent_maneuvering:
   r_max: 8.0
   a_max: 0.3
 collision_avoidance:
-  rho_colav: 100.0
+  rho_colav: 300.0
   r_safe: 10.0
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
-  rho_anti_grounding: 100.0
+  rho_anti_grounding: 300.0
   r_safe: 5.0
 dnn_parameter_provider:
   rho_solver_time: 10.0
-  rho_non_optimal_solution: 100.0
+  rho_non_optimal_solution: 300.0
   rho_non_relevant_safety_param_change: 0.0
 action_chatter:
   rho_course: 0.0001

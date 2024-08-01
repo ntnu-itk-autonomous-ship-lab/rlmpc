@@ -612,7 +612,6 @@ class SACMPCActor(BasePolicy):
         t: float,
         ownship_state: np.ndarray,
         do_list: List,
-        w: stochasticity.DisturbanceData,
     ) -> np.ndarray:
         """Get the exploratory action from the policy.
 
@@ -621,7 +620,6 @@ class SACMPCActor(BasePolicy):
             t (float): The current time
             ownship_state (np.ndarray): The ownship state
             do_list (List): The DO list
-            w (stochasticity.DisturbanceData): The disturbance data
         """
         distances2do = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
 
@@ -700,6 +698,7 @@ class SACMPCActor(BasePolicy):
                 self.t_prev = t
             action, info = self.mpc.act(t=t, ownship_state=ownship_state, do_list=do_list, w=w, prev_soln=prev_soln)
             norm_action = self.action_type.normalize(action)
+
             info.update(
                 {
                     "norm_prev_action": prev_action.numpy(),
@@ -713,7 +712,7 @@ class SACMPCActor(BasePolicy):
                 }
             )
             if not deterministic:
-                norm_action = self.get_exploratory_action(norm_action, t, ownship_state, do_list, w)
+                norm_action = self.get_exploratory_action(norm_action, t, ownship_state, do_list)
 
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
@@ -721,6 +720,14 @@ class SACMPCActor(BasePolicy):
             actor_infos[idx] = info
             if not info["optimal"]:
                 self.infeasible_solutions += 1
+                da_dp_mpc = np.zeros((self.action_space.shape[0], self.mpc_param_provider.num_output_params))
+            else:
+                soln = info["soln"]
+                p = info["p"]
+                p_fixed = info["p_fixed"]
+                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
+                da_dp_mpc = self.mpc_sensitivities.da_dp(z, p_fixed, p).full()
+            info.update({"da_dp_mpc": da_dp_mpc})
         return unnormalized_actions, normalized_actions, actor_infos
 
     def sample_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:

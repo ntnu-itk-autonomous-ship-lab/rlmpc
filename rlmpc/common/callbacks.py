@@ -244,7 +244,7 @@ class CollectStatisticsCallback(BaseCallback):
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
 
-        self.prev_infos = list(self.locals.get("infos"))
+        self.prev_infos = infos
         return True
 
 

@@ -8,7 +8,6 @@ from pathlib import Path
 import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
-import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
@@ -45,7 +44,7 @@ def main(args):
     parser.add_argument("--train_freq", type=int, default=2)
     parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--eval_freq", type=int, default=1000)
-    parser.add_argument("--timesteps", type=int, default=20000)
+    parser.add_argument("--timesteps", type=int, default=50000)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC training:")
@@ -130,7 +129,7 @@ def main(args):
     eval_env_config.update(
         {
             "reload_map": False,
-            "max_number_of_episodes": 20,
+            "max_number_of_episodes": 50,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -143,10 +142,10 @@ def main(args):
     actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
     mpc_param_provider_kwargs = {
         "param_list": ["Q_p", "r_safe_do"],
-        "hidden_sizes": [1399, 1316, 662],
+        "hidden_sizes": [1315, 1579],
         "activation_fn": th.nn.ReLU,
         "model_file": Path.home()
-        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth",
+        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1315_1579_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,

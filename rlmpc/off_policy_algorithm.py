@@ -486,6 +486,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 if info["actor_info"]["num_consecutive_qp_failures"] > 3:
                     dones[idx] = True
                     print("Episode terminated due to too many consecutive MPC QP failures")
+                    info.update({"actor_failure": True})
 
             self._last_infos = infos
 
@@ -509,9 +510,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     num_collected_episodes += 1
                     self._episode_num += 1
                     action_count = 0
-                    self.env.envs[0].unwrapped.terminal_info.update({"actor_info": self._last_actor_info[idx]})
+                    self.env.envs[0].unwrapped.terminal_info = infos[idx]
                     self._last_actor_info[idx] = {}
                     self._last_dones[idx] = False
+                    self.env.envs[0].unwrapped.reset()
 
                     if action_noise is not None:
                         kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
@@ -526,7 +528,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
     def _store_transition(
         self,
-        replay_buffer: rlmpc_buffers.ReplayBuffer,
+        replay_buffer: rlmpc_buffers.DictReplayBuffer,
         obs: Union[np.ndarray, Dict[str, np.ndarray]],
         buffer_action: np.ndarray,
         new_obs: Union[np.ndarray, Dict[str, np.ndarray]],
@@ -541,7 +543,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         It also handles terminal observations (because VecEnv resets automatically).
 
         Args:
-            - replay_buffer (ReplayBuffer): Replay buffer object where to store the transition.
+            - replay_buffer (DictReplayBuffer): Replay buffer object where to store the transition.
             - obs (Union[np.ndarray, Dict[str, np.ndarray]]): last observation
             - buffer_action (np.ndarray): normalized action corresponding to the last observation
             - new_obs (Union[np.ndarray, Dict[str, np.ndarray]]): next observation in the current episode
