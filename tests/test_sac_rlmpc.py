@@ -39,7 +39,7 @@ def main(args):
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc2")
     parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--buffer_size", type=int, default=40000)
+    parser.add_argument("--buffer_size", type=int, default=50000)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=2)
@@ -109,7 +109,7 @@ def main(args):
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 1,
+        "max_number_of_episodes": 200,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -130,7 +130,7 @@ def main(args):
     eval_env_config.update(
         {
             "reload_map": False,
-            "max_number_of_episodes": 1,
+            "max_number_of_episodes": 20,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -155,7 +155,7 @@ def main(args):
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "disable_parameter_provider": False,
+        "disable_parameter_provider": True,
         "debug": False,
     }
     model_kwargs = {

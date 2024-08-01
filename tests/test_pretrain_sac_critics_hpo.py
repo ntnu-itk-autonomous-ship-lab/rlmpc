@@ -117,7 +117,7 @@ def objective(trial: optuna.Trial) -> float:
     }
 
     data_path = (
-        Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1" / "models" / "sac_rlmpc1_replay_buffer"
+        Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc3" / "models" / "sac_rlmpc1_replay_buffer"
     )
 
     model = SAC(env=env, **model_kwargs)

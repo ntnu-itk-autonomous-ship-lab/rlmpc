@@ -683,8 +683,8 @@ class RLMPC(ci.ICOLAV):
         """
         _, nu, _, ns_total, dim_g = self._mpc.dims()
         prev_soln = self._mpc_soln if "soln" in self._mpc_soln else None
-        is_prev_soln = True if ("prev_soln" in kwargs and kwargs["prev_soln"]) or prev_soln else False
-        prev_soln = kwargs["prev_soln"] if ("prev_soln" in kwargs and is_prev_soln) else prev_soln
+        is_prev_soln = True if ("prev_soln" in kwargs and bool(kwargs["prev_soln"])) or prev_soln else False
+        prev_soln = kwargs["prev_soln"] if ("prev_soln" in kwargs and bool(kwargs["prev_soln"])) else prev_soln
 
         os_state_csog = ownship_state.copy()
         os_state_csog[2] = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
