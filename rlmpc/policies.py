@@ -715,6 +715,7 @@ class SACMPCActor(BasePolicy):
                 self.infeasible_solutions += 1
 
             if self.training:
+                # print(f"training: {self.training}")
                 da_dp_mpc = self.compute_mpc_sensitivities(info)
                 info.update({"da_dp_mpc": da_dp_mpc})
 
@@ -866,7 +867,7 @@ class SACMPCActor(BasePolicy):
         self.training = not evaluate
         if not evaluate:  # only build sensitivities for training
             self.mpc_sensitivities = self.mpc.build_sensitivities()
-        print("SAC MPC Actor initialized!")
+        print(f"SAC MPC Actor initialized! Built sensitivities? {self.training}")
 
     def update_params(self, step: th.Tensor) -> None:
         """Update the parameters of the actor DNN mpc parameter provider policy."""

@@ -42,8 +42,8 @@ def main(args):
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=2)
-    parser.add_argument("--n_eval_episodes", type=int, default=1)
-    parser.add_argument("--eval_freq", type=int, default=4)
+    parser.add_argument("--n_eval_episodes", type=int, default=5)
+    parser.add_argument("--eval_freq", type=int, default=2500)
     parser.add_argument("--timesteps", type=int, default=50000)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -154,7 +154,7 @@ def main(args):
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "disable_parameter_provider": True,
+        "disable_parameter_provider": False,
         "debug": False,
     }
     model_kwargs = {
@@ -175,9 +175,9 @@ def main(args):
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
-    load_model = False
-    load_model_name = "sac_rlmpc1_1000"
-    n_timesteps_per_learn = 2000
+    load_model = True
+    load_model_name = "sac_rlmpc1_1200_steps"
+    n_timesteps_per_learn = 5000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
         if i > 0:

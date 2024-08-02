@@ -203,9 +203,6 @@ class MidlevelMPC:
             - common.NLPSensitivities: Class container of the sensitivity functions necessary for
                 computing the score function  gradient in RL context.
         """
-        if self.sens is not None:
-            return self.sens
-
         self.sens = self._casadi_mpc.build_sensitivities(tau)
         return self.sens
 
