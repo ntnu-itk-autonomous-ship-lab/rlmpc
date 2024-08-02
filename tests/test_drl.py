@@ -30,16 +30,16 @@ def main(args):
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_drl2")
+    parser.add_argument("--experiment_name", type=str, default="sac_drl1")
     parser.add_argument("--n_cpus", type=int, default=2)
-    parser.add_argument("--learning_rate", type=float, default=0.0005)
+    parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--buffer_size", type=int, default=100_000)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=8)
-    parser.add_argument("--n_eval_episodes", type=int, default=2)
+    parser.add_argument("--n_eval_episodes", type=int, default=1)
     parser.add_argument("--n_experiments", type=int, default=3)
-    parser.add_argument("--timesteps", type=int, default=20)
+    parser.add_argument("--timesteps", type=int, default=50)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--sde_sample_freq", type=int, default=50)
     args = parser.parse_args(args)
@@ -60,11 +60,12 @@ def main(args):
             "path_relative_navigation_observation",
             "perception_image_observation",
             "relative_tracking_observation",
+            "tracking_observation",
             # "navigation_3dof_state_observation",
         ]
     }
 
-    rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
+    rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder_drl.yaml")
     training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
@@ -72,7 +73,7 @@ def main(args):
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 600,
+        "max_number_of_episodes": 1,  # 600,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -92,7 +93,7 @@ def main(args):
     eval_env_config = copy.deepcopy(training_env_config)
     eval_env_config.update(
         {
-            "max_number_of_episodes": 50,
+            "max_number_of_episodes": 1,  # 50,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -116,20 +117,20 @@ def main(args):
         "tensorboard_log": str(log_dir),
         "policy_kwargs": {
             "features_extractor_class": CombinedExtractor,
-            "net_arch": [512, 512],
+            "net_arch": [1500, 1000],
             "log_std_init": -5.0,
             "use_sde": True,
         },
         "replay_buffer_kwargs": {"handle_timeout_termination": True},
     }
-    with (base_dir / "model_kwargs.yaml").open(mode="w", encoding="utf-8") as fp:
+    with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
     # tracemalloc.start(20)
     # t_start = tracemalloc.take_snapshot()
     load_model = False
     load_model_name = args.experiment_name + "_1000000_steps"
-    n_timesteps_per_learn = 100_000
+    n_timesteps_per_learn = 10
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
 
     for e in range(args.n_experiments):
@@ -201,6 +202,8 @@ def main(args):
     }
     with (base_dir / "train_config.yaml").open(mode="w", encoding="utf-8") as fp:
         yaml.dump(train_cfg, fp)
+
+    print("Finished training SAC DRL agent.")
 
 
 if __name__ == "__main__":

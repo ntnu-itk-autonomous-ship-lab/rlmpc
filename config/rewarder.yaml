@@ -16,7 +16,7 @@ colreg:
   alpha_ot: [0.005, 0.01]
   x_0_ot: 300.0
   y_0_ot: 100.0
-  d_attenuation: 550.0
+  d_attenuation: 350.0
   w_colregs: [80.0, 80.0, 80.0]
   colregs_handler:
     theta_critical_ot: 45.0  # contact angle threshold for OT situation
@@ -43,6 +43,7 @@ anti_grounding:
   rho_anti_grounding: 300.0
   r_safe: 5.0
 dnn_parameter_provider:
+  disable: False
   rho_solver_time: 10.0
   rho_non_optimal_solution: 300.0
   rho_non_relevant_safety_param_change: 0.0

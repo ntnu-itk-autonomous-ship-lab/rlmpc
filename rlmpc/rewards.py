@@ -172,6 +172,7 @@ class DNNParameterRewarderParams:
     rho_solver_time: float = 0.0
     rho_non_optimal_solution: float = 0.0
     rho_non_relevant_safety_param_change: float = 0.0
+    disable: bool = False
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -561,8 +562,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         truncated = kwargs.get("truncated", False)
         goal_reached = self.env.simulator.determine_ship_goal_reached()
 
-        unnorm_obs_b = self.env.observation_type.unnormalize(state)
-        ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
+        ownship_state = self.env.ownship.state
         do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
 
         d2dos = np.array([1e12])
@@ -601,6 +601,10 @@ class DNNParameterRewarder(cs_reward.IReward):
         self._config = config
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+
+        if self._config.disable:
+            return 0.0
+
         # t = self.env.time
         # tspan = self.env.simulator.t_end - self.env.simulator.t_start
         colav_info = self.env.ownship.get_colav_data()
