@@ -671,7 +671,7 @@ def evaluate_policy(
     env.close()
 
     if record_type == "gif":
-        ihm.save_frames_as_gif(frames, record_path / f"{record_name}.gif", verbose=True)
+        ihm.save_frames_as_gif(frames, record_path / f"{record_name}.gif", verbose=False)
 
     mean_reward = np.mean(episode_rewards)
     std_reward = np.std(episode_rewards)

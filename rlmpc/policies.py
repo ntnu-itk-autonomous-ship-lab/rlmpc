@@ -480,12 +480,6 @@ class SACMPCActor(BasePolicy):
             th.zeros(action_dim), log_std=self.log_std_init
         )
 
-        # mpc_param_provider_kwargs = mpc_param_provider_kwargs.update[
-        #     {
-        #         "features_extractor_class": features_extractor_class,
-        #         "features_extractor_kwargs": features_extractor_kwargs,
-        #     }
-        # ]
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
         self.mpc = rlmpc_cas.RLMPC(mpc_config)
         self.mpc_sensitivities = None
@@ -717,18 +711,34 @@ class SACMPCActor(BasePolicy):
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
 
-            actor_infos[idx] = info
             if not info["optimal"]:
                 self.infeasible_solutions += 1
-                da_dp_mpc = np.zeros((self.action_space.shape[0], self.mpc_param_provider.num_output_params))
-            else:
-                soln = info["soln"]
-                p = info["p"]
-                p_fixed = info["p_fixed"]
-                z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
-                da_dp_mpc = self.mpc_sensitivities.da_dp(z, p_fixed, p).full()
-            info.update({"da_dp_mpc": da_dp_mpc})
+
+            if self.training:
+                da_dp_mpc = self.compute_mpc_sensitivities(info)
+                info.update({"da_dp_mpc": da_dp_mpc})
+
+            actor_infos[idx] = info
+
         return unnormalized_actions, normalized_actions, actor_infos
+
+    def compute_mpc_sensitivities(self, info: Dict[str, Any]) -> None:
+        """Compute the MPC sensitivities for the given solution info.
+
+        Args:
+            info (Dict[str, Any]): The solution info
+        """
+        if self.mpc_sensitivities is None:
+            self.mpc_sensitivities = self.mpc.build_sensitivities()
+
+        da_dp_mpc = np.zeros((self.action_space.shape[0], self.mpc_param_provider.num_output_params))
+        if info["optimal"]:
+            soln = info["soln"]
+            p = info["p"]
+            p_fixed = info["p_fixed"]
+            z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
+            da_dp_mpc = self.mpc_sensitivities.da_dp(z, p_fixed, p).full()
+        return da_dp_mpc
 
     def sample_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
         """Sample an action from the policy distribution with mean from the input MPC action
@@ -853,6 +863,7 @@ class SACMPCActor(BasePolicy):
         )
         self.mpc.set_action_indices(self.action_indices)
         self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
+        self.training = not evaluate
         if not evaluate:  # only build sensitivities for training
             self.mpc_sensitivities = self.mpc.build_sensitivities()
         print("SAC MPC Actor initialized!")
