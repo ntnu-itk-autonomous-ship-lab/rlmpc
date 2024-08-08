@@ -10,6 +10,7 @@
 import pathlib
 from typing import Tuple
 
+import numpy as np
 import rlmpc.networks.perception_vae_128.vae as perception_vae
 import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 import torch as th
@@ -17,7 +18,7 @@ import torch.nn as nn
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
-VAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/perception_vae/"
+VAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/enc_vae/"
 TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/tracking_vae/"
 
 
@@ -26,10 +27,10 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
     def __init__(
         self,
         observation_space: spaces.Box,
-        encoder_conv_block_dims=[64, 128, 128, 256],
-        decoder_conv_block_dims=[256, 128, 128, 64, 3],
-        fc_dim=512,
-        latent_dim: int = 64,
+        encoder_conv_block_dims=[64, 128, 256, 256],
+        decoder_conv_block_dims=[256, 128, 128, 64, 32],
+        fc_dim=1024,
+        latent_dim: int = 32,
         model_file: str | None = None,
     ):
         super(PerceptionImageVAE, self).__init__(observation_space, features_dim=latent_dim)
@@ -37,7 +38,8 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
         if model_file is None:
-            model_file = VAE_DATADIR / "perception_vae_LD_64_128x128_best.pth"
+            # model_file = VAE_DATADIR / "perception_vae_LD_64_128x128_best.pth"
+            model_file = VAE_DATADIR / "enc_vae_LD_32_128x128/best.pth"
         self.vae: perception_vae.VAE = perception_vae.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
@@ -55,16 +57,22 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
-        self.scaling_factor = 25.0
+        self.scaling_factor = 50.0
+        self.training = False
 
     def set_inference_mode(self, inference_mode: bool) -> None:
         self.vae.set_inference_mode(inference_mode)
 
     def display_image(self, image: th.Tensor) -> None:
+        import matplotlib
         import matplotlib.pyplot as plt
 
+        matplotlib.use("TkAgg")
+
+        img: np.ndarray = image[0].numpy().copy()
+        img = img.transpose(1, 2, 0)
         fig, ax = plt.subplots()
-        ax.imshow(image[0].numpy())
+        ax.imshow(img)
         plt.show(block=False)
 
     def reconstruct(self, observations: th.Tensor) -> th.Tensor:
@@ -162,7 +170,7 @@ class TrackingVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
-        self.scaling_factor = 15.0
+        self.scaling_factor = 25.0
 
     def set_inference_mode(self, inference_mode: bool) -> None:
         self.vae.set_inference_mode(inference_mode)

@@ -17,14 +17,14 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmResta
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-BASE_PATH: Path = Path.home() / "Desktop/machine_learning/perception_vae/"
+BASE_PATH: Path = Path.home() / "Desktop/machine_learning/enc_vae/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")
 parser.add_argument("--load_model", type=str, default=None)
 parser.add_argument("--load_model_path", type=str, default=None)
 
-EXPERIMENT_NAME: str = "perception_vae_LD_80_128x128"
+EXPERIMENT_NAME: str = "enc_vae_LD_64_128x128_2"
 EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
 if not EXPERIMENT_PATH.exists():
     EXPERIMENT_PATH.mkdir(parents=True)
@@ -76,7 +76,7 @@ def train_vae(
         model_path.mkdir()
 
     n_batch_images_to_show = 12
-    beta = 0.9
+    beta = 10.0
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
@@ -247,7 +247,7 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 80
+    latent_dim = 32
     fc_dim = 512
     encoder_conv_block_dims = [64, 128, 256, 256]
     decoder_conv_block_dims = [256, 128, 128, 64, 32]
@@ -261,22 +261,26 @@ if __name__ == "__main__":
         decoder_conv_block_dims=decoder_conv_block_dims,
     ).to(device)
 
-    # summary(vae, (3, 400, 400))
-
     load_model = False
     save_interval = 10
-    batch_size = 64
+    batch_size = 8
     num_epochs = 60
     learning_rate = 2e-04
 
     log_dir = BASE_PATH / "logs"
-    data_dir = Path.home() / "Desktop/machine_learning/perception_vae/"
-    training_data_npy_filename1 = "perception_data_rogaland_random_everything_land_only.npy"
-    training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything_land_only.npy"
-    training_data_npy_filename2 = "perception_data_rogaland_random_everything_land_only2.npy"
-    training_masks_npy_filename2 = "segmentation_masks_rogaland_random_everything_land_only2.npy"
-    test_data_npy_filename = "perception_data_rogaland_random_everything_land_only_test.npy"
-    test_masks_npy_filename = "segmentation_masks_rogaland_random_everything_land_only_test.npy"
+    data_dir = Path.home() / "Desktop/machine_learning/enc_vae/data"
+
+    training_data_list = []
+    training_masks_list = []
+    for i in range(8):
+        training_data_list.append(f"perception_training_data_rogaland{i}.npy")
+        training_masks_list.append(f"segmentation_masks_training_data_rogaland{i}.npy")
+
+    test_data_list = []
+    test_masks_list = []
+    for i in range(8, 10):
+        test_data_list.append(f"perception_training_data_rogaland{i}.npy")
+        test_masks_list.append(f"segmentation_masks_training_data_rogaland{i}.npy")
 
     training_transform = transforms_v2.Compose(
         [
@@ -295,21 +299,28 @@ if __name__ == "__main__":
     )
     test_transform = transforms_v2.Compose(
         [
+            transforms_v2.ToDtype(torch.uint8, scale=True),
             transforms_v2.ToDtype(torch.float32, scale=True),
             transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
         ]
     )
 
-    training_dataset1 = rl_ds.PerceptionImageDataset(
-        training_data_npy_filename1, data_dir, training_masks_npy_filename1, transform=training_transform
+    training_dataset = torch.utils.data.ConcatDataset(
+        [
+            rl_ds.PerceptionImageDataset(
+                data_npy_file=data_file, mask_npy_file=mask_file, data_dir=data_dir, transform=training_transform
+            )
+            for data_file, mask_file in zip(training_data_list, training_masks_list)
+        ]
     )
-    training_dataset2 = rl_ds.PerceptionImageDataset(
-        training_data_npy_filename2, data_dir, training_masks_npy_filename2, transform=training_transform
-    )
-    training_dataset = torch.utils.data.ConcatDataset([training_dataset1, training_dataset2])
 
-    test_dataset = rl_ds.PerceptionImageDataset(
-        test_data_npy_filename, data_dir, test_masks_npy_filename, transform=test_transform
+    test_dataset = torch.utils.data.ConcatDataset(
+        [
+            rl_ds.PerceptionImageDataset(
+                data_npy_file=data_file, mask_npy_file=mask_file, data_dir=data_dir, transform=test_transform
+            )
+            for data_file, mask_file in zip(test_data_list, test_masks_list)
+        ]
     )
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)

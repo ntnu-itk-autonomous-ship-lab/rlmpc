@@ -15,15 +15,19 @@ import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rewards
 import torch as th
 import yaml
-from colav_simulator.gym.environment import COLAVEnvironment
-from matplotlib import animation
-from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
+from rlmpc.common.callbacks import evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.train_rlmpc_sac import train_rlmpc_sac
 from stable_baselines3.common.monitor import Monitor
 
 # Supressing futurewarning to speed up execution time
 warnings.simplefilter(action="ignore", category=FutureWarning)
+
+# fix actor gradient being 0 all the time
+# update ENC-VAE with new data (128x128 images)
+# rerun data generation (this script) and pretrain the mpc param provider
+# pretrain critics with new data
+# run SAC with pretrained critics, mpc param provider and updated ENC-VAE
 
 
 # tuning:
@@ -37,7 +41,7 @@ def main(args):
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
     parser.add_argument("--n_cpus", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
+    parser.add_argument("--learning_rate", type=float, default=0.003)
     parser.add_argument("--buffer_size", type=int, default=50000)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--gradient_steps", type=int, default=1)
@@ -45,6 +49,8 @@ def main(args):
     parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--eval_freq", type=int, default=2500)
     parser.add_argument("--timesteps", type=int, default=50000)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
+    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC training:")
@@ -57,35 +63,6 @@ def main(args):
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
-
-    generate = False
-    if generate:
-        scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
-        for idx, name in enumerate(scenario_names):
-
-            scenario_generator.seed(idx)
-            _ = scenario_generator.generate(
-                config_file=rl_dp.scenarios / (name + ".yaml"),
-                new_load_of_map_data=False if idx == 0 else False,
-                save_scenario=True,
-                save_scenario_folder=rl_dp.scenarios / "training_data" / name,
-                show_plots=True,
-                episode_idx_save_offset=0,
-                n_episodes=100,
-                delete_existing_files=True,
-            )
-
-            scenario_generator.seed(idx + 103)
-            _ = scenario_generator.generate(
-                config_file=rl_dp.scenarios / (name + ".yaml"),
-                new_load_of_map_data=False,
-                save_scenario=True,
-                save_scenario_folder=rl_dp.scenarios / "test_data" / name,
-                show_plots=True,
-                episode_idx_save_offset=0,
-                n_episodes=20,
-                delete_existing_files=True,
-            )
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -108,7 +85,7 @@ def main(args):
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": 200,
+        "max_number_of_episodes": args.max_num_loaded_train_scen_episodes,
         "simulator_config": training_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
@@ -129,7 +106,7 @@ def main(args):
     eval_env_config.update(
         {
             "reload_map": False,
-            "max_number_of_episodes": 50,
+            "max_number_of_episodes": args.max_num_loaded_eval_scen_episodes,
             "scenario_file_folder": test_scenario_folders,
             "seed": 1,
             "simulator_config": eval_sim_config,
@@ -142,19 +119,19 @@ def main(args):
     actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
     mpc_param_provider_kwargs = {
         "param_list": ["Q_p", "r_safe_do"],
-        "hidden_sizes": [1315, 1579],
+        "hidden_sizes": [256, 128],
         "activation_fn": th.nn.ReLU,
-        "model_file": Path.home()
-        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1315_1579_ReLU/best_model.pth",
+        # "model_file": Path.home()
+        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [1500, 1000, 500],
+        "critic_arch": [258, 128],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "disable_parameter_provider": False,
+        "disable_parameter_provider": True,
         "debug": False,
     }
     model_kwargs = {
@@ -175,7 +152,7 @@ def main(args):
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
-    load_model = True
+    load_model = False
     load_model_name = "sac_rlmpc1_1200_steps"
     n_timesteps_per_learn = 5000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn

@@ -621,8 +621,7 @@ class DNNParameterRewarder(cs_reward.IReward):
         if not colav_info["optimal"]:
             r_param_dnn += -self._config.rho_non_optimal_solution
 
-        unnorm_obs_b = self.env.observation_type.unnormalize(state)
-        ownship_state = unnorm_obs_b["Navigation3DOFStateObservation"].flatten()
+        ownship_state = self.env.ownship.state
         do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
 
         if len(do_list) > 0:

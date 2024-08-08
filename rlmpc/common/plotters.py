@@ -115,6 +115,8 @@ def plot_multiple_model_reward_curves(
         plot_single_model_reward_curves(axs, data, name, color=color)
     if save_fig:
         save_path = save_path if save_path is not None else Path("./")
+        if not save_path.exists():
+            save_path.mkdir(parents=True)
         plt.savefig(save_path / "reward_curves.pdf", bbox_inches="tight", dpi=100)
 
 
@@ -224,6 +226,8 @@ def plot_multiple_model_training_stats(
         plot_single_model_training_stats(axs, data, name, color=color)
     if save_fig:
         save_path = save_path if save_path is not None else Path("./")
+        if not save_path.exists():
+            save_path.mkdir(parents=True)
         plt.savefig(save_path / "training_stats.pdf", bbox_inches="tight", dpi=100)
 
 
@@ -420,4 +424,5 @@ if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
     experiment_names = ["sac_rlmpc1"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
-    plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
+    # plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
+    print("Done plotting")

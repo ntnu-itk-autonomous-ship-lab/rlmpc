@@ -163,7 +163,6 @@ class CollectStatisticsCallback(BaseCallback):
             "mean_episode_reward": model.logger.name_to_value["rollout/ep_rew_mean"],
             "success_rate": model.logger.name_to_value["rollout/success_rate"],
             "mean_episode_length": model.logger.name_to_value["rollout/ep_len_mean"],
-            "non_optimal_solution_rate": model.logger.name_to_value["rollout/non_optimal_solution_rate"],
         }
         just_dumped_rollout_logs = False
         if info["mean_episode_reward"] != self.last_ep_rew_mean:
@@ -200,15 +199,20 @@ class CollectStatisticsCallback(BaseCallback):
                 if hasattr(self.model, "just_dumped_rollout_logs"):
                     self.model.just_dumped_rollout_logs = False
 
+                    inf_sol_rate = (
+                        100.0 * self.model.actor.infeasible_solutions / (self.num_timesteps)
+                        if self.num_timesteps > 0
+                        else 0.0
+                    )
                     self.logger.record(
                         "mpc/infeasible_solution_percentage",
-                        100.0 * self.model.actor.infeasible_solutions / (self.num_timesteps + 1),
+                        inf_sol_rate,
                     )
                     mpc_params = self.model.actor.mpc.mpc_params
                     self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
-                    # self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
-                    # self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
-                    # self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
+                    self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
+                    self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
+                    self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
                     # self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
                     # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
                     # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
@@ -222,10 +226,12 @@ class CollectStatisticsCallback(BaseCallback):
 
             current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
             if "PerceptionImageObservation" in current_obs:
-                pimg = th.from_numpy(current_obs["PerceptionImageObservation"]).type(th.float32)
+                pimg = th.from_numpy(current_obs["PerceptionImageObservation"])
+                pimg = self.img_transform(pimg)
                 pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
-                recon_frame = pvae.reconstruct(self.img_transform(pimg))
-
+                recon_frame = pvae.reconstruct(pimg)
+                # pvae.display_image(self.display_transform(pimg))
+                # pvae.display_image(self.display_transform(recon_frame))
                 self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
                 self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 

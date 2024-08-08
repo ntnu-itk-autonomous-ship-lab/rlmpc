@@ -178,7 +178,7 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ELU,
-        features_dim: int = 81,
+        features_dim: int = 49,
         model_file: Optional[pathlib.Path] = None,
     ):
         super().__init__()
@@ -408,6 +408,342 @@ class MPCParameterDNN(th.nn.Module):
         loss_grad = (self.parameter_weights @ param_increment + self.mpc_cost_val_scaling * dlag_mpc_dp) @ self_jac
         print(f"Loss gradient: {loss_grad}")
         return loss_grad
+
+
+class SACMPCParameterProviderActor(BasePolicy):
+    """
+    MPC-Actor (policy) for SAC, which uses the MPC parameter provider DNN to predict the MPC parameter increments.
+
+    Args:
+        - observation_space (spaces.Space): Observation space
+        - action_space (spaces.Box): Action space
+        - observation_type (Any): Observation type
+        - action_type (Any): Action type
+        - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
+        - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
+        - features_extractor_kwargs (Optional[Dict[str, Any]]): Keyword arguments
+        - use_sde (bool, optional): Whether to use State Dependent Exploration or not. Defaults to False.
+        - log_std_init (float, optional): Initial value for the log standard deviation. Defaults to -3.
+        - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` when using gSDE to ensure
+            a positive standard deviation (cf paper). It allows to keep variance
+            above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
+        - clip_mean (float, optional): Clip the mean output when using gSDE to avoid numerical instability. Defaults to 2.0.
+    """
+
+    action_space: spaces.Box
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        observation_type: Any,
+        action_type: Any,
+        mpc_param_provider_kwargs: Dict[str, Any],
+        mpc_config: rlmpc_cas.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
+        std_init: np.ndarray | float = np.array([2.0, 2.0]),
+        clip_mean: float = 2.0,
+        disable_parameter_provider: bool = False,
+        debug: bool = False,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            features_extractor=0,
+            normalize_images=False,
+            squash_output=True,
+        )
+
+        self.observation_type = observation_type
+        self.action_type = action_type
+        self.disable_parameter_provider = disable_parameter_provider
+        self.debug = debug
+
+        action_dim = get_action_dim(self.action_space)
+        if isinstance(std_init, float):
+            std_init = np.array([std_init] * action_dim)
+        log_std_init = th.log(th.from_numpy(std_init)).to(th.float32)
+        self.log_std_dev = th.nn.Parameter(log_std_init)
+        self.log_std = log_std_init
+
+        unnorm_std_init = self.action_type.unnormalize(std_init)
+        print(f"SAC MPC Actor gaussian std dev: {unnorm_std_init}")
+
+        # Save arguments to re-create object at loading
+        self.t_prev: float = 0.0
+        self.noise_application_duration: float = 10.0
+        self.log_std_init = self.log_std
+        self.clip_mean = clip_mean
+        self.prev_noise_action = None
+        action_dim = get_action_dim(self.action_space)
+        self.action_dist = DiagGaussianDistribution(action_dim).proba_distribution(
+            th.zeros(action_dim), log_std=self.log_std_init
+        )
+
+        self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
+
+    def _get_constructor_parameters(self) -> Dict[str, Any]:
+        data = super()._get_constructor_parameters()
+
+        data.update(
+            dict(
+                noise_application_duration=self.noise_application_duration,
+                log_std_init=self.log_std_init,
+                features_extractor=self.features_extractor,
+                clip_mean=self.clip_mean,
+            )
+        )
+        return data
+
+    def set_gradients(self, grads: th.Tensor) -> None:
+        """Update the parameter gradients of the actor DNN mpc parameter provider policy.
+
+        Args:
+            - grads (th.Tensor): The parameter gradient tensor 1 x num_params.
+        """
+        self.mpc_param_provider.set_gradients(grads)
+
+    def action_log_prob(
+        self,
+        obs: rlmpc_buffers.TensorDict,
+        actions: Optional[th.Tensor] = None,
+        infos: Optional[List[Dict[str, Any]]] = None,
+        is_next_action: bool = False,
+    ) -> Tuple[th.Tensor, th.Tensor]:
+        """Computes the log probability of the policy distribution for the given observation.
+
+        Args:
+            obs (th.Tensor): Observations
+            actions (th.Tensor): (MPC) Actions to evaluate the log probability for
+            infos (Optional[List[Dict[str, Any]]], optional): Additional information. Defaults to None.
+            is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor]:
+        """
+        # obs = obs.to("cpu").detach()
+        # action = action.to("cpu").detach()
+
+        # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
+        # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
+        # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
+        #
+        # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
+        assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
+        actor_str = "actor_info" if not is_next_action else "next_actor_info"
+        if infos is not None:
+            # Extract mean of the policy distribution = MPC action for the given observation
+            norm_mpc_actions = np.array([info[0][actor_str]["norm_mpc_action"] for info in infos], dtype=np.float32)
+            norm_mpc_actions = th.from_numpy(norm_mpc_actions)
+
+        if isinstance(actions, np.ndarray):
+            actions = th.from_numpy(actions)
+
+        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_mpc_actions, log_std=self.log_std)
+        log_prob = self.action_dist.log_prob(actions)
+
+        return log_prob
+
+    def _convert_obs_tensor_to_numpy(self, obs: Dict[str, th.Tensor]) -> Dict[str, np.ndarray]:
+        return {k: v.cpu().numpy() for k, v in obs.items()}
+
+    def _convert_obs_numpy_to_tensor(self, obs: Dict[str, np.ndarray]) -> Dict[str, th.Tensor]:
+        return {k: th.from_numpy(v) for k, v in obs.items()}
+
+    def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
+        obs = self._convert_obs_tensor_to_numpy(observation)
+        return self.predict_with_mpc(obs, deterministic)
+
+    def sample_collision_seeking_action(
+        self,
+        ownship_state: np.ndarray,
+        closest_do: Tuple[int, np.ndarray, np.ndarray, float, float],
+        norm_mpc_action: np.ndarray,
+    ) -> th.Tensor:
+        """Sample a collision-seeking action from the policy.
+
+        Args:
+            ownship_state (np.ndarray): The ownship state
+            closest_do (Tuple[int, np.ndarray, np.ndarray, float, float]): The closest dynamic obstacle info
+            norm_mpc_action (np.ndarray): The normalized MPC action
+
+        Returns:
+            np.ndarray: The collision-seeking action, normalized
+        """
+        do_state = closest_do[1]
+        os_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+        bearing_to_do = np.arctan2(do_state[1] - ownship_state[1], do_state[0] - ownship_state[0]) - os_course
+
+        action = np.array([bearing_to_do, 0.0])
+        norm_collision_seeking_action = self.action_type.normalize(action)
+        norm_collision_seeking_action[1] = norm_mpc_action[1]
+        return th.from_numpy(norm_collision_seeking_action)
+
+    def get_exploratory_action(
+        self,
+        norm_action: np.ndarray,
+        t: float,
+        ownship_state: np.ndarray,
+        do_list: List,
+    ) -> np.ndarray:
+        """Get the exploratory action from the policy.
+
+        Args:
+            norm_action (np.ndarray): The normalized action
+            t (float): The current time
+            ownship_state (np.ndarray): The ownship state
+            do_list (List): The DO list
+        """
+        distances2do = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
+
+        norm_action = th.from_numpy(norm_action)
+        sampled_collision_seeking_action = False
+        if t < 0.0001 or t - self.t_prev > self.noise_application_duration:
+            if distances2do[0][1] < 400.0:
+                self.prev_noise_action = self.sample_collision_seeking_action(
+                    ownship_state, do_list[distances2do[0][0]], norm_action.numpy()
+                )
+                sampled_collision_seeking_action = True
+            else:
+                self.prev_noise_action = self.sample_action(norm_action)
+            self.t_prev = t
+
+        # Check if probability of the previous noise action is too low
+        # given the current mean mpc action
+        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_action, log_std=self.log_std)
+        log_prob_noise_action = self.action_dist.log_prob(self.prev_noise_action)
+        if log_prob_noise_action < LOG_PROB_MIN and not sampled_collision_seeking_action:
+            self.prev_noise_action = self.sample_action(norm_action)
+        expln_action = self.prev_noise_action
+        norm_action = norm_action.numpy()
+        return expln_action.numpy()
+
+    def predict_with_mpc(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: List[Dict[str, Any]] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+        """
+        Get the policy action from an observation (and optional actor state).
+
+        Args:
+            - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
+            - state (List[Dict[str, Any]]): The MPC internal state (current solution info, etc.)
+            - deterministic (bool): Whether or not to return deterministic actions.
+
+        Returns:
+            - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
+        """
+        batch_size = observation["TrackingObservation"].shape[0]
+        normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
+        unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
+        actor_infos = [{} for _ in range(batch_size)]
+
+        obs_tensor = self._convert_obs_numpy_to_tensor(observation)
+        preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
+        features = self.features_extractor(preprocessed_obs)
+
+        unnorm_current_mpc_params = self.mpc.get_adjustable_mpc_params()
+        norm_current_mpc_params = th.from_numpy(unnorm_current_mpc_params).float()
+        norm_current_mpc_params = self.mpc_param_provider.normalize(norm_current_mpc_params)
+
+        for idx in range(batch_size):
+            prev_soln = state[idx] if state is not None else None
+            prev_action = (
+                th.from_numpy(state[idx]["norm_mpc_action"]).float()
+                if prev_soln
+                else th.zeros(self.action_space.shape[0])
+            )
+
+            dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
+            mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
+            mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
+                mpc_param_increment, unnorm_current_mpc_params
+            )
+            norm_action = self.action_type.normalize(mpc_param_increment)
+
+            info.update(
+                {
+                    "norm_prev_action": prev_action.numpy(),
+                    "dnn_input_features": dnn_input.detach().cpu().numpy(),
+                    "mpc_param_increment": mpc_param_increment if not self.disable_parameter_provider else None,
+                    "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
+                    "old_mpc_params": unnorm_current_mpc_params,
+                    "norm_old_mpc_params": norm_current_mpc_params.detach().numpy(),
+                    "norm_mpc_action": norm_action,
+                }
+            )
+            if not deterministic:
+                norm_action = self.get_exploratory_action(norm_action, t, ownship_state, do_list)
+
+            unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
+            normalized_actions[idx, :] = norm_action
+            actor_infos[idx] = info
+
+        return unnormalized_actions, normalized_actions, actor_infos
+
+    def sample_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
+        """Sample an action from the policy distribution with mean from the input MPC action
+
+
+        Args:
+            mpc_actions (np.ndarray | th.Tensor): The input MPC action (normalized)
+
+        Returns:
+            np.ndarray: The sampled action (normalized)
+        """
+        if isinstance(mpc_actions, np.ndarray):
+            mpc_actions = th.from_numpy(mpc_actions)
+        self.action_dist = self.action_dist.proba_distribution(mean_actions=mpc_actions, log_std=self.log_std)
+        norm_actions = self.action_dist.get_actions()
+        norm_actions = th.clamp(norm_actions, -1.0, 1.0)
+        return norm_actions
+
+    def preprocess_obs_for_dnn(
+        self,
+        obs: Union[th.Tensor, Dict[str, th.Tensor]],
+        observation_space: spaces.Space,
+        normalize_images: bool = True,
+    ) -> Union[th.Tensor, Dict[str, th.Tensor]]:
+        """
+        Preprocess observation to be to a neural network.
+        For images, it normalizes the values by dividing them by 255 (to have values in [0, 1])
+        For discrete observations, it create a one hot vector.
+
+        Args:
+            obs (Union[th.Tensor, Dict[str, th.Tensor]]): Observation
+            observation_space (spaces.Space):
+            normalize_images (bool): Whether to normalize images or not (True by default)
+
+        Returns:
+            Union[th.Tensor, Dict[str, th.Tensor]]: The preprocessed observation
+        """
+        if isinstance(observation_space, spaces.Dict):
+            # Do not modify by reference the original observation
+            assert isinstance(obs, Dict), f"Expected dict, got {type(obs)}"
+            preprocessed_obs = {}
+            for key, _obs in obs.items():
+                preprocessed_obs[key] = self.preprocess_obs_for_dnn(
+                    _obs, observation_space[key], normalize_images=normalize_images
+                )
+                # print(
+                #     f"Preprocessed observation: {key} shape: {preprocessed_obs[key].shape} | (min, max): ({preprocessed_obs[key].min()}, {preprocessed_obs[key].max()})"
+                # )
+            return preprocessed_obs  # type: ignore[return-value]
+
+        assert isinstance(obs, th.Tensor), f"Expecting a torch Tensor, but got {type(obs)}"
+
+        if isinstance(observation_space, spaces.Box):
+            if normalize_images and is_image_space(observation_space):
+                return obs.float() / 255.0
+            return obs.float()
+
+        else:
+            raise NotImplementedError(f"Preprocessing not implemented for {observation_space}")
+
+    def update_params(self, step: th.Tensor) -> None:
+        """Update the parameters of the actor DNN mpc parameter provider policy."""
+        self.mpc_param_provider.update_params(step)
 
 
 class SACMPCActor(BasePolicy):

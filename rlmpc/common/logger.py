@@ -172,7 +172,6 @@ class Logger:
         self.mean_episode_rewards[self.rollout_pos] = rollout_info["mean_episode_reward"]
         self.mean_episode_lengths[self.rollout_pos] = rollout_info["mean_episode_length"]
         self.success_rates[self.rollout_pos] = rollout_info["success_rate"]
-        self.non_optimal_solution_rate[self.rollout_pos] = rollout_info["non_optimal_solution_rate"]
         self.rollout_pos += 1
 
     def update_training_metrics(self, training_info: dict) -> None:
@@ -184,6 +183,7 @@ class Logger:
         if not training_info:
             return
 
+        self.non_optimal_solution_rate[self.rollout_pos] = training_info["non_optimal_solution_rate"]
         self.n_updates = training_info["n_updates"]
         self.time_elapsed = training_info["time_elapsed"]
         self.critic_loss[self.train_pos] = training_info["critic_loss"]

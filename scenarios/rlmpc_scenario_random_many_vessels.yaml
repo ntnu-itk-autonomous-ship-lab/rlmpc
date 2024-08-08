@@ -4,7 +4,7 @@ t_start: 0.0
 t_end: 150.0
 dt_sim: 0.5
 utm_zone: 33
-map_size: [1350.0, 1500.0]
+map_size: [1400.0, 1500.0]
 map_origin_enu: [-31924.0, 6573700.0]
 map_data_files: ["Rogaland_utm33.gdb"]
 map_tolerance: 1

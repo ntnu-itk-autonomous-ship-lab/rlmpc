@@ -131,6 +131,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
         self._convert_train_freq()
+        self._infeasible_solution_percentage: float = 0.0
         self.num_timesteps: int = 0
         self._episode_num: int = 0
         self.data_path: Path = data_path
@@ -431,7 +432,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 if env.envs[env_idx].unwrapped.time < 0.0001:
                     self._last_actor_info[env_idx] = {}
                     action_count = 0
-                    self.policy.initialize_mpc_actor(env.envs[0])
+                    self.policy.initialize_mpc_actor(env.envs[env_idx])
 
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
@@ -478,12 +479,15 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self._current_obs = next_obs
             self._last_rewards = rewards
             self._last_dones = dones
+            self._infeasible_solution_percentage = (
+                self.policy.actor.infeasible_solutions / self.num_timesteps if self.num_timesteps > 0 else 0.0
+            )
 
             print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
             for idx, info in enumerate(infos):
                 info.update({"actor_info": self._last_actor_info[idx]})
 
-                if info["actor_info"]["num_consecutive_qp_failures"] > 3:
+                if info["actor_info"]["num_consecutive_qp_failures"] > 1:
                     dones[idx] = True
                     print("Episode terminated due to too many consecutive MPC QP failures")
                     info.update({"actor_failure": True})
@@ -659,7 +663,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         # Pass the number of timesteps for tensorboard
         self.logger.dump(step=self.num_timesteps)
 
-        infeasible_solution_percentage = self.policy.actor.infeasible_solutions / self.num_timesteps
         self.last_rollout_info.update(
             {
                 "time_elapsed": time_elapsed,
@@ -669,6 +672,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "mean_episode_length": ep_len_mean,
                 "episodes": self._episode_num,
                 "success_rate": success_rate,
-                "non_optimal_solution_rate": infeasible_solution_percentage,
+                "non_optimal_solution_rate": self._infeasible_solution_percentage,
             }
         )

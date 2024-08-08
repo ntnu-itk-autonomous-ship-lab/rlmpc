@@ -16,7 +16,7 @@ colreg:
   alpha_ot: [0.005, 0.01]
   x_0_ot: 300.0
   y_0_ot: 100.0
-  d_attenuation: 350.0
+  d_attenuation: 300.0
   w_colregs: [80.0, 80.0, 80.0]
   colregs_handler:
     theta_critical_ot: 45.0  # contact angle threshold for OT situation

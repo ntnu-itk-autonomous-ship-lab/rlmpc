@@ -122,7 +122,6 @@ class SAC(opa.OffPolicyAlgorithm):
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
-        pretrain_critic_using_mpc: bool = False,
         _init_setup_model: bool = True,
     ):
         policy_kwargs.update(
@@ -157,7 +156,6 @@ class SAC(opa.OffPolicyAlgorithm):
             support_multi_env=True,
         )
 
-        self.pretrain_critic_using_mpc: bool = pretrain_critic_using_mpc
         self.target_entropy = target_entropy
         self.log_ent_coef = None  # type: Optional[th.Tensor]
         # Entropy coefficient / Entropy temperature
@@ -341,7 +339,7 @@ class SAC(opa.OffPolicyAlgorithm):
         self._n_updates += gradient_steps
 
         print(
-            f"[TRAINING] Updates: {self._n_updates} | Timesteps: {self.num_timesteps + 1} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coef_losses):.4f} | Ent Coeff: {np.mean(ent_coefs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
+            f"[TRAINING] Updates: {self._n_updates} | Timesteps: {self.num_timesteps} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coef_losses):.4f} | Ent Coeff: {np.mean(ent_coefs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
         )
 
         if not disable_log:
@@ -367,6 +365,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 "batch_processing_time": time.time() - batch_start_time,
                 "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
                 "n_updates": self._n_updates,
+                "non_optimal_solution_rate": self._infeasible_solution_percentage,
             }
         )
 

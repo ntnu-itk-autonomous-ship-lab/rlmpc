@@ -70,8 +70,8 @@ def compute_weights_from_semantic_mask_land_ownship_only(semantic_mask: th.Tenso
     """
     weight_matrix = th.ones_like(semantic_mask)
     # weight_matrix[semantic_mask > 0.05] = 5.0  # land interior
-    weight_matrix[semantic_mask > 0.1] = 100.0  # land edges
-    weight_matrix[semantic_mask > 0.6] = 200.0  # ownship
+    weight_matrix[semantic_mask > 0.1] = 10.0  # land edges
+    weight_matrix[semantic_mask > 0.6] = 20.0  # ownship
     return weight_matrix
 
 
