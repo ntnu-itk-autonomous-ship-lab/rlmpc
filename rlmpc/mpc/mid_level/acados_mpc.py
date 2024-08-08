@@ -31,7 +31,11 @@ from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 class AcadosMPC:
     def __init__(
-        self, model: models.MPCModel, params: parameters.MidlevelMPCParams, solver_options: AcadosOcpOptions
+        self,
+        model: models.MPCModel,
+        params: parameters.MidlevelMPCParams,
+        solver_options: AcadosOcpOptions,
+        identifier: str = "",
     ) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._solver_options = mpc_common.parse_acados_solver_options(solver_options)
@@ -40,6 +44,7 @@ class AcadosMPC:
 
         self._prev_sol_status: int = 0
         self._num_consecutive_qp_failures: int = 0
+        self.identifier: str = identifier
 
         self.model = copy.deepcopy(model)
         self._params: parameters.MidlevelMPCParams = copy.deepcopy(params)
@@ -821,11 +826,11 @@ class AcadosMPC:
             xs=np.zeros(nx), do_cr_list=[], do_ho_list=[], do_ot_list=[], stage_idx=0
         )
 
-        solver_json = "acados_ocp_" + self._acados_ocp.model.name + ".json"
         # remove files in the code export directory
         if rl_dp.acados_code_gen.exists():
             shutil.rmtree(rl_dp.acados_code_gen)
             rl_dp.acados_code_gen.mkdir(parents=True, exist_ok=True)
+        solver_json = str(rl_dp.acados_code_gen) + "/acados_ocp_" + self._acados_ocp.model.name + "_" + self.identifier + ".json"
 
         self._acados_ocp.code_export_directory = rl_dp.acados_code_gen.as_posix()
         self._acados_ocp_solver = None

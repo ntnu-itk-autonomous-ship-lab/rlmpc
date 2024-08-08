@@ -95,10 +95,14 @@ class RLMPCParams:
 
 class RLMPC(ci.ICOLAV):
     """The RL-MPC is a mid-level planner, using the MPC to plan a solution for tracking a nominal trajectory while avoiding obstacles.
-    RL is used to update parameters online. Path-following/trajectory tracking can both be used. LOS-guidance is used to generate the nominal trajectory.
+
+    Args:
+        config (RLMPCParams | Path): The configuration parameters for the RL-MPC.
+        identifier (str): Identifier for the RL-MPC, used for multiprocessing process IDs.
+
     """
 
-    def __init__(self, config: RLMPCParams | Path = dp.rlmpc_config) -> None:
+    def __init__(self, config: RLMPCParams | Path = dp.rlmpc_config, identifier: str = "") -> None:
         if isinstance(config, RLMPCParams):
             self._config: RLMPCParams = config
         elif isinstance(config, Path):
@@ -106,7 +110,7 @@ class RLMPC(ci.ICOLAV):
 
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
-        self._mpc = mlmpc.MidlevelMPC(self._config.mpc)
+        self._mpc = mlmpc.MidlevelMPC(self._config.mpc, identifier=identifier)
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
         self._dt_sim: float = 0.5  # get from scenario config, typically always 0.5
         self._rrtstar = None

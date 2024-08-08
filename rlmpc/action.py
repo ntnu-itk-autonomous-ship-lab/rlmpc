@@ -25,6 +25,8 @@ import colav_simulator.common.math_functions as mf
 if TYPE_CHECKING:
     from colav_simulator.gym.environment import COLAVEnvironment
 
+LOG_PROB_MIN = -15.0
+
 
 class MPCParameterSettingAction(csgym_action.ActionType):
     """(Continuous) Action consisting of setting the MPC parameter values and solving its MPC to update the own-ship references."""
@@ -34,7 +36,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         env: "COLAVEnvironment",
         sample_time: Optional[float] = None,
         mpc_param_list: List[str] = ["Q_p", "r_safe_do"],
-        **kwargs,
+        deterministic: bool = True,
     ) -> None:
         """Create a continuous action space for setting the own-ship autopilot references in speed and course."""
         super().__init__(env, sample_time)
@@ -59,7 +61,15 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.mpc.set_action_indices(self.action_indices)
         self.course_ref: float = 0.0
         self.speed_ref: float = 0.0
-        self.debug: bool = kwargs.get("debug", False)
+        self.debug: bool = False
+        self.deterministic: bool = deterministic
+
+        self.t_prev: float = 0.0
+        self.noise_application_duration: float = 10.0
+        self.log_std = self.log_std
+        self.action_dist = DiagGaussianDistribution(self.mpc_action_dim).proba_distribution(
+            th.zeros(self.mpc_action_dim), log_std=self.log_std
+        )
 
     def compute_mpc_sensitivities(self, info: Dict[str, Any]) -> None:
         """Compute the MPC sensitivities for the given solution info.

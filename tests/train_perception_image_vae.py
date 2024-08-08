@@ -17,18 +17,6 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmResta
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-BASE_PATH: Path = Path.home() / "Desktop/machine_learning/enc_vae/"
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--experiment_name", type=str, default="default")
-parser.add_argument("--load_model", type=str, default=None)
-parser.add_argument("--load_model_path", type=str, default=None)
-
-EXPERIMENT_NAME: str = "enc_vae_LD_64_128x128_2"
-EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
-if not EXPERIMENT_PATH.exists():
-    EXPERIMENT_PATH.mkdir(parents=True)
-
 
 def train_vae(
     model: VAE,
@@ -247,8 +235,15 @@ def train_vae(
 
 
 if __name__ == "__main__":
-    latent_dim = 32
-    fc_dim = 512
+    BASE_PATH: Path = Path.home() / "Desktop/machine_learning/enc_vae/"
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--experiment_name", type=str, default="default")
+    parser.add_argument("--load_model", type=str, default=None)
+    parser.add_argument("--load_model_path", type=str, default=None)
+
+    latent_dim = 40
+    fc_dim = 1024
     encoder_conv_block_dims = [64, 128, 256, 256]
     decoder_conv_block_dims = [256, 128, 128, 64, 32]
     input_image_dim = (1, 128, 128)
@@ -261,9 +256,15 @@ if __name__ == "__main__":
         decoder_conv_block_dims=decoder_conv_block_dims,
     ).to(device)
 
+    EXPERIMENT_NAME: str = "LD_" + str(latent_dim) + "_FC_" + str(fc_dim) + "_128x128"
+    EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
+
+    if not EXPERIMENT_PATH.exists():
+        EXPERIMENT_PATH.mkdir(parents=True)
+
     load_model = False
     save_interval = 10
-    batch_size = 8
+    batch_size = 64
     num_epochs = 60
     learning_rate = 2e-04
 

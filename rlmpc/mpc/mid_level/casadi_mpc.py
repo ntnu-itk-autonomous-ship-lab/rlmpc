@@ -33,6 +33,7 @@ class CasadiMPC:
         model: models.MPCModel,
         params: parameters.MidlevelMPCParams,
         solver_options: mpc_common.CasadiSolverOptions,
+        identifier: str = "",
     ) -> None:
         self.model = copy.deepcopy(model)
         self._params: parameters.MidlevelMPCParams = copy.deepcopy(params)
@@ -42,6 +43,7 @@ class CasadiMPC:
         self._map_origin: np.ndarray = np.array([])
         self._prev_cost: float = np.inf
         self._so_surfaces: list = []
+        self.identifier: str = identifier
 
         self._sensitivities: mpc_common.NLPSensitivities = None
         self._nlp_perturbation: csd.MX = csd.MX.sym("nlp_perturbation", 0)

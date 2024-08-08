@@ -19,7 +19,7 @@ from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 # For macOS users, you might need to set the environment variable
-os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+# os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"

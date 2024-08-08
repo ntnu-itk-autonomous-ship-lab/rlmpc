@@ -75,7 +75,9 @@ class Config:
 class MidlevelMPC:
     """Class for a mid-level COLAV planner with multiple economic goals. Nonlinear obstacle constraints."""
 
-    def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rlmpc_config) -> None:
+    def __init__(
+        self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rlmpc_config, identifier: str = ""
+    ) -> None:
         if config:
             self._solver_options: common.SolverConfig = config.solver_options
             self._acados_enabled: bool = config.enable_acados
@@ -85,11 +87,11 @@ class MidlevelMPC:
             self._acados_enabled = config.enable_acados
 
         self._casadi_mpc: casadi_mpc.CasadiMPC = casadi_mpc.CasadiMPC(
-            config.model, config.mpc, self._solver_options.casadi
+            config.model, config.mpc, self._solver_options.casadi, identifier
         )
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(
-                config.model, config.mpc, self._solver_options.acados
+                config.model, config.mpc, self._solver_options.acados, identifier
             )
         self.sens: common.NLPSensitivities = None
 
