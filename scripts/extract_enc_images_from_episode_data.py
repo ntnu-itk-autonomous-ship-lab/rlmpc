@@ -8,3 +8,7 @@ if __name__ == "__main__":
     log_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name
     lgr = logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
     lgr.load_from_pickle(f"{experiment_name}_env_training_data")
+
+    enc_images = []
+    for epdata in lgr.env_data:
+        ep_perception_images = epdata["observation"]["perception_image"]

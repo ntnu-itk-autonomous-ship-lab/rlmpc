@@ -432,7 +432,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 if env.envs[env_idx].unwrapped.time < 0.0001:
                     self._last_actor_info[env_idx] = {}
                     action_count = 0
-                    self.policy.initialize_mpc_actor(env.envs[env_idx])
+                    self.policy.initialize_mpc_actor(env.envs[env_idx], evaluate=False)
 
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
@@ -486,7 +486,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
             for idx, info in enumerate(infos):
                 info.update({"actor_info": self._last_actor_info[idx]})
-
                 if info["actor_info"]["num_consecutive_qp_failures"] > 1:
                     dones[idx] = True
                     print("Episode terminated due to too many consecutive MPC QP failures")

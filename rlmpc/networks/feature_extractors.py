@@ -30,7 +30,7 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         encoder_conv_block_dims=[64, 128, 256, 256],
         decoder_conv_block_dims=[256, 128, 128, 64, 32],
         fc_dim=1024,
-        latent_dim: int = 32,
+        latent_dim: int = 40,
         model_file: str | None = None,
     ):
         super(PerceptionImageVAE, self).__init__(observation_space, features_dim=latent_dim)
@@ -39,7 +39,7 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
 
         if model_file is None:
             # model_file = VAE_DATADIR / "perception_vae_LD_64_128x128_best.pth"
-            model_file = VAE_DATADIR / "enc_vae_LD_32_128x128/best.pth"
+            model_file = VAE_DATADIR / "LD_40_128x128/model_LD_40_best.pth"
         self.vae: perception_vae.VAE = perception_vae.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),

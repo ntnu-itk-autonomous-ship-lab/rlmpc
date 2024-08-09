@@ -830,8 +830,11 @@ class AcadosMPC:
         if rl_dp.acados_code_gen.exists():
             shutil.rmtree(rl_dp.acados_code_gen)
             rl_dp.acados_code_gen.mkdir(parents=True, exist_ok=True)
-        solver_json = str(rl_dp.acados_code_gen) + "/acados_ocp_" + self._acados_ocp.model.name + "_" + self.identifier + ".json"
+        solver_json = (
+            str(rl_dp.acados_code_gen) + "/acados_ocp_" + self._acados_ocp.model.name + "_" + self.identifier + ".json"
+        )
 
+        self._acados_ocp.model.name += "_" + self.identifier
         self._acados_ocp.code_export_directory = rl_dp.acados_code_gen.as_posix()
         self._acados_ocp_solver = None
         self._acados_ocp_solver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json, build=True)

@@ -26,6 +26,8 @@ def train_vae(
     n_epochs: int,
     batch_size: int,
     optimizer: torch.optim.Adam,
+    experiment_path: Path,
+    experiment_name: str,
     save_interval: int = 10,
     device: torch.device = torch.device("cpu"),
     early_stopping_patience: int = 10,
@@ -40,6 +42,8 @@ def train_vae(
         n_epochs (int): The number of epochs to train the model
         batch_size (int): The batch size
         optimizer (torch.optim.Adam): The optimizer, typically Adam.
+        experiment_path (Path): The path to the experiment directory
+        experiment_name (str): The name of the experiment
         save_interval (int, optional): The interval at which to save the model. Defaults to 10.
         device (torch.device, optional): The device to train the model on. Defaults to "cpu".
         early_stopping_patience (int, optional): The number of epochs to wait before stopping training if the loss does not decrease. Defaults to 10.
@@ -53,13 +57,13 @@ def train_vae(
     n_batches = int(len(training_dataloader))
     n_test_batches = int(len(test_dataloader))
 
-    train_images_path = EXPERIMENT_PATH / "training_images"
+    train_images_path = experiment_path / "training_images"
     if not train_images_path.exists():
         train_images_path.mkdir()
-    test_images_path = EXPERIMENT_PATH / "testing_images"
+    test_images_path = experiment_path / "testing_images"
     if not test_images_path.exists():
         test_images_path.mkdir()
-    model_path = EXPERIMENT_PATH / "models"
+    model_path = experiment_path / "models"
     if not model_path.exists():
         model_path.mkdir()
 
@@ -132,13 +136,13 @@ def train_vae(
                     torchvision.utils.save_image(
                         grid,
                         train_images_path
-                        / (EXPERIMENT_NAME + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
+                        / (experiment_name + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
                     )
 
         print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
         loss_meter.reset()
         print("Saving model...")
-        save_path = f"{str(model_path)}/{EXPERIMENT_NAME}_LD_{model.latent_dim}_epoch_{epoch}.pth"
+        save_path = f"{str(model_path)}/{experiment_name}_LD_{model.latent_dim}_epoch_{epoch}.pth"
         torch.save(
             model.state_dict(),
             save_path,
@@ -198,7 +202,7 @@ def train_vae(
                     torchvision.utils.save_image(
                         grid,
                         test_images_path
-                        / (EXPERIMENT_NAME + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
+                        / (experiment_name + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
                     )
 
         testing_losses.append(test_batch_losses)
@@ -210,12 +214,12 @@ def train_vae(
             best_epoch = epoch
             num_nondecreasing_loss_iters = 0
             print(f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}")
-            best_model_path = f"{EXPERIMENT_PATH}/{EXPERIMENT_NAME}_model_LD_{model.latent_dim}_best.pth"
+            best_model_path = f"{experiment_path}/{experiment_name}_model_LD_{model.latent_dim}_best.pth"
             torch.save(model.state_dict(), best_model_path)
             torchvision.utils.save_image(
                 grid,
-                EXPERIMENT_PATH
-                / (EXPERIMENT_NAME + "_test_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + "_best.png"),
+                experiment_path
+                / (experiment_name + "_test_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + "_best.png"),
             )
         else:
             print(f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
@@ -228,8 +232,8 @@ def train_vae(
 
     training_losses = np.array(training_losses)
     testing_losses = np.array(testing_losses)
-    np.save(EXPERIMENT_PATH / "training_losses.npy", training_losses)
-    np.save(EXPERIMENT_PATH / "testing_losses.npy", testing_losses)
+    np.save(experiment_path / "training_losses.npy", training_losses)
+    np.save(experiment_path / "testing_losses.npy", testing_losses)
 
     return model, best_test_loss, best_epoch
 
@@ -256,11 +260,11 @@ if __name__ == "__main__":
         decoder_conv_block_dims=decoder_conv_block_dims,
     ).to(device)
 
-    EXPERIMENT_NAME: str = "LD_" + str(latent_dim) + "_FC_" + str(fc_dim) + "_128x128"
-    EXPERIMENT_PATH: Path = BASE_PATH / EXPERIMENT_NAME
+    experiment_name: str = "LD_" + str(latent_dim) + "_FC_" + str(fc_dim) + "_128x128"
+    experiment_path: Path = BASE_PATH / experiment_name
 
-    if not EXPERIMENT_PATH.exists():
-        EXPERIMENT_PATH.mkdir(parents=True)
+    if not experiment_path.exists():
+        experiment_path.mkdir(parents=True)
 
     load_model = False
     save_interval = 10
@@ -335,8 +339,8 @@ if __name__ == "__main__":
 
     training_config = {
         "base_path": BASE_PATH,
-        "experiment_path": EXPERIMENT_PATH,
-        "experiment_name": EXPERIMENT_NAME,
+        "experiment_path": experiment_path,
+        "experiment_name": experiment_name,
         "latent_dim": latent_dim,
         "input_image_dim": input_image_dim,
         "fc_dim": fc_dim,
@@ -347,7 +351,7 @@ if __name__ == "__main__":
         "save_interval": save_interval,
         "load_model": load_model,
     }
-    with Path(EXPERIMENT_PATH / "config.yaml").open(mode="w", encoding="utf-8") as fp:
+    with Path(experiment_path / "config.yaml").open(mode="w", encoding="utf-8") as fp:
         yaml.dump(training_config, fp)
 
     model, opt_loss, opt_epoch = train_vae(

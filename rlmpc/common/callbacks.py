@@ -413,6 +413,9 @@ class EvalCallback(EventCallback):
                 env_data_logger=self.env_data_logger,
             )
 
+            if hasattr(self.model.actor, "mpc"):
+                self.model.actor.set_training_mode(True)
+
             if self.log_path is not None:
                 self.evaluations_timesteps.append(self.num_timesteps)
                 self.evaluations_results.append(episode_rewards)

@@ -178,7 +178,7 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ELU,
-        features_dim: int = 49,
+        features_dim: int = 57,
         model_file: Optional[pathlib.Path] = None,
     ):
         super().__init__()
@@ -817,22 +817,28 @@ class SACMPCActor(BasePolicy):
         )
 
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
-        self.mpc = rlmpc_cas.RLMPC(mpc_config)
+        self.training_mpc = rlmpc_cas.RLMPC(mpc_config, "train")
         self.mpc_sensitivities = None
-        self.mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
-        self.mpc_params = self.mpc.get_mpc_params()
-        self.mpc_adjustable_params_init = self.mpc.get_adjustable_mpc_params()
+        self.training_mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
+        self.mpc_params = self.training_mpc.get_mpc_params()
+        self.mpc_adjustable_params_init = self.training_mpc.get_adjustable_mpc_params()
         self.mpc_adjustable_params_init = self.mpc_param_provider.map_to_parameter_dict(
             np.zeros(self.mpc_param_provider.num_output_params), self.mpc_adjustable_params_init
         )
 
-        nx, nu = self.mpc.get_mpc_model_dims()
+        self.mpc = None
+
+        nx, nu = self.training_mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         self.action_indices = [
             int(nu * n_samples + (2 * nx) + 2),  # chi 2
             int(nu * n_samples + (2 * nx) + 3),  # speed 2
         ]
-        self.mpc.set_action_indices(self.action_indices)
+        self.training_mpc.set_action_indices(self.action_indices)
+
+        self.eval_mpc = rlmpc_cas.RLMPC(mpc_config, identifier="eval")
+        self.eval_mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
+        self.eval_mpc.set_action_indices(self.action_indices)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -846,6 +852,20 @@ class SACMPCActor(BasePolicy):
             )
         )
         return data
+
+    def set_training_mode(self, mode: bool) -> None:
+        """Sets the actor into training mode or not, and switches MPC mode accordingly.
+        The MPC parameters are set to the initial values.
+
+        Args:
+            mode (bool): Whether to switch MPC mode to training or not.
+        """
+        self.training = mode
+        if self.training:
+            self.mpc = self.training_mpc
+        else:
+            self.mpc = self.eval_mpc
+        self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
 
     def set_gradients(self, grads: th.Tensor) -> None:
         """Update the parameter gradients of the actor DNN mpc parameter provider policy.
@@ -997,7 +1017,10 @@ class SACMPCActor(BasePolicy):
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         actor_infos = [{} for _ in range(batch_size)]
 
+        if isinstance(observation["TimeObservation"], th.Tensor):
+            observation = self._convert_obs_tensor_to_numpy(observation)
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
+
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
 
@@ -1065,6 +1088,7 @@ class SACMPCActor(BasePolicy):
         Args:
             info (Dict[str, Any]): The solution info
         """
+        assert self.mpc == self.training_mpc, "MPC sensitivities can only be computed for the training MPC"
         if self.mpc_sensitivities is None:
             self.mpc_sensitivities = self.mpc.build_sensitivities()
 
@@ -1186,6 +1210,11 @@ class SACMPCActor(BasePolicy):
         goal_state = env.unwrapped.ownship.goal_state
         w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
 
+        self.training = not evaluate
+        self.mpc = self.training_mpc
+        if evaluate:
+            self.mpc = self.eval_mpc
+
         self.mpc.initialize(
             t=t,
             waypoints=waypoints,
@@ -1200,9 +1229,9 @@ class SACMPCActor(BasePolicy):
         )
         self.mpc.set_action_indices(self.action_indices)
         self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
-        self.training = not evaluate
-        if not evaluate:  # only build sensitivities for training
-            self.mpc_sensitivities = self.mpc.build_sensitivities()
+        if self.training:
+            self.mpc_sensitivities = self.training_mpc.build_sensitivities()
+
         print(f"SAC MPC Actor initialized! Built sensitivities? {self.training}")
 
     def update_params(self, step: th.Tensor) -> None:

@@ -496,6 +496,7 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_losses = []
 
         cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
+        alpha = 10.0  # amplification factor for the mpc_param_provider gradients
         t_actor_start_now = time.time()
         for b in range(batch_size):
             actor_info = replay_data.infos[b][0]["actor_info"]
@@ -520,7 +521,7 @@ class SAC(opa.OffPolicyAlgorithm):
             df_repar_dp = da_dp_mpc @ dnn_jacobians[b]
 
             dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
-            actor_grads.append(ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp)
+            actor_grads.append(alpha * (ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp))
             actor_losses.append(ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b])
 
         print("Actor gradient computation time: ", time.time() - t_actor_start_now)

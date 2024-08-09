@@ -33,8 +33,8 @@ def train_rlmpc_sac(
     model_dir: Path,
     experiment_name: str,
     load_model: bool = True,
-    load_model_name: str = "sac_drl1_0_steps",
-    load_rb_name: str = "sac_drl1_replay_buffer",
+    load_model_path: str = "sac_drl1_0_steps",
+    load_rb_path: str = "sac_drl1_replay_buffer",
     seed: int = 0,
     iteration: int = 0,
 ) -> rlmpc_sac.SAC:
@@ -53,8 +53,8 @@ def train_rlmpc_sac(
         model_dir (Path): The model directory.
         experiment_name (str): The experiment name.
         load_model (bool, optional): Whether to load the model. Defaults to True.
-        load_model_name (str, optional): The model name to load. Defaults to "sac_drl1_0_steps".
-        load_rb_name (str, optional): The replay buffer name to load. Defaults to "sac_drl1_replay_buffer".
+        load_model_path (str, optional): The model path for loading.
+        load_rb_path (str, optional): The replay buffer path
         seed (int, optional): The seed. Defaults to 0.
         iteration (int, optional): The iteration used for TB logging naming. Defaults to 0.
 
@@ -96,8 +96,8 @@ def train_rlmpc_sac(
     )
     model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
     if load_model:
-        model.inplace_load(path=model_dir / load_model_name)
-        model.load_replay_buffer(path=model_dir / load_rb_name)
+        model.inplace_load(path=load_model_path)
+        model.load_replay_buffer(path=load_rb_path)
         model.set_env(training_env)
 
     model.set_random_seed(seed)

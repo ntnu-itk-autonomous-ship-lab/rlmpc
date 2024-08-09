@@ -39,18 +39,18 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc1")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc5")
     parser.add_argument("--n_cpus", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=0.003)
-    parser.add_argument("--buffer_size", type=int, default=50000)
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--learning_rate", type=float, default=0.001)
+    parser.add_argument("--buffer_size", type=int, default=60000)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=2)
     parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--eval_freq", type=int, default=2500)
-    parser.add_argument("--timesteps", type=int, default=50000)
-    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
-    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
+    parser.add_argument("--timesteps", type=int, default=60000)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
+    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC training:")
@@ -131,7 +131,7 @@ def main(args):
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "disable_parameter_provider": True,
+        "disable_parameter_provider": False,
         "debug": False,
     }
     model_kwargs = {
@@ -152,14 +152,16 @@ def main(args):
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
-    load_model = False
-    load_model_name = "sac_rlmpc1_1200_steps"
-    n_timesteps_per_learn = 5000
+    load_model = True
+    load_model_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_3000_steps"
+    load_rb_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_replay_buffer"
+    n_timesteps_per_learn = 7500
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
         if i > 0:
             load_model = True
-            load_model_name = args.experiment_name + f"_{i * n_timesteps_per_learn}"
+            load_model_path = str(model_dir) + "/" + args.experiment_name + f"_{i * n_timesteps_per_learn}"
+            load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer"
 
         model = train_rlmpc_sac(
             model_kwargs=model_kwargs,
@@ -174,8 +176,8 @@ def main(args):
             model_dir=model_dir,
             experiment_name=args.experiment_name,
             load_model=load_model,
-            load_model_name=load_model_name,
-            load_rb_name=args.experiment_name + "_replay_buffer",
+            load_model_path=load_model_path,
+            load_rb_path=load_rb_path,
             seed=0,
             iteration=i + 1,
         )
