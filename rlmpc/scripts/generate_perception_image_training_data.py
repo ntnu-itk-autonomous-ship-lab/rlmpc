@@ -14,7 +14,7 @@ import torch as th
 import torchvision.transforms.v2 as transforms_v2
 from colav_simulator.gym.environment import COLAVEnvironment
 from matplotlib import animation
-from rlmpc.networks.perception_vae.vae import VAE
+from rlmpc.networks.enc_vae.vae import VAE
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import SubprocVecEnv
 

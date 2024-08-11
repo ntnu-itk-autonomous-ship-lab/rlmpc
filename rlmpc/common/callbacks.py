@@ -225,10 +225,10 @@ class CollectStatisticsCallback(BaseCallback):
                     self.model.just_trained = False
 
             current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
-            if "PerceptionImageObservation" in current_obs:
-                pimg = th.from_numpy(current_obs["PerceptionImageObservation"])
+            if "ENCObservation" in current_obs:
+                pimg = th.from_numpy(current_obs["ENCObservation"])
                 pimg = self.img_transform(pimg)
-                pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
+                pvae = self.model.critic.features_extractor.extractors["ENCObservation"]
                 recon_frame = pvae.reconstruct(pimg)
                 # pvae.display_image(self.display_transform(pimg))
                 # pvae.display_image(self.display_transform(recon_frame))

@@ -23,8 +23,8 @@ def weights_init(m):
         nn.init.zeros_(m.bias)
 
 
-class PerceptionImageEncoder(nn.Module):
-    """We use a ResNet8 architecture for now."""
+class ENCEncoder(nn.Module):
+    """Encoder network for processing ENC images from the environment"""
 
     def __init__(
         self,
@@ -49,7 +49,7 @@ class PerceptionImageEncoder(nn.Module):
         # s = stride
         # Number of output channels are random/tuning parameter.
 
-        super(PerceptionImageEncoder, self).__init__()
+        super(ENCEncoder, self).__init__()
         self.n_input_channels = n_input_channels
         self.latent_dim = latent_dim
 
@@ -90,12 +90,12 @@ class PerceptionImageEncoder(nn.Module):
         # Third (Fourth) block of convolutions
         self.block_3_dim = conv_block_dims[3]
         self.conv_block_3 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.latent_dim, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_3_dim, kernel_size=3, stride=1, padding=1),
             nn.ELU(),
         )
 
         # Fully connected layers
-        self.last_conv_block_dim = (self.latent_dim, 6, 6)
+        self.last_conv_block_dim = (self.block_3_dim, 6, 6)
         self.last_conv_block_flattened_dim = (
             self.last_conv_block_dim[0] * self.last_conv_block_dim[1] * self.last_conv_block_dim[2]
         )
@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
     #
     latent_dimension = 32
-    encoder = PerceptionImageEncoder(
+    encoder = ENCEncoder(
         n_input_channels=3, latent_dim=latent_dimension, conv_block_dims=(128, 128, 128, 128), fc_dim=512
     ).to("cuda")
     summary(encoder, (3, 128, 128), device="cuda")

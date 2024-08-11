@@ -5,7 +5,7 @@ import optuna
 import rlmpc.common.datasets as rl_ds
 import torch
 from rlmpc.policies import MPCParameterDNN
-from rlmpc.train_mpc_param_provider import train_mpc_param_dnn
+from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
 from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -23,7 +23,7 @@ def objective(trial: optuna.Trial) -> float:
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    input_dim = 64 + 12 + 5  # this is, excluding the MPC parameters
+    input_dim = 40 + 12 + 5  # this is, excluding the MPC parameters
 
     save_interval = 10
     batch_size = 4
@@ -113,6 +113,7 @@ def main(args):
         study_name=study_name,
         storage=storage_name,
         sampler=optuna.samplers.RandomSampler(),
+        load_if_exists=True,
     )
     study.optimize(objective, n_trials=50000)
 

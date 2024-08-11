@@ -27,7 +27,7 @@ class UnNormalize(transforms_v2.Normalize):
         super().__init__(new_mean, new_std, *args, **kwargs)
 
 
-class PerceptionImageDataset(Dataset):
+class ENCImageDataset(Dataset):
     """Class for perception image dataset from the colav-environment."""
 
     # consider augmenting dataset by flipping and rotating images, cropping, color manipulaton,

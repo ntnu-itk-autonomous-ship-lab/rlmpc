@@ -11,7 +11,7 @@ import pathlib
 from typing import Tuple
 
 import numpy as np
-import rlmpc.networks.perception_vae_128.vae as perception_vae
+import rlmpc.networks.enc_vae_128.vae as enc_vae
 import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 import torch as th
 import torch.nn as nn
@@ -22,7 +22,7 @@ VAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/enc_
 TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/tracking_vae/"
 
 
-class PerceptionImageVAE(BaseFeaturesExtractor):
+class ENCVAE(BaseFeaturesExtractor):
 
     def __init__(
         self,
@@ -33,14 +33,14 @@ class PerceptionImageVAE(BaseFeaturesExtractor):
         latent_dim: int = 40,
         model_file: str | None = None,
     ):
-        super(PerceptionImageVAE, self).__init__(observation_space, features_dim=latent_dim)
+        super(ENCVAE, self).__init__(observation_space, features_dim=latent_dim)
 
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
         if model_file is None:
-            # model_file = VAE_DATADIR / "perception_vae_LD_64_128x128_best.pth"
+            # model_file = VAE_DATADIR / "enc_vae_LD_64_128x128_best.pth"
             model_file = VAE_DATADIR / "LD_40_128x128/model_LD_40_best.pth"
-        self.vae: perception_vae.VAE = perception_vae.VAE(
+        self.vae: enc_vae.VAE = enc_vae.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
             encoder_conv_block_dims=encoder_conv_block_dims,
@@ -195,11 +195,7 @@ class TrackingVAE(BaseFeaturesExtractor):
 
 
 class CombinedExtractor(BaseFeaturesExtractor):
-    """
-    :param observation_space: (gym.Space)
-    :param features_dim: (int) Number of features extracted.
-        This corresponds to the number of unit for the last layer.
-    """
+    """Feature extractor that combines multiple feature extractors into one."""
 
     def __init__(self, observation_space: spaces.Dict, features_dim: int = 256, batch_size: int = 1):
         # We do not know features-dim here before going over all the items,
@@ -212,8 +208,8 @@ class CombinedExtractor(BaseFeaturesExtractor):
         # We need to know size of the output of this extractor,
         # so go over all the spaces and compute output feature sizes
         for key, subspace in observation_space.spaces.items():
-            if key == "PerceptionImageObservation":
-                extractors[key] = PerceptionImageVAE(subspace)
+            if key == "ENCObservation":
+                extractors[key] = ENCVAE(subspace)
                 total_concat_size += extractors[key].latent_dim
             elif key == "PathRelativeNavigationObservation":
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
@@ -221,9 +217,6 @@ class CombinedExtractor(BaseFeaturesExtractor):
             elif key == "RelativeTrackingObservation":
                 extractors[key] = TrackingVAE(subspace, features_dim=12, num_layers=1)
                 total_concat_size += extractors[key].latent_dim
-            # elif key == "DisturbanceObservation":
-            #     extractors[key] = DisturbanceNN(subspace, features_dim=subspace.shape[-1])
-            #     total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)
         self._features_dim = total_concat_size
@@ -242,26 +235,11 @@ class CombinedExtractor(BaseFeaturesExtractor):
 
 
 if __name__ == "__main__":
-    import colav_simulator.common.paths as cs_dp
     import gymnasium as gym
     import rlmpc.common.paths as rl_dp
 
-    scenario_choice = 0
-    if scenario_choice == 0:
-        scenario_name = "rlmpc_scenario_cr_ss"
-        config_file = rl_dp.scenarios / (scenario_name + ".yaml")
-    elif scenario_choice == 1:
-        scenario_name = "rlmpc_scenario_ms_channel"
-        config_file = rl_dp.scenarios / "rlmpc_scenario_easy_headon_no_hazards.yaml"
-    elif scenario_choice == 2:
-        scenario_name = "rogaland_random_rl"
-        config_file = cs_dp.scenarios / "rogaland_random_rl.yaml"
-    elif scenario_choice == 3:
-        scenario_name = "rogaland_random_rl_2"
-        config_file = rl_dp.scenarios / "rogaland_random_rl_2.yaml"
-    elif scenario_choice == 4:
-        scenario_name = "rl_scenario"
-        config_file = rl_dp.scenarios / "rl_scenario.yaml"
+    scenario_name = "rlmpc_scenario_cr_ss"
+    config_file = rl_dp.scenarios / (scenario_name + ".yaml")
 
     observation_type = {
         "dict_observation": [
@@ -285,5 +263,4 @@ if __name__ == "__main__":
         "seed": 15,
     }
     env = gym.make(id=env_id, **env_config)
-
     feature_extractor = CombinedExtractor(env.observation_space)

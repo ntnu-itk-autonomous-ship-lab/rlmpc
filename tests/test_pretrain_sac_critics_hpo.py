@@ -9,7 +9,7 @@ import rlmpc.policies as rlmpc_policies
 import torch as th
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.sac import SAC
-from rlmpc.train_critics import train_critics
+from rlmpc.scripts.train_critics import train_critics
 from stable_baselines3.common.monitor import Monitor
 from torch.utils.tensorboard import SummaryWriter
 

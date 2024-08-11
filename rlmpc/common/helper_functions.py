@@ -272,7 +272,7 @@ def compute_smooted_mean_and_std(data: List[float], window_size: int = 10) -> Tu
     return mean, std
 
 
-def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: int = 3) -> Dict[str, Any]:
+def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: int = 5) -> Dict[str, Any]:
     """Extracts reward metrics from the environment data.
 
     Args:

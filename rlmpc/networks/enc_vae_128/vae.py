@@ -11,8 +11,8 @@ from typing import List, Tuple
 
 import torch as th
 import torch.nn as nn
-from rlmpc.networks.perception_vae.decoder import PerceptionImageDecoder
-from rlmpc.networks.perception_vae.encoder import PerceptionImageEncoder
+from rlmpc.networks.enc_vae_128.decoder import ENCDecoder
+from rlmpc.networks.enc_vae_128.encoder import ENCEncoder
 
 
 class Lambda(nn.Module):
@@ -32,9 +32,9 @@ class VAE(nn.Module):
     def __init__(
         self,
         latent_dim: int = 64,
-        input_image_dim: Tuple[int, int, int] = (3, 400, 400),
+        input_image_dim: Tuple[int, int, int] = (1, 128, 128),
         encoder_conv_block_dims: List[int] = [32, 64, 128, 128],
-        decoder_conv_block_dims: List[int] = [256, 128, 128, 64, 3],
+        decoder_conv_block_dims: List[int] = [256, 128, 128, 64, 32],
         fc_dim: int = 32,
         inference_mode: bool = False,
     ):
@@ -52,13 +52,13 @@ class VAE(nn.Module):
         self.input_image_dim = input_image_dim
         self.latent_dim = latent_dim
         self.inference_mode = inference_mode
-        self.encoder = PerceptionImageEncoder(
+        self.encoder = ENCEncoder(
             n_input_channels=input_image_dim[0],
             latent_dim=latent_dim,
             conv_block_dims=tuple(encoder_conv_block_dims),
             fc_dim=fc_dim,
         )
-        self.decoder = PerceptionImageDecoder(
+        self.decoder = ENCDecoder(
             n_input_channels=input_image_dim[0],
             latent_dim=latent_dim,
             first_deconv_input_dim=self.encoder.last_conv_block_dim,
@@ -79,30 +79,6 @@ class VAE(nn.Module):
             th.Tensor: The reconstructed image.
         """
         z = self.encoder(img)
-
-        # Reparametrization trick
-        mean = self.mean_params(z)
-        logvars = self.logvar_params(z)
-        logvars = th.log(logvars.exp() + 1e-7)  # To avoid singularity
-        std = th.exp(0.5 * logvars)
-        eps = th.randn_like(std)
-        if self.inference_mode:
-            eps = th.zeros_like(eps)
-        z_sampled = mean + eps * std
-
-        img_recon = self.decoder(z_sampled)
-        return img_recon, mean, logvars, z_sampled
-
-    def forward_test(self, image: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
-        """Do a forward pass of the VAE. Generates a reconstructed image based on input image.
-
-        Args:
-            imgage (th.Tensor): The input image.
-
-        Returns:
-            th.Tensor: The reconstructed image.
-        """
-        z = self.encoder(image)
 
         # Reparametrization trick
         mean = self.mean_params(z)
@@ -158,8 +134,8 @@ class VAE(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    LATENT_DIM = 100
-    image_dim = (1, 256, 256)
+    LATENT_DIM = 64
+    image_dim = (1, 128, 128)
     fc_dim = 512
     device = th.device("cpu")
     vae = VAE(

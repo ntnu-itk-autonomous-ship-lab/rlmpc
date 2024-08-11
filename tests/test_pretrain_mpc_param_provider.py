@@ -5,7 +5,7 @@ import rlmpc.common.datasets as rl_ds
 import torch
 import yaml
 from rlmpc.policies import MPCParameterDNN
-from rlmpc.train_mpc_param_provider import train_mpc_param_dnn
+from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
 from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter

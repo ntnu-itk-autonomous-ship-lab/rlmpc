@@ -13,8 +13,8 @@ import torch as th
 import torch.nn as nn
 
 
-class PerceptionImageDecoder(nn.Module):
-    """Generates a perception image reconstruction using ConvTranspose2d layers.
+class ENCDecoder(nn.Module):
+    """Generates an ENC image reconstruction using ConvTranspose2d layers.
 
     Adapted from https://github.com/microsoft/AirSim-Drone-Racing-VAE-Imitation/blob/master/racing_models/cmvae.py
     """
@@ -23,8 +23,8 @@ class PerceptionImageDecoder(nn.Module):
         self,
         n_input_channels: int = 3,
         latent_dim: int = 128,
-        first_deconv_input_dim: Tuple[int, int] = (32, 7, 7),
-        deconv_block_dims: List[int] = [256, 128, 128, 64, 32],
+        first_deconv_input_dim: Tuple[int, int] = (128, 9, 9),
+        deconv_block_dims: List[int] = [256, 128, 128, 32],
         fc_dim: int = 32,
     ):
         """
@@ -37,7 +37,7 @@ class PerceptionImageDecoder(nn.Module):
             fc_dim (int): Dimension of the fully connected layer
         """
 
-        super(PerceptionImageDecoder, self).__init__()
+        super(ENCDecoder, self).__init__()
 
         self.elu = nn.ELU()
         self.relu = nn.ReLU()
@@ -64,39 +64,23 @@ class PerceptionImageDecoder(nn.Module):
             nn.Linear(fc_dim, first_deconv_input_dim[0] * first_deconv_input_dim[1] * first_deconv_input_dim[2]),
         )
 
+        deconv_input_dim = first_deconv_input_dim[0]
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
-
         self.deconv_block = nn.Sequential(
             nn.ConvTranspose2d(
-                in_channels=latent_dim, out_channels=deconv_block_dims[0], kernel_size=3, stride=1, padding=1
+                in_channels=deconv_input_dim, out_channels=deconv_block_dims[0], kernel_size=3, stride=2, padding=1
             ),
             nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[0], out_channels=deconv_block_dims[1], kernel_size=4, stride=2, padding=2
+                in_channels=deconv_block_dims[0], out_channels=deconv_block_dims[1], kernel_size=3, stride=2, padding=1
             ),
             nn.ReLU(),
             nn.ConvTranspose2d(
                 in_channels=deconv_block_dims[1],
-                out_channels=deconv_block_dims[2],
-                kernel_size=6,
+                out_channels=n_input_channels,
+                kernel_size=4,
                 stride=4,
-                padding=3,
+                padding=2,
                 dilation=1,
-            ),
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[2],
-                out_channels=deconv_block_dims[3],
-                kernel_size=3,
-                stride=2,
-                padding=3,
-                dilation=1,
-            ),
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[3], out_channels=deconv_block_dims[4], kernel_size=3, stride=1, padding=2
-            ),
-            nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[4], out_channels=n_input_channels, kernel_size=4, stride=2, padding=2
             ),
             nn.Sigmoid(),
         )
@@ -119,7 +103,7 @@ if __name__ == "__main__":
     from torchsummary import summary
 
     latent_dimension = 128
-    img_decoder = PerceptionImageDecoder(
-        latent_dim=latent_dimension, n_input_channels=1, first_deconv_input_dim=(latent_dimension, 10, 10)
-    ).to("cuda")
+    img_decoder = ENCDecoder(latent_dim=latent_dimension, n_input_channels=1, first_deconv_input_dim=(128, 9, 9)).to(
+        "cuda"
+    )
     summary(img_decoder, (1, latent_dimension), device="cuda")

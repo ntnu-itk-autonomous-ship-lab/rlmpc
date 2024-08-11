@@ -422,7 +422,7 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 
 if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["sac_rlmpc1"]
+    experiment_names = ["sac_rlmpc4"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
     # plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
     print("Done plotting")

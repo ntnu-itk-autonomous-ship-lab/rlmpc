@@ -76,10 +76,10 @@ def train_rlmpc_sac(
         model_dir=model_dir,
         experiment_name=experiment_name,
         save_stats_freq=20,
-        save_agent_model_freq=1000,
+        save_agent_model_freq=500,
         log_freq=5,
         max_num_env_episodes=1000,
-        max_num_training_stats_entries=30000,
+        max_num_training_stats_entries=40000,
         verbose=1,
     )
     eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
@@ -103,7 +103,7 @@ def train_rlmpc_sac(
     model.set_random_seed(seed)
     model.learn(
         total_timesteps=n_timesteps,
-        log_interval=2,
+        log_interval=4,
         tb_log_name=experiment_name + f"_{iteration}",
         reset_num_timesteps=True,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),

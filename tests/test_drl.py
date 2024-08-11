@@ -20,7 +20,7 @@ from colav_simulator.gym.environment import COLAVEnvironment
 from memory_profiler import profile
 from rlmpc.common.callbacks import evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
-from rlmpc.train_drl_sac import train_sac
+from rlmpc.scripts.train_drl_sac import train_sac
 from stable_baselines3.common.monitor import Monitor
 
 

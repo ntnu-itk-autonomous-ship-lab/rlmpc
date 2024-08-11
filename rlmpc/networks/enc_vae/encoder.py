@@ -23,8 +23,8 @@ def weights_init(m):
         nn.init.zeros_(m.bias)
 
 
-class PerceptionImageEncoder(nn.Module):
-    """We use a ResNet8 architecture for now."""
+class ENCEncoder(nn.Module):
+    """Encoder network for processing ENC images from the environment"""
 
     def __init__(
         self,

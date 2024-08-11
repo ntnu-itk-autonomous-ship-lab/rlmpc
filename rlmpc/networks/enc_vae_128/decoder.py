@@ -13,8 +13,8 @@ import torch as th
 import torch.nn as nn
 
 
-class PerceptionImageDecoder(nn.Module):
-    """Generates a perception image reconstruction using ConvTranspose2d layers.
+class ENCDecoder(nn.Module):
+    """Generates an ENC image reconstruction using ConvTranspose2d layers.
 
     Adapted from https://github.com/microsoft/AirSim-Drone-Racing-VAE-Imitation/blob/master/racing_models/cmvae.py
     """
@@ -37,7 +37,7 @@ class PerceptionImageDecoder(nn.Module):
             fc_dim (int): Dimension of the fully connected layer
         """
 
-        super(PerceptionImageDecoder, self).__init__()
+        super(ENCDecoder, self).__init__()
 
         self.elu = nn.ELU()
         self.relu = nn.ReLU()
@@ -119,7 +119,7 @@ if __name__ == "__main__":
     from torchsummary import summary
 
     latent_dimension = 128
-    img_decoder = PerceptionImageDecoder(
+    img_decoder = ENCDecoder(
         latent_dim=latent_dimension, n_input_channels=1, first_deconv_input_dim=(latent_dimension, 6, 6)
     ).to("cuda")
     summary(img_decoder, (1, latent_dimension), device="cuda")

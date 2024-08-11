@@ -15,9 +15,10 @@ import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rewards
 import torch as th
 import yaml
+from memory_profiler import profile
 from rlmpc.common.callbacks import evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
-from rlmpc.train_rlmpc_sac import train_rlmpc_sac
+from rlmpc.scripts.train_rlmpc_sac import train_rlmpc_sac
 from stable_baselines3.common.monitor import Monitor
 
 # Supressing futurewarning to speed up execution time
@@ -36,19 +37,21 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # edge case shit
 # constraint satisfaction highly dependent on tau/barrier
 # if ship gets too much off path/course it will just continue off course
+# @profile
 def main(args):
+    hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc5")
     parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--buffer_size", type=int, default=60000)
+    parser.add_argument("--buffer_size", type=int, default=40000)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=2)
     parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--eval_freq", type=int, default=2500)
-    parser.add_argument("--timesteps", type=int, default=60000)
+    parser.add_argument("--timesteps", type=int, default=40000)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
     args = parser.parse_args(args)

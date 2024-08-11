@@ -514,7 +514,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         Args:
             obs (th.Tensor): Observations
             actions (th.Tensor): (MPC) Actions to evaluate the log probability for
-            infos (Optional[List[Dict[str, Any]]], optional): Additional information. Defaults to None.
+            infos (Optional[List[Dict[str, Any]]], optional): Additional information.
             is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
 
         Returns:
@@ -887,8 +887,8 @@ class SACMPCActor(BasePolicy):
         Args:
             obs (th.Tensor): Observations
             actions (th.Tensor): (MPC) Actions to evaluate the log probability for
-            infos (Optional[List[Dict[str, Any]]], optional): Additional information. Defaults to None.
-            is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
+            infos (Optional[List[Dict[str, Any]]]): Additional information.
+            is_next_action (bool): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
 
         Returns:
             Tuple[th.Tensor, th.Tensor]:

@@ -1,9 +1,9 @@
-import argparse
 import time
 from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
+import optuna
 import rlmpc.common.datasets as rl_ds
 import rlmpc.common.helper_functions as rl_hf
 import rlmpc.networks.loss_functions as loss_functions
@@ -12,7 +12,9 @@ import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
 from rlmpc.common.running_loss import RunningLoss
-from rlmpc.networks.perception_vae_128.vae import VAE
+
+# from rlmpc.networks.enc_vae_128.vae import VAE
+from rlmpc.networks.enc_vae_128_simple.vae import VAE
 from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -26,11 +28,14 @@ def train_vae(
     n_epochs: int,
     batch_size: int,
     optimizer: torch.optim.Adam,
+    lr_schedule: torch.optim.lr_scheduler,
     experiment_path: Path,
     experiment_name: str,
     save_interval: int = 10,
     device: torch.device = torch.device("cpu"),
     early_stopping_patience: int = 10,
+    save_intermittent_models: bool = False,
+    verbose: bool = False,
 ) -> Tuple[VAE, float, int, List[List[float]], List[List[float]]]:
     """Trains the variation autoencoder model.
 
@@ -42,11 +47,14 @@ def train_vae(
         n_epochs (int): The number of epochs to train the model
         batch_size (int): The batch size
         optimizer (torch.optim.Adam): The optimizer, typically Adam.
+        lr_schedule: (torch.optim.lr_scheduler.CosineAnnealingWarmRestarts): The learning rate scheduler
         experiment_path (Path): The path to the experiment directory
         experiment_name (str): The name of the experiment
         save_interval (int, optional): The interval at which to save the model. Defaults to 10.
         device (torch.device, optional): The device to train the model on. Defaults to "cpu".
         early_stopping_patience (int, optional): The number of epochs to wait before stopping training if the loss does not decrease. Defaults to 10.
+        save_intermittent_models (bool, optional): Whether to save the model at each epoch. Defaults to False.
+        verbose (bool, optional): Whether to print verbose output. Defaults to False.
 
     Returns:
         Tuple[VAE, float, int, List[List[float]], List[List[float]]]: The trained model, the best test loss, the epoch at which the best test loss occurred, the training losses, and the testing losses.
@@ -68,7 +76,7 @@ def train_vae(
         model_path.mkdir()
 
     n_batch_images_to_show = 12
-    beta = 10.0
+    beta = 5.0
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
@@ -120,10 +128,11 @@ def train_vae(
                 writer.add_scalar("Training/KLD Loss", kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
                 writer.add_scalar("Training/MSE Loss", mse_loss.item() / batch_size, epoch * n_batches + batch_idx)
                 # writer.add_scalar("Training/Sigma Opt", log_sigma_opt.exp() / batch_size, epoch * n_batches + batch_idx)
-                print(
-                    f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Avg. Train Loss: {loss.item() / batch_size:.4f} | KL Div. Loss: {kld_loss.item()/batch_size:.4f} | "
-                    f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
-                )
+                if verbose:
+                    print(
+                        f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Avg. Train Loss: {loss.item() / batch_size:.4f} | KL Div. Loss: {kld_loss.item()/batch_size:.4f} | "
+                        f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
+                    )
 
                 grid = rl_hf.make_grid_for_tensorboard(
                     batch_images[random_indices],
@@ -139,25 +148,24 @@ def train_vae(
                         / (experiment_name + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
                     )
 
-        print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
+        lr_schedule.step()
+
+        if verbose:
+            print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
         loss_meter.reset()
-        print("Saving model...")
-        save_path = f"{str(model_path)}/{experiment_name}_LD_{model.latent_dim}_epoch_{epoch}.pth"
-        torch.save(
-            model.state_dict(),
-            save_path,
-        )
-        print("[DONE] Saving model at ", str(model_path))
+
+        if save_intermittent_models:
+            save_path = f"{str(model_path)}/{experiment_name}_LD_{model.latent_dim}_epoch_{epoch}.pth"
+            torch.save(
+                model.state_dict(),
+                save_path,
+            )
 
         training_losses.append(training_batch_losses)
 
         model.eval()
         model.set_inference_mode(True)
-        # if True:
-        #     continue
-
         test_batch_losses = []
-
         for batch_idx, (batch_images, semantic_masks) in enumerate(test_dataloader):
             model.zero_grad()
             optimizer.zero_grad()
@@ -184,10 +192,10 @@ def train_vae(
             test_batch_losses.append(loss.item())
 
             if batch_idx % save_interval == 0:
-                print(
-                    f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Test Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
-                )
-                # Update the tensorboard
+                if verbose:
+                    print(
+                        f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Test Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
+                    )
                 writer.add_scalar("Test/Loss", loss.item() / batch_size, epoch * n_test_batches + batch_idx)
                 writer.add_scalar("Test/KL Div Loss", -kld_loss.item() / batch_size, epoch * n_test_batches + batch_idx)
 
@@ -207,13 +215,14 @@ def train_vae(
 
         testing_losses.append(test_batch_losses)
 
-        # Print the statistics
-        print("Test Loss:", loss_meter.average_loss)
+        if verbose:
+            print("Test Loss:", loss_meter.average_loss)
         if loss_meter.average_loss < best_test_loss:
             best_test_loss = loss_meter.average_loss
             best_epoch = epoch
             num_nondecreasing_loss_iters = 0
-            print(f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}")
+            if verbose:
+                print(f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}")
             best_model_path = f"{experiment_path}/{experiment_name}_model_LD_{model.latent_dim}_best.pth"
             torch.save(model.state_dict(), best_model_path)
             torchvision.utils.save_image(
@@ -222,12 +231,14 @@ def train_vae(
                 / (experiment_name + "_test_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + "_best.png"),
             )
         else:
-            print(f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
+            if verbose:
+                print(f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
             num_nondecreasing_loss_iters += 1
         loss_meter.reset()
 
         if num_nondecreasing_loss_iters > early_stopping_patience:
-            print(f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training.")
+            if verbose:
+                print(f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training.")
             break
 
     training_losses = np.array(training_losses)
@@ -238,18 +249,20 @@ def train_vae(
     return model, best_test_loss, best_epoch
 
 
-if __name__ == "__main__":
+def objective(trial: optuna.Trial) -> float:
+    """Optuna objective function for the VAE hyperparameter optimization.
+
+    Args:
+        trial (optuna.Trial): The optuna trial object used for optimization
+
+    Returns:
+        float: The loss value to minimize
+    """
     BASE_PATH: Path = Path.home() / "Desktop/machine_learning/enc_vae/"
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--experiment_name", type=str, default="default")
-    parser.add_argument("--load_model", type=str, default=None)
-    parser.add_argument("--load_model_path", type=str, default=None)
-
-    latent_dim = 40
-    fc_dim = 1024
-    encoder_conv_block_dims = [64, 128, 256, 256]
-    decoder_conv_block_dims = [256, 128, 128, 64, 32]
+    latent_dim = trial.suggest_int("latent_dim", 12, 40)  # 40
+    fc_dim = trial.suggest_int("fc_dim", 32, 512)  # 512
+    encoder_conv_block_dims = [64, 128, 256]
+    decoder_conv_block_dims = [256, 128, 128]
     input_image_dim = (1, 128, 128)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(
@@ -262,15 +275,8 @@ if __name__ == "__main__":
 
     experiment_name: str = "LD_" + str(latent_dim) + "_FC_" + str(fc_dim) + "_128x128"
     experiment_path: Path = BASE_PATH / experiment_name
-
     if not experiment_path.exists():
         experiment_path.mkdir(parents=True)
-
-    load_model = False
-    save_interval = 10
-    batch_size = 64
-    num_epochs = 60
-    learning_rate = 2e-04
 
     log_dir = BASE_PATH / "logs"
     data_dir = Path.home() / "Desktop/machine_learning/enc_vae/data"
@@ -309,29 +315,31 @@ if __name__ == "__main__":
             transforms_v2.Resize((input_image_dim[1], input_image_dim[2])),
         ]
     )
-
     training_dataset = torch.utils.data.ConcatDataset(
         [
-            rl_ds.PerceptionImageDataset(
+            rl_ds.ENCImageDataset(
                 data_npy_file=data_file, mask_npy_file=mask_file, data_dir=data_dir, transform=training_transform
             )
             for data_file, mask_file in zip(training_data_list, training_masks_list)
         ]
     )
-
     test_dataset = torch.utils.data.ConcatDataset(
         [
-            rl_ds.PerceptionImageDataset(
+            rl_ds.ENCImageDataset(
                 data_npy_file=data_file, mask_npy_file=mask_file, data_dir=data_dir, transform=test_transform
             )
             for data_file, mask_file in zip(test_data_list, test_masks_list)
         ]
     )
 
+    save_interval = 10
+    batch_size = 64
+    num_epochs = 60
+    learning_rate = 2e-04
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-    print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
-    print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
+    # print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
+    # print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
 
     writer = SummaryWriter(log_dir=log_dir)
     optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
@@ -345,11 +353,11 @@ if __name__ == "__main__":
         "input_image_dim": input_image_dim,
         "fc_dim": fc_dim,
         "encoder_conv_block_dims": encoder_conv_block_dims,
+        "decoder_conv_block_dims": decoder_conv_block_dims,
         "batch_size": batch_size,
         "num_epochs": num_epochs,
         "learning_rate": learning_rate,
         "save_interval": save_interval,
-        "load_model": load_model,
     }
     with Path(experiment_path / "config.yaml").open(mode="w", encoding="utf-8") as fp:
         yaml.dump(training_config, fp)
@@ -362,7 +370,34 @@ if __name__ == "__main__":
         n_epochs=num_epochs,
         batch_size=batch_size,
         optimizer=optimizer,
+        lr_schedule=lr_schedule,
+        experiment_name=experiment_name,
+        experiment_path=experiment_path,
         save_interval=save_interval,
         device=device,
         early_stopping_patience=6,
+        save_intermittent_models=False,
+        verbose=True,
     )
+
+    return opt_loss
+
+
+def main():
+    study_name = "enc_vae_hpo"
+    storage_name = "sqlite:///{}.db".format(study_name)
+    study = optuna.create_study(
+        direction="minimize",
+        pruner=optuna.pruners.MedianPruner(),
+        study_name=study_name,
+        storage=storage_name,
+        sampler=optuna.samplers.RandomSampler(),
+    )
+    study.optimize(objective, n_trials=1000)
+
+    print(f"Best objective value: {study.best_trial.value}")
+    print(f"Best parameters: {study.best_trial.params}")
+
+
+if __name__ == "__main__":
+    main()
