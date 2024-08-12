@@ -151,7 +151,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - batch_size (int): size of the batch to sample from the replay buffer
         """
 
-    def predict_with_mpc(
+    def custom_predict(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
         state: Optional[Tuple[np.ndarray, ...] | Dict] = None,
@@ -173,7 +173,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal states (solution info etc.)
         """
-        return self.policy.predict_with_mpc(observation, state, episode_start, deterministic)
+        return self.policy.custom_predict(observation, state, episode_start, deterministic)
 
     def _sample_action(
         self,
@@ -201,7 +201,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         """
         observation = self._last_obs if observation is None else observation
         actor_info = self._last_actor_info if actor_info is None else actor_info
-        unnormalized_actions, normalized_actions, actor_infos = self.predict_with_mpc(
+        unnormalized_actions, normalized_actions, actor_infos = self.custom_predict(
             observation=observation, state=actor_info, deterministic=deterministic
         )
         return normalized_actions, unnormalized_actions, actor_infos
@@ -432,7 +432,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 if env.envs[env_idx].unwrapped.time < 0.0001:
                     self._last_actor_info[env_idx] = {}
                     action_count = 0
-                    self.policy.initialize_mpc_actor(env.envs[env_idx], evaluate=False)
+                    self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(

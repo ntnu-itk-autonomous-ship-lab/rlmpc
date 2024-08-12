@@ -427,7 +427,6 @@ class SACMPCParameterProviderActor(BasePolicy):
         - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` when using gSDE to ensure
             a positive standard deviation (cf paper). It allows to keep variance
             above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
-        - clip_mean (float, optional): Clip the mean output when using gSDE to avoid numerical instability. Defaults to 2.0.
     """
 
     action_space: spaces.Box
@@ -439,11 +438,8 @@ class SACMPCParameterProviderActor(BasePolicy):
         observation_type: Any,
         action_type: Any,
         mpc_param_provider_kwargs: Dict[str, Any],
-        mpc_config: rlmpc_cas.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
-        std_init: np.ndarray | float = np.array([2.0, 2.0]),
-        clip_mean: float = 2.0,
         disable_parameter_provider: bool = False,
-        debug: bool = False,
+        std_init: Union[float, np.ndarray] = -3.0,
     ):
         super().__init__(
             observation_space,
@@ -456,40 +452,38 @@ class SACMPCParameterProviderActor(BasePolicy):
         self.observation_type = observation_type
         self.action_type = action_type
         self.disable_parameter_provider = disable_parameter_provider
-        self.debug = debug
-
-        action_dim = get_action_dim(self.action_space)
+        self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
         if isinstance(std_init, float):
-            std_init = np.array([std_init] * action_dim)
+            std_init = np.array([std_init] * self.action_space.shape[0])
         log_std_init = th.log(th.from_numpy(std_init)).to(th.float32)
-        self.log_std_dev = th.nn.Parameter(log_std_init)
         self.log_std = log_std_init
-
-        unnorm_std_init = self.action_type.unnormalize(std_init)
-        print(f"SAC MPC Actor gaussian std dev: {unnorm_std_init}")
-
-        # Save arguments to re-create object at loading
-        self.t_prev: float = 0.0
-        self.noise_application_duration: float = 10.0
-        self.log_std_init = self.log_std
-        self.clip_mean = clip_mean
-        self.prev_noise_action = None
-        action_dim = get_action_dim(self.action_space)
-        self.action_dist = DiagGaussianDistribution(action_dim).proba_distribution(
-            th.zeros(action_dim), log_std=self.log_std_init
+        self.action_dist = DiagGaussianDistribution(self.action_space.shape[0]).proba_distribution(
+            th.zeros(self.action_space.shape[0]), log_std=self.log_std
         )
 
-        self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
+    def initialize(
+        self,
+        env: csenv.COLAVEnvironment,
+        evaluate: bool = False,
+        **kwargs,
+    ) -> None:
+        """Initialize the actor by setting the observation and action types.
+
+        Args:
+            env (csenv.COLAVEnvironment): The environment
+            evaluate (bool, optional): Whether to evaluate the MPC policy.
+
+        """
+        self.observation_type = env.unwrapped.observation_type
+        self.action_type = env.unwrapped.action_type
+        self.training = not evaluate
+        self.action_type.
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
-
         data.update(
             dict(
-                noise_application_duration=self.noise_application_duration,
-                log_std_init=self.log_std_init,
                 features_extractor=self.features_extractor,
-                clip_mean=self.clip_mean,
             )
         )
         return data
@@ -520,9 +514,6 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             Tuple[th.Tensor, th.Tensor]:
         """
-        # obs = obs.to("cpu").detach()
-        # action = action.to("cpu").detach()
-
         # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
         # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
         # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
@@ -551,7 +542,7 @@ class SACMPCParameterProviderActor(BasePolicy):
 
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
         obs = self._convert_obs_tensor_to_numpy(observation)
-        return self.predict_with_mpc(obs, deterministic)
+        return self.custom_predict(obs, deterministic)
 
     def sample_collision_seeking_action(
         self,
@@ -578,46 +569,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         norm_collision_seeking_action[1] = norm_mpc_action[1]
         return th.from_numpy(norm_collision_seeking_action)
 
-    def get_exploratory_action(
-        self,
-        norm_action: np.ndarray,
-        t: float,
-        ownship_state: np.ndarray,
-        do_list: List,
-    ) -> np.ndarray:
-        """Get the exploratory action from the policy.
-
-        Args:
-            norm_action (np.ndarray): The normalized action
-            t (float): The current time
-            ownship_state (np.ndarray): The ownship state
-            do_list (List): The DO list
-        """
-        distances2do = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
-
-        norm_action = th.from_numpy(norm_action)
-        sampled_collision_seeking_action = False
-        if t < 0.0001 or t - self.t_prev > self.noise_application_duration:
-            if distances2do[0][1] < 400.0:
-                self.prev_noise_action = self.sample_collision_seeking_action(
-                    ownship_state, do_list[distances2do[0][0]], norm_action.numpy()
-                )
-                sampled_collision_seeking_action = True
-            else:
-                self.prev_noise_action = self.sample_action(norm_action)
-            self.t_prev = t
-
-        # Check if probability of the previous noise action is too low
-        # given the current mean mpc action
-        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_action, log_std=self.log_std)
-        log_prob_noise_action = self.action_dist.log_prob(self.prev_noise_action)
-        if log_prob_noise_action < LOG_PROB_MIN and not sampled_collision_seeking_action:
-            self.prev_noise_action = self.sample_action(norm_action)
-        expln_action = self.prev_noise_action
-        norm_action = norm_action.numpy()
-        return expln_action.numpy()
-
-    def predict_with_mpc(
+    def custom_predict(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
         state: List[Dict[str, Any]] = None,
@@ -634,6 +586,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
         """
+        assert hasattr(self.action.type, "mpc"), "The action type must have an MPC object"
         batch_size = observation["TrackingObservation"].shape[0]
         normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
@@ -643,38 +596,26 @@ class SACMPCParameterProviderActor(BasePolicy):
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
 
-        unnorm_current_mpc_params = self.mpc.get_adjustable_mpc_params()
+        unnorm_current_mpc_params = self.action_type.mpc.get_adjustable_mpc_params()
         norm_current_mpc_params = th.from_numpy(unnorm_current_mpc_params).float()
         norm_current_mpc_params = self.mpc_param_provider.normalize(norm_current_mpc_params)
 
         for idx in range(batch_size):
-            prev_soln = state[idx] if state is not None else None
-            prev_action = (
-                th.from_numpy(state[idx]["norm_mpc_action"]).float()
-                if prev_soln
-                else th.zeros(self.action_space.shape[0])
-            )
-
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
             mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
             mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
                 mpc_param_increment, unnorm_current_mpc_params
             )
             norm_action = self.action_type.normalize(mpc_param_increment)
-
-            info.update(
-                {
-                    "norm_prev_action": prev_action.numpy(),
-                    "dnn_input_features": dnn_input.detach().cpu().numpy(),
-                    "mpc_param_increment": mpc_param_increment if not self.disable_parameter_provider else None,
-                    "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
-                    "old_mpc_params": unnorm_current_mpc_params,
-                    "norm_old_mpc_params": norm_current_mpc_params.detach().numpy(),
-                    "norm_mpc_action": norm_action,
-                }
-            )
-            if not deterministic:
-                norm_action = self.get_exploratory_action(norm_action, t, ownship_state, do_list)
+            info = {
+                "dnn_input_features": dnn_input.detach().cpu().numpy(),
+                "mpc_param_subset_dict": mpc_param_subset_dict,
+                "mpc_param_increment": (
+                    mpc_param_increment if not self.disable_parameter_provider else np.zeros_like(mpc_param_increment)
+                ),
+                "norm_old_mpc_params": norm_current_mpc_params.detach().numpy(),
+                ""
+            }
 
             unnormalized_actions[idx, :] = self.action_type.unnormalize(norm_action)
             normalized_actions[idx, :] = norm_action
@@ -763,7 +704,6 @@ class SACMPCActor(BasePolicy):
         - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` when using gSDE to ensure
             a positive standard deviation (cf paper). It allows to keep variance
             above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
-        - clip_mean (float, optional): Clip the mean output when using gSDE to avoid numerical instability. Defaults to 2.0.
     """
 
     action_space: spaces.Box
@@ -777,7 +717,6 @@ class SACMPCActor(BasePolicy):
         mpc_param_provider_kwargs: Dict[str, Any],
         mpc_config: rlmpc_cas.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
-        clip_mean: float = 2.0,
         disable_parameter_provider: bool = False,
         debug: bool = False,
     ):
@@ -798,7 +737,6 @@ class SACMPCActor(BasePolicy):
         if isinstance(std_init, float):
             std_init = np.array([std_init] * action_dim)
         log_std_init = th.log(th.from_numpy(std_init)).to(th.float32)
-        self.log_std_dev = th.nn.Parameter(log_std_init)
         self.log_std = log_std_init
 
         unnorm_std_init = self.action_type.unnormalize(std_init)
@@ -808,7 +746,6 @@ class SACMPCActor(BasePolicy):
         self.t_prev: float = 0.0
         self.noise_application_duration: float = 10.0
         self.log_std_init = self.log_std
-        self.clip_mean = clip_mean
         self.infeasible_solutions: int = 0
         self.prev_noise_action = None
         action_dim = get_action_dim(self.action_space)
@@ -849,13 +786,11 @@ class SACMPCActor(BasePolicy):
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
-
         data.update(
             dict(
                 noise_application_duration=self.noise_application_duration,
                 log_std_init=self.log_std_init,
                 features_extractor=self.features_extractor,
-                clip_mean=self.clip_mean,
             )
         )
         return data
@@ -931,7 +866,7 @@ class SACMPCActor(BasePolicy):
 
     def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
         obs = self._convert_obs_tensor_to_numpy(observation)
-        return self.predict_with_mpc(obs, deterministic)
+        return self.custom_predict(obs, deterministic)
 
     def reset(self) -> None:
         """Reset the policy."""
@@ -1002,7 +937,7 @@ class SACMPCActor(BasePolicy):
         norm_action = norm_action.numpy()
         return expln_action.numpy()
 
-    def predict_with_mpc(
+    def custom_predict(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
         state: List[Dict[str, Any]] = None,
@@ -1262,7 +1197,6 @@ class SACPolicyWithMPC(BasePolicy):
         - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` when using gSDE to ensure
             a positive standard deviation (cf paper). It allows to keep variance
             above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
-        - clip_mean (float, optional): Clip the mean output when using gSDE to avoid numerical instability. Defaults to 2.0.
         - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
         - features_extractor_kwargs (Optional[Dict[str, Any]], optional): Keyword arguments
             to pass to the features extractor.
@@ -1364,7 +1298,7 @@ class SACPolicyWithMPC(BasePolicy):
             self.actor.mpc_param_provider.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
         )
 
-    def initialize_mpc_actor(
+    def initialize_actor(
         self,
         env: csenv.COLAVEnvironment,
         evaluate: bool = False,
@@ -1401,12 +1335,12 @@ class SACPolicyWithMPC(BasePolicy):
         episode_start: Optional[np.ndarray] = None,
         deterministic: bool = False,
     ) -> th.Tensor:
-        return self.actor.predict_with_mpc(observation, state, deterministic=deterministic)
+        return self.actor.custom_predict(observation, state, deterministic=deterministic)
 
     def sensitivities(self) -> mpc_common.NLPSensitivities:
         return self.actor.mpc_sensitivities
 
-    def predict_with_mpc(
+    def custom_predict(
         self,
         observation: Union[np.ndarray, Dict[str, np.ndarray]],
         state: List[Dict[str, Any]] = None,
@@ -1427,7 +1361,7 @@ class SACPolicyWithMPC(BasePolicy):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
         """
-        return self.actor.predict_with_mpc(observation, state, deterministic=deterministic)
+        return self.actor.custom_predict(observation, state, deterministic=deterministic)
 
     def set_training_mode(self, mode: bool) -> None:
         """
@@ -1440,3 +1374,182 @@ class SACPolicyWithMPC(BasePolicy):
         self.actor.set_training_mode(mode)
         self.critic.set_training_mode(mode)
         self.training = mode
+
+
+class SACPolicyWithMPCParameterProvider(BasePolicy):
+    """
+    Policy class (with both actor and critic) for SAC.
+
+    Args:
+        - observation_space (spaces.Space): Observation space
+        - action_space (spaces.Box): Action space
+        - learning_rate: Union[float, Schedule] = 3e-4,
+        - critic_arch (Optional[List[int]], optional): Architecture of the critic network. Defaults to [256, 256].
+        - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
+        - activation_fn (Type[nn.Module], optional): Activation function. Defaults to nn.ReLU.
+        - std_init (float, optional): Initial value for the action standard deviation
+        - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
+        - features_extractor_kwargs (Optional[Dict[str, Any]], optional): Keyword arguments
+            to pass to the features extractor.
+        - normalize_images (bool, optional): Whether to normalize images or not,
+            dividing by 255.0 (True by default).
+        - optimizer_class (Type[th.optim.Optimizer], optional): The optimizer to use,
+            ``th.optim.Adam`` by default. Defaults to th.optim.Adam.
+        - optimizer_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments,
+            excluding the learning rate, to pass to the optimizer.
+        - n_critics (int, optional): Number of critic networks to create. Defaults to 2.
+    """
+
+    actor: SACMPCParameterProviderActor
+    critic: ContinuousCritic
+    critic_target: ContinuousCritic
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        observation_type: Any,
+        action_type: Any,
+        lr_schedule: Schedule,
+        critic_arch: Optional[List[int]] = [256, 256],
+        mpc_param_provider_kwargs: Dict[str, Any] = {},
+        mpc_config: rlmpc_cas.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
+        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
+        std_init: np.ndarray | float = np.array([2.0, 2.0]),
+        features_extractor_class: Type[rlmpc_fe.CombinedExtractor] = rlmpc_fe.CombinedExtractor,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        disable_parameter_provider: bool = False,
+        normalize_images: bool = True,
+        optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        n_critics: int = 2,
+        debug: bool = False,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            features_extractor_class,
+            features_extractor_kwargs,
+            optimizer_class=optimizer_class,
+            optimizer_kwargs=optimizer_kwargs,
+            squash_output=True,
+            normalize_images=normalize_images,
+        )
+        self.observation_type = observation_type
+        self.action_type = action_type
+        self.activation_fn = activation_fn
+        self.critic_kwargs = {
+            "observation_space": self.observation_space,
+            "action_space": self.action_space,
+            "net_arch": critic_arch,
+            "activation_fn": self.activation_fn,
+            "normalize_images": normalize_images,
+            "n_critics": n_critics,
+            "share_features_extractor": False,
+        }
+
+        self.actor_kwargs = {
+            "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
+            "observation_space": self.observation_space,
+            "action_space": self.action_space,
+            "observation_type": self.observation_type,
+            "action_type": self.action_type,
+            "disable_parameter_provider": disable_parameter_provider,
+            "std_init": std_init,
+            "debug": debug,
+        }
+
+        self._build_critic(lr_schedule)
+        self._build_actor(lr_schedule)
+
+    def _build_critic(self, lr_schedule: Schedule) -> None:
+        # Create a separate features extractor for the critic
+        # this requires more memory and computation
+        self.critic = self.make_critic(features_extractor=None)
+        critic_parameters = list(self.critic.parameters())
+
+        # Critic target should not share the features extractor with critic
+        self.critic_target = self.make_critic(features_extractor=None)
+        self.critic_target.load_state_dict(self.critic.state_dict())
+
+        self.critic.optimizer = self.optimizer_class(
+            critic_parameters,
+            lr=lr_schedule(1),  # type: ignore[call-arg]
+            **self.optimizer_kwargs,
+        )
+
+        # Target networks should always be in eval mode
+        self.critic_target.set_training_mode(False)
+
+    def _build_actor(self, lr_schedule: Schedule) -> None:
+        self.actor = SACMPCParameterProviderActor(**self.actor_kwargs)
+        self.actor.features_extractor = self.critic.features_extractor  # share features extractor with critic
+        self.actor.optimizer = self.optimizer_class(
+            self.actor.mpc_param_provider.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
+        )
+
+    def _get_constructor_parameters(self) -> Dict[str, Any]:
+        data = super()._get_constructor_parameters()
+        data.update(
+            dict(
+                net_arch=self.critic_kwargs["net_arch"],
+                activation_fn=self.critic_kwargs["activation_fn"],
+                log_std_init=self.actor_kwargs["log_std_init"],
+                n_critics=self.critic_kwargs["n_critics"],
+                lr_schedule=self._dummy_schedule,  # dummy lr schedule, not needed for loading policy alone
+                optimizer_class=self.optimizer_class,
+                optimizer_kwargs=self.optimizer_kwargs,
+                features_extractor_class=self.features_extractor_class,
+                features_extractor_kwargs=self.features_extractor_kwargs,
+            )
+        )
+        return data
+
+    def make_critic(self, features_extractor: Optional[rlmpc_fe.CombinedExtractor] = None) -> CustomContinuousCritic:
+        critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
+        return ContinuousCritic(**critic_kwargs).to(self.device)
+
+    def _predict(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: List[Dict[str, Any]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> th.Tensor:
+        return self.actor.custom_predict(observation, state, deterministic=deterministic)
+
+    def custom_predict(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: List[Dict[str, Any]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+        """
+        Get the policy action from an observation (and optional actor state).
+
+        Args:
+            - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
+            - state (List[Dict[str, Any]]): The MPC internal state (current solution info, etc.)
+            - episode_start (Optional[np.ndarray]): The last masks (can be None, used in recurrent policies)
+                this correspond to beginning of episodes,
+                where the hidden states of the RNN must be reset.
+            - deterministic (bool): Whether or not to return deterministic actions.
+
+        Returns:
+            - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
+        """
+        return self.actor.custom_predict(observation, state, deterministic=deterministic)
+
+    def set_training_mode(self, mode: bool) -> None:
+        """
+        Put the policy in either training or evaluation mode.
+
+        This affects certain modules, such as batch normalisation and dropout.
+
+        :param mode: if true, set to training mode, else set to evaluation mode
+        """
+        self.actor.set_training_mode(mode)
+        self.critic.set_training_mode(mode)
+        self.training = mode
+

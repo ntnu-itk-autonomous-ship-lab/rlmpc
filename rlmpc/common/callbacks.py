@@ -20,6 +20,7 @@ import colav_simulator.gym.logger as colav_env_logger
 import gymnasium as gym
 import numpy as np
 import rlmpc.common.logger as rlmpc_logger
+import rlmpc.policies as rlmpc_policies
 import torch as th
 import torchvision.transforms.v2 as transforms_v2
 from stable_baselines3.common import type_aliases
@@ -599,11 +600,11 @@ def evaluate_policy(
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
             states = None
-            model.policy.initialize_mpc_actor(env.envs[0], evaluate=True)
+            model.policy.initialize_actor(env.envs[0], evaluate=True)
             last_actor_info = [{} for _ in range(n_envs)]
 
         if is_mpc_policy:
-            _, normalized_actions, actor_infos = model.predict_with_mpc(
+            _, normalized_actions, actor_infos = model.custom_predict(
                 observations,  # type: ignore[arg-type]
                 state=states,
                 episode_start=episode_starts,
@@ -612,11 +613,12 @@ def evaluate_policy(
             states = actor_infos
             actions = normalized_actions
             # For plotting the predicted trajectory
-            for env_idx in range(env.num_envs):
-                env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
-                    actor_infos[env_idx]["trajectory"]
-                )
-                env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
+            if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+                for env_idx in range(env.num_envs):
+                    env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
+                        actor_infos[env_idx]["trajectory"]
+                    )
+                    env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
         else:
             actions, states = model.predict(
                 observations,  # type: ignore[arg-type]
@@ -652,7 +654,6 @@ def evaluate_policy(
 
                     if is_mpc_policy:
                         actor_infos[i] = {}
-                        model.actor.mpc.close_enc_display()
                         env.envs[i].unwrapped.terminal_info.update({"actor_info": last_actor_info[i]})
                         last_actor_info[i] = {}
                     if is_monitor_wrapped:

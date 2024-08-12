@@ -7,6 +7,7 @@
     Author: Trym Tengesdal
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import colav_simulator.core.stochasticity as stochasticity
@@ -18,6 +19,7 @@ import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rlmpc_cas as rlmpc_cas
 import torch as th
+from stable_baselines3.common.distributions import DiagGaussianDistribution
 
 Action = Union[list, np.ndarray]
 import colav_simulator.common.math_functions as mf
@@ -36,7 +38,10 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         env: "COLAVEnvironment",
         sample_time: Optional[float] = None,
         mpc_param_list: List[str] = ["Q_p", "r_safe_do"],
+        mpc_config_path: Path = rl_dp.config / "rlmpc.yaml",
+        std_init: np.ndarray | float = np.array([2.0, 2.0]),
         deterministic: bool = True,
+        debug: bool = False,
     ) -> None:
         """Create a continuous action space for setting the own-ship autopilot references in speed and course."""
         super().__init__(env, sample_time)
@@ -44,7 +49,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.course_range = (-np.pi / 4.0, np.pi / 4.0)
         self.speed_range = (-self.env.ownship.max_speed / 4.0, self.env.ownship.max_speed / 4.0)
         self.name = "MPCParameterSettingAction"
-        self.mpc = rlmpc_cas.RLMPC(config=rl_dp.config / "rlmpc.yaml")
+        self.mpc = rlmpc_cas.RLMPC(config=mpc_config_path)
         self.mpc_sensitivities = None
         self.infeasible_solutions: int = 0
         self.mpc.set_adjustable_param_str_list(mpc_param_list)
@@ -61,12 +66,17 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.mpc.set_action_indices(self.action_indices)
         self.course_ref: float = 0.0
         self.speed_ref: float = 0.0
-        self.debug: bool = False
+        self.debug: bool = debug
         self.deterministic: bool = deterministic
+
+        self.prev_noise_action: th.Tensor = th.zeros(self.mpc_action_dim)
 
         self.t_prev: float = 0.0
         self.noise_application_duration: float = 10.0
-        self.log_std = self.log_std
+        if isinstance(std_init, float):
+            std_init = np.array([std_init] * self.mpc_action_dim)
+        log_std_init = th.log(th.from_numpy(std_init)).to(th.float32)
+        self.log_std = log_std_init
         self.action_dist = DiagGaussianDistribution(self.mpc_action_dim).proba_distribution(
             th.zeros(self.mpc_action_dim), log_std=self.log_std
         )
@@ -91,7 +101,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
     def initialize(
         self,
-        env: "COLAVEnvironment",
         build_sensitivities: bool = False,
         **kwargs,
     ) -> None:
@@ -99,19 +108,20 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         the OCP
 
         Args:
-            env (csenv.COLAVEnvironment): The environment
             build_sensitivities (bool, optional): Whether to build the sensitivities.
 
         """
-        t = env.unwrapped.time
-        waypoints = env.unwrapped.ownship.waypoints
-        speed_plan = env.unwrapped.ownship.speed_plan
-        ownship_state = env.unwrapped.ownship.state
-        enc = env.unwrapped.enc
-        do_list = env.unwrapped.ownship.get_do_track_information()
-        goal_state = env.unwrapped.ownship.goal_state
-        w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
+        t = self.env.unwrapped.time
+        waypoints = self.env.unwrapped.ownship.waypoints
+        speed_plan = self.env.unwrapped.ownship.speed_plan
+        ownship_state = self.env.unwrapped.ownship.state
+        enc = self.env.unwrapped.enc
+        do_list = self.env.unwrapped.ownship.get_do_track_information()
+        goal_state = self.env.unwrapped.ownship.goal_state
+        w = self.env.unwrapped.disturbance.get() if self.env.unwrapped.disturbance is not None else None
 
+        self.mpc.set_action_indices(self.action_indices)
+        self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
         self.mpc.initialize(
             t=t,
             waypoints=waypoints,
@@ -124,8 +134,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             debug=self.debug,
             **kwargs,
         )
-        self.mpc.set_action_indices(self.action_indices)
-        self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
         if build_sensitivities:
             self.mpc_sensitivities = self.mpc.build_sensitivities()
         print(f"MPC initialized! Built sensitivities? {build_sensitivities}")
@@ -255,8 +263,10 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             action (Action): New MPC parameter increments within [-1, 1].
         """
         assert isinstance(action, np.ndarray), "Action must be a numpy array"
-        unnorm_action = self.unnormalize(action)  # u
+        unnorm_action = self.unnormalize(action)
         # ship references in general is a 9-entry array consisting of 3DOF pose, velocity and acceleartion
+
+        self.mpc.set_mpc_param_subset()
         course = self.env.ownship.course
         speed = self.env.ownship.speed
         self.course_ref = mf.wrap_angle_to_pmpi(unnorm_action[0] + course)
