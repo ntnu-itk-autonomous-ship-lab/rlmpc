@@ -36,7 +36,7 @@ def train_vae(
     early_stopping_patience: int = 10,
     save_intermittent_models: bool = False,
     verbose: bool = False,
-) -> Tuple[VAE, float, int, List[List[float]], List[List[float]]]:
+) -> Tuple[VAE, float, int]:
     """Trains the variation autoencoder model.
 
     Args:
@@ -57,7 +57,7 @@ def train_vae(
         verbose (bool, optional): Whether to print verbose output. Defaults to False.
 
     Returns:
-        Tuple[VAE, float, int, List[List[float]], List[List[float]]]: The trained model, the best test loss, the epoch at which the best test loss occurred, the training losses, and the testing losses.
+        Tuple[VAE, float, int]: The trained model, the best test loss, the epoch at which the best test loss occurred.
     """
     torch.autograd.set_detect_anomaly(True)
 
@@ -259,9 +259,9 @@ def objective(trial: optuna.Trial) -> float:
         float: The loss value to minimize
     """
     BASE_PATH: Path = Path.home() / "Desktop/machine_learning/enc_vae/"
-    latent_dim = trial.suggest_int("latent_dim", 12, 40)  # 40
+    latent_dim = trial.suggest_int("latent_dim", 16, 40)  # 40
     fc_dim = trial.suggest_int("fc_dim", 32, 512)  # 512
-    encoder_conv_block_dims = [64, 128, 256]
+    encoder_conv_block_dims = [128, 256, 256]
     decoder_conv_block_dims = [256, 128, 128]
     input_image_dim = (1, 128, 128)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -333,9 +333,9 @@ def objective(trial: optuna.Trial) -> float:
     )
 
     save_interval = 10
-    batch_size = 64
+    batch_size = 128
     num_epochs = 60
-    learning_rate = 2e-04
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3)
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     # print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
@@ -392,6 +392,7 @@ def main():
         study_name=study_name,
         storage=storage_name,
         sampler=optuna.samplers.RandomSampler(),
+        load_if_exists=True,
     )
     study.optimize(objective, n_trials=1000)
 

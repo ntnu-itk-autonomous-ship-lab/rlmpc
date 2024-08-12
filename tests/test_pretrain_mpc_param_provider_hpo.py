@@ -50,8 +50,9 @@ def objective(trial: optuna.Trial) -> float:
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-    # print(f"Training dataset length: {len(train_dataset)} | Test dataset length: {len(test_dataset)}")
-    # print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
+    if trial.number == 0:
+        print(f"Training dataset length: {len(train_dataset)} | Test dataset length: {len(test_dataset)}")
+        print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
 
     base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
     log_dir = base_dir / "logs"
@@ -63,12 +64,12 @@ def objective(trial: optuna.Trial) -> float:
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
     num_epochs = 30  # trial.suggest_int("num_epochs", 10, 100)
 
-    n_layers = trial.suggest_int("n_layers", 1, 4)
+    n_layers = trial.suggest_int("n_layers", 1, 3)
     actfn_str = "ReLU"  # trial.suggest_categorical("activation_fn", ["ReLU"])
     actfn = getattr(torch.nn, actfn_str)
     hidden_dims = []
     for i in range(n_layers):
-        out_features = trial.suggest_int(f"n_units_l{i}", 32, 2048)
+        out_features = trial.suggest_int(f"n_units_l{i}", 32, 500)
         hidden_dims.append(out_features)
 
     model = MPCParameterDNN(
@@ -115,7 +116,7 @@ def main(args):
         sampler=optuna.samplers.RandomSampler(),
         load_if_exists=True,
     )
-    study.optimize(objective, n_trials=50000)
+    study.optimize(objective, n_trials=1000)
 
     print(f"Best objective value: {study.best_trial.value}")
     print(f"Best parameters: {study.best_trial.params}")

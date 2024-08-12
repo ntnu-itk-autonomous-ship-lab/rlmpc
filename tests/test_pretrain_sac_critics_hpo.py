@@ -61,16 +61,16 @@ def objective(trial: optuna.Trial) -> float:
     buffer_size = 40000
     tau = 0.01
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3)
-    num_epochs = 200  # trial.suggest_int("num_epochs", 10, 100)
+    num_epochs = 100  # trial.suggest_int("num_epochs", 10, 100)
     actfn = th.nn.ReLU
     actfn_str = "ReLU"
 
-    n_layers = trial.suggest_int("n_layers", 1, 4)
+    n_layers = trial.suggest_int("n_layers", 1, 3)
     hidden_dims = []
-    input_dim = 64 + 12 + 5 + 2  # enc + tracking + nav + action
+    input_dim = 40 + 12 + 5 + 2  # enc + tracking + nav + action
     prev_input_dim = input_dim
     for i in range(n_layers):
-        out_features = trial.suggest_int(f"n_units_l{i}", 64, 3000)
+        out_features = trial.suggest_int(f"n_units_l{i}", 64, 500)
         prev_input_dim = out_features
         hidden_dims.append(out_features)
     # hidden_dims = [1500, 1000, 500]
@@ -82,8 +82,8 @@ def objective(trial: optuna.Trial) -> float:
         "param_list": ["Q_p", "r_safe_do"],
         "hidden_sizes": [1315, 1579],
         "activation_fn": th.nn.ReLU,
-        "model_file": Path.home()
-        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1315_1579_ReLU/best_model.pth",
+        # "model_file": Path.home()
+        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1315_1579_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
@@ -114,7 +114,7 @@ def objective(trial: optuna.Trial) -> float:
     }
 
     data_path = (
-        Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc3" / "models" / "sac_rlmpc1_replay_buffer"
+        Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc4" / "models" / "sac_rlmpc4_replay_buffer"
     )
 
     model = SAC(env=env, **model_kwargs)
