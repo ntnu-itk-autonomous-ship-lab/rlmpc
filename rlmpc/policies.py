@@ -830,10 +830,17 @@ class SACMPCActor(BasePolicy):
 
         nx, nu = self.training_mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
-        self.action_indices = [
-            int(nu * n_samples + (2 * nx) + 2),  # chi 2
-            int(nu * n_samples + (2 * nx) + 3),  # speed 2
-        ]
+        if self.mpc_params.dt == 1.0:
+            self.action_indices = [
+                int(nu * n_samples + (5 * nx) + 2),  # chi 2
+                int(nu * n_samples + (5 * nx) + 3),  # speed 2
+            ]
+        else:
+            self.action_indices = [
+                int(nu * n_samples + (2 * nx) + 2),  # chi 3
+                int(nu * n_samples + (2 * nx) + 3),  # speed 3
+            ]
+
         self.training_mpc.set_action_indices(self.action_indices)
 
         self.eval_mpc = rlmpc_cas.RLMPC(mpc_config, identifier="eval")
@@ -1215,6 +1222,8 @@ class SACMPCActor(BasePolicy):
         if evaluate:
             self.mpc = self.eval_mpc
 
+        self.mpc.set_action_indices(self.action_indices)
+        self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
         self.mpc.initialize(
             t=t,
             waypoints=waypoints,
@@ -1227,8 +1236,6 @@ class SACMPCActor(BasePolicy):
             debug=self.debug,
             **kwargs,
         )
-        self.mpc.set_action_indices(self.action_indices)
-        self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
         if self.training:
             self.mpc_sensitivities = self.training_mpc.build_sensitivities()
 

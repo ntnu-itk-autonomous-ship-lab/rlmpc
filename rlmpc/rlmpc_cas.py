@@ -139,7 +139,7 @@ class RLMPC(ci.ICOLAV):
         self._speed_plan: np.ndarray = np.array([])
         self._enc: Optional[senc.ENC] = None
         self._nominal_path = None
-
+        self._n_mpc_do: int = 0
         self._do_plt_handles: list = []
 
     def reset(self) -> None:
@@ -352,24 +352,25 @@ class RLMPC(ci.ICOLAV):
         mpc_output = self._mpc_soln
 
         U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
-        chi = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])  # COg
-        chi_0_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
-        U_0_ref = self._mpc_trajectory[3, 2]
+        chi = cs_mf.wrap_angle_to_pmpi(ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3]))
+        abs_action_vals = self._mpc_soln["soln"]["x"].flatten()[self._action_indices]
+        chi_0_ref = cs_mf.wrap_angle_to_pmpi(abs_action_vals[0])
+        U_0_ref = abs_action_vals[1]
 
-        # chi_1_ref = cs_mf.wrap_angle_to_pmpi(self._mpc_trajectory[2, 2])
-        # U_1_ref = self._mpc_trajectory[3, 2]
+        los_goal = np.arctan2(self._goal_state[1] - ownship_state[1], self._goal_state[0] - ownship_state[0])
+        if abs(cs_mf.wrap_angle_diff_to_pmpi(los_goal, chi)) > 140.0 * np.pi / 180.0 and self._n_mpc_do == 0:
+            chi_0_ref = cs_mf.wrap_angle_to_pmpi(chi_0_ref + 0.5 * cs_mf.wrap_angle_diff_to_pmpi(los_goal, chi))
+
         action = np.array(
             [
                 cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi),
                 U_0_ref - U,
-                # cs_mf.wrap_angle_diff_to_pmpi(chi_1_ref, chi),
-                # U_1_ref - U,
             ]
         )
 
-        # print(
-        #     f"t: {t} | U_mpc: {U_0_ref:.4f} | U: {U:.4f} | chi_mpc: {180.0 * chi_0_ref / np.pi:.4f} | chi: {180.0 * chi / np.pi:.4f} | chi_diff: {180.0 * cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi) / np.pi:.4f} | r_mpc: {0.0} | r: {ownship_state[5]:.4f}"
-        # )
+        print(
+            f"t: {t} | U_mpc: {U_0_ref:.4f} | U: {U:.4f} | chi_mpc: {180.0 * chi_0_ref / np.pi:.4f} | chi: {180.0 * chi / np.pi:.4f} | chi_diff: {180.0 * cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi) / np.pi:.4f} | r_mpc: {0.0} | r: {ownship_state[5]:.4f}"
+        )
         # double check action indices:
         # nx, nu, ns, _ = self._mpc.dims()
         # n_samples = self._mpc.params.T / self._mpc.params.dt
@@ -379,9 +380,10 @@ class RLMPC(ci.ICOLAV):
         #     int(nu * n_samples + (2 * nx) + 2),  # chi 3
         #     int(nu * n_samples + (2 * nx) + 3),  # speed 3
         # ]
-        # action_vals = self._mpc_soln["soln"]["x"].full().flatten()[action_indices]
+
         t_elapsed = time.time() - t_now
         mpc_output["runtime"] = t_elapsed
+        mpc_output["abs_action"] = abs_action_vals
         return action, mpc_output
 
     def get_mpc_params(self) -> mpc_params.MidlevelMPCParams:
@@ -626,7 +628,7 @@ class RLMPC(ci.ICOLAV):
             do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
                 csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
             )
-
+            self._n_mpc_do = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
             if self._debug:
                 print(
                     f"Total num DOs: {len(translated_do_list)} | Total num DOs considered in MPC: {len(do_cr_list) + len(do_ho_list) + len(do_ot_list)}"
@@ -668,8 +670,12 @@ class RLMPC(ci.ICOLAV):
             )
             self._mpc_soln["mpc_rate"] = self._mpc.params.rate
 
-        chi_ref = self._mpc_trajectory[2, 2]
-        U_ref = self._mpc_trajectory[3, 2]
+        if self._mpc.params.dt == 1.0:
+            chi_ref = self._mpc_trajectory[2, 6]
+            U_ref = self._mpc_trajectory[3, 6]
+        else:
+            chi_ref = self._mpc_trajectory[2, 3]
+            U_ref = self._mpc_trajectory[3, 3]
         self._references = np.array([0.0, 0.0, chi_ref, U_ref, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(9, 1)
         self._t_prev = t
         self._mpc_soln["t_prev"] = t
@@ -758,6 +764,7 @@ class RLMPC(ci.ICOLAV):
 
         warm_start = {}
         if prev_soln:
+            prev_abs_action = prev_soln["abs_action"] if "abs_action" in prev_soln else None
             U, X, Sigma = prev_soln["inputs"], prev_soln["trajectory"], prev_soln["slacks"]
             X -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
             warm_start.update({"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"]})
@@ -770,10 +777,15 @@ class RLMPC(ci.ICOLAV):
             X_interp, U_interp, Sigma_interp = hf.interpolate_solution(
                 X_comb, U_comb, Sigma_comb, dt_sim, self._mpc.params.T + rrt_times[-1], self._mpc.params.dt
             )
+            if step > 1:
+                # shift the interpolated trajectory dt_sim forward in time
+                X = X_interp[:, 1::step][:, : N + 1]
+                U = U_interp[:, 1::step][:, :N]
+            else:
+                step = int(dt_sim / self._mpc.params.dt)
+                X = X_interp[:, step : step + N + 1]
+                U = U_interp[:, step : step + N]
 
-            # shift the interpolated trajectory dt_sim forward in time
-            X = X_interp[:, 1::step][:, : N + 1]
-            U = U_interp[:, 1::step][:, :N]
             w = self._mpc.decision_variables(U, X, Sigma).full().astype(np.float32)
             lam_g = prev_soln["soln"]["lam_g"]
             lam_g = np.concatenate((lam_g[1:], lam_g[-1].reshape(1, 1)))
@@ -786,10 +798,19 @@ class RLMPC(ci.ICOLAV):
             w = self._mpc.decision_variables(U, X, Sigma).full().astype(np.float32)
             lam_g = np.zeros((dim_g, 1), dtype=np.float32)
             lam_x = np.zeros((w.shape[0], 1), dtype=np.float32)
+            prev_abs_action = X[2:4, 0]
         X = X.astype(np.float32)
         U = U.astype(np.float32)
         Sigma = Sigma.astype(np.float32)
-        warm_start = {"x": w, "lam_g": lam_g, "lam_x": lam_x, "X": X, "U": U, "Sigma": Sigma}
+        warm_start = {
+            "x": w,
+            "lam_g": lam_g,
+            "lam_x": lam_x,
+            "X": X,
+            "U": U,
+            "Sigma": Sigma,
+            "prev_opt_abs_action": prev_abs_action,
+        }
         return warm_start
 
     def build_sensitivities(self, tau: Optional[float] = None) -> mpc_common.NLPSensitivities:

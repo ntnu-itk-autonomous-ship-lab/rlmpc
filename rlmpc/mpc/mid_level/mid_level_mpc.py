@@ -193,6 +193,7 @@ class MidlevelMPC:
         Args:
             - action_indices (list): List of indices of the action variables in the decision vector.
         """
+        self._acados_mpc.set_action_indices(action_indices)
         self._casadi_mpc.set_action_indices(action_indices)
 
     def build_sensitivities(self, tau: Optional[float] = None) -> common.NLPSensitivities:

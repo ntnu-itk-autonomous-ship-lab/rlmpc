@@ -115,10 +115,13 @@ class MidlevelMPCParams(IParams):
     r_safe_so: float = 5.0  # safety distance radius to static obstacles
 
     # Adjustable
-    Q_p: np.ndarray = field(default_factory=lambda: np.diag(
-        [0.1, 0.1, 1.0]
-    ))  # path following cost matrix, position (x, y), speed deviation and speed assignment path variable deviation.
+    Q_p: np.ndarray = field(
+        default_factory=lambda: np.diag([0.1, 0.1, 1.0])
+    )  # path following cost matrix, position (x, y), speed deviation and speed assignment path variable deviation.
     # R: np.ndarray = np.diag([1.0, 1.0])  # input cost matrix
+    K_prev_sol_dev: np.ndarray = field(
+        default_factory=lambda: np.array([1.0, 1.0])
+    )  # penalty for deviation from previous solution (course and speed ref to autopilot)
     alpha_app_course: np.ndarray = field(default_factory=lambda: np.array([112.0, 0.0006]))
     alpha_app_speed: np.ndarray = field(default_factory=lambda: np.array([8.0, 0.00025]))
     K_app_course: float = 0.5  # turn rate penalty
@@ -132,7 +135,9 @@ class MidlevelMPCParams(IParams):
     x_0_ot: float = 200.0
     y_0_ot: float = 100.0
     d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
-    w_colregs: np.ndarray = field(default_factory=lambda: np.array([1.0, 1.0, 1.0]))  # weights for the COLREGS potential functions
+    w_colregs: np.ndarray = field(
+        default_factory=lambda: np.array([1.0, 1.0, 1.0])
+    )  # weights for the COLREGS potential functions
     r_safe_do: float = 10.0  # safety distance radius to dynamic obstacles
 
     @classmethod
@@ -140,6 +145,7 @@ class MidlevelMPCParams(IParams):
         params = MidlevelMPCParams(**config_dict)
         params.so_constr_type = StaticObstacleConstraint[config_dict["so_constr_type"]]
         params.Q_p = np.diag(params.Q_p)
+        params.K_prev_sol_dev = np.array(params.K_prev_sol_dev)
         params.alpha_app_course = np.array(params.alpha_app_course)
         params.alpha_app_speed = np.array(params.alpha_app_speed)
         params.alpha_cr = np.array(params.alpha_cr)
@@ -152,6 +158,7 @@ class MidlevelMPCParams(IParams):
         config_dict = asdict(self)
         config_dict["so_constr_type"] = self.so_constr_type.name
         config_dict["Q_p"] = self.Q_p.diagonal().tolist()
+        config_dict["K_prev_sol_dev"] = self.K_prev_sol_dev.tolist()
         config_dict["alpha_app_course"] = self.alpha_app_course.tolist()
         config_dict["alpha_app_speed"] = self.alpha_app_speed.tolist()
         config_dict["alpha_cr"] = self.alpha_cr.tolist()
@@ -174,6 +181,8 @@ class MidlevelMPCParams(IParams):
             for key in name_list:
                 if key == "Q_p":
                     params.extend(self.Q_p.diagonal().tolist())
+                elif key == "K_prev_sol_dev":
+                    params.extend(self.K_prev_sol_dev.tolist())
                 elif key == "alpha_app_course":
                     params.extend(self.alpha_app_course.tolist())
                 elif key == "alpha_app_speed":
@@ -209,6 +218,7 @@ class MidlevelMPCParams(IParams):
             params = np.array(
                 [
                     *self.Q_p.diagonal().tolist(),
+                    *self.K_prev_sol_dev.tolist(),
                     *self.alpha_app_course.tolist(),
                     *self.alpha_app_speed.tolist(),
                     self.K_app_course,
@@ -235,6 +245,7 @@ class MidlevelMPCParams(IParams):
         """
         return [
             "Q_p",
+            "K_prev_sol_dev",
             "alpha_app_course",
             "alpha_app_speed",
             "K_app_course",
@@ -260,6 +271,8 @@ class MidlevelMPCParams(IParams):
         for key, value in param_subset.items():
             if key == "Q_p":
                 self.Q_p = np.clip(np.diag(value), np.diag([1e-4, 1e-4, 1e-4]), np.diag([1e3, 1e3, 1e3]))
+            elif key == "K_prev_sol_dev":
+                self.K_prev_sol_dev = np.clip(value, np.array([0.001, 0.001]), np.array([100.0, 100.0]))
             elif key == "alpha_app_course":
                 self.alpha_app_course = np.clip(value, np.array([1e-6, 0.000001]), np.array([1e3, 1.0]))
             elif key == "alpha_app_speed":
@@ -290,25 +303,3 @@ class MidlevelMPCParams(IParams):
                 self.r_safe_do = float(np.clip(value, 1.0, 1e4))
             else:
                 raise ValueError(f"Parameter {key} not in the parameter list.")
-
-    def set_adjustable(self, adjustable: np.ndarray) -> None:
-        """Sets the adjustable parameters.
-
-        Args:
-            adjustable (np.ndarray): Array of adjustable parameters.
-        """
-        self.Q_p = np.clip(np.diag(adjustable[:3]), np.diag([1e-4, 1e-4, 1e-4]), np.diag([1e3, 1e3, 1e3]))
-        self.alpha_app_course = np.clip(adjustable[3:5], np.array([1e-6, 0.000001]), np.array([1e3, 1.0]))
-        self.alpha_app_speed = np.clip(adjustable[5:7], np.array([1.0, 0.00001]), np.array([1e3, 1.0]))
-        self.K_app_course = np.clip(adjustable[7], 0.001, 1e3)
-        self.K_app_speed = np.clip(adjustable[8], 0.001, 1e3)
-        self.alpha_cr = np.clip(adjustable[9:11], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
-        self.y_0_cr = np.clip(adjustable[11], -1e4, 1e4)
-        self.alpha_ho = np.clip(adjustable[12:14], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
-        self.x_0_ho = np.clip(adjustable[14], -1e4, 1e4)
-        self.alpha_ot = np.clip(adjustable[15:17], np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
-        self.x_0_ot = np.clip(adjustable[17], -1e4, 1e4)
-        self.y_0_ot = np.clip(adjustable[18], -1e4, 1e4)
-        self.d_attenuation = np.clip(adjustable[19], 1.0, 1e4)
-        self.w_colregs = np.clip(adjustable[20:23], np.array([1e-4, 1e-4, 1e-4]), np.array([1e4, 1e4, 1e4]))
-        self.r_safe_do = np.clip(adjustable[23], 1.0, 1e4)

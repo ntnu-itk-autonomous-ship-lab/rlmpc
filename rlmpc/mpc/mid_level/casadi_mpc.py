@@ -46,6 +46,7 @@ class CasadiMPC:
         self.identifier: str = identifier
 
         self._sensitivities: mpc_common.NLPSensitivities = None
+        self._prev_opt_abs_action: csd.MX = csd.MX.sym("prev_opt_abs_action", 0)
         self._nlp_perturbation: csd.MX = csd.MX.sym("nlp_perturbation", 0)
 
         self._cost_function: csd.MX = csd.MX.sym("cost_function", 0)
@@ -380,6 +381,7 @@ class CasadiMPC:
             do_cr_list,
             do_ho_list,
             do_ot_list,
+            warm_start["prev_opt_abs_action"],
             perturb_nlp=perturb_nlp,
             perturb_sigma=perturb_sigma,
             **kwargs,
@@ -641,8 +643,10 @@ class CasadiMPC:
         # if self._p_mdl.shape[0] > 0:
         #     p_adjustable.append(self._p_mdl)
 
+        self._prev_opt_abs_action = csd.MX.sym("prev_opt_abs_action", len(self._action_indices), 1)
         # NLP perturbation (may be zero or randomly generated if the MPC is used as a stochastic policy)
         self._nlp_perturbation = csd.MX.sym("nlp_perturbation", nu, 1)
+        p_fixed.append(self._prev_opt_abs_action)
         p_fixed.append(self._nlp_perturbation)
         p_fixed.append(self._p_mdl)
 
@@ -660,6 +664,7 @@ class CasadiMPC:
         # Path following, speed deviation, chattering and fuel cost parameters
         dim_Q_p = self._params.Q_p.shape[0]
         Q_p_vec = csd.MX.sym("Q_vec", dim_Q_p, 1)
+        K_prev_sol_dev = csd.MX.sym("K_prev_sol_dev", len(self._action_indices), 1)
         alpha_app_course = csd.MX.sym("alpha_app_course", 2, 1)
         alpha_app_speed = csd.MX.sym("alpha_app_speed", 2, 1)
         K_app_course = csd.MX.sym("K_app_course", 1, 1)
@@ -692,6 +697,7 @@ class CasadiMPC:
         r_safe_do = csd.MX.sym("r_safe_do", 1)
 
         p_adjustable.append(Q_p_vec)
+        p_adjustable.append(K_prev_sol_dev)
         p_adjustable.append(alpha_app_course)
         p_adjustable.append(alpha_app_speed)
         p_adjustable.append(K_app_course)
@@ -761,6 +767,7 @@ class CasadiMPC:
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
         # stage_cost = csd.MX.sym("stage_cost", 1)
         erk4 = integrators.ERK4(x=x, p=csd.vertcat(u, self._p_mdl), ode=xdot, quad=csd.vertcat([]), h=dt)
+        action_stage_index = self.action_indices_to_stage_index()
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
             if k == 0:
@@ -872,6 +879,12 @@ class CasadiMPC:
             )
 
             J += path_following_cost + speed_dev_cost + rate_cost + colregs_cost + slack_penalty_cost
+            if k == action_stage_index:
+                J += (
+                    K_prev_sol_dev[0] * (self._prev_opt_abs_action[0] - x_k[2]) ** 2
+                    + K_prev_sol_dev[1] * (self._prev_opt_abs_action[1] - x_k[3]) ** 2
+                )
+
             if k == 0:
                 self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
                 self._path_dot_dev_cost = csd.Function("path_dot_dev_cost", [x_k, self._p_path], [path_dot_dev_cost])
@@ -1137,6 +1150,16 @@ class CasadiMPC:
                 f"dim g_eq (G) = {g_eq.shape[0]}, dim g_ineq (H) = {g_ineq.shape[0]} | dim_g = {g_eq.shape[0] + g_ineq.shape[0]} | dim Sigma = {csd.vertcat(*Sigma).shape[0]} | dim w = {self._opt_vars.shape[0]}"
             )
 
+    def action_indices_to_stage_index(self) -> int:
+        """Converts the action indices to stage indices.
+
+        Returns:
+            - int: Stage index.
+        """
+        N = int(self._params.T / self._params.dt)
+        nx, nu = self.model.dims()
+        return (self._action_indices[0] - nu * N) // nx
+
     def _create_static_obstacle_constraint(
         self,
         x_k: csd.MX,
@@ -1205,6 +1228,7 @@ class CasadiMPC:
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
+        prev_opt_abs_action: np.ndarray,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
         **kwargs,
@@ -1216,6 +1240,7 @@ class CasadiMPC:
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            - prev_opt_abs_action (np.ndarray): Previous optimal absolute action solution (output used as input to autopilot)
             - perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
             - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
@@ -1241,6 +1266,7 @@ class CasadiMPC:
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
+        prev_opt_abs_action: np.ndarray,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -1251,6 +1277,7 @@ class CasadiMPC:
             do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            prev_opt_abs_action (np.ndarray): Previous optimal absolute action solution (output used as input to autopilot)
             perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
             perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
 
@@ -1261,6 +1288,7 @@ class CasadiMPC:
         n_colregs_zones = 3
         nx, nu = self.model.dims()
 
+        fixed_parameter_values.extend(prev_opt_abs_action.flatten().tolist())
         d = np.zeros((nu, 1))
         if perturb_nlp:
             d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
@@ -1271,6 +1299,16 @@ class CasadiMPC:
         fixed_parameter_values.extend(path_parameter_values)
 
         non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
+        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
+        p_goal = np.array(list(self.path_linestring.coords[-1]))
+        d2goal = np.linalg.norm(state[0:2] - p_goal)
+        if n_dos == 0 or d2goal < 150.0:
+            if "K_prev_sol_dev" in self._adjustable_param_str_list:
+                non_adjustable_mpc_params[4] = 10.0
+                non_adjustable_mpc_params[5] = 5.0
+            else:
+                non_adjustable_mpc_params[6] = 10.0
+                non_adjustable_mpc_params[7] = 5.0
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 
         max_num_so_constr = (

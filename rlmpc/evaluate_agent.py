@@ -84,7 +84,7 @@ def main(args):
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--disable_rlmpc_parameter_provider", type=bool, default=True)
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc3")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_eval")
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC eval:")
@@ -141,12 +141,12 @@ def main(args):
         actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
         mpc_param_provider_kwargs = {
             "param_list": ["Q_p", "r_safe_do"],
-            "hidden_sizes": [512, 512],
+            "hidden_sizes": [256, 256],
             "activation_fn": th.nn.ReLU,
         }
         policy_kwargs = {
             "features_extractor_class": rlmpc_fe.CombinedExtractor,
-            "critic_arch": [512, 512],
+            "critic_arch": [256, 256],
             "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
             "mpc_config": mpc_config_file,
             "activation_fn": th.nn.ReLU,
@@ -174,7 +174,7 @@ def main(args):
             "tensorboard_log": str(log_dir),
             "policy_kwargs": {
                 "features_extractor_class": rlmpc_fe.CombinedExtractor,
-                "net_arch": [1400, 1000, 600],
+                "net_arch": [400, 300, 300],
                 "log_std_init": -5.0,
                 "use_sde": True,
             },

@@ -684,7 +684,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_readily_apparent_maneuvering: float = 0.0
         self.r_action_chatter: float = 0.0
         self.r_dnn_parameters: float = 0.0
-        self.verbose: bool = True
+        self.verbose: bool = False
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)

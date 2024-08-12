@@ -71,6 +71,7 @@ class AcadosMPC:
 
         self._p_fixed_values: np.ndarray = np.array([])
         self._p_adjustable_values: np.ndarray = np.array([])
+        self._prev_opt_abs_action: csd.MX = csd.MX.sym("prev_opt_abs_action", 0)
         self._nlp_perturbation: csd.MX = csd.MX.sym("nlp_perturbation", 0)
 
         self._min_depth: int = 1
@@ -350,9 +351,9 @@ class AcadosMPC:
             - so_list (list): List ofrelevant static obstacle Polygon objects.
             - enc (senc.ENC): ENC object containing the map info.
             - warm_start (dict): Warm start solution to use.
-            - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
-            - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
-            - show_plots (bool, optional): Whether to show plots. Defaults to False.
+            - perturb_nlp (bool, optional): Whether to perturb the NLP.
+            - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation.
+            - show_plots (bool, optional): Whether to show plots.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
         Returns:
@@ -380,7 +381,14 @@ class AcadosMPC:
         self._x_warm_start = warm_start["X"]
         self._u_warm_start = warm_start["U"]
 
-        self._update_ocp(self._acados_ocp_solver, xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
+        self._update_ocp(
+            self._acados_ocp_solver,
+            xs_unwrapped,
+            do_cr_list,
+            do_ho_list,
+            do_ot_list,
+            prev_opt_abs_action=warm_start["prev_opt_abs_action"],
+        )
         # self.print_warm_start_info(xs_unwrapped)
         try:
             status = self._acados_ocp_solver.solve()
@@ -559,6 +567,7 @@ class AcadosMPC:
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
+        prev_opt_abs_action: np.ndarray,
     ) -> None:
         """Updates the OCP (cost and constraints) with the current info available
 
@@ -568,6 +577,7 @@ class AcadosMPC:
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            - prev_opt_abs_action (np.ndarray): Previous optimal absolute action solution (output used as input to autopilot)
         """
         solver.constraints_set(0, "lbx", xs)
         solver.constraints_set(0, "ubx", xs)
@@ -577,7 +587,7 @@ class AcadosMPC:
             solver.set(i, "x", self._x_warm_start[:, i])
             if i < self._acados_ocp.dims.N:
                 solver.set(i, "u", self._u_warm_start[:, i])
-            p_i = self.create_parameter_values(xs, do_cr_list, do_ho_list, do_ot_list, i)
+            p_i = self.create_parameter_values(xs, do_cr_list, do_ho_list, do_ot_list, prev_opt_abs_action, i)
             if p_i.size != self._p_adjustable.shape[0] + self._p_fixed.shape[0] and self.verbose:
                 print(f"Parameter size mismatch: {p_i.size} vs {len(self._p_list)}")
             self._parameter_values.append(p_i)
@@ -611,7 +621,7 @@ class AcadosMPC:
             - enc (senc.ENC): ENC object.
             - map_origin (np.ndarray, optional): Origin of the map. Defaults to np.array([0.0, 0.0]).
             - min_depth (int, optional): Minimum allowable depth for the vessel. Defaults to 5.
-            - debug (bool, optional): Whether to print debug info. Defaults to False.
+            - debug (bool, optional): Whether to print debug info.
 
         """
         self._initialized = False
@@ -637,7 +647,9 @@ class AcadosMPC:
         self._p_adjustable = csd.vertcat(self._acados_ocp.model.p)
         p_fixed, p_adjustable = [], []  # NLP parameters
 
+        self._prev_opt_abs_action = csd.MX.sym("prev_opt_abs_action", len(self._action_indices), 1)
         self._nlp_perturbation = csd.MX.sym("nlp_perturbation", nu, 1)
+        p_fixed.append(self._prev_opt_abs_action)
         p_fixed.append(self._nlp_perturbation)
         p_fixed.append(self._p_mdl)
 
@@ -646,6 +658,7 @@ class AcadosMPC:
         # Path following, speed deviation, chattering and fuel cost parameters
         dim_Q_p = self._params.Q_p.shape[0]
         Q_p_vec = csd.MX.sym("Q_vec", dim_Q_p, 1)
+        K_prev_sol_dev = csd.MX.sym("K_prev_sol_dev", len(self._action_indices), 1)
         alpha_app_course = csd.MX.sym("alpha_app_course", 2, 1)
         alpha_app_speed = csd.MX.sym("alpha_app_speed", 2, 1)
         K_app_course = csd.MX.sym("K_app_course", 1, 1)
@@ -673,6 +686,7 @@ class AcadosMPC:
         r_safe_do = csd.MX.sym("r_safe_do", 1)
 
         p_adjustable.append(Q_p_vec)
+        p_adjustable.append(K_prev_sol_dev)
         p_adjustable.append(alpha_app_course)
         p_adjustable.append(alpha_app_speed)
         p_adjustable.append(K_app_course)
@@ -786,6 +800,11 @@ class AcadosMPC:
         speed_ref = x[5] * csd.sqrt(1e-8 + x_dot_path**2 + y_dot_path**2)
         speed_dev_cost = Q_p_vec[1] * (x[3] - speed_ref) ** 2
 
+        prev_sol_cost = (
+            K_prev_sol_dev[0] * (self._prev_opt_abs_action[0] - x[2]) ** 2
+            + K_prev_sol_dev[1] * (self._prev_opt_abs_action[1] - x[3]) ** 2
+        )
+
         X_do_cr = X_do[: nx_do * self._params.max_num_do_constr_per_zone]
         X_do_ho = X_do[
             nx_do * self._params.max_num_do_constr_per_zone : nx_do * 2 * self._params.max_num_do_constr_per_zone
@@ -807,8 +826,12 @@ class AcadosMPC:
             d_attenuation,
             colregs_weights,
         )
-        self._acados_ocp.model.cost_expr_ext_cost_0 = path_following_cost + speed_dev_cost + rate_cost + colregs_cost
-        self._acados_ocp.model.cost_expr_ext_cost = path_following_cost + speed_dev_cost + rate_cost + colregs_cost
+        self._acados_ocp.model.cost_expr_ext_cost_0 = (
+            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost
+        )
+        self._acados_ocp.model.cost_expr_ext_cost = (
+            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost
+        )
         self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + speed_dev_cost
 
         # Parameters consist of RL adjustable parameters and fixed parameters
@@ -823,7 +846,12 @@ class AcadosMPC:
         self._acados_ocp.model.p = csd.vertcat(self._p_adjustable, self._p_fixed)
         self._acados_ocp.dims.np = self._acados_ocp.model.p.size()[0]
         self._acados_ocp.parameter_values = self.create_parameter_values(
-            xs=np.zeros(nx), do_cr_list=[], do_ho_list=[], do_ot_list=[], stage_idx=0
+            xs=np.zeros(nx),
+            do_cr_list=[],
+            do_ho_list=[],
+            do_ot_list=[],
+            prev_opt_abs_action=np.zeros(len(self._action_indices)),
+            stage_idx=0,
         )
 
         # remove files in the code export directory
@@ -908,12 +936,24 @@ class AcadosMPC:
             do_constr_list.append(h_do)
         return do_constr_list
 
+    def action_indices_to_stage_index(self) -> int:
+        """Converts the action indices to the correct stage index.
+
+        Returns:
+            - int: Stage index for the shooting node to consider
+        """
+        N = self._acados_ocp.dims.N
+        nu = self._acados_ocp.dims.nu
+        nx = self._acados_ocp.dims.nx
+        return (self._action_indices[0] - nu * N) // nx
+
     def create_parameter_values(
         self,
         xs: np.ndarray,
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
+        prev_opt_abs_action: np.ndarray,
         stage_idx: int,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
@@ -925,21 +965,29 @@ class AcadosMPC:
             - do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             - do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            - prev_opt_abs_action (np.ndarray): Previous optimal absolute action solution (output used as input to autopilot)
             - stage_idx (int): Stage index for the shooting node to consider
-            - perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
-            - perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
+            - perturb_nlp (bool, optional): Whether to perturb the NLP problem.
+            - perturb_sigma (float, optional): Standard deviation of the perturbation.
             - **kwargs: Additional keyword arguments which depends on the static obstacle constraint type used.
-
 
         Returns:
             - np.ndarray: Parameter vector to be used as input to solver
         """
+        _, nu = self._acados_ocp.dims.nx, self._acados_ocp.dims.nu
+
         adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
+        action_stage_index = self.action_indices_to_stage_index()
+        if "K_prev_sol_dev" in self._adjustable_param_str_list and stage_idx != action_stage_index:
+            adjustable_params[3] = 0.0
+            adjustable_params[4] = 0.0
+
         if stage_idx == 0 and self.verbose:
             print(f"Adjustable params: {adjustable_params}")
 
-        _, nu = self._acados_ocp.dims.nx, self._acados_ocp.dims.nu
         fixed_parameter_values = []
+        fixed_parameter_values.extend(prev_opt_abs_action.flatten().tolist())
+
         d = np.zeros((nu, 1))
         if perturb_nlp:
             d = np.random.normal(0.0, perturb_sigma, size=(nu, 1))
@@ -959,8 +1007,16 @@ class AcadosMPC:
         p_goal = np.array(list(self.path_linestring.coords[-1]))
         d2goal = np.linalg.norm(xs[0:2] - p_goal)
         if n_dos == 0 or d2goal < 150.0:
-            non_adjustable_mpc_params[4] = 10.0
-            non_adjustable_mpc_params[5] = 5.0
+            if "K_prev_sol_dev" in self._adjustable_param_str_list:
+                non_adjustable_mpc_params[4] = 10.0
+                non_adjustable_mpc_params[5] = 5.0
+            else:
+                non_adjustable_mpc_params[6] = 10.0
+                non_adjustable_mpc_params[7] = 5.0
+
+        if "K_prev_sol_dev" not in self._adjustable_param_str_list and stage_idx != action_stage_index:
+            non_adjustable_mpc_params[0] = 0.0
+            non_adjustable_mpc_params[1] = 0.0
 
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
         fixed_parameter_values.extend(do_cr_parameter_values)
@@ -986,8 +1042,8 @@ class AcadosMPC:
             do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
-            perturb_nlp (bool, optional): Whether to perturb the NLP problem. Defaults to False.
-            perturb_sigma (float, optional): Standard deviation of the perturbation. Defaults to 0.001.
+            perturb_nlp (bool, optional): Whether to perturb the NLP problem.
+            perturb_sigma (float, optional): Standard deviation of the perturbation.
 
         Returns:
             np.ndarray: Fixed parameter values for the NLP problem.

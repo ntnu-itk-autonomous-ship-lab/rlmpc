@@ -459,7 +459,7 @@ def interpolate_solution(
     intp_trajectory = trajectory
     intp_inputs = inputs
     intp_slacks = slacks
-    if dt_mpc > dt_sim or dt_mpc < dt_sim:
+    if dt_mpc > dt_sim:
         nx = trajectory.shape[0]
         nu = inputs.shape[0]
         sim_times = np.arange(0.0, T_mpc + dt_mpc, dt_sim)

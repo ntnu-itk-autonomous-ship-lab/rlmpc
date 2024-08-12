@@ -177,6 +177,13 @@ mpc:
           minlength: 3
           schema:
             type: float
+        K_prev_sol_dev:
+          required: True
+          type: list
+          maxlength: 2
+          minlength: 2
+          schema:
+            type: float
         alpha_app_course:
           required: True
           type: list
@@ -184,6 +191,7 @@ mpc:
           minlength: 2
           schema:
             type: float
+
         alpha_app_speed:
           required: True
           type: list
