@@ -107,6 +107,7 @@ class RLMPC(ci.ICOLAV):
             self._config: RLMPCParams = config
         elif isinstance(config, Path):
             self._config = cp.extract(RLMPCParams, config, dp.rlmpc_schema)
+        self.identifier = identifier
 
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
@@ -366,9 +367,10 @@ class RLMPC(ci.ICOLAV):
             ]
         )
 
-        print(
-            f"t: {t} | U_mpc: {U_0_ref:.4f} | U: {U:.4f} | chi_mpc: {180.0 * chi_0_ref / np.pi:.4f} | chi: {180.0 * chi / np.pi:.4f} | chi_diff: {180.0 * cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi) / np.pi:.4f} | r_mpc: {0.0} | r: {ownship_state[5]:.4f}"
-        )
+        if self._debug:
+            print(
+                f"[RLMPC {self.identifier.upper()}] t: {t} | U_mpc: {U_0_ref:.4f} | U: {U:.4f} | chi_mpc: {180.0 * chi_0_ref / np.pi:.4f} | chi: {180.0 * chi / np.pi:.4f} | chi_diff: {180.0 * cs_mf.wrap_angle_diff_to_pmpi(chi_0_ref, chi) / np.pi:.4f} | r_mpc: {0.0} | r: {ownship_state[5]:.4f}"
+            )
         # double check action indices:
         # nx, nu, ns, _ = self._mpc.dims()
         # n_samples = self._mpc.params.T / self._mpc.params.dt
@@ -513,22 +515,39 @@ class RLMPC(ci.ICOLAV):
             )
         self._disturbance_handles = handles
 
-    def visualize_ships(self, ownship_state: np.ndarray, do_list: list) -> None:
+    def visualize_ships(
+        self, ownship_state: np.ndarray, do_list: list, do_cr_list: list, do_ho_list: list, do_ot_list: list
+    ) -> None:
         """Visualize the ships in the ENC.
 
         Args:
             ownship_state (np.ndarray): Ownship state.
             do_list (list): List of dynamic obstacles.
+            do_cr_list (list): List of dynamic obstacles in crossing give way.
+            do_ho_list (list): List of dynamic obstacles in HO.
+            do_ot_list (list): List of dynamic obstacles in OT.
         """
         if not self._debug:
             return
 
         self._enc.start_display(figname="RL-MPC Debug")
+        do_cr_color = "orangered"
+        do_ho_color = "yellow"
+        do_ot_color = "red"
         self._clear_do_handles()
-        for _, do_state, do_cov, length, width in do_list:
+        for do_id, do_state, do_cov, length, width in do_list:
             ellipse_x, ellipse_y = cs_mhm.create_probability_ellipse(do_cov, 0.67)
             ell_geometry = sgeo.Polygon(zip(ellipse_y + do_state[1], ellipse_x + do_state[0]))
-            ell_i_handle = self._enc.draw_polygon(ell_geometry, color="red", alpha=0.2)
+            if do_id in [do_cr[0] for do_cr in do_cr_list]:
+                color = do_cr_color
+            elif do_id in [do_ho[0] for do_ho in do_ho_list]:
+                color = do_ho_color
+            elif do_id in [do_ot[0] for do_ot in do_ot_list]:
+                color = do_ot_color
+            else:
+                color = "black"
+
+            ell_i_handle = self._enc.draw_polygon(ell_geometry, color=color, alpha=0.2)
             do_poly = mapf.create_ship_polygon(
                 do_state[0],
                 do_state[1],
@@ -538,7 +557,7 @@ class RLMPC(ci.ICOLAV):
                 length_scaling=1.0,
                 width_scaling=1.0,
             )
-            do_i_handle = self._enc.draw_polygon(do_poly, color="red")
+            do_i_handle = self._enc.draw_polygon(do_poly, color=color)
             self._do_plt_handles.extend([ell_i_handle, do_i_handle])
 
         ship_poly = mapf.create_ship_polygon(
@@ -615,9 +634,6 @@ class RLMPC(ci.ICOLAV):
                 translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
             ]
 
-            self.visualize_ships(ownship_state, do_list)
-            self.visualize_disturbance(w)
-
             csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
             csog_state_cpy = csog_state.copy()
             csog_state[2] = csog_state_cpy[3]
@@ -627,9 +643,12 @@ class RLMPC(ci.ICOLAV):
                 csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
             )
             self._n_mpc_do = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
+            self.visualize_ships(ownship_state, do_list, do_cr_list, do_ho_list, do_ot_list)
+            self.visualize_disturbance(w)
+
             if self._debug:
                 print(
-                    f"Total num DOs: {len(translated_do_list)} | Total num DOs considered in MPC: {len(do_cr_list) + len(do_ho_list) + len(do_ot_list)}"
+                    f"[RLMPC {self.identifier.upper()}] Total num DOs: {len(translated_do_list)} | Total num DOs considered in MPC: {len(do_cr_list) + len(do_ho_list) + len(do_ot_list)}"
                 )
 
             warm_start = self.create_mpc_warm_start(t, ownship_state, **kwargs)
@@ -643,6 +662,7 @@ class RLMPC(ci.ICOLAV):
                 so_list=self._mpc_rel_polygons,
                 enc=self._enc,
                 warm_start=warm_start,
+                verbose=self._debug,
                 **kwargs,
             )
             self._mpc_trajectory = self._mpc_soln["trajectory"]
@@ -669,11 +689,11 @@ class RLMPC(ci.ICOLAV):
             self._mpc_soln["mpc_rate"] = self._mpc.params.rate
 
         if self._mpc.params.dt == 1.0:
-            chi_ref = self._mpc_trajectory[2, 6]
-            U_ref = self._mpc_trajectory[3, 6]
+            chi_ref = self._mpc_trajectory[2, 4]
+            U_ref = self._mpc_trajectory[3, 4]
         else:
-            chi_ref = self._mpc_trajectory[2, 3]
-            U_ref = self._mpc_trajectory[3, 3]
+            chi_ref = self._mpc_trajectory[2, 2]
+            U_ref = self._mpc_trajectory[3, 2]
         self._references = np.array([0.0, 0.0, chi_ref, U_ref, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(9, 1)
         self._t_prev = t
         self._mpc_soln["t_prev"] = t
@@ -715,6 +735,7 @@ class RLMPC(ci.ICOLAV):
             U_d=nominal_speed_ref,
             initialized=False,
             return_on_first_solution=False if t == 0 else True,
+            verbose=False,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
 

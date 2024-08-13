@@ -337,6 +337,7 @@ class CasadiMPC:
         warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
+        verbose: bool = True,
         show_plots: bool = False,
         **kwargs,
     ) -> dict:
@@ -350,6 +351,7 @@ class CasadiMPC:
             - warm_start (dict): Warm start solution to use.
             - perturb_nlp (bool, optional): Whether to perturb the NLP. Defaults to False.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation. Defaults to 0.001.
+            - verbose (bool, optional): Whether to print verbose output. Defaults to True.
             - show_plots (bool, optional): Whether to show plots. Defaults to False.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
@@ -405,28 +407,30 @@ class CasadiMPC:
             g_so_constr_vals = np.array([0.0])
         if g_do_constr_vals.size == 0:
             g_do_constr_vals = np.array([0.0])
-        if g_eq_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6).flatten().T}!"
-            )
-        if g_state_box_ineq_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_state_box_ineq_vals > 1e-6).flatten().T}!"
-            )
-        if g_input_box_ineq_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_input_box_ineq_vals > 1e-6).flatten().T}!"
-            )
-        if g_do_constr_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6).flatten().T}!"
-            )
-        if g_so_constr_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6).flatten().T}!"
-            )
 
-        print(f"Initial state constraint diff = {X_ws[:, 0].full().flatten() - xs_unwrapped}")
+        if verbose:
+            if g_eq_vals.max() > 1e-6:
+                print(
+                    f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6).flatten().T}!"
+                )
+            if g_state_box_ineq_vals.max() > 1e-6:
+                print(
+                    f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_state_box_ineq_vals > 1e-6).flatten().T}!"
+                )
+            if g_input_box_ineq_vals.max() > 1e-6:
+                print(
+                    f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_input_box_ineq_vals > 1e-6).flatten().T}!"
+                )
+            if g_do_constr_vals.max() > 1e-6:
+                print(
+                    f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6).flatten().T}!"
+                )
+            if g_so_constr_vals.max() > 1e-6:
+                print(
+                    f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6).flatten().T}!"
+                )
+
+            print(f"Initial state constraint diff = {X_ws[:, 0].full().flatten() - xs_unwrapped}")
 
         t_start = time.time()
         soln = self._solver(
@@ -445,9 +449,10 @@ class CasadiMPC:
         lam_p = soln["lam_p"].full()
         U, X, Sigma = self.extract_trajectories(soln)
         w_sub = np.concatenate((U.T.flatten(), X.T.flatten()))
-        self.print_solution_info(soln, parameter_values, stats, t_solve)
-        # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
-        # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
+        if verbose:
+            self.print_solution_info(soln, parameter_values, stats, t_solve)
+            # self.plot_solution_trajectory(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params)
+            # self.plot_cost_function_values(X, U, Sigma, do_cr_params, do_ho_params, do_ot_params, show_plots)
 
         if not stats["success"]:
             # mpc_common.plot_casadi_solver_stats(stats, True)
@@ -459,7 +464,8 @@ class CasadiMPC:
                 g_do_constr_vals = self._dynamic_obstacle_constraints(soln["x"], parameter_values).full().flatten()
                 g_so_constr_vals = self._static_obstacle_constraints(soln["x"], parameter_values).full().flatten()
                 if g_eq_vals.max() > 1e-6 or g_do_constr_vals.max() > 1e-6 or g_so_constr_vals.max() > 1e-6:
-                    print("WARNING: Infeasible solution found. Using previous solution/warm start.")
+                    if verbose:
+                        print("WARNING: Infeasible solution found. Using previous solution/warm start.")
                     soln = self._current_warmstart
                     U, X, Sigma = self.extract_trajectories(soln)
                     soln["f"] = self._prev_cost
@@ -1991,5 +1997,5 @@ class CasadiMPC:
         n_iters = self._solver.stats()["iter_count"]
         np.set_printoptions(precision=3)
         print(
-            f"[CASADI] Mid-level CAS NMPC: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Equality constraints (max, argmax): ({g_eq_vals.max(), np.argmax(g_eq_vals)}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
+            f"[CASADI {self.identifier.upper()}] Mid-level CAS NMPC: \n\t- Status: {return_status} \n\t- Num_iter: {n_iters}  \n\t- Runtime: {t_solve} \n\t- Cost: {cost_val} \n\t- Slacks (max, argmax): ({max_sigma}, {arg_max_sigma}) \n\t- Equality constraints (max, argmax): ({g_eq_vals.max(), np.argmax(g_eq_vals)}) \n\t- Box constraints (max, argmax): ({max_box_constr, arg_max_box_constr}) \n\t- Static obstacle constraints (max, argmax): ({max_so_constr}, {arg_max_so_constr}) \n\t- Dynamic obstacle constraints (max, argmax): ({max_do_constr}, {arg_max_do_constr})\n\t- Equality constraints jac (max_rank, rank): {max_g_eq_jac_rank, g_eq_jac_rank} \n\t- Inequality constraints jac (max_rank, rank): {max_g_ineq_jac_rank, g_ineq_jac_rank}\n\t- Hessian (max_rank, rank): {nlp_hess.shape[0], nlp_hess_rank} \n\t- ||dlag_dw||_2: {dlag_dw_norm} \n"
         )

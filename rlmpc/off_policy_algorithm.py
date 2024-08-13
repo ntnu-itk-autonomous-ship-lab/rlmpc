@@ -486,9 +486,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
             for idx, info in enumerate(infos):
                 info.update({"actor_info": self._last_actor_info[idx]})
-                if info["actor_info"]["num_consecutive_qp_failures"] > 1:
+                if info["actor_info"]["qp_failure"]:
                     dones[idx] = True
-                    print("Episode terminated due to too many consecutive MPC QP failures")
+                    print("Episode terminated due to MPC QP failure")
                     info.update({"actor_failure": True})
 
             self._last_infos = infos

@@ -154,7 +154,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.build_sensitivities = build_sensitivities
         if build_sensitivities:
             self.mpc_sensitivities = self.mpc.build_sensitivities()
-        print(f"[{self.env.env_id}] MPC initialized! Built sensitivities? {build_sensitivities}")
+        print(f"[{self.env.env_id.upper()}] MPC initialized! Built sensitivities? {build_sensitivities}")
 
     def extract_mpc_observation_features(self) -> Tuple[float, np.ndarray, List, stochasticity.DisturbanceData]:
         """Extract features from the observation at a given index in the batch.
@@ -304,12 +304,13 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             parameter_indices=self.mpc_parameter_indices,
         )
         self.mpc.set_mpc_param_subset(param_subset=param_dict)
+        print(f"[{self.env.env_id.upper()}] Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}")
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
         mpc_action, mpc_info = self.mpc.act(t, ownship_state, do_list, w)
         self.env.ownship.set_colav_data(mpc_info)
         self.env.ownship.set_remote_actor_predicted_trajectory(mpc_info["trajectory"])
-        success = mpc_info["optimal"]
+        success = not mpc_info["qp_failure"]
 
         course = self.env.ownship.course
         speed = self.env.ownship.speed

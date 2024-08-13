@@ -244,6 +244,7 @@ class MidlevelMPC:
         warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
+        verbose: bool = True,
         **kwargs,
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
@@ -272,6 +273,7 @@ class MidlevelMPC:
                 warm_start,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
+                verbose=verbose,
                 **kwargs,
             )
             mpc_soln_ac["soln"]["x"] = self._casadi_mpc.decision_variables(
@@ -287,6 +289,7 @@ class MidlevelMPC:
                 warm_start,
                 perturb_nlp=perturb_nlp,
                 perturb_sigma=perturb_sigma,
+                verbose=verbose,
                 **kwargs,
             )
         mpc_soln = mpc_soln_ac if self._acados_enabled else mpc_soln_csd

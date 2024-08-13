@@ -711,7 +711,7 @@ class MPCRewarder(cs_reward.IReward):
         reward = reward / self.reward_scale
         if self.verbose:
             print(
-                f"[MPC-REWARDER | {self.env.env_id}]:\n\t- r_scaled: {reward:.4f} \n\t- r_antigrounding: {self.r_antigrounding:.4f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.4f} \n\t- r_colreg: {self.r_colreg:.4f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.4f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.4f} \n\t- r_action_chatter: {self.r_action_chatter:.4f} \n\t- r_dnn_parameters: {self.r_dnn_parameters:.4f}"
+                f"[MPC-REWARDER | {self.env.env_id.upper()}]:\n\t- r_scaled: {reward:.4f} \n\t- r_antigrounding: {self.r_antigrounding:.4f} \n\t- r_collision_avoidance: {self.r_collision_avoidance:.4f} \n\t- r_colreg: {self.r_colreg:.4f} \n\t- r_trajectory_tracking: {self.r_trajectory_tracking:.4f} \n\t- r_readily_apparent_maneuvering: {self.r_readily_apparent_maneuvering:.4f} \n\t- r_action_chatter: {self.r_action_chatter:.4f} \n\t- r_dnn_parameters: {self.r_dnn_parameters:.4f}"
             )
         self.last_reward = reward
         return reward

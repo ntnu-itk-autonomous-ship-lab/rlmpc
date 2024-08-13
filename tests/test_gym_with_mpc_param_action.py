@@ -38,15 +38,13 @@ if __name__ == "__main__":
     actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
-        "mpc_param_list": ["Q_p", "w_colregs", "r_safe_do"],
-        "debug": True,
+        "mpc_param_list": ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"],
+        "debug": False,
         "std_init": actor_noise_std_dev,
     }
 
     scenario_names = ["rlmpc_scenario_ms_channel"]
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
-
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
@@ -76,18 +74,20 @@ if __name__ == "__main__":
     obs = env.reset()
     frames = []
     for i in range(100):
-        actions = np.zeros(env.action_space.shape[0]) if use_vec_env else np.zeros(env.action_space.shape[0])
-        obs, reward, terminated, truncated, info = env.step(actions)
+        # actions = (
+        #     np.zeros((env.num_envs, env.action_space.shape[0])) if use_vec_env else np.zeros(env.action_space.shape[0])
+        # )
+        if use_vec_env:
+            actions = np.array([env.action_space.sample() for _ in range(env.num_envs)])
+            obs, reward, dones, infos = env.step(actions)  # vec env resets automatically
+        else:
+            action = env.action_space.sample()
+            obs, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+            if done:
+                env.reset()
 
         frames.append(env.render())
 
-        if terminated or truncated:
-            env.reset()
-
     env.close()
-
-    save_gif = False
-    if save_gif:
-        ihm.save_frames_as_gif(frames, dp.animation_output / "demo.gif")
-
     print("done")

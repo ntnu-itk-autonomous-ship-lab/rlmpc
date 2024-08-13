@@ -41,9 +41,9 @@ class AcadosMPC:
         self._solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self._acados_ocp_solver: AcadosOcpSolver = None
         self._acados_ocp_solver_nonreg: AcadosOcpSolver = None
+        self._acados_code_gen_path: pathlib.Path = rl_dp.acados_code_gen / identifier
 
         self._prev_sol_status: int = 0
-        self._num_consecutive_qp_failures: int = 0
         self.identifier: str = identifier
 
         self.model = copy.deepcopy(model)
@@ -137,7 +137,6 @@ class AcadosMPC:
         self._xs_prev = np.array([])
         self._prev_cost = 1e6
         self._prev_sol_status = 0
-        self._num_consecutive_qp_failures = 0
         self._t_prev = 0.0
         if self._acados_ocp_solver is not None:
             self._acados_ocp_solver.reset()
@@ -338,6 +337,7 @@ class AcadosMPC:
         warm_start: dict,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
+        verbose: bool = True,
         show_plots: bool = False,
         **kwargs,
     ) -> dict:
@@ -353,6 +353,7 @@ class AcadosMPC:
             - warm_start (dict): Warm start solution to use.
             - perturb_nlp (bool, optional): Whether to perturb the NLP.
             - perturb_sigma (float, optional): What standard deviation to use for generating the perturbation.
+            - verbose (bool, optional): Whether to print verbose info.
             - show_plots (bool, optional): Whether to show plots.
             - **kwargs: Additional keyword arguments such as an optional previous solution to use.
 
@@ -395,7 +396,8 @@ class AcadosMPC:
             status_str = mpc_common.map_acados_error_code(status)
         except Exception as _:  # pylint: disable=broad-except
             c = mpc_common.map_acados_error_code(status)
-            print(f"[ACADOS] OCP solution: {status} error: {c}")
+            if verbose:
+                print(f"[ACADOS] OCP solution: {status} error: {c}")
 
         if status != 0:
             self._acados_ocp_solver.print_statistics()
@@ -420,22 +422,24 @@ class AcadosMPC:
         # so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
         # self._x_warm_start = trajectory.copy()
         # self._u_warm_start = inputs.copy()
-        if self.verbose:
+        if verbose:
             np.set_printoptions(precision=3)
             print(
-                f"[ACADOS] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
+                f"[ACADOS {self.identifier.upper()}] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
             )
         w = np.concatenate((inputs.flatten(), trajectory.flatten(), slacks.flatten())).reshape(-1, 1)
         soln = {"x": w, "lam_g": lam_g, "lam_x": np.zeros(w.shape, dtype=np.float32)}
         self._p_fixed_values = self.create_all_fixed_parameter_values(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
         self._t_prev = t
 
-        if status_str == "QPFailure" and status == self._prev_sol_status:
-            self._num_consecutive_qp_failures += 1
+        qp_failure = False
+        if status_str == "QPFailure":
+            qp_failure = True
         self._prev_sol_status = status
 
         output = {
             "soln": soln,
+            "qp_failure": qp_failure,
             "optimal": success,
             "p": self._p_adjustable_values.astype(np.float32),
             "p_fixed": self._p_fixed_values.astype(np.float32),
@@ -448,7 +452,6 @@ class AcadosMPC:
             "cost_val": cost_val,
             "n_iter": n_iter,
             "final_residuals": final_residuals,
-            "num_consecutive_qp_failures": self._num_consecutive_qp_failures,
         }
         return output
 
@@ -855,15 +858,13 @@ class AcadosMPC:
         )
 
         # remove files in the code export directory
-        if rl_dp.acados_code_gen.exists():
-            shutil.rmtree(rl_dp.acados_code_gen)
-            rl_dp.acados_code_gen.mkdir(parents=True, exist_ok=True)
-        solver_json = (
-            str(rl_dp.acados_code_gen) + "/acados_ocp_" + self._acados_ocp.model.name + "_" + self.identifier + ".json"
-        )
+        if self._acados_code_gen_path.exists():
+            shutil.rmtree(self._acados_code_gen_path)
+            self._acados_code_gen_path.mkdir(parents=True, exist_ok=True)
+        solver_json = str(self._acados_code_gen_path) + "/acados_ocp_" + self._acados_ocp.model.name + ".json"
 
         self._acados_ocp.model.name += "_" + self.identifier
-        self._acados_ocp.code_export_directory = rl_dp.acados_code_gen.as_posix()
+        self._acados_ocp.code_export_directory = self._acados_code_gen_path.as_posix()
         self._acados_ocp_solver = None
         self._acados_ocp_solver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json, build=True)
 
@@ -982,8 +983,8 @@ class AcadosMPC:
             adjustable_params[3] = 0.0
             adjustable_params[4] = 0.0
 
-        if stage_idx == 0 and self.verbose:
-            print(f"Adjustable params: {adjustable_params}")
+        # if stage_idx == 0 and self.verbose:
+        #     print(f"Adjustable params: {adjustable_params}")
 
         fixed_parameter_values = []
         fixed_parameter_values.extend(prev_opt_abs_action.flatten().tolist())

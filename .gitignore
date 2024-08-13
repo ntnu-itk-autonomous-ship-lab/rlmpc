@@ -1,4 +1,9 @@
 
+# Package main
+todo.txt
+.vscode/
+acados_code_gen/
+data/
 scenarios/training_data
 scenarios/test_data
 casadi_code_gen
@@ -137,8 +142,3 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Package main
-todo.txt
-.vscode/
-acados_code_gen/
-data/
