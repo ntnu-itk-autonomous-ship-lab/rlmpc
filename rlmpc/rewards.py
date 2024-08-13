@@ -20,6 +20,7 @@ import colav_simulator.gym.observation as csgym_obs
 import colav_simulator.gym.reward as cs_reward
 import matplotlib.pyplot as plt
 import numpy as np
+import rlmpc.action as mpc_action
 import rlmpc.colregs_handler as ch
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.map_functions as rl_mapf
@@ -626,7 +627,11 @@ class DNNParameterRewarder(cs_reward.IReward):
 
         if len(do_list) > 0:
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
-            r_safe_incr = colav_info["new_mpc_params"][-1] - colav_info["old_mpc_params"][-1]
+            if isinstance(self.env.action_type, mpc_action.MPCParameterSettingAction):
+                unnorm_param_increments = self.env.action_type.unnormalize(action)
+                r_safe_incr = unnorm_param_increments[-1]
+            else:
+                r_safe_incr = colav_info["new_mpc_params"][-1] - colav_info["old_mpc_params"][-1]
             if d2dos[0][1] > 500.0 and abs(r_safe_incr) > 0.0:
                 r_param_dnn += -self._config.rho_non_relevant_safety_param_change * abs(r_safe_incr)
 
@@ -675,7 +680,7 @@ class MPCRewarder(cs_reward.IReward):
         self.readily_apparent_maneuvering_rewarder = ReadilyApparentManeuveringRewarder(
             env, config.readily_apparent_maneuvering
         )
-        self.action_chatter_rewarder = ActionChatterRewarder(env, config.action_chatter)
+        # self.action_chatter_rewarder = ActionChatterRewarder(env, config.action_chatter)
         self.dnn_parameter_provider_rewarder = DNNParameterRewarder(env, config.dnn_parameter_provider)
         self.r_antigrounding: float = 0.0
         self.r_collision_avoidance: float = 0.0
@@ -692,7 +697,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_colreg = self.colreg_rewarder(state, action, **kwargs)
         self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
-        self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
+        # self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
         self.r_dnn_parameters = self.dnn_parameter_provider_rewarder(state, action, **kwargs)
         reward = (
             self.r_antigrounding
@@ -700,7 +705,7 @@ class MPCRewarder(cs_reward.IReward):
             + self.r_colreg
             + self.r_trajectory_tracking
             + self.r_readily_apparent_maneuvering
-            + self.r_action_chatter
+            # + self.r_action_chatter
             + self.r_dnn_parameters
         )
         reward = reward / self.reward_scale
@@ -719,6 +724,6 @@ class MPCRewarder(cs_reward.IReward):
             "r_colreg": self.r_colreg,
             "r_trajectory_tracking": self.r_trajectory_tracking,
             "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering,
-            "r_action_chatter": self.r_action_chatter,
+            # "r_action_chatter": self.r_action_chatter,
             "r_dnn_parameters": self.r_dnn_parameters,
         }

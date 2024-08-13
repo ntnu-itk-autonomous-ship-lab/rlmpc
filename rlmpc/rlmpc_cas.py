@@ -198,8 +198,6 @@ class RLMPC(ci.ICOLAV):
         ownship_state: np.ndarray,
         do_list: list,
         enc: Optional[senc.ENC] = None,
-        goal_state: Optional[np.ndarray] = None,
-        w: Optional[stochasticity.DisturbanceData] = None,
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -328,7 +326,7 @@ class RLMPC(ci.ICOLAV):
             prev_soln (Optional[dict]): Previous MPC solution.
 
         Returns:
-            Tuple[np.ndarray, Dict[str, Any]]: The reference action and the most recent MPC solution.
+            - Tuple[np.ndarray, Dict[str, Any]]: The reference action and the most recent MPC solution.
         """
         t_now = time.time()
         if prev_soln:
@@ -601,7 +599,7 @@ class RLMPC(ci.ICOLAV):
         assert enc is not None, "ENC must be provided to the RL-MPC"
         assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
         if not self._initialized:
-            self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, goal_state, w, **kwargs)
+            self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, **kwargs)
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(

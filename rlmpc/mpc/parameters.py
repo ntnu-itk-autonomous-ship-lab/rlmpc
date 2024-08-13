@@ -10,7 +10,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -303,3 +303,39 @@ class MidlevelMPCParams(IParams):
                 self.r_safe_do = float(np.clip(value, 1.0, 1e4))
             else:
                 raise ValueError(f"Parameter {key} not in the parameter list.")
+
+    @classmethod
+    def get_adjustable_parameter_info(cls) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """Returns the adjustable parameter ranges, increments and lengths.
+
+        Returns:
+            Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]: Tuple of parameter ranges, increment ranges and lengths.
+        """
+        parameter_ranges = {
+            "Q_p": [[0.05, 2.5], [2.0, 50.0], [2.0, 50.0]],
+            "K_prev_sol_dev": [0.1, 150.0],
+            "K_app_course": [0.5, 150.0],
+            "K_app_speed": [0.5, 150.0],
+            "d_attenuation": [100.0, 800.0],
+            "w_colregs": [1.0, 500.0],
+            "r_safe_do": [5.0, 100.0],
+        }
+        parameter_incr_ranges = {
+            "Q_p": [[-0.5, 0.5], [-2.0, 2.0], [-2.0, 2.0]],
+            "K_prev_sol_dev": [-5.0, 5.0],
+            "K_app_course": [-5.0, 5.0],
+            "K_app_speed": [-5.0, 5.0],
+            "d_attenuation": [-50.0, 50.0],
+            "w_colregs": [-5.0, 5.0],
+            "r_safe_do": [-5.0, 5.0],
+        }
+        parameter_lengths = {
+            "Q_p": 3,
+            "K_prev_sol_dev": 2,
+            "K_app_course": 1,
+            "K_app_speed": 1,
+            "d_attenuation": 1,
+            "w_colregs": 3,
+            "r_safe_do": 1,
+        }
+        return parameter_ranges, parameter_incr_ranges, parameter_lengths

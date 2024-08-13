@@ -21,6 +21,7 @@ import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
 import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.rlmpc_cas as rlmpc_cas
+import rlmpc.mpc.parameters as mpc_params
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
@@ -182,34 +183,7 @@ class MPCParameterDNN(th.nn.Module):
         model_file: Optional[pathlib.Path] = None,
     ):
         super().__init__()
-        self.out_parameter_ranges = {
-            "Q_p": [[0.05, 2.5], [2.0, 50.0], [2.0, 50.0]],
-            "K_app_course": [0.1, 150.0],
-            "K_app_speed": [0.1, 150.0],
-            "d_attenuation": [10.0, 800.0],
-            "w_colregs": [0.1, 500.0],
-            "r_safe_do": [5.0, 100.0],
-        }
-        self.out_parameter_incr_ranges = {
-            "Q_p": [[-0.5, 0.5], [-2.0, 2.0], [-2.0, 2.0]],
-            "K_app_course": [-5.0, 5.0],
-            "K_app_speed": [-5.0, 5.0],
-            "d_attenuation": [-50.0, 50.0],
-            "w_colregs": [-10.0, 10.0],
-            "r_safe_do": [-5.0, 5.0],
-        }
-        self.out_parameter_lengths = {
-            "Q_p": 3,
-            "K_app_course": 1,
-            "K_app_speed": 1,
-            "d_attenuation": 1,
-            "w_colregs": 3,
-            "r_safe_do": 1,
-        }
-        # self.parameter_weights = 10.0 * th.diag(th.Tensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0]))
-        # self.action_weight = 100.0 * th.diag(th.Tensor([1.0, 1.0]))
-        # self.mpc_cost_val_scaling = 0.0001
-
+        self.out_parameter_ranges, self.out_parameter_incr_ranges, self.out_parameter_lengths = mpc_params.MidlevelMPCParams.get_adjustable_parameter_info()
         offset = 0
         self.out_parameter_indices = {}
         for param in param_list:
@@ -229,6 +203,7 @@ class MPCParameterDNN(th.nn.Module):
             prev_size = size
         self.layers.append(th.nn.Linear(prev_size, self.num_output_params))
         self.tanh = th.nn.Tanh()
+
         # The DNN parameters
         self.parameter_lengths = [p.numel() for p in self.parameters()]
         self.num_params = sum(self.parameter_lengths)
@@ -278,31 +253,8 @@ class MPCParameterDNN(th.nn.Module):
         Returns:
             Dict[str, Union[float, np.ndarray]]: The dictionary of unnormalized parameters
         """
-        params = {}
-        x_np = x.copy()
-        current_params_np = current_params.copy()
-        for param_name in self.param_list:
-            param_range = self.out_parameter_ranges[param_name]
-            param_incr_range = self.out_parameter_incr_ranges[param_name]
-            param_length = self.out_parameter_lengths[param_name]
-            pindx = self.out_parameter_indices[param_name]
-
-            x_param_incr = x_np[pindx : pindx + param_length]
-            for j in range(len(x_param_incr)):  # pylint: disable=consider-using-enumerate
-                if param_name == "Q_p":
-                    x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range[j]))
-                else:
-                    x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range))
-
-            x_param_current = current_params_np[pindx : pindx + param_length]
-            x_param_new = x_param_current + x_param_incr
-            if param_name == "Q_p":
-                for j in range(3):
-                    x_param_new[j] = np.clip(x_param_new[j], param_range[j][0], param_range[j][1])
-            else:
-                x_param_new = np.clip(x_param_new, param_range[0], param_range[1])
-            params[param_name] = x_param_new
-        return params
+        output = hf.map_mpc_param_incr_array_to_parameter_dict(x=x, current_params=current_params, param_list=self.param_list, parameter_ranges=self.out_parameter_ranges, parameter_incr_ranges=self.out_parameter_incr_ranges, parameter_lengths=self.out_parameter_lengths, parameter_indices=self.out_parameter_indices)
+        return output
 
     def save(self, path: pathlib.Path) -> None:
         """Save the DNN model to a file.
@@ -321,19 +273,7 @@ class MPCParameterDNN(th.nn.Module):
         Returns:
             np.ndarray: The unnormalized output as a numpy array
         """
-        if isinstance(x, th.Tensor):
-            x = x.detach().numpy()
-        x_unnorm = np.zeros_like(x)
-        for param_name in self.param_list:
-            param_range = self.out_parameter_ranges[param_name]
-            param_length = self.out_parameter_lengths[param_name]
-            pindx = self.out_parameter_indices[param_name]
-            x_param = x[pindx : pindx + param_length]
-
-            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
-                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
-            x_unnorm[pindx : pindx + param_length] = x_param
-        return x_unnorm
+        return hf.unnormalize_mpc_param_tensor(x, self.param_list, self.out_parameter_ranges, self.out_parameter_lengths, self.out_parameter_indices)
 
     def normalize(self, x: th.Tensor) -> th.Tensor:
         """Normalize the input parameter tensor.
@@ -344,20 +284,7 @@ class MPCParameterDNN(th.nn.Module):
         Returns:
             th.Tensor: The normalized parameter tensor
         """
-        x_norm = th.zeros_like(x)
-        for param_name in self.param_list:
-            param_range = self.out_parameter_ranges[param_name]
-            param_length = self.out_parameter_lengths[param_name]
-            pindx = self.out_parameter_indices[param_name]
-            x_param = x[pindx : pindx + param_length]
-
-            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
-                if param_name == "Q_p":
-                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range[j]), (-1.0, 1.0))
-                else:
-                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range), (-1.0, 1.0))
-            x_norm[pindx : pindx + param_length] = x_param
-        return x_norm
+        return hf.normalize_mpc_param_tensor(x, self.param_list, self.out_parameter_ranges, self.out_parameter_lengths, self.out_parameter_indices)
 
     def parameter_jacobian(self, x: th.Tensor) -> th.Tensor:
         """Compute the Jacobian of the DNN output wrt its parameters.
@@ -465,19 +392,16 @@ class SACMPCParameterProviderActor(BasePolicy):
         self,
         env: csenv.COLAVEnvironment,
         evaluate: bool = False,
-        **kwargs,
     ) -> None:
         """Initialize the actor by setting the observation and action types.
 
         Args:
             env (csenv.COLAVEnvironment): The environment
             evaluate (bool, optional): Whether to evaluate the MPC policy.
-
         """
         self.observation_type = env.unwrapped.observation_type
         self.action_type = env.unwrapped.action_type
         self.training = not evaluate
-        self.action_type.
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -755,15 +679,14 @@ class SACMPCActor(BasePolicy):
 
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
         self.training_mpc = rlmpc_cas.RLMPC(mpc_config, "train")
-        self.mpc_sensitivities = None
         self.training_mpc.set_adjustable_param_str_list(self.mpc_param_provider.param_list)
         self.mpc_params = self.training_mpc.get_mpc_params()
         self.mpc_adjustable_params_init = self.training_mpc.get_adjustable_mpc_params()
         self.mpc_adjustable_params_init = self.mpc_param_provider.map_to_parameter_dict(
             np.zeros(self.mpc_param_provider.num_output_params), self.mpc_adjustable_params_init
         )
-
         self.mpc = None
+        self.mpc_sensitivities = None
 
         nx, nu = self.training_mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
@@ -1149,8 +1072,6 @@ class SACMPCActor(BasePolicy):
         ownship_state = env.unwrapped.ownship.state
         enc = env.unwrapped.enc
         do_list = env.unwrapped.ownship.get_do_track_information()
-        goal_state = env.unwrapped.ownship.goal_state
-        w = env.unwrapped.disturbance.get() if env.unwrapped.disturbance is not None else None
 
         self.training = not evaluate
         self.mpc = self.training_mpc
@@ -1166,8 +1087,6 @@ class SACMPCActor(BasePolicy):
             ownship_state=ownship_state,
             do_list=do_list,
             enc=enc,
-            goal_state=goal_state,
-            w=w,
             debug=self.debug,
             **kwargs,
         )

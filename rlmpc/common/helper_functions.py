@@ -7,23 +7,21 @@
     Author: Trym Tengesdal
 """
 
-import inspect
 import linecache
 import pathlib
 import resource
 import tracemalloc
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import casadi as csd
+import colav_simulator.common.math_functions as csmf
 import colav_simulator.core.controllers as controllers
 import colav_simulator.core.guidances as guidances
 import colav_simulator.core.integrators as sim_integrators
 import colav_simulator.core.models as sim_models
 import colav_simulator.gym.logger as colav_logger
 import gymnasium as gym
-import matplotlib
 import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
@@ -36,8 +34,8 @@ import shapely.affinity as affinity
 import shapely.geometry as geometry
 import shapely.ops as ops
 import torch
+import torch as th
 import torchvision
-import tqdm
 import yaml
 from matplotlib import cm
 from scipy.interpolate import interp1d
@@ -75,6 +73,195 @@ plt.rcParams.update(
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
 plt.rcParams["animation.ffmpeg_path"] = "/usr/bin/ffmpeg"
+
+
+def normalize_mpc_param_tensor(
+    x: th.Tensor,
+    param_list: List[str],
+    parameter_ranges: Dict[str, Any],
+    parameter_lengths: Dict[str, Any],
+    parameter_indices: Dict[str, Any],
+) -> th.Tensor:
+    """Normalize the input parameter tensor.
+
+    Args:
+        x (th.Tensor): The unnormalized parameter tensor
+        param_list (List[str]): The list of parameters to map.
+        parameter_ranges (Dict[str, Any]): The parameter ranges.
+        parameter_lengths (Dict[str, Any]): The parameter lengths.
+        parameter_indices (Dict[str, Any]): The parameter indices.
+
+    Returns:
+        th.Tensor: The normalized parameter tensor
+    """
+    x_norm = th.zeros_like(x)
+    for param_name in param_list:
+        param_range = parameter_ranges[param_name]
+        param_length = parameter_lengths[param_name]
+        pindx = parameter_indices[param_name]
+        x_param = x[pindx : pindx + param_length]
+
+        for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+            if param_name == "Q_p":
+                x_param[j] = csmf.linear_map(x_param[j], tuple(param_range[j]), (-1.0, 1.0))
+            else:
+                x_param[j] = csmf.linear_map(x_param[j], tuple(param_range), (-1.0, 1.0))
+        x_norm[pindx : pindx + param_length] = x_param
+    return x_norm
+
+
+def unnormalize_mpc_param_tensor(
+    x: th.Tensor | np.ndarray,
+    param_list: List[str],
+    parameter_ranges: Dict[str, Any],
+    parameter_lengths: Dict[str, Any],
+    parameter_indices: Dict[str, Any],
+) -> np.ndarray:
+    """Unnormalize the input parameter tensor.
+
+    Args:
+        x (th.Tensor): The normalized parameter tensor
+        param_list (List[str]): The list of parameters to map.
+        parameter_ranges (Dict[str, Any]): The parameter ranges.
+        parameter_lengths (Dict[str, Any]): The parameter lengths.
+        parameter_indices (Dict[str, Any]): The parameter indices.
+
+    Returns:
+        np.ndarray: The unnormalized output as a numpy array
+    """
+    if isinstance(x, th.Tensor):
+        x = x.detach().numpy()
+    x_unnorm = np.zeros_like(x)
+    for param_name in param_list:
+        param_range = parameter_ranges[param_name]
+        param_length = parameter_lengths[param_name]
+        pindx = parameter_indices[param_name]
+        x_param = x[pindx : pindx + param_length]
+
+        for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+            x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+        x_unnorm[pindx : pindx + param_length] = x_param
+    return x_unnorm
+
+
+def normalize_mpc_param_increment_tensor(
+    x: th.Tensor,
+    param_list: List[str],
+    parameter_incr_ranges: Dict[str, Any],
+    parameter_lengths: Dict[str, Any],
+    parameter_indices: Dict[str, Any],
+) -> th.Tensor:
+    """Normalize the input parameter increment tensor.
+
+    Args:
+        x (th.Tensor): The unnormalized parameter increment tensor
+        param_list (List[str]): The list of parameters to map.
+        parameter_incr_ranges (Dict[str, Any]): The parameter increment ranges.
+        parameter_lengths (Dict[str, Any]): The parameter lengths.
+        parameter_indices (Dict[str, Any]): The parameter indices.
+
+    Returns:
+        th.Tensor: The normalized parameter increment tensor
+    """
+    x_norm = th.zeros_like(x)
+    for param_name in param_list:
+        param_incr_range = parameter_incr_ranges[param_name]
+        param_length = parameter_lengths[param_name]
+        pindx = parameter_indices[param_name]
+        x_param = x[pindx : pindx + param_length]
+
+        for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+            if param_name == "Q_p":
+                x_param[j] = csmf.linear_map(x_param[j], tuple(param_incr_range[j]), (-1.0, 1.0))
+            else:
+                x_param[j] = csmf.linear_map(x_param[j], tuple(param_incr_range), (-1.0, 1.0))
+        x_norm[pindx : pindx + param_length] = x_param
+    return x_norm
+
+
+def unnormalize_mpc_param_increment_tensor(
+    x: th.Tensor,
+    param_list: List[str],
+    parameter_incr_ranges: Dict[str, Any],
+    parameter_lengths: Dict[str, Any],
+    parameter_indices: Dict[str, Any],
+) -> np.ndarray:
+    """Unnormalize the input parameter increment tensor.
+
+    Args:
+        x (th.Tensor): The normalized parameter increment tensor
+        param_list (List[str]): The list of parameters to map.
+        parameter_incr_ranges (Dict[str, Any]): The parameter increment ranges.
+        parameter_lengths (Dict[str, Any]): The parameter lengths.
+        parameter_indices (Dict[str, Any]): The parameter indices.
+
+    Returns:
+        np.ndarray: The unnormalized output as a numpy array
+    """
+    x_unnorm = np.zeros_like(x)
+    for param_name in param_list:
+        param_incr_range = parameter_incr_ranges[param_name]
+        param_length = parameter_lengths[param_name]
+        pindx = parameter_indices[param_name]
+        x_param = x[pindx : pindx + param_length]
+
+        for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+            if param_name == "Q_p":
+                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range[j]))
+            else:
+                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range))
+        x_unnorm[pindx : pindx + param_length] = x_param
+    return x_unnorm
+
+
+def map_mpc_param_incr_array_to_parameter_dict(
+    x: np.ndarray,
+    current_params: np.ndarray,
+    param_list: List[str],
+    parameter_ranges: Dict[str, Any],
+    parameter_incr_ranges: Dict[str, Any],
+    parameter_lengths: Dict[str, Any],
+    parameter_indices: Dict[str, Any],
+) -> Dict[str, Union[float, np.ndarray]]:
+    """Maps the MPC parameter DNN output parameter increment tensor to a dictionary of unnormalized parameters, given the current parameters.
+
+    Args:
+        x (np.ndarray): The DNN output, consisting of normalized parameter increments.
+        current_params (np.ndarray): The current parameters, unnormalized.
+        param_list (List[str]): The list of parameters to map.
+        parameter_ranges (Dict[str, Any]): The parameter ranges.
+        parameter_incr_ranges (Dict[str, Any]): The parameter increment ranges.
+        parameter_lengths (Dict[str, Any]): The parameter lengths.
+        parameter_indices (Dict[str, Any]): The parameter indices.
+
+    Returns:
+        Dict[str, Union[float, np.ndarray]]: The dictionary of unnormalized parameters
+    """
+    params = {}
+    x_np = x.copy()
+    current_params_np = current_params.copy()
+    for param_name in param_list:
+        param_range = parameter_ranges[param_name]
+        param_incr_range = parameter_incr_ranges[param_name]
+        param_length = parameter_lengths[param_name]
+        pindx = parameter_indices[param_name]
+
+        x_param_incr = x_np[pindx : pindx + param_length]
+        for j in range(len(x_param_incr)):  # pylint: disable=consider-using-enumerate
+            if param_name == "Q_p":
+                x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range[j]))
+            else:
+                x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range))
+
+        x_param_current = current_params_np[pindx : pindx + param_length]
+        x_param_new = x_param_current + x_param_incr
+        if param_name == "Q_p":
+            for j in range(3):
+                x_param_new[j] = np.clip(x_param_new[j], param_range[j][0], param_range[j][1])
+        else:
+            x_param_new = np.clip(x_param_new, param_range[0], param_range[1])
+        params[param_name] = x_param_new
+    return params
 
 
 def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callable:
@@ -353,41 +540,6 @@ def make_grid_for_tensorboard(batch_images, reconstructed_images, semantic_masks
             joined_images.append(semantic_masks[j, i, :, :].unsqueeze(0))
             joined_images.append(reconstructed_images[j, i, :, :].unsqueeze(0))
     return torchvision.utils.make_grid(joined_images, nrow=n_rows, padding=2)
-
-
-@contextmanager
-def redirect_stdout__to_tqdm():
-    # Store builtin print
-    old_print = print
-
-    def new_print(*args, **kwargs):
-        to_print = "".join(map(repr, args))
-        tqdm.tqdm.write(to_print, **kwargs)
-
-    try:
-        # Globally replace print with new_print
-        inspect.builtins.print = new_print
-        yield
-    finally:
-        inspect.builtins.print = old_print
-
-
-def tqdm_context(*args, **kwargs):
-    with redirect_stdout__to_tqdm():
-        postfix_dict = kwargs.pop("postfix_dict", {})
-        additional_info_flag = kwargs.pop("additional_info_flag", False)
-        position = kwargs.pop("pos", 0)
-        kwargs.update({"position": position})
-        kwargs.update({"leave": False})
-
-        t_main = tqdm.tqdm(*args, **kwargs)
-        t_main.postfix_dict = postfix_dict
-        if additional_info_flag:
-            yield t_main
-        for x in t_main:
-            t_main.set_postfix(**t_main.postfix_dict)
-            t_main.refresh()
-            yield x
 
 
 def create_los_based_trajectory(
