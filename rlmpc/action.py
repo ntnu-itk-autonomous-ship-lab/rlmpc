@@ -359,7 +359,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             parameter_indices=self.mpc_parameter_indices,
         )
         self.mpc.set_mpc_param_subset(param_subset=param_dict)
-        print(f"[{self.env.env_id.upper()}] Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}")
+        # print(f"[{self.env.env_id.upper()}] Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}")
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
         mpc_action, mpc_info = self.mpc.act(t, ownship_state, do_list, w)

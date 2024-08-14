@@ -74,7 +74,7 @@ mpc:
     w_colregs: [80.0, 80.0, 30.0]
 
     w_L2: 0.0
-    w_L1: 1300.0 # 100000.0
+    w_L1: 2000.0 # 100000.0
     r_safe_so: 5.0
     r_safe_do: 15.0
     gamma: 1.0
@@ -130,6 +130,6 @@ mpc:
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
       regularize_method: "PROJECT"
-      levenberg_marquardt: 0.001
+      levenberg_marquardt: 0.0005
       print_level: 0
-      ext_fun_compile_flags: "-O1" # "-march=native -flto -fomit-frame-pointer -O0"
+      ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

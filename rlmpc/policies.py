@@ -382,6 +382,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         action_type: Any,
         mpc_param_provider_kwargs: Dict[str, Any],
         std_init: Union[float, np.ndarray] = -3.0,
+        disable_parameter_provider: bool = False,
     ):
         super().__init__(
             observation_space,
@@ -391,6 +392,7 @@ class SACMPCParameterProviderActor(BasePolicy):
             squash_output=True,
         )
 
+        self.disable_parameter_provider = disable_parameter_provider
         self.observation_type = observation_type
         self.action_type = action_type
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
@@ -563,10 +565,9 @@ class SACMPCParameterProviderActor(BasePolicy):
 
         for idx in range(batch_size):
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
-            mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
-            mpc_param_subset_dict = self.mpc_param_provider.map_to_parameter_dict(
-                mpc_param_increment, unnorm_current_mpc_params
-            )
+            mpc_param_increment = np.zeros(self.action_space.shape[0])
+            if not self.disable_parameter_provider:
+                mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
             unnorm_action = self.action_type.unnormalize(mpc_param_increment)
             info = {
                 "dnn_input_features": dnn_input.detach().cpu().numpy(),
@@ -1239,7 +1240,7 @@ class SACPolicyWithMPC(BasePolicy):
 
         self._build_critic(lr_schedule)
 
-        mpc_param_provider_kwargs.update({"features_dim": self.features_extractor.features_dim})
+        mpc_param_provider_kwargs.update({"features_dim": self.critic.features_extractor.features_dim})
         self._build_actor(lr_schedule)
 
     def _build_critic(self, lr_schedule: Schedule) -> None:
@@ -1387,6 +1388,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
         features_extractor_class: Type[rlmpc_fe.CombinedExtractor] = rlmpc_fe.CombinedExtractor,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        disable_parameter_provider: bool = False,
         normalize_images: bool = True,
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
@@ -1416,6 +1418,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         }
         self.actor_kwargs = {
             "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
+            "disable_parameter_provider": disable_parameter_provider,
             "observation_space": self.observation_space,
             "action_space": self.action_space,
             "observation_type": self.observation_type,
