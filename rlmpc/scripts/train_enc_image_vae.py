@@ -76,7 +76,7 @@ def train_vae(
         model_path.mkdir()
 
     n_batch_images_to_show = 12
-    beta = 5.0
+    beta = 1.0
     n_channels, H, W = model.input_image_dim
     beta_norm = beta * model.latent_dim / (n_channels * H * W)
 
@@ -113,6 +113,9 @@ def train_vae(
             )
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
             kld_loss = kld_loss * beta_norm
+            if kld_loss.item() > 1e10:
+                return model, 1e10, epoch
+
             loss = mse_loss + kld_loss
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
@@ -259,10 +262,10 @@ def objective(trial: optuna.Trial) -> float:
         float: The loss value to minimize
     """
     BASE_PATH: Path = Path.home() / "Desktop/machine_learning/enc_vae/"
-    latent_dim = trial.suggest_int("latent_dim", 16, 40)  # 40
-    fc_dim = trial.suggest_int("fc_dim", 32, 512)  # 512
-    encoder_conv_block_dims = [128, 256, 256]
-    decoder_conv_block_dims = [256, 128, 128]
+    latent_dim = trial.suggest_int("latent_dim", 20, 40)  # 40
+    fc_dim = trial.suggest_int("fc_dim", 900, 1024)  # 512
+    encoder_conv_block_dims = [128, 128, 128]
+    decoder_conv_block_dims = [128, 128, 32]
     input_image_dim = (1, 128, 128)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vae = VAE(
@@ -334,8 +337,8 @@ def objective(trial: optuna.Trial) -> float:
 
     save_interval = 10
     batch_size = 128
-    num_epochs = 60
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3)
+    num_epochs = 40
+    learning_rate = 1e-4  # trial.suggest_float("learning_rate", 1e-5, 1e-3)
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     # print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")

@@ -69,25 +69,26 @@ class ENCEncoder(nn.Module):
 
         # Jump connection from last layer of zeroth block to first layer of second block
         self.conv0_jump_to_2 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(in_channels=self.block_0_dim, out_channels=self.block_1_dim, kernel_size=5, stride=2, padding=2),
             nn.ELU(),
         )
 
         # Second (Third) block of convolutions
         self.block_2_dim = conv_block_dims[2]
         self.conv_block_2 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=4, stride=2, padding=1),
+            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_2_dim, kernel_size=3, stride=2, padding=1),
             nn.ELU(),
         )
 
         # Jump connection from last layer of first block to FC layer
         self.conv1_jump_to_3 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(in_channels=self.block_1_dim, out_channels=self.block_2_dim, kernel_size=6, stride=3, padding=1),
             nn.ELU(),
         )
 
         # Fully connected layers
-        self.last_conv_block_dim = (self.block_2_dim, 9, 9)
+        self.last_conv_block_dim = (self.block_2_dim, 5, 5)
         self.last_conv_block_flattened_dim = (
             self.last_conv_block_dim[0] * self.last_conv_block_dim[1] * self.last_conv_block_dim[2]
         )
@@ -139,7 +140,7 @@ if __name__ == "__main__":
 
     #
     latent_dimension = 32
-    encoder = ENCEncoder(
-        n_input_channels=1, latent_dim=latent_dimension, conv_block_dims=(64, 128, 128), fc_dim=128
-    ).to("cuda")
+    encoder = ENCEncoder(n_input_channels=1, latent_dim=latent_dimension, conv_block_dims=(32, 64, 128), fc_dim=512).to(
+        "cuda"
+    )
     summary(encoder, (1, 128, 128), device="cuda")
