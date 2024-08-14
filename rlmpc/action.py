@@ -54,7 +54,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.mpc_param_list = mpc_param_list
         self.mpc.set_adjustable_param_str_list(mpc_param_list)
         self.mpc_params = self.mpc.get_mpc_params()
-        self.mpc_adjustable_params_init = self.mpc.get_adjustable_mpc_params()
         self.mpc_action_dim = 2
         self.mpc_sensitivities = None
 
@@ -84,6 +83,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             offset += self.mpc_parameter_lengths[param]
         self.num_adjustable_mpc_params = offset
         self.mpc_param_list = mpc_param_list
+        self.mpc_adjustable_params_init = self.mpc.get_adjustable_mpc_params()
         self.mpc_adjustable_params_init = hf.map_mpc_param_incr_array_to_parameter_dict(
             x=np.zeros(self.num_adjustable_mpc_params),
             current_params=self.mpc_adjustable_params_init,
@@ -94,24 +94,38 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             parameter_indices=self.mpc_parameter_indices,
         )
 
-        self.infeasible_solutions: int = 0
         self.prev_noise_action: th.Tensor = th.zeros(self.mpc_action_dim)
         self.t_prev: float = 0.0
         self.noise_application_duration: float = 10.0
 
+        self.non_optimal_solutions: int = 0
         self.debug: bool = debug
         self.deterministic: bool = deterministic
+        self.last_action: np.ndarray = np.zeros(self.mpc_action_dim)
         self.action_result: csgym_action.ActionResult = csgym_action.ActionResult(success=False, info={})
 
-    def compute_mpc_sensitivities(self, info: Dict[str, Any]) -> None:
+    def normalize_mpc_action(self, mpc_action: np.ndarray) -> np.ndarray:
+        mpc_action_norm = np.zeros(self.mpc_action_dim)
+        mpc_action_norm[0] = mf.linear_map(mpc_action[0], self.course_range, (-1.0, 1.0))
+        mpc_action_norm[1] = mf.linear_map(mpc_action[1], self.speed_range, (-1.0, 1.0))
+        return mpc_action_norm
+
+    def unnormalize_mpc_action(self, mpc_action: np.ndarray) -> np.ndarray:
+        mpc_action_unnorm = np.zeros(self.mpc_action_dim)
+        mpc_action_unnorm[0] = mf.linear_map(mpc_action[0], (-1.0, 1.0), self.course_range)
+        mpc_action_unnorm[1] = mf.linear_map(mpc_action[1], (-1.0, 1.0), self.speed_range)
+        return mpc_action_unnorm
+
+    def compute_mpc_sensitivities(self, info: Dict[str, Any]) -> np.ndarray:
         """Compute the MPC sensitivities for the given solution info.
 
         Args:
-            info (Dict[str, Any]): The solution info
-        """
-        if self.mpc_sensitivities is None:
-            self.mpc_sensitivities = self.mpc.build_sensitivities()
+            info (Dict[str, Any]): The mpc solution info
 
+        Returns:
+            np.ndarray: The MPC sensitivities
+        """
+        assert self.build_sensitivities, "Sensitivities must be built before computing them"
         da_dp_mpc = np.zeros((self.mpc_action_dim, self.num_adjustable_mpc_params))
         if info["optimal"]:
             soln = info["soln"]
@@ -132,6 +146,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         Args:
             build_sensitivities (bool, optional): Whether to build the sensitivities.
         """
+        self.t_prev = 0.0
+        self.action_result = csgym_action.ActionResult(success=True, info={})
+        self.prev_noise_action = th.zeros(self.mpc_action_dim)
         t = self.env.time
         waypoints = self.env.ownship.waypoints
         speed_plan = self.env.ownship.speed_plan
@@ -181,7 +198,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
     def normalize(self, action: Action) -> Action:
         action_norm = hf.normalize_mpc_param_increment_tensor(
-            th.from_numpy(action),
+            th.from_numpy(action).detach().clone(),
             self.mpc_param_list,
             self.mpc_parameter_incr_ranges,
             self.mpc_parameter_lengths,
@@ -191,7 +208,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
     def unnormalize(self, action: Action) -> Action:
         action_unnorm = hf.unnormalize_mpc_param_increment_tensor(
-            th.from_numpy(action),
+            th.from_numpy(action).detach().clone(),
             self.mpc_param_list,
             self.mpc_parameter_incr_ranges,
             self.mpc_parameter_lengths,
@@ -220,7 +237,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         bearing_to_do = np.arctan2(do_state[1] - ownship_state[1], do_state[0] - ownship_state[0]) - os_course
 
         action = np.array([bearing_to_do, 0.0])
-        norm_collision_seeking_action = self.normalize(action)
+        norm_collision_seeking_action = self.normalize_mpc_action(action)
         norm_collision_seeking_action[1] = norm_mpc_action[1]
         return th.from_numpy(norm_collision_seeking_action)
 
@@ -250,7 +267,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
                 )
                 sampled_collision_seeking_action = True
             else:
-                self.prev_noise_action = self.sample_action(norm_action)
+                self.prev_noise_action = self.sample_mpc_action(norm_action)
             self.t_prev = t
 
         # Check if probability of the previous noise action is too low
@@ -258,12 +275,50 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_action, log_std=self.log_std)
         log_prob_noise_action = self.action_dist.log_prob(self.prev_noise_action)
         if log_prob_noise_action < LOG_PROB_MIN and not sampled_collision_seeking_action:
-            self.prev_noise_action = self.sample_action(norm_action)
+            self.prev_noise_action = self.sample_mpc_action(norm_action)
         expln_action = self.prev_noise_action
         norm_action = norm_action.numpy()
         return expln_action.numpy()
 
-    def sample_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
+    def mpc_action_log_prob(
+        self,
+        obs: rlmpc_buffers.TensorDict,
+        actions: Optional[th.Tensor] = None,
+        infos: Optional[List[Dict[str, Any]]] = None,
+        is_next_action: bool = False,
+    ) -> Tuple[th.Tensor, th.Tensor]:
+        """Computes the log probability of the policy distribution for the given observation.
+
+        Args:
+            obs (th.Tensor): Observations
+            actions (th.Tensor): (MPC) Actions to evaluate the log probability for
+            infos (Optional[List[Dict[str, Any]]], optional): Additional information.
+            is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor]:
+        """
+        # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
+        # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
+        # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
+        #
+        # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
+        assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
+        actor_str = "actor_info" if not is_next_action else "next_actor_info"
+        if infos is not None:
+            # Extract mean of the policy distribution = MPC action for the given observation
+            norm_mpc_actions = np.array([info[actor_str]["norm_mpc_action"] for info in infos], dtype=np.float32)
+            norm_mpc_actions = th.from_numpy(norm_mpc_actions)
+
+        if isinstance(actions, np.ndarray):
+            actions = th.from_numpy(actions)
+
+        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_mpc_actions, log_std=self.log_std)
+        log_prob = self.action_dist.log_prob(actions)
+
+        return log_prob
+
+    def sample_mpc_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
         """Sample an action from the policy distribution with mean from the input MPC action
 
 
@@ -308,9 +363,29 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
         mpc_action, mpc_info = self.mpc.act(t, ownship_state, do_list, w)
+        self.last_action = mpc_action
+
         self.env.ownship.set_colav_data(mpc_info)
         self.env.ownship.set_remote_actor_predicted_trajectory(mpc_info["trajectory"])
         success = not mpc_info["qp_failure"]
+
+        if not mpc_info["optimal"]:
+            self.non_optimal_solutions += 1
+
+        norm_mpc_action = self.normalize_mpc_action(mpc_action)
+        expl_action = norm_mpc_action
+        if not self.deterministic:
+            expl_action = self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
+
+        mpc_info.update(
+            {
+                "da_dp_mpc": self.compute_mpc_sensitivities(mpc_info) if self.build_sensitivities else None,
+                "non_optimal_solutions": self.non_optimal_solutions,
+                "norm_mpc_action": norm_mpc_action,
+                "unnorm_mpc_action": mpc_action,
+                "expl_action": expl_action,
+            }
+        )
 
         course = self.env.ownship.course
         speed = self.env.ownship.speed

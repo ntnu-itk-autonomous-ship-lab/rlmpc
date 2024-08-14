@@ -208,7 +208,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
         # We need to know size of the output of this extractor,
         # so go over all the spaces and compute output feature sizes
         for key, subspace in observation_space.spaces.items():
-            if key == "ENCObservation":
+            if key == "PerceptionImageObservation":
                 extractors[key] = ENCVAE(subspace)
                 total_concat_size += extractors[key].latent_dim
             elif key == "PathRelativeNavigationObservation":

@@ -90,12 +90,12 @@ class ENCEncoder(nn.Module):
         # Third (Fourth) block of convolutions
         self.block_3_dim = conv_block_dims[3]
         self.conv_block_3 = nn.Sequential(
-            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.block_3_dim, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=self.block_2_dim, out_channels=self.latent_dim, kernel_size=3, stride=1, padding=1),
             nn.ELU(),
         )
 
         # Fully connected layers
-        self.last_conv_block_dim = (self.block_3_dim, 6, 6)
+        self.last_conv_block_dim = (self.latent_dim, 6, 6)
         self.last_conv_block_flattened_dim = (
             self.last_conv_block_dim[0] * self.last_conv_block_dim[1] * self.last_conv_block_dim[2]
         )

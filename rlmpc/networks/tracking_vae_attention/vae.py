@@ -82,7 +82,7 @@ class VAE(nn.Module):
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
 
         num_params = sum(p.numel() for p in self.parameters())
-        print(f"Initialized tracking RNN Attention-VAE with {num_params} parameters")
+        # print(f"Initialized tracking RNN Attention-VAE with {num_params} parameters")
 
     def preprocess_obs(self, observations: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
         if observations.ndim < 3:

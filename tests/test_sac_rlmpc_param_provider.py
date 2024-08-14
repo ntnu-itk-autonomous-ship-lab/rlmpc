@@ -9,6 +9,7 @@ import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import numpy as np
+import rlmpc.action as rlmpc_actions
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
@@ -31,26 +32,20 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 # run SAC with pretrained critics, mpc param provider and updated ENC-VAE
 
 
-# tuning:
-# horizon
-# tau/barrier param
-# edge case shit
-# constraint satisfaction highly dependent on tau/barrier
-# if ship gets too much off path/course it will just continue off course
 # @profile
 def main(args):
-    hf.set_memory_limit(28_000_000_000)
+    # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc5")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_v2_mp")
     parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--buffer_size", type=int, default=40000)
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--buffer_size", type=int, default=20000)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=2)
-    parser.add_argument("--n_eval_episodes", type=int, default=5)
-    parser.add_argument("--eval_freq", type=int, default=2500)
+    parser.add_argument("--n_eval_episodes", type=int, default=1)
+    parser.add_argument("--eval_freq", type=int, default=500)
     parser.add_argument("--timesteps", type=int, default=40000)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
@@ -84,20 +79,26 @@ def main(args):
     training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
-    mpc_config_file = rl_dp.config / "rlmpc.yaml"
-    # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    mpc_config_path = rl_dp.config / "rlmpc.yaml"
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
+    n_mpc_params = 3 + 1 + 1 + 3 + 1
+
+    # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
+    action_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    param_action_noise_std_dev = np.array([0.01 for _ in range(n_mpc_params)])
     action_kwargs = {
-        "mpc_config": mpc_config_file,
+        "mpc_config_path": mpc_config_path,
         "debug": False,
-        "std_init": actor_noise_std_dev,
+        "mpc_param_list": mpc_param_list,
+        "std_init": action_noise_std_dev,
+        "deterministic": False,
     }
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
         "max_number_of_episodes": args.max_num_loaded_train_scen_episodes,
         "simulator_config": training_sim_config,
-        "action_type": "relative_course_speed_reference_sequence_action",
+        "action_type_class": rlmpc_actions.MPCParameterSettingAction,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "action_kwargs": action_kwargs,
         "rewarder_class": rewards.MPCRewarder,
@@ -125,7 +126,7 @@ def main(args):
         }
     )
     mpc_param_provider_kwargs = {
-        "param_list": ["Q_p", "r_safe_do"],
+        "param_list": mpc_param_list,
         "hidden_sizes": [256, 128],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
@@ -136,7 +137,7 @@ def main(args):
         "critic_arch": [258, 128],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,
-        "disable_parameter_provider": False,
+        "std_init": param_action_noise_std_dev,
     }
     model_kwargs = {
         "policy": rlmpc_policies.SACPolicyWithMPCParameterProvider,
@@ -156,7 +157,7 @@ def main(args):
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
-    load_model = True
+    load_model = False
     load_model_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_3000_steps"
     load_rb_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_replay_buffer"
     n_timesteps_per_learn = 7500

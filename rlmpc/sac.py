@@ -229,7 +229,7 @@ class SAC(opa.OffPolicyAlgorithm):
         """
         self.save_critics(path=path)
         th.save(self.log_ent_coef, pathlib.Path(str(path) + "_log_ent_coef.pth"))
-        self.actor.mpc.save_params(pathlib.Path(str(path) + "_actor.yaml"))
+        # self.actor.mpc.save_params(pathlib.Path(str(path) + "_actor.yaml"))
         th.save(self.actor.mpc_param_provider.state_dict(), pathlib.Path(str(path) + "_mpc_param_provider.pth"))
 
     def inplace_load(self, path: pathlib.Path) -> None:
@@ -243,26 +243,17 @@ class SAC(opa.OffPolicyAlgorithm):
         # self.actor.mpc.load_params(pathlib.Path(str(path) + "_actor.yaml"))
         self.actor.mpc_param_provider.load_state_dict(th.load(pathlib.Path(str(path) + "_mpc_param_provider.pth")))
 
-    def initialize_mpc_actor(
-        self,
-        env: csgym_env.COLAVEnvironment,
-    ) -> None:
-        self.policy.initialize_mpc_actor(env)
-
     def _create_aliases(self) -> None:
-        self.actor: rlmpc_policies.SACMPCActor = self.policy.actor
+        self.actor = self.policy.actor
         self.critic = self.policy.critic
         self.critic_target = self.policy.critic_target
 
     def extract_mpc_param_provider_inputs(self, replay_data: rlmpc_buffers.ReplayBufferSamples) -> th.Tensor:
         actor_dnn_feature_inputs = th.from_numpy(
-            np.array([info[0]["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
+            np.array([info["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
         )
         # actor_dnn_old_mpc_param_inputs = th.from_numpy(
-        #     np.array([info[0]["actor_info"]["norm_old_mpc_params"] for info in replay_data.infos], dtype=np.float32)
-        # )
-        # actor_dnn_prev_action_inputs = th.from_numpy(
-        #     np.array([info[0]["actor_info"]["norm_prev_action"] for info in replay_data.infos], dtype=np.float32)
+        #     np.array([info["actor_info"]["norm_old_mpc_params"] for info in replay_data.infos], dtype=np.float32)
         # )
         # dnn_input = th.cat([actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs], dim=1)
         dnn_input = actor_dnn_feature_inputs
@@ -291,11 +282,10 @@ class SAC(opa.OffPolicyAlgorithm):
             # Action by the current actor for the sampled state
             # reparameterization trick
             norm_mpc_actions = th.from_numpy(
-                np.array([info[0]["actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32)
+                np.array([info["actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32)
             )
-            sampled_actions = self.actor.sample_action(norm_mpc_actions)
-            sampled_log_prob = self.actor.action_log_prob(
-                replay_data.observations, actions=sampled_actions, infos=replay_data.infos
+            sampled_actions, sampled_log_prob = self.sample_actions(
+                observations=replay_data.observations, mpc_actions=norm_mpc_actions, infos=replay_data.infos
             )
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
 
@@ -325,6 +315,7 @@ class SAC(opa.OffPolicyAlgorithm):
             actor_loss, actor_grad, mpc_param_grad_norm = self.train_actor(
                 replay_data=replay_data,
                 sampled_actions=sampled_actions,
+                sampled_log_prob=sampled_log_prob,
                 norm_mpc_actions=norm_mpc_actions,
                 ent_coef=ent_coef,
             )
@@ -365,7 +356,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 "batch_processing_time": time.time() - batch_start_time,
                 "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
                 "n_updates": self._n_updates,
-                "non_optimal_solution_rate": self._infeasible_solution_percentage,
+                "non_optimal_solution_rate": self.non_optimal_solution_percentage,
             }
         )
 
@@ -413,19 +404,13 @@ class SAC(opa.OffPolicyAlgorithm):
             th.Tensor: The resulting critic loss
         """
         with th.no_grad():
-            # Select action according to policy
-            next_log_prob = self.actor.action_log_prob(
-                replay_data.next_observations,
-                actions=replay_data.next_actions,
-                infos=replay_data.infos,
-                is_next_action=True,
-            )
-            # next_norm_mpc_action = replay_data.infos[0][0]["next_actor_info"]["norm_mpc_action"]
+            actions, next_actions, next_log_prob = self.extract_action_info_from_sarsa_buffer(replay_data)
+            # next_norm_mpc_action = replay_data.infos[0]["next_actor_info"]["norm_mpc_action"]
             # print(
             #     f"Next log probs: {next_log_prob} | actions: {replay_data.next_actions[0]} | mpc actions: {next_norm_mpc_action}"
             # )
             # Compute the next Q values: min over all critics targets
-            next_q_values = th.cat(self.critic_target(replay_data.next_observations, replay_data.next_actions), dim=1)
+            next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_actions), dim=1)
             next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
 
             # add entropy term
@@ -439,7 +424,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
         # Get current Q-values estimates for each critic network
         # using action from the replay buffer
-        current_q_values = self.critic(replay_data.observations, replay_data.actions)
+        current_q_values = self.critic(replay_data.observations, actions)
 
         critic_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
         assert isinstance(critic_loss, th.Tensor)  # for type checker
@@ -459,27 +444,24 @@ class SAC(opa.OffPolicyAlgorithm):
         self,
         replay_data: rlmpc_buffers.DictReplayBufferSamples,
         sampled_actions: th.Tensor,
+        sampled_log_prob: th.Tensor,
         norm_mpc_actions: th.Tensor,
         ent_coef: th.Tensor = th.ones(1),
     ) -> Tuple[th.Tensor, th.Tensor, float]:
-        """Single-step trains the SACMPCActor
+        """Single-step trains the SAC actor.
 
         Args:
             replay_data (DictReplayBufferSamples): Batched replay data.
             sampled_actions (th.Tensor): Sampled (normalized) actions given the replay data and the MPC policy ad hoc distribution.
+            sampled_log_prob (th.Tensor): Log probabilities of the sampled actions.
             norm_mpc_actions (th.Tensor): Normalized MPC actions for the replay_data.observations
             ent_coef (th.Tensor, optional): The current entropy/temperature coefficient.
 
         Returns:
             Tuple[th.Tensor, th.Tensor, float]: The actor loss, actor gradient and mpc param provider dnn gradient norm.
         """
-
+        t_actor_start_now = time.time()
         batch_size = sampled_actions.shape[0]
-        with th.no_grad():
-            sampled_log_prob = self.actor.action_log_prob(
-                replay_data.observations, actions=sampled_actions, infos=replay_data.infos
-            )
-        sampled_log_prob = sampled_log_prob.reshape(-1, 1)
         sampled_actions.requires_grad = True
 
         q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
@@ -488,6 +470,7 @@ class SAC(opa.OffPolicyAlgorithm):
         dnn_input = self.extract_mpc_param_provider_inputs(replay_data)
         dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input)
 
+        alpha = 10.0  # amplification factor for the mpc_param_provider gradients
         actor_loss = 0.0
         mpc_param_grad_norm = 0.0
         actor_grad = th.zeros(self.actor.mpc_param_provider.num_params)
@@ -495,11 +478,12 @@ class SAC(opa.OffPolicyAlgorithm):
         mpc_param_grad_norms = []
         actor_losses = []
 
-        cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
-        alpha = 10.0  # amplification factor for the mpc_param_provider gradients
-        t_actor_start_now = time.time()
+        if isinstance(self.actor, rlmpc_policies.SACMPCActor):
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
+        else:
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.action_type.log_std)))
         for b in range(batch_size):
-            actor_info = replay_data.infos[b][0]["actor_info"]
+            actor_info = replay_data.infos[b]["actor_info"]
             if not actor_info["optimal"]:
                 continue
 
@@ -521,10 +505,16 @@ class SAC(opa.OffPolicyAlgorithm):
             df_repar_dp = da_dp_mpc @ dnn_jacobians[b]
 
             dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
-            actor_grads.append(alpha * (ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp))
-            actor_losses.append(ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b])
+            dJ_dp = alpha * (
+                ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
+            )  # actor loss gradient with indirect RL DNN policy
+            J = ent_coef * sampled_log_prob[b] - min_qf_pi_sampled[b]
+            actor_grads.append(dJ_dp)
+            actor_losses.append(J)
 
-        print("Actor gradient computation time: ", time.time() - t_actor_start_now)
+        # if self.verbose:
+        #     print("Actor gradient computation time: ", time.time() - t_actor_start_now)
+
         if actor_losses:
             actor_loss = th.Tensor(actor_losses).mean().item()
             actor_grad = th.vstack(actor_grads).mean(dim=0)
@@ -536,3 +526,47 @@ class SAC(opa.OffPolicyAlgorithm):
         self.actor.optimizer.step()
 
         return actor_loss, actor_grad, mpc_param_grad_norm
+
+    def sample_actions(self, observations: th.Tensor, mpc_actions: th.Tensor, infos: List[Dict[str, Any]]) -> th.Tensor:
+        if isinstance(self.actor, rlmpc_policies.SACMPCActor):
+            sampled_actions = self.actor.sample_action(mpc_actions)
+            sampled_log_prob = self.actor.action_log_prob(observations, actions=sampled_actions, infos=infos)
+        else:
+            sampled_actions = self.actor.sample_mpc_action(mpc_actions)
+            sampled_log_prob = self.actor.mpc_action_log_prob(observations, actions=sampled_actions, infos=infos)
+        return sampled_actions, sampled_log_prob
+
+    def extract_action_info_from_sarsa_buffer(
+        self, replay_data: rlmpc_buffers.DictReplayBufferSamples
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor]:
+        """Extracts the actions, next actions and next log probabilities from the replay buffer, depending on the actor type.
+
+        Args:
+            replay_data (rlmpc_buffers.DictReplayBufferSamples): DictReplayBufferSamples object.
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor, th.Tensor]: The actions, next actions and next log probabilities.
+        """
+        if isinstance(self.actor, rlmpc_policies.SACMPCActor):
+            next_actions = replay_data.next_actions
+            actions = replay_data.actions
+            next_log_prob = self.actor.action_log_prob(
+                replay_data.next_observations,
+                actions=next_actions,
+                infos=replay_data.infos,
+                is_next_action=True,
+            )
+        elif isinstance(self.actor, rlmpc_policies.SACMPCParameterProviderActor):
+            next_actions = th.from_numpy(
+                np.array([info["next_actor_info"]["expl_action"] for info in replay_data.infos], dtype=np.float32)
+            )
+            actions = th.from_numpy(
+                np.array([info["actor_info"]["expl_action"] for info in replay_data.infos], dtype=np.float32)
+            )
+            next_log_prob = self.actor.mpc_action_log_prob(
+                replay_data.next_observations,
+                actions=next_actions,
+                infos=replay_data.infos,
+                is_next_action=True,
+            )
+        return actions, next_actions, next_log_prob

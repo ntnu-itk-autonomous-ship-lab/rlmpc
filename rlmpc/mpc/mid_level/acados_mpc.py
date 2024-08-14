@@ -429,7 +429,9 @@ class AcadosMPC:
             )
         w = np.concatenate((inputs.flatten(), trajectory.flatten(), slacks.flatten())).reshape(-1, 1)
         soln = {"x": w, "lam_g": lam_g, "lam_x": np.zeros(w.shape, dtype=np.float32)}
-        self._p_fixed_values = self.create_all_fixed_parameter_values(xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
+        self._p_fixed_values = self.create_all_fixed_parameter_values(
+            xs_unwrapped, do_cr_list, do_ho_list, do_ot_list, prev_opt_abs_action=warm_start["prev_opt_abs_action"]
+        )
         self._t_prev = t
 
         qp_failure = False
@@ -1033,6 +1035,7 @@ class AcadosMPC:
         do_cr_list: list,
         do_ho_list: list,
         do_ot_list: list,
+        prev_opt_abs_action: np.ndarray,
         perturb_nlp: bool = False,
         perturb_sigma: float = 0.001,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -1043,6 +1046,7 @@ class AcadosMPC:
             do_cr_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the crossing zone.
             do_ho_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the head-on zone.
             do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
+            prev_opt_abs_action (np.ndarray): Previous optimal absolute action solution (output used as input to autopilot)
             perturb_nlp (bool, optional): Whether to perturb the NLP problem.
             perturb_sigma (float, optional): Standard deviation of the perturbation.
 
@@ -1050,6 +1054,8 @@ class AcadosMPC:
             np.ndarray: Fixed parameter values for the NLP problem.
         """
         fixed_parameter_values: list = []
+        fixed_parameter_values.extend(prev_opt_abs_action.flatten().tolist())
+
         n_colregs_zones = 3
         nx, nu = self.model.dims()
 

@@ -61,15 +61,17 @@ def train_rlmpc_sac(
     Returns:
         rlmpc_sac.SAC: The trained RL agent.
     """
-    training_env = make_vec_env(
-        env_id=env_id,
-        env_kwargs=training_env_config,
-        n_envs=n_training_envs,
-        monitor_dir=str(base_dir),
-        vec_env_cls=SubprocVecEnv,
-        seed=seed,
-    )
-    # training_env = Monitor(gym.make(id=env_id, **training_env_config))
+    if n_training_envs == 1:
+        training_env = Monitor(gym.make(id=env_id, **training_env_config))
+    else:
+        training_env = make_vec_env(
+            env_id=env_id,
+            env_kwargs=training_env_config,
+            n_envs=n_training_envs,
+            monitor_dir=str(base_dir),
+            vec_env_cls=SubprocVecEnv,
+            seed=seed,
+        )
     stats_callback = CollectStatisticsCallback(
         env=training_env,
         log_dir=base_dir,
@@ -103,7 +105,7 @@ def train_rlmpc_sac(
     model.set_random_seed(seed)
     model.learn(
         total_timesteps=n_timesteps,
-        log_interval=4,
+        log_interval=2,
         tb_log_name=experiment_name + f"_{iteration}",
         reset_num_timesteps=True,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),

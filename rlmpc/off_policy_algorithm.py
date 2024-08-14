@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 import numpy as np
 import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.paths as rl_dp
+import rlmpc.policies as rlmpc_policies
 import stable_baselines3.common.callbacks as sb3_callbacks
 import stable_baselines3.common.logger as sb3_logger
 import stable_baselines3.common.noise as sb3_noise
@@ -131,7 +132,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
         self._convert_train_freq()
-        self._infeasible_solution_percentage: float = 0.0
+        self.non_optimal_solution_percentage: float = 0.0
         self.num_timesteps: int = 0
         self._episode_num: int = 0
         self.data_path: Path = data_path
@@ -391,7 +392,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         Collect experiences and store them into a ``ReplayBuffer``.
 
         Args:
-            - env (VecEnv): The training environment
+            - env (VecEnv | COLAVEnvironment): The training environment
             - callback (BaseCallback): Callback that will be called at each step
                 (and at the beginning and end of the rollout)
             - train_freq (TrainFreq): How much experience to collect
@@ -432,7 +433,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 if env.envs[env_idx].unwrapped.time < 0.0001:
                     self._last_actor_info[env_idx] = {}
                     action_count = 0
-                    self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
+                    if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+                        self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
@@ -442,21 +444,33 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 deterministic=False,
                 n_envs=env.num_envs,
             )
-            print(f"Action sampling time: {time.time() - t_action_start:.2f}s")
+            # if self.verbose:
+            #     print(f"Action sampling time: {time.time() - t_action_start:.2f}s")
+
+            if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+                # For plotting the predicted trajectory
+                for env_idx in range(env.num_envs):
+                    env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
+                        actor_infos[env_idx]["trajectory"]
+                    )
+                    env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
 
             t_env_plotting_and_step_start = time.time()
-            # For plotting the predicted trajectory
-            for env_idx in range(env.num_envs):
-                env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
-                    actor_infos[env_idx]["trajectory"]
-                )
-                env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
+            next_obs, rewards, dones, infos = env.step(actions)
+            # env.render()
+
+            # if self.verbose:
+            #     print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
+
+            for idx, info in enumerate(self._last_infos):
+                if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+                    info.update({"next_actor_info": actor_infos[idx]})
+                else:
+                    info["next_actor_info"] = infos[idx]["actor_info"] | actor_infos[idx]
 
             # SARSA style buffer storage
             action_count += 1
             if action_count == 2:
-                for info in self._last_infos:
-                    info.update({"next_actor_info": actor_infos[0]})
                 action_count = 0
                 self._store_transition(
                     replay_buffer,
@@ -468,41 +482,22 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     self._last_dones,
                     self._last_infos,
                 )
-                self.num_timesteps += env.num_envs
+
                 num_collected_steps += 1
 
-            next_obs, rewards, dones, infos = env.step(actions)
-            env.render()
-            self._last_obs = self._current_obs
-            self._last_actions = actions
-            self._last_actor_info = actor_infos
-            self._current_obs = next_obs
-            self._last_rewards = rewards
-            self._last_dones = dones
-            self._infeasible_solution_percentage = (
-                self.policy.actor.infeasible_solutions / self.num_timesteps if self.num_timesteps > 0 else 0.0
-            )
-
-            print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
-            for idx, info in enumerate(infos):
-                info.update({"actor_info": self._last_actor_info[idx]})
-                if info["actor_info"]["qp_failure"]:
-                    dones[idx] = True
-                    print("Episode terminated due to MPC QP failure")
-                    info.update({"actor_failure": True})
-
-            self._last_infos = infos
-
+            self.num_timesteps += env.num_envs
             t_callback_start = time.time()
-            # Give access to local variables
             callback.update_locals(locals())
-            # Only stop training if return value is False, not when it is None.
             if callback.on_step() is False:
                 return sb3_types.RolloutReturn(
                     num_collected_steps * env.num_envs, num_collected_episodes, continue_training=False
                 )
 
-            print(f"Callback time: {time.time() - t_callback_start:.2f}s")
+            # if self.verbose:
+            #     print(f"Callback time: {time.time() - t_callback_start:.2f}s")
+
+            self._update_locals(locals())
+
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
             self._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
@@ -513,10 +508,11 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     num_collected_episodes += 1
                     self._episode_num += 1
                     action_count = 0
-                    self.env.envs[0].unwrapped.terminal_info = infos[idx]
                     self._last_actor_info[idx] = {}
                     self._last_dones[idx] = False
-                    self.env.envs[0].unwrapped.reset()
+                    if not self.env.envs[idx].unwrapped.time < 0.0001:  # only reset if not already reset
+                        self.env.envs[idx].unwrapped.reset()
+                    self.env.envs[idx].unwrapped.terminal_info = infos[idx]
 
                     if action_noise is not None:
                         kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
@@ -528,6 +524,43 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         callback.on_rollout_end()
         return sb3_types.RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)
+
+    def _update_locals(self, locals_dict: Dict[str, Any]) -> None:
+        """Update the local variables from locals_dict.
+
+        Args:
+            locals_dict (Dict[str, Any]): Dictionary containing the local variables from the current scope.
+        """
+        self._last_obs = self._current_obs
+        self._last_actions = locals_dict["actions"]
+        self._last_actor_info = locals_dict["actor_infos"]
+        self._current_obs = locals_dict["next_obs"]
+        self._last_rewards = locals_dict["rewards"]
+        infos = locals_dict["infos"]
+        for idx, info in enumerate(infos):
+            if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+                info.update({"actor_info": self._last_actor_info[idx]})
+            else:
+                info["actor_info"] = info["actor_info"] | self._last_actor_info[idx]
+                self._last_actor_info[idx] = info["actor_info"]
+
+        if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+            for idx, info in enumerate(infos):
+                if info["actor_info"]["qp_failure"]:
+                    locals_dict["dones"][idx] = True
+                    print("Episode terminated due to MPC QP failure")
+                    info.update({"actor_failure": True})
+
+            self.non_optimal_solution_percentage = (
+                self.policy.actor.non_optimal_solutions / (self.num_timesteps) if self.num_timesteps > 0 else 0.0
+            )
+        else:
+            non_opt_solutions = np.array([info["actor_info"]["non_optimal_solutions"] for info in infos]).sum()
+            self.non_optimal_solution_percentage += (
+                non_opt_solutions / (self.num_timesteps) if self.num_timesteps > 0 else 0.0
+            )
+        self._last_dones = locals_dict["dones"]
+        self._last_infos = infos
 
     def _store_transition(
         self,
@@ -671,6 +704,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "mean_episode_length": ep_len_mean,
                 "episodes": self._episode_num,
                 "success_rate": success_rate,
-                "non_optimal_solution_rate": self._infeasible_solution_percentage,
+                "non_optimal_solution_rate": self.non_optimal_solution_percentage,
             }
         )

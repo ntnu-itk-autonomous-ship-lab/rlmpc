@@ -532,7 +532,7 @@ class DictReplayBuffer(ReplayBuffer):
         # Convert to torch tensor
         observations = {key: self.to_torch(obs) for key, obs in obs_.items()}
         next_observations = {key: self.to_torch(obs) for key, obs in next_obs_.items()}
-
+        infos = [self.infos[b_idx][env_idx] for b_idx, env_idx in zip(batch_inds, env_indices)]
         return DictReplayBufferSamples(
             observations=observations,
             actions=self.to_torch(self.actions[batch_inds, env_indices]),
@@ -544,5 +544,5 @@ class DictReplayBuffer(ReplayBuffer):
                 self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])
             ).reshape(-1, 1),
             rewards=self.to_torch(self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env)),
-            infos=[self.infos[b_idx] for b_idx in batch_inds],
+            infos=infos,
         )

@@ -199,21 +199,15 @@ class CollectStatisticsCallback(BaseCallback):
                 self.training_stats_logger.update_rollout_metrics(last_rollout_info)
                 if hasattr(self.model, "just_dumped_rollout_logs"):
                     self.model.just_dumped_rollout_logs = False
-
-                    inf_sol_rate = (
-                        100.0 * self.model.actor.infeasible_solutions / (self.num_timesteps)
-                        if self.num_timesteps > 0
-                        else 0.0
-                    )
                     self.logger.record(
-                        "mpc/infeasible_solution_percentage",
-                        inf_sol_rate,
+                        "mpc/non_optimal_solution_percentage",
+                        self.model.non_optimal_solution_percentage,
                     )
-                    mpc_params = self.model.actor.mpc.mpc_params
-                    self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
-                    self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
-                    self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
-                    self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
+                    # mpc_params = self.model.actor.mpc.mpc_params
+                    # self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
+                    # self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
+                    # self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
+                    # self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
                     # self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
                     # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
                     # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
@@ -399,6 +393,8 @@ class EvalCallback(EventCallback):
             if hasattr(self.model.actor, "mpc"):
                 self.model.actor.mpc.close_enc_display()
 
+            self.model.policy.set_training_mode(False)
+
             print(f"Evaluating policy after {self.num_timesteps} timesteps...")
             episode_rewards, episode_lengths = evaluate_policy(
                 self.model,
@@ -414,8 +410,7 @@ class EvalCallback(EventCallback):
                 env_data_logger=self.env_data_logger,
             )
 
-            if hasattr(self.model.actor, "mpc"):
-                self.model.actor.set_training_mode(True)
+            self.model.policy.set_training_mode(True)
 
             if self.log_path is not None:
                 self.evaluations_timesteps.append(self.num_timesteps)
@@ -595,13 +590,17 @@ def evaluate_policy(
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     if env_data_logger is not None:
         env_data_logger.reset_data_structures(env_idx=0)
-    is_mpc_policy = hasattr(model.policy.actor, "mpc")
+    is_mpc_policy = isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC) or isinstance(
+        model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider
+    )
     frames = []
+    actor_infos = [{} for _ in range(n_envs)]
     while (episode_counts < episode_count_targets).any():
         if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
             states = None
-            model.policy.initialize_actor(env.envs[0], evaluate=True)
             last_actor_info = [{} for _ in range(n_envs)]
+            if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+                model.policy.initialize_actor(env.envs[0], evaluate=True)
 
         if is_mpc_policy:
             _, normalized_actions, actor_infos = model.custom_predict(
@@ -626,11 +625,16 @@ def evaluate_policy(
                 episode_start=episode_starts,
                 deterministic=True,
             )
-            actor_infos = [{} for _ in range(n_envs)]
 
         new_observations, rewards, dones, infos = env.step(actions)
-        for actor_info, info in zip(actor_infos, infos):
-            info.update({"actor_info": actor_info})
+
+        for idx, (actor_info, info) in enumerate(zip(actor_infos, infos)):
+            if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+                info.update({"actor_info": actor_info})
+                if actor_info["qp_failure"]:
+                    dones[idx] = True
+            elif isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider):
+                info["actor_info"] = info["actor_info"] | actor_info
 
         if env_data_logger is not None:
             env_data_logger(infos)
@@ -649,12 +653,13 @@ def evaluate_policy(
                     callback(locals(), globals())
 
                 if dones[i]:
+                    env.envs[i].unwrapped.terminal_info = infos[i]
+
                     if env_data_logger is not None:
                         env_data_logger.save_as_pickle(f"{record_name}_env_data")
 
                     if is_mpc_policy:
                         actor_infos[i] = {}
-                        env.envs[i].unwrapped.terminal_info.update({"actor_info": last_actor_info[i]})
                         last_actor_info[i] = {}
                     if is_monitor_wrapped:
                         if "episode" in info.keys():
@@ -673,7 +678,6 @@ def evaluate_policy(
                     current_lengths[i] = 0
 
         observations = new_observations
-
         if render:
             frame = env.render()
             frames.append(frame)
