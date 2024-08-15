@@ -25,8 +25,7 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel, ContinuousCritic
-from stable_baselines3.common.preprocessing import (get_action_dim,
-                                                    is_image_space)
+from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -274,6 +273,23 @@ class MPCParameterDNN(th.nn.Module):
         """
         th.save(self.state_dict(), path)
 
+    def unnormalize_increment(self, x: th.Tensor) -> np.ndarray:
+        """Unnormalize the input parameter increment tensor.
+
+        Args:
+            x (th.Tensor): The normalized parameter increment tensor
+
+        Returns:
+            np.ndarray: The unnormalized output increment as a numpy array
+        """
+        return hf.unnormalize_mpc_param_increment_tensor(
+            x=x,
+            param_list=self.param_list,
+            parameter_incr_ranges=self.out_parameter_incr_ranges,
+            parameter_lengths=self.out_parameter_lengths,
+            parameter_indices=self.out_parameter_indices,
+        )
+
     def unnormalize(self, x: th.Tensor | np.ndarray) -> np.ndarray:
         """Unnormalize the input parameter tensor.
 
@@ -335,23 +351,6 @@ class MPCParameterDNN(th.nn.Module):
         dnn_jacobians = th.vmap(compute_sample_jacobian)(x)
         return dnn_jacobians
 
-    def loss_function_gradient(self, x: th.Tensor, dlag_mpc_dp: th.Tensor) -> th.Tensor:
-        """Compute the gradient of the loss function wrt the DNN parameters.
-
-        Args:
-            x (th.Tensor): Input features to the DNN
-            dlag_mpc_dp (th.Tensor): The Lagrangian jacobian wrt the MPC parameters (where p_MPC = p_DNN + p_mpc_old)
-
-        Returns:
-            th.Tensor: The gradient of the loss function wrt the DNN parameters
-        """
-        self_jac = self.parameter_jacobian(x)
-        param_increment = self(x)
-        print(f"MPC lagrangian jac: {dlag_mpc_dp}")
-        loss_grad = (self.parameter_weights @ param_increment + self.mpc_cost_val_scaling * dlag_mpc_dp) @ self_jac
-        print(f"Loss gradient: {loss_grad}")
-        return loss_grad
-
 
 class SACMPCParameterProviderActor(BasePolicy):
     """
@@ -378,10 +377,9 @@ class SACMPCParameterProviderActor(BasePolicy):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Box,
-        observation_type: Any,
-        action_type: Any,
         mpc_param_provider_kwargs: Dict[str, Any],
         std_init: Union[float, np.ndarray] = -3.0,
+        mpc_std_init: Union[float, np.ndarray] = -3.0,
         disable_parameter_provider: bool = False,
     ):
         super().__init__(
@@ -393,8 +391,6 @@ class SACMPCParameterProviderActor(BasePolicy):
         )
 
         self.disable_parameter_provider = disable_parameter_provider
-        self.observation_type = observation_type
-        self.action_type = action_type
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
         if isinstance(std_init, float):
             std_init = np.array([std_init] * self.action_space.shape[0])
@@ -404,20 +400,14 @@ class SACMPCParameterProviderActor(BasePolicy):
             th.zeros(self.action_space.shape[0]), log_std=self.log_std
         )
 
-    def initialize(
-        self,
-        env: csenv.COLAVEnvironment,
-        evaluate: bool = False,
-    ) -> None:
-        """Initialize the actor by setting the observation and action types.
-
-        Args:
-            env (csenv.COLAVEnvironment): The environment
-            evaluate (bool, optional): Whether to evaluate the MPC policy.
-        """
-        self.observation_type = env.unwrapped.observation_type
-        self.action_type = env.unwrapped.action_type
-        self.training = not evaluate
+        self.mpc_action_dim = 2
+        if isinstance(mpc_std_init, float):
+            mpc_std_init = np.array([mpc_std_init] * self.mpc_action_dim)
+        mpc_log_std_init = th.log(th.from_numpy(mpc_std_init)).to(th.float32)
+        self.mpc_log_std = mpc_log_std_init
+        self.mpc_action_dist = DiagGaussianDistribution(self.mpc_action_dim).proba_distribution(
+            th.zeros(self.mpc_action_dim), log_std=self.mpc_log_std
+        )
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -454,7 +444,27 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             Tuple[th.Tensor, th.Tensor]:
         """
-        return self.action_type.mpc_action_log_prob(obs, actions, infos, is_next_action)
+        # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
+        # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
+        # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
+        #
+        # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
+        assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
+        actor_str = "actor_info" if not is_next_action else "next_actor_info"
+        if infos is not None:
+            # Extract mean of the policy distribution = MPC action for the given observation
+            norm_mpc_actions = np.array([info[actor_str]["norm_mpc_action"] for info in infos], dtype=np.float32)
+            norm_mpc_actions = th.from_numpy(norm_mpc_actions)
+
+        if isinstance(actions, np.ndarray):
+            actions = th.from_numpy(actions)
+
+        self.mpc_action_dist = self.mpc_action_dist.proba_distribution(
+            mean_actions=norm_mpc_actions, log_std=self.mpc_log_std
+        )
+        log_prob = self.mpc_action_dist.log_prob(actions)
+
+        return log_prob
 
     def action_log_prob(
         self,
@@ -479,15 +489,10 @@ class SACMPCParameterProviderActor(BasePolicy):
         preprocessed_obs = self.preprocess_obs_for_dnn(obs, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
 
-        unnorm_current_mpc_params = self.action_type.mpc.get_adjustable_mpc_params()
-        norm_current_mpc_params = th.from_numpy(unnorm_current_mpc_params).float()
-        norm_current_mpc_params = self.mpc_param_provider.normalize(norm_current_mpc_params)
-
         log_prob = th.zeros(batch_size)
         for idx in range(batch_size):
-            current_mpc_params = self.action_type.mpc.get_adjustable_mpc_params()
-            norm_current_mpc_params = th.from_numpy(current_mpc_params).float()
-            norm_current_mpc_params = self.mpc_param_provider.normalize(norm_current_mpc_params)
+            norm_current_mpc_params = obs["MPCParameterObservation"][idx]
+            norm_current_mpc_params = th.from_numpy(norm_current_mpc_params).float()
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
             mpc_param_increment = self.mpc_param_provider(dnn_input)
             self.action_dist = self.action_dist.proba_distribution(
@@ -549,7 +554,6 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
         """
-        assert hasattr(self.action_type, "mpc"), "The action type must have an MPC object"
         batch_size = observation["TrackingObservation"].shape[0]
         normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
@@ -559,21 +563,19 @@ class SACMPCParameterProviderActor(BasePolicy):
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
 
-        unnorm_current_mpc_params = self.action_type.mpc.get_adjustable_mpc_params()
-        norm_current_mpc_params = th.from_numpy(unnorm_current_mpc_params).float()
-        norm_current_mpc_params = self.mpc_param_provider.normalize(norm_current_mpc_params)
-
         for idx in range(batch_size):
+            norm_current_mpc_params = obs_tensor["MPCParameterObservation"][idx]
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
             mpc_param_increment = np.zeros(self.action_space.shape[0])
             if not self.disable_parameter_provider:
                 mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
-            unnorm_action = self.action_type.unnormalize(mpc_param_increment)
+            unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment)
             info = {
                 "dnn_input_features": dnn_input.detach().cpu().numpy(),
                 "norm_mpc_param_increment": mpc_param_increment,
                 "unnorm_mpc_param_increment": unnorm_action,
                 "norm_old_mpc_params": norm_current_mpc_params.detach().numpy(),
+                "old_mpc_params": self.mpc_param_provider.unnormalize(norm_current_mpc_params),
             }
 
             unnormalized_actions[idx, :] = unnorm_action
@@ -583,8 +585,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         return unnormalized_actions, normalized_actions, actor_infos
 
     def sample_mpc_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
-        """Sample an action (not parameter action) from the policy distribution with mean from the input MPC action
-
+        """Sample an mpc action from the policy distribution with mean from the input MPC action.
 
         Args:
             mpc_actions (np.ndarray | th.Tensor): The input MPC action (normalized)
@@ -592,11 +593,17 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             np.ndarray: The sampled action (normalized)
         """
-        return self.action_type.sample_mpc_action(mpc_actions)
+        if isinstance(mpc_actions, np.ndarray):
+            mpc_actions = th.from_numpy(mpc_actions)
+        self.mpc_action_dist = self.mpc_action_dist.proba_distribution(
+            mean_actions=mpc_actions, log_std=self.mpc_log_std
+        )
+        norm_actions = self.mpc_action_dist.get_actions()
+        norm_actions = th.clamp(norm_actions, -1.0, 1.0)
+        return norm_actions
 
     def sample_action(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> np.ndarray:
         """Sample an action from the policy distribution
-
 
         Args:
             observation: Union[np.ndarray, Dict[str, np.ndarray]],
@@ -607,11 +614,10 @@ class SACMPCParameterProviderActor(BasePolicy):
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
-        norm_current_mpc_params = th.from_numpy(self.action_type.mpc.get_adjustable_mpc_params()).float()
-        norm_current_mpc_params = self.mpc_param_provider.normalize(norm_current_mpc_params)
         batch_size = features.shape[0]
         norm_actions = th.zeros((batch_size, self.action_space.shape[0]), dtype=th.float32)
         for idx in range(batch_size):
+            norm_current_mpc_params = obs_tensor["MPCParameterObservation"][idx]
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
             mpc_param_increment = self.mpc_param_provider(dnn_input)
             self.action_dist = self.action_dist.proba_distribution(
@@ -1157,6 +1163,8 @@ class SACPolicyWithMPC(BasePolicy):
     Args:
         - observation_space (spaces.Space): Observation space
         - action_space (spaces.Box): Action space
+        - observation_type (Any): Observation type
+        - action_type (Any): Action type
         - learning_rate: Union[float, Schedule] = 3e-4,
         - critic_arch (Optional[List[int]], optional): Architecture of the critic network. Defaults to [256, 256].
         - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
@@ -1193,7 +1201,7 @@ class SACPolicyWithMPC(BasePolicy):
         mpc_param_provider_kwargs: Dict[str, Any] = {},
         mpc_config: rlmpc_cas.RLMPCParams | pathlib.Path = dp.config / "rlmpc.yaml",
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        std_init: np.ndarray | float = np.array([2.0, 2.0]),
+        std_init: np.ndarray | float = 0.0002,
         features_extractor_class: Type[rlmpc_fe.CombinedExtractor] = rlmpc_fe.CombinedExtractor,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         disable_parameter_provider: bool = False,
@@ -1358,7 +1366,8 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         - critic_arch (Optional[List[int]], optional): Architecture of the critic network. Defaults to [256, 256].
         - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
         - activation_fn (Type[nn.Module], optional): Activation function. Defaults to nn.ReLU.
-        - std_init (float, optional): Initial value for the action standard deviation
+        - std_init (float, optional): Initial value for the parameter action standard deviation
+        - mpc_std_init (np.ndarray | float, optional): Initial value for the MPC action standard deviation
         - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
         - features_extractor_kwargs (Optional[Dict[str, Any]], optional): Keyword arguments
             to pass to the features extractor.
@@ -1379,13 +1388,12 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Box,
-        observation_type: Any,
-        action_type: Any,
         lr_schedule: Schedule,
         critic_arch: Optional[List[int]] = [256, 256],
         mpc_param_provider_kwargs: Dict[str, Any] = {},
         activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        std_init: np.ndarray | float = np.array([2.0, 2.0]),
+        std_init: np.ndarray | float = 0.0002,
+        mpc_std_init: np.ndarray | float = np.array([0.002, 0.002]),
         features_extractor_class: Type[rlmpc_fe.CombinedExtractor] = rlmpc_fe.CombinedExtractor,
         features_extractor_kwargs: Optional[Dict[str, Any]] = None,
         disable_parameter_provider: bool = False,
@@ -1404,9 +1412,8 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
             squash_output=True,
             normalize_images=normalize_images,
         )
-        self.observation_type = observation_type
-        self.action_type = action_type
         self.activation_fn = activation_fn
+        self.mpc_action_dim = 2
         self.critic_kwargs = {
             "observation_space": self.observation_space,
             "action_space": self.action_space,
@@ -1421,9 +1428,8 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
             "disable_parameter_provider": disable_parameter_provider,
             "observation_space": self.observation_space,
             "action_space": self.action_space,
-            "observation_type": self.observation_type,
-            "action_type": self.action_type,
             "std_init": std_init,
+            "mpc_std_init": mpc_std_init,
         }
 
         self._build_critic(lr_schedule)
@@ -1477,7 +1483,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
     def make_critic(self, features_extractor: Optional[rlmpc_fe.CombinedExtractor] = None) -> ContinuousCritic:
         critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
         critic_kwargs.update(
-            {"action_space": spaces.Box(low=-1.0, high=1.0, shape=(self.action_type.mpc_action_dim,), dtype=np.float32)}
+            {"action_space": spaces.Box(low=-1.0, high=1.0, shape=(self.mpc_action_dim,), dtype=np.float32)}
         )
         return ContinuousCritic(**critic_kwargs).to(self.device)
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import gymnasium as gym
+import rlmpc.common.helper_functions as hf
 import rlmpc.sac as rlmpc_sac
 from colav_simulator.gym.environment import COLAVEnvironment
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
@@ -64,14 +65,16 @@ def train_rlmpc_sac(
     if n_training_envs == 1:
         training_env = Monitor(gym.make(id=env_id, **training_env_config))
     else:
-        training_env = make_vec_env(
-            env_id=env_id,
-            env_kwargs=training_env_config,
-            n_envs=n_training_envs,
-            monitor_dir=str(base_dir),
-            vec_env_cls=SubprocVecEnv,
-            seed=seed,
-        )
+        training_env = SubprocVecEnv([hf.make_env(env_id, training_env_config, i + 1) for i in range(n_training_envs)])
+        # make_vec_env(
+        #     env_id=env_id,
+        #     env_kwargs=training_env_config,
+        #     n_envs=n_training_envs,
+        #     monitor_dir=str(base_dir),
+        #     vec_env_cls=SubprocVecEnv,
+        #     seed=seed,
+        # )
+
     stats_callback = CollectStatisticsCallback(
         env=training_env,
         log_dir=base_dir,

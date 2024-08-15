@@ -503,6 +503,7 @@ def evaluate_policy(
     record_name: str = "eval",
     record_type: str = "gif",
     env_data_logger: Optional[colav_env_logger.Logger] = None,
+    seed: Optional[int] = None,
 ) -> Union[Tuple[float, float], Tuple[List[float], List[int]]]:
     """
     Custom version of the evaluate_policy function from stable_baselines3.common.evaluation.py.
@@ -566,7 +567,9 @@ def evaluate_policy(
         )
 
     n_envs = env.num_envs
-    assert n_envs == 1, "Only one environment is supported for now."
+    if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+        assert n_envs == 1, "Only one environment is supported for an MPC policy."
+
     episode_rewards = []
     episode_lengths = []
     episode_counts = np.zeros(n_envs, dtype="int")
@@ -585,21 +588,23 @@ def evaluate_policy(
                 env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0
             )
 
+    env.seed(seed)
     observations = env.reset()
-    states = None
+
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     if env_data_logger is not None:
         env_data_logger.reset_data_structures(env_idx=0)
+
     is_mpc_policy = isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC) or isinstance(
         model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider
     )
     frames = []
+    states = None
     actor_infos = [{} for _ in range(n_envs)]
+    last_actor_info = [{} for _ in range(n_envs)]
     while (episode_counts < episode_count_targets).any():
-        if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
-            states = None
-            last_actor_info = [{} for _ in range(n_envs)]
-            if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+        if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+            if env.envs[0].unwrapped.time < 0.0001:
                 model.policy.initialize_actor(env.envs[0], evaluate=True)
 
         if is_mpc_policy:
@@ -653,12 +658,14 @@ def evaluate_policy(
                     callback(locals(), globals())
 
                 if dones[i]:
-                    env.envs[i].unwrapped.terminal_info = infos[i]
+                    if isinstance(env, DummyVecEnv):
+                        env.envs[i].unwrapped.terminal_info = infos[i]
 
                     if env_data_logger is not None:
                         env_data_logger.save_as_pickle(f"{record_name}_env_data")
 
                     if is_mpc_policy:
+                        states[i] = {}
                         actor_infos[i] = {}
                         last_actor_info[i] = {}
                     if is_monitor_wrapped:

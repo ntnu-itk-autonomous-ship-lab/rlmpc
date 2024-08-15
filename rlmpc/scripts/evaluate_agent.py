@@ -29,6 +29,7 @@ import rlmpc.rewards as rlmpc_rewards
 import rlmpc.sac as rlmpc_sac
 import stable_baselines3.sac as sb3_sac
 import torch as th
+from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -55,10 +56,11 @@ def evaluate(
     Returns:
         Tuple[float, float, List[float]]: The mean reward, standard deviation of rewards, and rewards.
     """
+    num_envs = 1 if isinstance(env, csenv.COLAVEnvironment) else env.num_envs
     env_data_logger = csenv_logger.Logger(
         log_dir=log_dir,
         experiment_name=experiment_name,
-        n_envs=1,
+        n_envs=num_envs,
         max_num_logged_episodes=500,
     )
     ep_rewards, ep_lengths = rlmpc_callbacks.evaluate_policy(
@@ -83,12 +85,13 @@ def main(args):
     parser.add_argument(
         "--model_class", type=str, default="sac_rlmpc_param_provider_policy"
     )  # either "sac_rlmpc_policy", "sac_rlmpc_param_provider_policy" or "sb3_sac"
-    parser.add_argument("--n_eval_episodes", type=int, default=50)
+    parser.add_argument("--n_eval_episodes", type=int, default=2)
+    parser.add_argument("--n_cpus", type=int, default=2)
     parser.add_argument("--record", type=bool, default=True)
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--disable_rlmpc_parameter_provider", type=bool, default=True)
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_param_provider_eval")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_pp_eval2")
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC eval:")
@@ -108,6 +111,8 @@ def main(args):
             "time_observation",
         ]
     }
+    if args.model_class == "sac_rlmpc_param_provider_policy":
+        observation_type["dict_observation"].append("mpc_parameter_observation")
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
@@ -116,6 +121,7 @@ def main(args):
 
     rewarder_config = rlmpc_rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
+    # eval_sim_config.visualizer.matplotlib_backend = "TkAgg"
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
     eval_env_config = {
@@ -165,6 +171,8 @@ def main(args):
             "verbose": 1,
             "tensorboard_log": str(log_dir),
         }
+        if args.n_cpus > 1:
+            print("Vectorized evaluation not supported for SAC with MPC actor")
         env = Monitor(gym.make(id=env_id, **eval_env_config))
         model = rlmpc_sac.SAC(env=env, **model_kwargs)
         if not args.disable_rlmpc_parameter_provider:
@@ -181,7 +189,7 @@ def main(args):
             "debug": False,
             "mpc_param_list": mpc_param_list,
             "std_init": action_noise_std_dev,
-            "deterministic": False,
+            "deterministic": True,
         }
         mpc_param_provider_kwargs = {
             "param_list": mpc_param_list,
@@ -194,6 +202,7 @@ def main(args):
             "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
             "activation_fn": th.nn.ReLU,
             "std_init": param_action_noise_std_dev,
+            "mpc_std_init": action_noise_std_dev,
             "disable_parameter_provider": args.disable_rlmpc_parameter_provider,
         }
         model_kwargs = {
@@ -214,7 +223,11 @@ def main(args):
                 "action_type": None,
             }
         )
-        env = Monitor(gym.make(id=env_id, **eval_env_config))
+
+        if args.n_cpus > 1:
+            env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(args.n_cpus)])
+        else:
+            env = Monitor(gym.make(id=env_id, **eval_env_config))
         model = rlmpc_sac.SAC(env=env, **model_kwargs)
         if not args.disable_rlmpc_parameter_provider:
             model.inplace_load(path=model_dir / (args.experiment_name + "_2000"))
@@ -235,6 +248,12 @@ def main(args):
             "replay_buffer_kwargs": {"handle_timeout_termination": True},
             "seed": args.seed,
         }
+        if args.n_cpus > 1:
+            if action_kwargs["debug"]:
+                raise ValueError("Cannot use debug flag with vectorized evaluation!")
+            env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(args.n_cpus)])
+        else:
+            env = Monitor(gym.make(id=env_id, **eval_env_config))
         model = sb3_sac.SAC.load(path=model_dir / args.experiment_name, env=env, **model_kwargs)
 
     mean_reward, std_reward, rewards = evaluate(

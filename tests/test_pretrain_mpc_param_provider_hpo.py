@@ -26,11 +26,12 @@ def objective(trial: optuna.Trial) -> float:
     input_dim = 40 + 12 + 5  # this is, excluding the MPC parameters
 
     save_interval = 10
-    batch_size = 4
+    batch_size = 8
     num_epochs = 30
     learning_rate = 5e-5
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
 
-    experiment_name = "sac_rlmpc3"
+    experiment_name = "sac_rlmpc_param_provider_eval"
     data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
     data_filename_list = []
     for i in range(1, 2):
@@ -39,7 +40,9 @@ def objective(trial: optuna.Trial) -> float:
 
     dataset = torch.utils.data.ConcatDataset(
         [
-            rl_ds.ParameterProviderDataset(env_data_pkl_file=df, data_dir=data_dir, transform=None)
+            rl_ds.ParameterProviderDataset(
+                env_data_pkl_file=df, data_dir=data_dir, param_list=mpc_param_list, transform=None
+            )
             for df in data_filename_list
         ]
     )
@@ -69,11 +72,11 @@ def objective(trial: optuna.Trial) -> float:
     actfn = getattr(torch.nn, actfn_str)
     hidden_dims = []
     for i in range(n_layers):
-        out_features = trial.suggest_int(f"n_units_l{i}", 32, 500)
+        out_features = trial.suggest_int(f"n_units_l{i}", 64, 400)
         hidden_dims.append(out_features)
 
     model = MPCParameterDNN(
-        param_list=["Q_p", "r_safe_do"], hidden_sizes=hidden_dims, activation_fn=actfn, features_dim=input_dim
+        param_list=mpc_param_list, hidden_sizes=hidden_dims, activation_fn=actfn, features_dim=input_dim
     ).to(device)
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
@@ -101,7 +104,6 @@ def objective(trial: optuna.Trial) -> float:
         early_stopping_patience=3,
         experiment_path=experiment_path,
     )
-
     return opt_loss
 
 

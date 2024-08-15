@@ -280,44 +280,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         norm_action = norm_action.numpy()
         return expln_action.numpy()
 
-    def mpc_action_log_prob(
-        self,
-        obs: rlmpc_buffers.TensorDict,
-        actions: Optional[th.Tensor] = None,
-        infos: Optional[List[Dict[str, Any]]] = None,
-        is_next_action: bool = False,
-    ) -> Tuple[th.Tensor, th.Tensor]:
-        """Computes the log probability of the policy distribution for the given observation.
-
-        Args:
-            obs (th.Tensor): Observations
-            actions (th.Tensor): (MPC) Actions to evaluate the log probability for
-            infos (Optional[List[Dict[str, Any]]], optional): Additional information.
-            is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
-
-        Returns:
-            Tuple[th.Tensor, th.Tensor]:
-        """
-        # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
-        # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
-        # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
-        #
-        # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
-        assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
-        actor_str = "actor_info" if not is_next_action else "next_actor_info"
-        if infos is not None:
-            # Extract mean of the policy distribution = MPC action for the given observation
-            norm_mpc_actions = np.array([info[actor_str]["norm_mpc_action"] for info in infos], dtype=np.float32)
-            norm_mpc_actions = th.from_numpy(norm_mpc_actions)
-
-        if isinstance(actions, np.ndarray):
-            actions = th.from_numpy(actions)
-
-        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_mpc_actions, log_std=self.log_std)
-        log_prob = self.action_dist.log_prob(actions)
-
-        return log_prob
-
     def sample_mpc_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
         """Sample an action from the policy distribution with mean from the input MPC action
 
@@ -384,6 +346,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
                 "norm_mpc_action": norm_mpc_action,
                 "unnorm_mpc_action": mpc_action,
                 "expl_action": expl_action,
+                "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
             }
         )
 

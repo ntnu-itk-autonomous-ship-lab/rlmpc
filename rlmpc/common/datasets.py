@@ -8,13 +8,14 @@
 """
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import colav_simulator.common.math_functions as csmf
 import colav_simulator.gym.logger as csenv_logger
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import rlmpc.mpc.parameters as mpc_params
 import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import v2 as transforms_v2
@@ -162,7 +163,7 @@ class ParameterProviderDataset(Dataset):
         self,
         env_data_pkl_file: str,
         data_dir: Path,
-        num_adjustable_mpc_params: int = 4,
+        param_list: List[str],
         transform=None,
     ):
         """Initializes the dataset.
@@ -174,41 +175,19 @@ class ParameterProviderDataset(Dataset):
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.num_adjustable_mpc_params = num_adjustable_mpc_params
         self.env_data_logger = csenv_logger.Logger(experiment_name="parameter_provider_dataset", log_dir=data_dir)
         self.env_data_logger.load_from_pickle(name=env_data_pkl_file)
         self.timestep = 2.0
-        self.param_list = ["Q_p", "r_safe_do"]
-        self.dnn_out_parameter_ranges = {
-            "Q_p": [[0.05, 2.5], [2.0, 50.0], [2.0, 50.0]],
-            "K_app_course": [0.1, 150.0],
-            "K_app_speed": [0.1, 150.0],
-            "d_attenuation": [10.0, 800.0],
-            "w_colregs": [0.1, 500.0],
-            "r_safe_do": [5.0, 100.0],
-        }
-        self.dnn_out_parameter_incr_ranges = {
-            "Q_p": [[-0.25, 0.25], [-2.0, 2.0], [-2.0, 2.0]],
-            "K_app_course": [-5.0, 5.0],
-            "K_app_speed": [-5.0, 5.0],
-            "d_attenuation": [-50.0, 50.0],
-            "w_colregs": [-10.0, 10.0],
-            "r_safe_do": [-5.0, 5.0],
-        }
-        self.dnn_out_parameter_lengths = {
-            "Q_p": 3,
-            "K_app_course": 1,
-            "K_app_speed": 1,
-            "d_attenuation": 1,
-            "w_colregs": 3,
-            "r_safe_do": 1,
-        }
+        self.param_list = param_list
+        self.dnn_out_parameter_ranges, self.dnn_out_parameter_incr_ranges, self.dnn_out_parameter_lengths = (
+            mpc_params.MidlevelMPCParams.get_adjustable_parameter_info()
+        )
         offset = 0
         self.out_parameter_indices = {}
         for param in self.param_list:
             self.out_parameter_indices[param] = offset
             offset += self.dnn_out_parameter_lengths[param]
-
+        self.num_adjustable_mpc_params = offset
         self._setup_data()
 
     def get_datainfo(self) -> Tuple[int, int, int, int]:

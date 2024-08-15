@@ -139,7 +139,10 @@ def unnormalize_mpc_param_tensor(
         x_param = x[pindx : pindx + param_length]
 
         for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
-            x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+            if param_name == "Q_p":
+                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range[j]))
+            else:
+                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
         x_unnorm[pindx : pindx + param_length] = x_param
     return x_unnorm
 
@@ -266,7 +269,8 @@ def map_mpc_param_incr_array_to_parameter_dict(
 
 def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callable:
     """
-    Utility function for multiprocessed env.
+    Utility function for multiprocessed env. Key thing is to update the env identifier
+    such that live plotting and mpc compilation works.
 
     Args:
         env_id: (str) the environment ID

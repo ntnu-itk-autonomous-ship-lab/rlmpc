@@ -669,6 +669,9 @@ class RLMPC(ci.ICOLAV):
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
             self._mpc_inputs = self._mpc_soln["inputs"]
 
+            if t > 280.0:
+                print("")
+
             if self._debug:
                 if self._mpc_traj_handle:
                     self._mpc_traj_handle.remove()

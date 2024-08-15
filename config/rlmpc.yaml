@@ -56,12 +56,12 @@ mpc:
     reference_traj_bbox_buffer: 200.0
     T: 60.0
     dt: 2.0
-    Q_p: [0.5, 25.0, 15.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
-    K_prev_sol_dev: [100.0, 60.0]
+    Q_p: [0.5, 40.0, 15.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
+    K_prev_sol_dev: [45.0, 45.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.001]
-    K_app_course: 60.0
-    K_app_speed: 60.0
+    K_app_course: 50.0
+    K_app_speed: 50.0
 
     alpha_cr: [0.03, 0.003]
     y_0_cr: 400.0
@@ -71,10 +71,10 @@ mpc:
     x_0_ot: 300.0
     y_0_ot: 100.0
     d_attenuation: 300.0
-    w_colregs: [80.0, 80.0, 30.0]
+    w_colregs: [80.0, 80.0, 80.0]
 
     w_L2: 0.0
-    w_L1: 2000.0 # 100000.0
+    w_L1: 1500.0 # 100000.0
     r_safe_so: 5.0
     r_safe_do: 15.0
     gamma: 1.0
@@ -91,7 +91,7 @@ mpc:
       U_max: 10.0
       a_max: 0.3
       s_min: 0.0
-      s_max: 10000.0
+      s_max: 3000.0
       s_dot_max: 10.0
   enable_acados: True
   solver_options:
@@ -130,6 +130,6 @@ mpc:
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
       regularize_method: "PROJECT"
-      levenberg_marquardt: 0.0005
+      levenberg_marquardt: 0.0001
       print_level: 0
       ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

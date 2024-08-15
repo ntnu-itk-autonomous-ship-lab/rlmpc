@@ -124,13 +124,16 @@ class SAC(opa.OffPolicyAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
     ):
-        policy_kwargs.update(
-            {
-                "observation_type": env.unwrapped.observation_type,
-                "action_type": env.unwrapped.action_type,
-                "features_extractor_kwargs": {"batch_size": batch_size},
-            }
-        )
+        policy_kwargs.update({"features_extractor_kwargs": {"batch_size": batch_size}})
+        if hasattr(env.unwrapped, "observation_type") and hasattr(env.unwrapped, "action_type"):
+            observation_type = env.unwrapped.observation_type
+            action_type = env.unwrapped.action_type
+            policy_kwargs.update(
+                {
+                    "observation_type": observation_type,
+                    "action_type": action_type,
+                }
+            )
         super().__init__(
             policy,
             env,
