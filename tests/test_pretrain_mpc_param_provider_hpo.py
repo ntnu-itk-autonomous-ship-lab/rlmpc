@@ -31,7 +31,7 @@ def objective(trial: optuna.Trial) -> float:
     learning_rate = 5e-5
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
 
-    experiment_name = "sac_rlmpc_pp_eval2"
+    experiment_name = "sac_rlmpc_pp_eval3"
     data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
     data_filename_list = []
     for i in range(1, 2):
@@ -63,9 +63,9 @@ def objective(trial: optuna.Trial) -> float:
     if not log_dir.exists():
         log_dir.mkdir(parents=True)
 
-    batch_size = 8  # trial.suggest_int("batch_size", 1, 32)
+    batch_size = trial.suggest_int("batch_size", 1, 32)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
-    num_epochs = 30  # trial.suggest_int("num_epochs", 10, 100)
+    num_epochs = trial.suggest_int("num_epochs", 10, 100)
 
     n_layers = trial.suggest_int("n_layers", 1, 3)
     actfn_str = "ReLU"  # trial.suggest_categorical("activation_fn", ["ReLU"])

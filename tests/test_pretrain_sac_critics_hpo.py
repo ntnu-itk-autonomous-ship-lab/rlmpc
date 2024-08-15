@@ -38,7 +38,20 @@ def objective(trial: optuna.Trial) -> float:
             "navigation_3dof_state_observation",
             "tracking_observation",
             "time_observation",
+            "mpc_parameter_observation",
         ]
+    }
+    mpc_config_path = rl_dp.config / "rlmpc.yaml"
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
+    action_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    n_mpc_params = 3 + 1 + 1 + 3 + 1
+    param_action_noise_std_dev = np.array([0.01 for _ in range(n_mpc_params)])
+    action_kwargs = {
+        "mpc_config_path": mpc_config_path,
+        "debug": False,
+        "mpc_param_list": mpc_param_list,
+        "std_init": action_noise_std_dev,
+        "deterministic": True,
     }
     scenario_names = ["rlmpc_scenario_ms_channel"]
     scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
@@ -68,19 +81,14 @@ def objective(trial: optuna.Trial) -> float:
     n_layers = trial.suggest_int("n_layers", 1, 3)
     hidden_dims = []
     input_dim = 40 + 12 + 5 + 2  # enc + tracking + nav + action
-    prev_input_dim = input_dim
     for i in range(n_layers):
         out_features = trial.suggest_int(f"n_units_l{i}", 64, 500)
-        prev_input_dim = out_features
         hidden_dims.append(out_features)
     # hidden_dims = [1500, 1000, 500]
 
-    mpc_config_file = rl_dp.config / "rlmpc.yaml"
-    # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
     mpc_param_provider_kwargs = {
-        "param_list": ["Q_p", "r_safe_do"],
-        "hidden_sizes": [1315, 1579],
+        "param_list": mpc_param_list,
+        "hidden_sizes": [400, 300],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1315_1579_ReLU/best_model.pth",
@@ -89,16 +97,13 @@ def objective(trial: optuna.Trial) -> float:
         "features_extractor_class": CombinedExtractor,
         "critic_arch": hidden_dims,
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
-        "mpc_config": mpc_config_file,
         "activation_fn": actfn,
-        "std_init": actor_noise_std_dev,
+        "std_init": param_action_noise_std_dev,
+        "mpc_std_init": action_noise_std_dev,
         "disable_parameter_provider": False,
-        "optimizer_class": th.optim.Adam,
-        # "optimizer_kwargs": {"weight_decay": 5e-5},
-        "debug": False,
     }
     model_kwargs = {
-        "policy": rlmpc_policies.SACPolicyWithMPC,
+        "policy": rlmpc_policies.SACPolicyWithMPCParameterProvider,
         "policy_kwargs": policy_kwargs,
         "learning_rate": learning_rate,
         "buffer_size": buffer_size,
@@ -153,7 +158,7 @@ def main(args):
         sampler=optuna.samplers.RandomSampler(),
         load_if_exists=True,
     )
-    study.optimize(objective, n_trials=200)
+    study.optimize(objective, n_trials=1000)
 
     print(f"Best objective value: {study.best_trial.value}")
     print(f"Best parameters: {study.best_trial.params}")
