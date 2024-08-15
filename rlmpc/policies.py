@@ -1371,6 +1371,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
         - features_extractor_kwargs (Optional[Dict[str, Any]], optional): Keyword arguments
             to pass to the features extractor.
+        - disable_parameter_provider (bool, optional): Whether to disable the parameter provider or not.
         - normalize_images (bool, optional): Whether to normalize images or not,
             dividing by 255.0 (True by default).
         - optimizer_class (Type[th.optim.Optimizer], optional): The optimizer to use,
