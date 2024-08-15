@@ -978,12 +978,23 @@ class AcadosMPC:
             - np.ndarray: Parameter vector to be used as input to solver
         """
         _, nu = self._acados_ocp.dims.nx, self._acados_ocp.dims.nu
+        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
+        p_goal = np.array(list(self.path_linestring.coords[-1]))
+        d2goal = np.linalg.norm(xs[0:2] - p_goal)
 
         adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
         action_stage_index = self.action_indices_to_stage_index()
         if "K_prev_sol_dev" in self._adjustable_param_str_list and stage_idx != action_stage_index:
             adjustable_params[3] = 0.0
             adjustable_params[4] = 0.0
+
+        if n_dos == 0 or d2goal < 150.0 and "K_app_course" in self._adjustable_param_str_list:
+            if "K_prev_sol_dev" in self._adjustable_param_str_list:
+                adjustable_params[5] = 10.0
+                adjustable_params[6] = 5.0
+            else:
+                adjustable_params[3] = 10.0
+                adjustable_params[4] = 5.0
 
         # if stage_idx == 0 and self.verbose:
         #     print(f"Adjustable params: {adjustable_params}")
@@ -1006,10 +1017,7 @@ class AcadosMPC:
         do_ot_parameter_values = self._create_do_parameter_values(xs, do_ot_list, stage_idx)
         self._X_do.append(np.array(do_cr_parameter_values + do_ho_parameter_values + do_ot_parameter_values))
 
-        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
-        p_goal = np.array(list(self.path_linestring.coords[-1]))
-        d2goal = np.linalg.norm(xs[0:2] - p_goal)
-        if n_dos == 0 or d2goal < 150.0:
+        if n_dos == 0 or d2goal < 150.0 and "K_app_course" not in self._adjustable_param_str_list:
             if "K_prev_sol_dev" in self._adjustable_param_str_list:
                 non_adjustable_mpc_params[4] = 10.0
                 non_adjustable_mpc_params[5] = 5.0
@@ -1069,6 +1077,17 @@ class AcadosMPC:
         fixed_parameter_values.extend(path_parameter_values)
 
         non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
+        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
+        p_goal = np.array(list(self.path_linestring.coords[-1]))
+        d2goal = np.linalg.norm(state[0:2] - p_goal)
+        if n_dos == 0 or d2goal < 150.0:
+            if "K_prev_sol_dev" in self._adjustable_param_str_list:
+                non_adjustable_mpc_params[4] = 10.0
+                non_adjustable_mpc_params[5] = 5.0
+            else:
+                non_adjustable_mpc_params[6] = 10.0
+                non_adjustable_mpc_params[7] = 5.0
+
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 
         max_num_so_constr = (

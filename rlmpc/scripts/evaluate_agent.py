@@ -56,7 +56,7 @@ def evaluate(
     Returns:
         Tuple[float, float, List[float]]: The mean reward, standard deviation of rewards, and rewards.
     """
-    num_envs = 1 if isinstance(env, csenv.COLAVEnvironment) else env.num_envs
+    num_envs = 1 if isinstance(env, Monitor) else env.num_envs
     env_data_logger = csenv_logger.Logger(
         log_dir=log_dir,
         experiment_name=experiment_name,
@@ -85,13 +85,13 @@ def main(args):
     parser.add_argument(
         "--model_class", type=str, default="sac_rlmpc_param_provider_policy"
     )  # either "sac_rlmpc_policy", "sac_rlmpc_param_provider_policy" or "sb3_sac"
-    parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--n_cpus", type=int, default=2)
+    parser.add_argument("--n_eval_episodes", type=int, default=50)
+    parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--record", type=bool, default=True)
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--disable_rlmpc_parameter_provider", type=bool, default=True)
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_pp_eval2")
+    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_pp_eval3")
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC eval:")

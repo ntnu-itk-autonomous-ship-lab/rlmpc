@@ -31,7 +31,7 @@ def objective(trial: optuna.Trial) -> float:
     learning_rate = 5e-5
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
 
-    experiment_name = "sac_rlmpc_param_provider_eval"
+    experiment_name = "sac_rlmpc_pp_eval2"
     data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
     data_filename_list = []
     for i in range(1, 2):

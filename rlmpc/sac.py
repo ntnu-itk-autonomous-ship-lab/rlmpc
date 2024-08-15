@@ -99,7 +99,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
     def __init__(
         self,
-        policy: Type[rlmpc_policies.SACPolicyWithMPC],
+        policy: Type[rlmpc_policies.SACPolicyWithMPC | rlmpc_policies.SACMPCParameterProviderActor],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         buffer_size: int = 1_000,  # 1e6
@@ -125,7 +125,7 @@ class SAC(opa.OffPolicyAlgorithm):
         _init_setup_model: bool = True,
     ):
         policy_kwargs.update({"features_extractor_kwargs": {"batch_size": batch_size}})
-        if hasattr(env.unwrapped, "observation_type") and hasattr(env.unwrapped, "action_type"):
+        if isinstance(policy, rlmpc_policies.SACPolicyWithMPC):
             observation_type = env.unwrapped.observation_type
             action_type = env.unwrapped.action_type
             policy_kwargs.update(
