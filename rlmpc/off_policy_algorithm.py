@@ -108,9 +108,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             sde_sample_freq=1.0,  # Not applicable for RLMPC
             supported_action_spaces=supported_action_spaces,
         )
-        self.policy_kwargs.update(
-            {"observation_type": env.unwrapped.observation_type, "action_type": env.unwrapped.action_type}
-        )
 
         self._last_actions: np.ndarray | None = None
         self._last_actor_info: List[Dict[str, Any]] = [{} for _ in range(self.n_envs)]
@@ -410,7 +407,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         num_collected_steps, num_collected_episodes = 0, 0
 
         assert isinstance(env, VecEnv), "You must pass a VecEnv. "
-        assert env.num_envs == 1, "OffPolicyAlgorithm for RLMPC only support single environment for now."
+        if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+            assert env.num_envs == 1, "Only one environment is supported for SACPolicyWithMPC."
+
         assert self.train_freq.frequency > 0, "Should at least collect one step or episode."
 
         # Vectorize action noise if needed
@@ -429,11 +428,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             self._current_obs = self._last_obs
 
         while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
-            for env_idx in range(env.num_envs):
-                if env.envs[env_idx].unwrapped.time < 0.0001:
-                    self._last_actor_info[env_idx] = {}
-                    action_count = 0
-                    if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+            if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+                for env_idx in range(env.num_envs):
+                    if env.envs[env_idx].unwrapped.time < 0.0001:
                         self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
             t_action_start = time.time()
@@ -457,7 +454,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             t_env_plotting_and_step_start = time.time()
             next_obs, rewards, dones, infos = env.step(actions)
-            # env.render()
 
             # if self.verbose:
             #     print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
@@ -485,6 +481,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
                 num_collected_steps += 1
 
+            self._update_locals(locals())
+
             self.num_timesteps += env.num_envs
             t_callback_start = time.time()
             callback.update_locals(locals())
@@ -495,8 +493,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             # if self.verbose:
             #     print(f"Callback time: {time.time() - t_callback_start:.2f}s")
-
-            self._update_locals(locals())
 
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
@@ -510,9 +506,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     action_count = 0
                     self._last_actor_info[idx] = {}
                     self._last_dones[idx] = False
-                    if not self.env.envs[idx].unwrapped.time < 0.0001:  # only reset if not already reset
-                        self.env.envs[idx].unwrapped.reset()
-                    self.env.envs[idx].unwrapped.terminal_info = infos[idx]
+                    if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+                        if not self.env.envs[idx].unwrapped.time < 0.0001:  # only reset if not already reset
+                            self.env.envs[idx].unwrapped.reset()
+                        self.env.envs[idx].unwrapped.terminal_info = infos[idx]
 
                     if action_noise is not None:
                         kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}

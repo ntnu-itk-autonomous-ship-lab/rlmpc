@@ -60,22 +60,27 @@ class ENCDecoder(nn.Module):
         self.fc_dim = fc_dim
         self.fc_block = nn.Sequential(
             nn.Linear(latent_dim, fc_dim),
-            # nn.ReLU(),
+            nn.ReLU(),
             nn.Linear(fc_dim, first_deconv_input_dim[0] * first_deconv_input_dim[1] * first_deconv_input_dim[2]),
         )
 
-        deconv_input_dim = first_deconv_input_dim[0]
+        deconv_input_channels = first_deconv_input_dim[0]
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
         self.deconv_block = nn.Sequential(
             nn.ConvTranspose2d(
-                in_channels=deconv_input_dim, out_channels=deconv_block_dims[0], kernel_size=3, stride=2, padding=1
+                in_channels=deconv_input_channels, out_channels=deconv_block_dims[0], kernel_size=3, stride=2, padding=1
             ),
+            nn.ReLU(),
             nn.ConvTranspose2d(
                 in_channels=deconv_block_dims[0], out_channels=deconv_block_dims[1], kernel_size=3, stride=2, padding=1
             ),
             nn.ReLU(),
             nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[1],
+                in_channels=deconv_block_dims[1], out_channels=deconv_block_dims[2], kernel_size=3, stride=2, padding=1
+            ),
+            nn.ReLU(),
+            nn.ConvTranspose2d(
+                in_channels=deconv_block_dims[2],
                 out_channels=n_input_channels,
                 kernel_size=4,
                 stride=4,
@@ -102,8 +107,12 @@ class ENCDecoder(nn.Module):
 if __name__ == "__main__":
     from torchsummary import summary
 
-    latent_dimension = 128
-    img_decoder = ENCDecoder(latent_dim=latent_dimension, n_input_channels=1, first_deconv_input_dim=(128, 9, 9)).to(
-        "cuda"
-    )
+    latent_dimension = 32
+    img_decoder = ENCDecoder(
+        latent_dim=latent_dimension,
+        n_input_channels=1,
+        first_deconv_input_dim=(128, 5, 5),
+        deconv_block_dims=[128, 64, 32],
+        fc_dim=512,
+    ).to("cuda")
     summary(img_decoder, (1, latent_dimension), device="cuda")

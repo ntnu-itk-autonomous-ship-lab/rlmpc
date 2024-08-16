@@ -37,21 +37,22 @@ def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_v2_mp")
-    parser.add_argument("--n_cpus", type=int, default=1)
+    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp2")
+    parser.add_argument("--n_cpus", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--buffer_size", type=int, default=20000)
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--buffer_size", type=int, default=40000)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=2)
     parser.add_argument("--n_eval_episodes", type=int, default=1)
-    parser.add_argument("--eval_freq", type=int, default=500)
+    parser.add_argument("--eval_freq", type=int, default=4000)
     parser.add_argument("--timesteps", type=int, default=40000)
+    parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
-    print("Provided args to SAC RLMPC training:")
+    print("Provided args to training SAC with NMPC parameter provider DNN:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
     base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=args.experiment_name)
@@ -72,6 +73,7 @@ def main(args):
             "navigation_3dof_state_observation",
             "tracking_observation",
             "time_observation",
+            "mpc_parameter_observation",
         ]
     }
     env_id = "COLAVEnvironment-v0"
@@ -84,14 +86,15 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.002, 0.002])  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.01 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
         "mpc_param_list": mpc_param_list,
         "std_init": action_noise_std_dev,
-        "deterministic": False,
+        "deterministic": True,
+        "recompile_on_reset": False,
     }
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
@@ -130,7 +133,7 @@ def main(args):
         "hidden_sizes": [256, 128],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
-        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth",
+        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_234_153_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
@@ -138,6 +141,8 @@ def main(args):
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,
         "std_init": param_action_noise_std_dev,
+        "mpc_std_init": action_noise_std_dev,
+        "disable_parameter_provider": args.disable_parameter_provider,
     }
     model_kwargs = {
         "policy": rlmpc_policies.SACPolicyWithMPCParameterProvider,
@@ -147,7 +152,7 @@ def main(args):
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
         "train_freq": (args.train_freq, "step"),
-        "learning_starts": 10,
+        "learning_starts": 0,
         "tau": 0.005,
         "device": "cpu",
         "ent_coef": "auto",
@@ -157,10 +162,10 @@ def main(args):
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
-    load_model = False
-    load_model_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_3000_steps"
-    load_rb_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_replay_buffer"
-    n_timesteps_per_learn = 7500
+    load_model = True
+    load_model_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_3000_steps"
+    load_rb_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_replay_buffer"
+    n_timesteps_per_learn = 10000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
         if i > 0:

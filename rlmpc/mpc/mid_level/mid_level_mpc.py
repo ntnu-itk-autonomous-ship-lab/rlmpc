@@ -171,8 +171,6 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, debug)
 
-        self.build_sensitivities(tau)
-
     def model_prediction(self, xs: np.ndarray, U: np.ndarray, N: int, p: np.ndarray = np.array([])) -> np.ndarray:
         """Predicts the state trajectory of the system using the model.
 

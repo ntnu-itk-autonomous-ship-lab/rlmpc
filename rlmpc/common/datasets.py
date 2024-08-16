@@ -8,13 +8,14 @@
 """
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import colav_simulator.common.math_functions as csmf
 import colav_simulator.gym.logger as csenv_logger
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import rlmpc.mpc.parameters as mpc_params
 import torch
 from torch.utils.data import Dataset
 from torchvision.transforms import v2 as transforms_v2
@@ -162,7 +163,7 @@ class ParameterProviderDataset(Dataset):
         self,
         env_data_pkl_file: str,
         data_dir: Path,
-        num_adjustable_mpc_params: int = 4,
+        param_list: List[str],
         transform=None,
     ):
         """Initializes the dataset.
@@ -174,41 +175,19 @@ class ParameterProviderDataset(Dataset):
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.num_adjustable_mpc_params = num_adjustable_mpc_params
         self.env_data_logger = csenv_logger.Logger(experiment_name="parameter_provider_dataset", log_dir=data_dir)
         self.env_data_logger.load_from_pickle(name=env_data_pkl_file)
         self.timestep = 2.0
-        self.param_list = ["Q_p", "r_safe_do"]
-        self.dnn_out_parameter_ranges = {
-            "Q_p": [[0.05, 2.5], [2.0, 50.0], [2.0, 50.0]],
-            "K_app_course": [0.1, 150.0],
-            "K_app_speed": [0.1, 150.0],
-            "d_attenuation": [10.0, 800.0],
-            "w_colregs": [0.1, 500.0],
-            "r_safe_do": [5.0, 100.0],
-        }
-        self.dnn_out_parameter_incr_ranges = {
-            "Q_p": [[-0.25, 0.25], [-2.0, 2.0], [-2.0, 2.0]],
-            "K_app_course": [-5.0, 5.0],
-            "K_app_speed": [-5.0, 5.0],
-            "d_attenuation": [-50.0, 50.0],
-            "w_colregs": [-10.0, 10.0],
-            "r_safe_do": [-5.0, 5.0],
-        }
-        self.dnn_out_parameter_lengths = {
-            "Q_p": 3,
-            "K_app_course": 1,
-            "K_app_speed": 1,
-            "d_attenuation": 1,
-            "w_colregs": 3,
-            "r_safe_do": 1,
-        }
+        self.param_list = param_list
+        self.dnn_out_parameter_ranges, self.dnn_out_parameter_incr_ranges, self.dnn_out_parameter_lengths = (
+            mpc_params.MidlevelMPCParams.get_adjustable_parameter_info()
+        )
         offset = 0
         self.out_parameter_indices = {}
         for param in self.param_list:
             self.out_parameter_indices[param] = offset
             offset += self.dnn_out_parameter_lengths[param]
-
+        self.num_adjustable_mpc_params = offset
         self._setup_data()
 
     def get_datainfo(self) -> Tuple[int, int, int, int]:
@@ -231,7 +210,7 @@ class ParameterProviderDataset(Dataset):
                 distances_to_collision=epdata.distances_to_collision,
                 add_noise_to_preferences=True if epdata.episode > 0 else False,
             )
-            dnn_input_features[:, -4:] = new_norm_mpc_params
+            dnn_input_features[:, -self.num_adjustable_mpc_params :] = new_norm_mpc_params
             self.data.append((epdata.episode, n_timesteps, (dnn_input_features, norm_param_incr_preferences)))
 
         self.n_episodes = len(self.data)
@@ -282,106 +261,143 @@ class ParameterProviderDataset(Dataset):
             # ramp3: Ned til 5.0 m igjen frå ish t = 190.0s til 200.0s.
             # ramp4: Opp til 30.0m frå ish t = 234.0s til 254.0s.
             # ved d2collision > 500.0m, ingen endring i r_safe_do pga irrelevant.
+            # # Mink då K_app_course og K_app_speed med 25% av max increment ved d2collision > 300.0m
             # søk unary op on numpy array, apply ramp func
 
             # ved gitt terskel til kollisjon, auke Q_p med max increment
             if t >= 30.0 and t < 100.0:
                 if t == 30.0:
                     unnorm_params_1 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp = (5.0 - unnorm_params_1[-1]) / ((100.0 - 30.0) / self.timestep)
+                ramp_r_safe_do = (5.0 - unnorm_params_1[-1]) / ((100.0 - 30.0) / self.timestep)
             elif t >= 124.0 and t < 160.0:
                 if t == 124.0:
                     unnorm_params_2 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp = (15.0 - unnorm_params_2[-1]) / ((160.0 - 124.0) / self.timestep)
+                ramp_r_safe_do = (15.0 - unnorm_params_2[-1]) / ((160.0 - 124.0) / self.timestep)
             elif t >= 190.0 and t < 200.0:
                 if t == 190.0:
                     unnorm_params_3 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp = (5.0 - unnorm_params_3[-1]) / ((200.0 - 190.0) / self.timestep)
+                ramp_r_safe_do = (5.0 - unnorm_params_3[-1]) / ((200.0 - 190.0) / self.timestep)
             elif t >= 234.0 and t < 254.0:
                 if t == 234.0:
                     unnorm_params_4 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp = (30.0 - unnorm_params_4[-1]) / ((254.0 - 234.0) / self.timestep)
+                ramp_r_safe_do = (30.0 - unnorm_params_4[-1]) / ((254.0 - 234.0) / self.timestep)
             else:
-                ramp = 0.0
+                ramp_r_safe_do = 0.0
 
-            unnorm_param_increments[k, 3] = np.clip(
-                ramp,
+            unnorm_param_increments[k, -1] = np.clip(
+                ramp_r_safe_do,
                 self.dnn_out_parameter_incr_ranges["r_safe_do"][0],
                 self.dnn_out_parameter_incr_ranges["r_safe_do"][1],
             )
             # if next_10s_d2collision > d2collision_threshold
             idx_10s_ahead = min(k + int(10.0 / self.timestep), n_timesteps - 1)
-            if np.all(distances_to_collision[k:idx_10s_ahead] > d2collision_threshold):
-                if not (k > 0 and new_unnorm_mpc_params[k - 1, 0] >= 1.5):
-                    unnorm_param_increments[k, 0] = self.dnn_out_parameter_incr_ranges["Q_p"][0][1]
-                    unnorm_param_increments[k, 1] = 0.25 * self.dnn_out_parameter_incr_ranges["Q_p"][1][1]
-                    unnorm_param_increments[k, 2] = 0.25 * self.dnn_out_parameter_incr_ranges["Q_p"][2][1]
+            if np.all(distances_to_collision[k:idx_10s_ahead] > 0.6 * d2collision_threshold):
+                if not (k > 0 and new_unnorm_mpc_params[k - 1, 0] >= 2.0):
+                    unnorm_param_increments[k, 0] = 0.5 * self.dnn_out_parameter_incr_ranges["Q_p"][0][1]
+                    unnorm_param_increments[k, 1] = 0.5 * self.dnn_out_parameter_incr_ranges["Q_p"][1][1]
+                    unnorm_param_increments[k, 2] = 0.5 * self.dnn_out_parameter_incr_ranges["Q_p"][2][1]
+                unnorm_param_increments[k, 3] = 0.5 * self.dnn_out_parameter_incr_ranges["K_app_course"][0]
+                unnorm_param_increments[k, 4] = 0.5 * self.dnn_out_parameter_incr_ranges["K_app_speed"][0]
+                unnorm_param_increments[k, 5] = 0.5 * self.dnn_out_parameter_incr_ranges["w_colregs"][0]
+                unnorm_param_increments[k, 6] = 0.5 * self.dnn_out_parameter_incr_ranges["w_colregs"][0]
+                unnorm_param_increments[k, 7] = 0.5 * self.dnn_out_parameter_incr_ranges["w_colregs"][0]
 
             next_idx = min(k + 1, n_timesteps - 1)
             if (
-                distances_to_collision[k] < 0.5 * d2collision_threshold
+                distances_to_collision[k] < 0.8 * d2collision_threshold
                 and distances_to_collision[next_idx] < distances_to_collision[k]
             ):
-                unnorm_param_increments[k, 0] = self.dnn_out_parameter_incr_ranges["Q_p"][0][0]
-                unnorm_param_increments[k, 1] = 0.25 * self.dnn_out_parameter_incr_ranges["Q_p"][1][0]
-                unnorm_param_increments[k, 2] = 0.25 * self.dnn_out_parameter_incr_ranges["Q_p"][2][0]
+                unnorm_param_increments[k, 0] = 0.5 * self.dnn_out_parameter_incr_ranges["Q_p"][0][0]
+                unnorm_param_increments[k, 1] = 0.5 * self.dnn_out_parameter_incr_ranges["Q_p"][1][0]
+                unnorm_param_increments[k, 2] = 0.5 * self.dnn_out_parameter_incr_ranges["Q_p"][2][0]
+                if new_unnorm_mpc_params[k - 1, 3] < 100.0:
+                    unnorm_param_increments[k, 3] = 0.5 * self.dnn_out_parameter_incr_ranges["K_app_course"][1]
+                    unnorm_param_increments[k, 4] = 0.5 * self.dnn_out_parameter_incr_ranges["K_app_speed"][1]
+                if new_unnorm_mpc_params[k - 1, 5] < 150.0:
+                    unnorm_param_increments[k, 5] = 0.5 * self.dnn_out_parameter_incr_ranges["w_colregs"][1]
+                    unnorm_param_increments[k, 6] = 0.5 * self.dnn_out_parameter_incr_ranges["w_colregs"][1]
+                    unnorm_param_increments[k, 7] = 0.5 * self.dnn_out_parameter_incr_ranges["w_colregs"][1]
 
             if add_noise_to_preferences:
-                eps = 1e-6
-                if abs(unnorm_param_increments[k, 0]) > eps:
-                    unnorm_param_increments[k, 0] = np.clip(
-                        unnorm_param_increments[k, 0] + np.random.normal(0.0, 0.005),
-                        self.dnn_out_parameter_incr_ranges["Q_p"][0][0],
-                        self.dnn_out_parameter_incr_ranges["Q_p"][0][1],
-                    )
-                if abs(unnorm_param_increments[k, 1]) > eps:
-                    unnorm_param_increments[k, 1] = np.clip(
-                        unnorm_param_increments[k, 1] + np.random.normal(0.0, 0.01),
-                        self.dnn_out_parameter_incr_ranges["Q_p"][1][0],
-                        self.dnn_out_parameter_incr_ranges["Q_p"][1][1],
-                    )
-                if abs(unnorm_param_increments[k, 2]) > eps:
-                    unnorm_param_increments[k, 2] = np.clip(
-                        unnorm_param_increments[k, 2] + np.random.normal(0.0, 0.01),
-                        self.dnn_out_parameter_incr_ranges["Q_p"][2][0],
-                        self.dnn_out_parameter_incr_ranges["Q_p"][2][1],
-                    )
-                if abs(unnorm_param_increments[k, 3]) > eps:
-                    unnorm_param_increments[k, 3] = np.clip(
-                        unnorm_param_increments[k, 3] + np.random.normal(0.0, 0.01),
-                        self.dnn_out_parameter_incr_ranges["r_safe_do"][0],
-                        self.dnn_out_parameter_incr_ranges["r_safe_do"][1],
-                    )
+                unnorm_param_increments = self.add_noise_to_preferences(unnorm_param_increments, k)
 
             norm_param_increments[k, :] = self._normalize_parameter_increments(unnorm_param_increments[k, :])
             if k > 0:
                 new_unnorm_mpc_params[k, :] = new_unnorm_mpc_params[k - 1, :] + unnorm_param_increments[k, :]
-                new_unnorm_mpc_params[k, 0] = np.clip(
-                    new_unnorm_mpc_params[k, 0],
-                    self.dnn_out_parameter_ranges["Q_p"][0][0],
-                    self.dnn_out_parameter_ranges["Q_p"][0][1],
-                )
-                new_unnorm_mpc_params[k, 1] = np.clip(
-                    new_unnorm_mpc_params[k, 1],
-                    self.dnn_out_parameter_ranges["Q_p"][1][0],
-                    self.dnn_out_parameter_ranges["Q_p"][1][1],
-                )
-                new_unnorm_mpc_params[k, 2] = np.clip(
-                    new_unnorm_mpc_params[k, 2],
-                    self.dnn_out_parameter_ranges["Q_p"][2][0],
-                    self.dnn_out_parameter_ranges["Q_p"][2][1],
-                )
-                new_unnorm_mpc_params[k, 3] = np.clip(
-                    new_unnorm_mpc_params[k, 3],
-                    self.dnn_out_parameter_ranges["r_safe_do"][0],
-                    self.dnn_out_parameter_ranges["r_safe_do"][1],
-                )
-            new_norm_mpc_params[k, :] = self._normalize_parameters(new_unnorm_mpc_params[k, :])
 
-        # ramp function from initial norm mpc param
-        # decrease to
+            new_norm_mpc_params[k, :] = self._normalize_parameters(new_unnorm_mpc_params[k, :])  # clips to -1.0, 1.0
+            new_unnorm_mpc_params[k, :] = self._unnormalize_parameters(new_norm_mpc_params[k, :])
+
         # self.plot_ad_hoc_preferences(new_unnorm_mpc_params)
         return norm_param_increments, new_norm_mpc_params
+
+    def add_noise_to_preferences(self, unnorm_param_increments: np.ndarray, k: int) -> np.ndarray:
+        """Adds noise to the parameter increments.
+
+        Args:
+            unnorm_param_increments (np.ndarray): The unnormalized parameter increments.
+            k (int): The timestep index.
+
+        Returns:
+            np.ndarray: The updated parameter increments.
+        """
+        assert unnorm_param_increments.shape[1] == 9, "The parameter increments must have shape (n_timesteps, 9)"
+        eps = 1e-6
+        if abs(unnorm_param_increments[k, 0]) > eps:
+            unnorm_param_increments[k, 0] = np.clip(
+                unnorm_param_increments[k, 0] + np.random.normal(0.0, 0.005),
+                self.dnn_out_parameter_incr_ranges["Q_p"][0][0],
+                self.dnn_out_parameter_incr_ranges["Q_p"][0][1],
+            )
+        if abs(unnorm_param_increments[k, 1]) > eps:
+            unnorm_param_increments[k, 1] = np.clip(
+                unnorm_param_increments[k, 1] + np.random.normal(0.0, 0.5),
+                self.dnn_out_parameter_incr_ranges["Q_p"][1][0],
+                self.dnn_out_parameter_incr_ranges["Q_p"][1][1],
+            )
+        if abs(unnorm_param_increments[k, 2]) > eps:
+            unnorm_param_increments[k, 2] = np.clip(
+                unnorm_param_increments[k, 2] + np.random.normal(0.0, 0.5),
+                self.dnn_out_parameter_incr_ranges["Q_p"][2][0],
+                self.dnn_out_parameter_incr_ranges["Q_p"][2][1],
+            )
+        if abs(unnorm_param_increments[k, 3]) > eps:
+            unnorm_param_increments[k, 3] = np.clip(
+                unnorm_param_increments[k, 3] + np.random.normal(0.0, 1.0),
+                self.dnn_out_parameter_incr_ranges["K_app_course"][0],
+                self.dnn_out_parameter_incr_ranges["K_app_course"][1],
+            )
+        if abs(unnorm_param_increments[k, 4]) > eps:
+            unnorm_param_increments[k, 4] = np.clip(
+                unnorm_param_increments[k, 4] + np.random.normal(0.0, 1.0),
+                self.dnn_out_parameter_incr_ranges["K_app_speed"][0],
+                self.dnn_out_parameter_incr_ranges["K_app_speed"][1],
+            )
+        if abs(unnorm_param_increments[k, 5]) > eps:
+            unnorm_param_increments[k, 5] = np.clip(
+                unnorm_param_increments[k, 5] + np.random.normal(0.0, 1.0),
+                self.dnn_out_parameter_incr_ranges["w_colregs"][0],
+                self.dnn_out_parameter_incr_ranges["w_colregs"][1],
+            )
+        if abs(unnorm_param_increments[k, 6]) > eps:
+            unnorm_param_increments[k, 6] = np.clip(
+                unnorm_param_increments[k, 6] + np.random.normal(0.0, 1.0),
+                self.dnn_out_parameter_incr_ranges["w_colregs"][0],
+                self.dnn_out_parameter_incr_ranges["w_colregs"][1],
+            )
+        if abs(unnorm_param_increments[k, 7]) > eps:
+            unnorm_param_increments[k, 7] = np.clip(
+                unnorm_param_increments[k, 7] + np.random.normal(0.0, 1.0),
+                self.dnn_out_parameter_incr_ranges["w_colregs"][0],
+                self.dnn_out_parameter_incr_ranges["w_colregs"][1],
+            )
+        if abs(unnorm_param_increments[k, 8]) > eps:
+            unnorm_param_increments[k, 8] = np.clip(
+                unnorm_param_increments[k, 8] + np.random.normal(0.0, 0.05),
+                self.dnn_out_parameter_incr_ranges["r_safe_do"][0],
+                self.dnn_out_parameter_incr_ranges["r_safe_do"][1],
+            )
+        return unnorm_param_increments
 
     def plot_ad_hoc_preferences(
         self,
@@ -392,24 +408,43 @@ class ParameterProviderDataset(Dataset):
 
         Args:
             new_unnorm_mpc_params (np.ndarray): New unnorm mpc params.
+            pred_norm_mpc_param_incr (Optional[np.ndarray]): Predicted norm mpc param increments from the DNN.
         """
+        assert new_unnorm_mpc_params.shape[1] == 9, "The parameter increments must have shape (n_timesteps, 9)"
         n_timesteps = new_unnorm_mpc_params.shape[0]
         times = np.arange(0, n_timesteps * self.timestep, self.timestep)
         matplotlib.use("TkAgg")
-        _, ax = plt.subplots(2, 2, figsize=(8, 8))
-        ax[0, 0].plot(times, new_unnorm_mpc_params[:, 0], label="Q_p[0]")
-        ax[0, 0].set_title("Q_p[0]")
-        ax[0, 1].plot(times, new_unnorm_mpc_params[:, 1], label="Q_p[1]")
-        ax[0, 1].set_title("Q_p[1]")
-        ax[1, 0].plot(times, new_unnorm_mpc_params[:, 2], label="Q_p[2]")
-        ax[1, 0].set_title("Q_p[2]")
-        ax[1, 1].plot(times, new_unnorm_mpc_params[:, 3], label="r_safe_do")
-        ax[1, 1].set_title("r_safe_do")
+        _, ax = plt.subplots(4, 1, figsize=(8, 8))
+        ax[0].semilogy(times, new_unnorm_mpc_params[:, 0], label="Q_p[0]")
+        ax[0].plot(times, new_unnorm_mpc_params[:, 1], label="Q_p[1]")
+        ax[0].plot(times, new_unnorm_mpc_params[:, 2], label="Q_p[2]")
+        ax[0].legend()
+
+        ax[1].plot(times, new_unnorm_mpc_params[:, 3], label="K_app_course")
+        ax[1].plot(times, new_unnorm_mpc_params[:, 4], label="K_app_speed")
+        ax[1].legend()
+
+        ax[2].plot(times, new_unnorm_mpc_params[:, 5], label="w_colregs[0]")
+        ax[2].plot(times, new_unnorm_mpc_params[:, 6], label="w_colregs[1]")
+        ax[2].plot(times, new_unnorm_mpc_params[:, 7], label="w_colregs[2]")
+        ax[2].legend()
+
+        ax[3].plot(times, new_unnorm_mpc_params[:, 8], label="r_safe_do")
+        ax[3].set_xlabel("Time [s]")
+        ax[3].legend()
         if pred_norm_mpc_param_incr is not None:
-            ax[0, 0].plot(times, pred_norm_mpc_param_incr[:, 0], label="pred Q_p[0]")
-            ax[0, 1].plot(times, pred_norm_mpc_param_incr[:, 1], label="pred Q_p[1]")
-            ax[1, 0].plot(times, pred_norm_mpc_param_incr[:, 2], label="pred Q_p[2]")
-            ax[1, 1].plot(times, pred_norm_mpc_param_incr[:, 3], label="pred r_safe_do")
+            ax[0].plot(times, pred_norm_mpc_param_incr[:], label="pred Q_p[0]")
+            ax[1].plot(times, pred_norm_mpc_param_incr[:, 1], label="pred Q_p[1]")
+            ax[2].plot(times, pred_norm_mpc_param_incr[:, 2], label="pred Q_p[2]")
+
+            ax[1].plot(times, pred_norm_mpc_param_incr[:, 3], label="pred K_app_course")
+            ax[1].plot(times, pred_norm_mpc_param_incr[:, 4], label="pred K_app_speed")
+
+            ax[2].plot(times, pred_norm_mpc_param_incr[:, 5], label="pred w_colregs[0]")
+            ax[2].plot(times, pred_norm_mpc_param_incr[:, 6], label="pred w_colregs[1]")
+            ax[2].plot(times, pred_norm_mpc_param_incr[:, 7], label="pred w_colregs[2]")
+
+            ax[3].plot(times, pred_norm_mpc_param_incr[:, 8], label="pred r_safe_do")
         plt.show(block=False)
 
     def test_model_on_episode_data(self, model) -> None:
@@ -466,7 +501,7 @@ class ParameterProviderDataset(Dataset):
                 else:
                     x_param[j] = csmf.linear_map(x_param[j], tuple(param_range), (-1.0, 1.0))
             x_norm[pindx : pindx + param_length] = x_param
-        return x_norm
+        return np.clip(x_norm, -1.0, 1.0)
 
     def _normalize_parameter_increments(self, x: np.ndarray) -> np.ndarray:
         """Normalize the input parameter increment.

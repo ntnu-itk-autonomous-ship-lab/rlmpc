@@ -99,7 +99,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
     def __init__(
         self,
-        policy: Type[rlmpc_policies.SACPolicyWithMPC],
+        policy: Type[rlmpc_policies.SACPolicyWithMPC | rlmpc_policies.SACMPCParameterProviderActor],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         buffer_size: int = 1_000,  # 1e6
@@ -124,13 +124,16 @@ class SAC(opa.OffPolicyAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
     ):
-        policy_kwargs.update(
-            {
-                "observation_type": env.unwrapped.observation_type,
-                "action_type": env.unwrapped.action_type,
-                "features_extractor_kwargs": {"batch_size": batch_size},
-            }
-        )
+        policy_kwargs.update({"features_extractor_kwargs": {"batch_size": batch_size}})
+        if isinstance(policy, rlmpc_policies.SACPolicyWithMPC):
+            observation_type = env.unwrapped.observation_type
+            action_type = env.unwrapped.action_type
+            policy_kwargs.update(
+                {
+                    "observation_type": observation_type,
+                    "action_type": action_type,
+                }
+            )
         super().__init__(
             policy,
             env,
@@ -241,7 +244,7 @@ class SAC(opa.OffPolicyAlgorithm):
         self.load_critics(path=path)
         self.log_ent_coef = th.load(pathlib.Path(str(path) + "_log_ent_coef.pth"))
         # self.actor.mpc.load_params(pathlib.Path(str(path) + "_actor.yaml"))
-        self.actor.mpc_param_provider.load_state_dict(th.load(pathlib.Path(str(path) + "_mpc_param_provider.pth")))
+        # self.actor.mpc_param_provider.load_state_dict(th.load(pathlib.Path(str(path) + "_mpc_param_provider.pth")))
 
     def _create_aliases(self) -> None:
         self.actor = self.policy.actor
@@ -429,9 +432,10 @@ class SAC(opa.OffPolicyAlgorithm):
         critic_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
         assert isinstance(critic_loss, th.Tensor)  # for type checker
 
-        self.critic.optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic.optimizer.step()
+        if critic_loss.item() < 5e4:  # avoid exploding gradients
+            self.critic.optimizer.zero_grad()
+            critic_loss.backward()
+            self.critic.optimizer.step()
 
         if gradient_step % self.target_update_interval == 0:
             polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
@@ -470,7 +474,7 @@ class SAC(opa.OffPolicyAlgorithm):
         dnn_input = self.extract_mpc_param_provider_inputs(replay_data)
         dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input)
 
-        alpha = 10.0  # amplification factor for the mpc_param_provider gradients
+        alpha = 1.0  # amplification factor for the mpc_param_provider gradients
         actor_loss = 0.0
         mpc_param_grad_norm = 0.0
         actor_grad = th.zeros(self.actor.mpc_param_provider.num_params)
@@ -481,7 +485,7 @@ class SAC(opa.OffPolicyAlgorithm):
         if isinstance(self.actor, rlmpc_policies.SACMPCActor):
             cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
         else:
-            cov_inv = th.inverse(th.diag(th.exp(self.actor.action_type.log_std)))
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.mpc_log_std)))
         for b in range(batch_size):
             actor_info = replay_data.infos[b]["actor_info"]
             if not actor_info["optimal"]:

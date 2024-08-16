@@ -36,7 +36,8 @@ plt.rcParams.update(
     }
 )
 
-if __name__ == "__main__":
+
+def test_colregs_cost():
     inf_val = mpc_common.potential_field_base_function(-np.inf)
 
     npy = 100
@@ -88,4 +89,6 @@ if __name__ == "__main__":
         colregs_weights,
     )
 
-    print("done")
+
+if __name__ == "__main__":
+    test_colregs_cost()

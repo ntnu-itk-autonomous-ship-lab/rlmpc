@@ -143,11 +143,11 @@ class CollectStatisticsCallback(BaseCallback):
             "batch_processing_time": 0.0,
             "ep_rew_mean": model.logger.name_to_value["train/ep_rew_mean"],
             "actor_loss": model.logger.name_to_value["train/actor_loss"],
+            "actor_grad_norm": model.logger.name_to_value["train/actor_grad_norm"],
             "critic_loss": model.logger.name_to_value["train/critic_loss"],
             "ent_coef_loss": model.logger.name_to_value["train/ent_coef_loss"],
             "ent_coef": model.logger.name_to_value["train/ent_coef"],
             "learning_rate": model.logger.name_to_value["train/learning_rate"],
-            "actor_grad_norm": 0.0,
         }
         just_trained = False
         if info["n_updates"] > self.n_updates_prev:
@@ -220,10 +220,10 @@ class CollectStatisticsCallback(BaseCallback):
                     self.model.just_trained = False
 
             current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
-            if "ENCObservation" in current_obs:
-                pimg = th.from_numpy(current_obs["ENCObservation"])
+            if "PerceptionImageObservation" in current_obs:
+                pimg = th.from_numpy(current_obs["PerceptionImageObservation"])
                 pimg = self.img_transform(pimg)
-                pvae = self.model.critic.features_extractor.extractors["ENCObservation"]
+                pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
                 recon_frame = pvae.reconstruct(pimg)
                 # pvae.display_image(self.display_transform(pimg))
                 # pvae.display_image(self.display_transform(recon_frame))
@@ -503,6 +503,7 @@ def evaluate_policy(
     record_name: str = "eval",
     record_type: str = "gif",
     env_data_logger: Optional[colav_env_logger.Logger] = None,
+    seed: Optional[int] = None,
 ) -> Union[Tuple[float, float], Tuple[List[float], List[int]]]:
     """
     Custom version of the evaluate_policy function from stable_baselines3.common.evaluation.py.
@@ -566,7 +567,9 @@ def evaluate_policy(
         )
 
     n_envs = env.num_envs
-    assert n_envs == 1, "Only one environment is supported for now."
+    if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+        assert n_envs == 1, "Only one environment is supported for an MPC policy."
+
     episode_rewards = []
     episode_lengths = []
     episode_counts = np.zeros(n_envs, dtype="int")
@@ -585,21 +588,23 @@ def evaluate_policy(
                 env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0
             )
 
+    env.seed(seed)
     observations = env.reset()
-    states = None
+
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     if env_data_logger is not None:
         env_data_logger.reset_data_structures(env_idx=0)
+
     is_mpc_policy = isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC) or isinstance(
         model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider
     )
     frames = []
+    states = None
     actor_infos = [{} for _ in range(n_envs)]
+    last_actor_info = [{} for _ in range(n_envs)]
     while (episode_counts < episode_count_targets).any():
-        if env.envs[0].unwrapped.time < 0.0001 and is_mpc_policy:
-            states = None
-            last_actor_info = [{} for _ in range(n_envs)]
-            if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+        if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
+            if env.envs[0].unwrapped.time < 0.0001:
                 model.policy.initialize_actor(env.envs[0], evaluate=True)
 
         if is_mpc_policy:
@@ -653,12 +658,14 @@ def evaluate_policy(
                     callback(locals(), globals())
 
                 if dones[i]:
-                    env.envs[i].unwrapped.terminal_info = infos[i]
+                    if isinstance(env, DummyVecEnv):
+                        env.envs[i].unwrapped.terminal_info = infos[i]
 
                     if env_data_logger is not None:
                         env_data_logger.save_as_pickle(f"{record_name}_env_data")
 
                     if is_mpc_policy:
+                        states[i] = {}
                         actor_infos[i] = {}
                         last_actor_info[i] = {}
                     if is_monitor_wrapped:

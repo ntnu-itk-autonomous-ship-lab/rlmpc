@@ -341,7 +341,9 @@ class AntiGroundingRewarder(cs_reward.IReward):
                 d2so = np.linalg.norm(
                     mapf.compute_distance_vectors_to_grounding(self.env.ownship.state, self._min_depth, self.env.enc)
                 )
-                print(f"Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]} | d2so={d2so}.")
+                print(
+                    f"[{self.env.env_id.upper()}] Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]} | d2so={d2so}."
+                )
         grounding_cost = self._config.rho_anti_grounding * g_so.sum()
 
         # Add extra cost if the ship is grounded in the simulator (i.e. the ship is on land)
@@ -394,7 +396,9 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
             g_do[i] = self.compute_dynamic_obstacle_constraint(do_tup)
             g_do[i] = np.clip(g_do[i], 0.0, 1.0)
             if g_do[i] > 0.0:
-                print(f"Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}.")
+                print(
+                    f"[{self.env.env_id.upper()}] Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}."
+                )
 
         colav_cost = self._config.rho_colav * g_do.sum()
 

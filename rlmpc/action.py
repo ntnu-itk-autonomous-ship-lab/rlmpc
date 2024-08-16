@@ -40,6 +40,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         mpc_param_list: List[str] = ["Q_p", "r_safe_do"],
         mpc_config_path: Path = rl_dp.config / "rlmpc.yaml",
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
+        recompile_on_reset: bool = False,
         deterministic: bool = True,
         debug: bool = False,
     ) -> None:
@@ -56,6 +57,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.mpc_params = self.mpc.get_mpc_params()
         self.mpc_action_dim = 2
         self.mpc_sensitivities = None
+        self.recompile_on_reset = recompile_on_reset
 
         nx, nu = self.mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
@@ -148,6 +150,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         """
         self.t_prev = 0.0
         self.action_result = csgym_action.ActionResult(success=True, info={})
+        self.last_action = np.zeros(self.mpc_action_dim)
         self.prev_noise_action = th.zeros(self.mpc_action_dim)
         t = self.env.time
         waypoints = self.env.ownship.waypoints
@@ -166,11 +169,13 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             do_list=do_list,
             enc=enc,
             debug=self.debug,
+            recompile=self.env.episodes == 1 or self.recompile_on_reset,
             **kwargs,
         )
         self.build_sensitivities = build_sensitivities
         if build_sensitivities:
-            self.mpc_sensitivities = self.mpc.build_sensitivities()
+            if self.mpc_sensitivities is None or self.recompile_on_reset:
+                self.mpc_sensitivities = self.mpc.build_sensitivities()
         print(f"[{self.env.env_id.upper()}] MPC initialized! Built sensitivities? {build_sensitivities}")
 
     def extract_mpc_observation_features(self) -> Tuple[float, np.ndarray, List, stochasticity.DisturbanceData]:
@@ -280,44 +285,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         norm_action = norm_action.numpy()
         return expln_action.numpy()
 
-    def mpc_action_log_prob(
-        self,
-        obs: rlmpc_buffers.TensorDict,
-        actions: Optional[th.Tensor] = None,
-        infos: Optional[List[Dict[str, Any]]] = None,
-        is_next_action: bool = False,
-    ) -> Tuple[th.Tensor, th.Tensor]:
-        """Computes the log probability of the policy distribution for the given observation.
-
-        Args:
-            obs (th.Tensor): Observations
-            actions (th.Tensor): (MPC) Actions to evaluate the log probability for
-            infos (Optional[List[Dict[str, Any]]], optional): Additional information.
-            is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
-
-        Returns:
-            Tuple[th.Tensor, th.Tensor]:
-        """
-        # If a proper stochastic policy is used, we need to solve a perturbed MPC problem
-        # action = self.mpc.act(t, ownship_state, do_list, w, prev_soln, perturb=True)
-        # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
-        #
-        # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
-        assert infos is not None, "Infos must be provided when using ad hoc stochastic policy"
-        actor_str = "actor_info" if not is_next_action else "next_actor_info"
-        if infos is not None:
-            # Extract mean of the policy distribution = MPC action for the given observation
-            norm_mpc_actions = np.array([info[actor_str]["norm_mpc_action"] for info in infos], dtype=np.float32)
-            norm_mpc_actions = th.from_numpy(norm_mpc_actions)
-
-        if isinstance(actions, np.ndarray):
-            actions = th.from_numpy(actions)
-
-        self.action_dist = self.action_dist.proba_distribution(mean_actions=norm_mpc_actions, log_std=self.log_std)
-        log_prob = self.action_dist.log_prob(actions)
-
-        return log_prob
-
     def sample_mpc_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
         """Sample an action from the policy distribution with mean from the input MPC action
 
@@ -374,7 +341,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         norm_mpc_action = self.normalize_mpc_action(mpc_action)
         expl_action = norm_mpc_action
-        if not self.deterministic:
+        if not self.deterministic and self.env.time > 2.0:
             expl_action = self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
 
         mpc_info.update(
@@ -384,6 +351,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
                 "norm_mpc_action": norm_mpc_action,
                 "unnorm_mpc_action": mpc_action,
                 "expl_action": expl_action,
+                "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
             }
         )
 

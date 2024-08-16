@@ -134,7 +134,7 @@ class AugmentedKinematicCSOG(MPCModel):
     def dims(self) -> Tuple[int, int]:
         return 6, 2
 
-    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+    def setup_equations_of_motion(self, **kwargs) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the kinematic model
 
         Returns:
@@ -308,7 +308,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         s_min = self._params.s_min
         s_max = self._params.s_max
         s_dot_max = self._params.s_dot_max
-        approx_inf = 2000.0  # to avoid numerical issues in acados
+        approx_inf = 1800.0  # to avoid numerical issues in acados
         self.lbu = np.array([-r_max, -a_max, -a_max])
         self.ubu = np.array([r_max, a_max, a_max])
         self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -U_max, s_min, 0.0])
@@ -328,8 +328,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self._params.s_max = s_max
         self.ubx[4] = s_max
 
-    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
-        """Forms the equations of motion for the kinematic model"""
+    def setup_equations_of_motion(self, **kwargs) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         nx, nu = self.dims()
         x = csd.MX.sym("x", nx)
         u = csd.MX.sym("u", nu)

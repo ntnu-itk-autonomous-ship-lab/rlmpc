@@ -135,6 +135,7 @@ class AcadosMPC:
         """Resets the MPC."""
         self._initialized = False
         self._xs_prev = np.array([])
+        self._s = 0.000000001
         self._prev_cost = 1e6
         self._prev_sol_status = 0
         self._t_prev = 0.0
@@ -406,6 +407,9 @@ class AcadosMPC:
         n_iter = self._acados_ocp_solver.get_stats("sqp_iter")
         final_residuals = self._acados_ocp_solver.get_stats("residuals")
         success = True if status == 0 else False
+        qp_failure = False
+        if status_str == "QPFailure":
+            qp_failure = True
 
         # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
         inputs, trajectory, slacks, lam_g = self._get_solution(self._acados_ocp_solver)
@@ -422,7 +426,7 @@ class AcadosMPC:
         # so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
         # self._x_warm_start = trajectory.copy()
         # self._u_warm_start = inputs.copy()
-        if verbose:
+        if verbose or (qp_failure and t < 2.0):
             np.set_printoptions(precision=3)
             print(
                 f"[ACADOS {self.identifier.upper()}] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
@@ -433,11 +437,6 @@ class AcadosMPC:
             xs_unwrapped, do_cr_list, do_ho_list, do_ot_list, prev_opt_abs_action=warm_start["prev_opt_abs_action"]
         )
         self._t_prev = t
-
-        qp_failure = False
-        if status_str == "QPFailure":
-            qp_failure = True
-        self._prev_sol_status = status
 
         output = {
             "soln": soln,
@@ -732,10 +731,11 @@ class AcadosMPC:
         n_path_constr = self._params.max_num_so_constr + self._params.max_num_do_constr_per_zone * n_colregs_zones
         nx_do = 6
         X_do = csd.MX.sym("X_do", nx_do * self._params.max_num_do_constr_per_zone * n_colregs_zones)
+        p_fixed.append(X_do)
+
         so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
             so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=debug
         )
-        p_fixed.append(X_do)
         so_surfaces = so_surfaces[0]
         self._so_surfaces = so_surfaces
 
@@ -831,11 +831,12 @@ class AcadosMPC:
             d_attenuation,
             colregs_weights,
         )
+        small_input_cost = 1e-5 * u.T @ u
         self._acados_ocp.model.cost_expr_ext_cost_0 = (
-            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost
+            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
         )
         self._acados_ocp.model.cost_expr_ext_cost = (
-            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost
+            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
         )
         self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + speed_dev_cost
 
@@ -978,12 +979,23 @@ class AcadosMPC:
             - np.ndarray: Parameter vector to be used as input to solver
         """
         _, nu = self._acados_ocp.dims.nx, self._acados_ocp.dims.nu
+        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
+        p_goal = np.array(list(self.path_linestring.coords[-1]))
+        d2goal = np.linalg.norm(xs[0:2] - p_goal)
 
         adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
         action_stage_index = self.action_indices_to_stage_index()
         if "K_prev_sol_dev" in self._adjustable_param_str_list and stage_idx != action_stage_index:
             adjustable_params[3] = 0.0
             adjustable_params[4] = 0.0
+
+        if n_dos == 0 or d2goal < 150.0 and "K_app_course" in self._adjustable_param_str_list:
+            if "K_prev_sol_dev" in self._adjustable_param_str_list:
+                adjustable_params[5] = 10.0
+                adjustable_params[6] = 5.0
+            else:
+                adjustable_params[3] = 10.0
+                adjustable_params[4] = 5.0
 
         # if stage_idx == 0 and self.verbose:
         #     print(f"Adjustable params: {adjustable_params}")
@@ -1006,10 +1018,7 @@ class AcadosMPC:
         do_ot_parameter_values = self._create_do_parameter_values(xs, do_ot_list, stage_idx)
         self._X_do.append(np.array(do_cr_parameter_values + do_ho_parameter_values + do_ot_parameter_values))
 
-        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
-        p_goal = np.array(list(self.path_linestring.coords[-1]))
-        d2goal = np.linalg.norm(xs[0:2] - p_goal)
-        if n_dos == 0 or d2goal < 150.0:
+        if n_dos == 0 or d2goal < 150.0 and "K_app_course" not in self._adjustable_param_str_list:
             if "K_prev_sol_dev" in self._adjustable_param_str_list:
                 non_adjustable_mpc_params[4] = 10.0
                 non_adjustable_mpc_params[5] = 5.0
@@ -1069,6 +1078,17 @@ class AcadosMPC:
         fixed_parameter_values.extend(path_parameter_values)
 
         non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
+        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
+        p_goal = np.array(list(self.path_linestring.coords[-1]))
+        d2goal = np.linalg.norm(state[0:2] - p_goal)
+        if n_dos == 0 or d2goal < 150.0:
+            if "K_prev_sol_dev" in self._adjustable_param_str_list:
+                non_adjustable_mpc_params[4] = 10.0
+                non_adjustable_mpc_params[5] = 5.0
+            else:
+                non_adjustable_mpc_params[6] = 10.0
+                non_adjustable_mpc_params[7] = 5.0
+
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 
         max_num_so_constr = (
