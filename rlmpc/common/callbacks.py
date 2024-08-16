@@ -683,7 +683,6 @@ def evaluate_policy(
             frames.append(frame)
 
     env.close()
-
     if record_type == "gif":
         ihm.save_frames_as_gif(frames, record_path / f"{record_name}.gif", verbose=False)
 
