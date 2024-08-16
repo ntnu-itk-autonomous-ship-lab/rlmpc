@@ -20,9 +20,9 @@ colregs_handler:
 
 rrtstar:
     params:
-      max_nodes: 500
-      max_iter: 10000
-      max_time: 1.0
+      max_nodes: 1000
+      max_iter: 20000
+      max_time: 2.0
       iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
       goal_radius: 1000.0
@@ -74,7 +74,7 @@ mpc:
     w_colregs: [80.0, 80.0, 80.0]
 
     w_L2: 0.0
-    w_L1: 1500.0 # 100000.0
+    w_L1: 1000.0 # 100000.0
     r_safe_so: 5.0
     r_safe_do: 15.0
     gamma: 1.0

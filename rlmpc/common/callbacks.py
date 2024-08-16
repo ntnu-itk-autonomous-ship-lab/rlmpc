@@ -187,11 +187,12 @@ class CollectStatisticsCallback(BaseCallback):
         if self.num_timesteps % self.log_freq == 0 or np.sum(done_array).item() > 0:
             for env_idx in range(self.num_envs):
                 if np.any(done_array):  # only one element in done_array for SAC
-                    infos[env_idx] = (
-                        self.prev_infos[env_idx]
-                        if isinstance(self.locals["env"], SubprocVecEnv)
-                        else self.locals["env"].envs[env_idx].unwrapped.terminal_info
-                    )
+                    infos[env_idx] = self.prev_infos[env_idx]
+                    # (
+                    #     self.prev_infos[env_idx]
+                    #     if isinstance(self.locals["env"], SubprocVecEnv)
+                    #     else self.locals["env"].envs[env_idx].unwrapped.terminal_info
+                    # )
             self.env_data_logger(infos)
 
             last_rollout_info, just_dumped_rollout_logs = self.extract_rollout_info(self.model)

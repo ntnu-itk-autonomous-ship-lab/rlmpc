@@ -615,6 +615,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             np.ndarray: The sampled action (normalized) from the policy distribution
         """
+        self.action_dist = self.action_dist.proba_distribution(th.from_numpy(mean_actions.copy()), log_std=self.log_std)
         norm_actions = self.action_dist.get_actions()
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
         return norm_actions

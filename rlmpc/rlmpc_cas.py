@@ -750,7 +750,7 @@ class RLMPC(ci.ICOLAV):
             U_d=nominal_speed_ref,
             initialized=False,
             return_on_first_solution=False if t == 0 else True,
-            verbose=False,
+            verbose=True if t == 0 else False,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
 

@@ -141,6 +141,7 @@ class AcadosMPC:
         self._t_prev = 0.0
         if self._acados_ocp_solver is not None:
             self._acados_ocp_solver.reset()
+            self._acados_ocp_solver.load_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
@@ -399,6 +400,9 @@ class AcadosMPC:
             c = mpc_common.map_acados_error_code(status)
             if verbose:
                 print(f"[ACADOS] OCP solution: {status} error: {c}")
+
+        if t == 0.0 and status == 0:
+            self._acados_ocp_solver.store_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
 
         if status != 0:
             self._acados_ocp_solver.print_statistics()
@@ -986,8 +990,8 @@ class AcadosMPC:
         adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
         action_stage_index = self.action_indices_to_stage_index()
         if "K_prev_sol_dev" in self._adjustable_param_str_list and stage_idx != action_stage_index:
-            adjustable_params[3] = 0.0
-            adjustable_params[4] = 0.0
+            adjustable_params[3] = 0.00001
+            adjustable_params[4] = 0.00001
 
         if n_dos == 0 or d2goal < 150.0 and "K_app_course" in self._adjustable_param_str_list:
             if "K_prev_sol_dev" in self._adjustable_param_str_list:
@@ -1027,8 +1031,8 @@ class AcadosMPC:
                 non_adjustable_mpc_params[7] = 5.0
 
         if "K_prev_sol_dev" not in self._adjustable_param_str_list and stage_idx != action_stage_index:
-            non_adjustable_mpc_params[0] = 0.0
-            non_adjustable_mpc_params[1] = 0.0
+            non_adjustable_mpc_params[0] = 0.00001
+            non_adjustable_mpc_params[1] = 0.00001
 
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
         fixed_parameter_values.extend(do_cr_parameter_values)

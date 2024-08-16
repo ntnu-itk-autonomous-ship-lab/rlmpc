@@ -37,8 +37,8 @@ def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp2")
-    parser.add_argument("--n_cpus", type=int, default=4)
+    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp3")
+    parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.001)
     parser.add_argument("--buffer_size", type=int, default=40000)
     parser.add_argument("--batch_size", type=int, default=8)
@@ -48,8 +48,8 @@ def main(args):
     parser.add_argument("--eval_freq", type=int, default=4000)
     parser.add_argument("--timesteps", type=int, default=40000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
-    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
-    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=50)
+    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=10)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to training SAC with NMPC parameter provider DNN:")
@@ -162,7 +162,7 @@ def main(args):
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
-    load_model = True
+    load_model = False
     load_model_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_3000_steps"
     load_rb_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_replay_buffer"
     n_timesteps_per_learn = 10000
