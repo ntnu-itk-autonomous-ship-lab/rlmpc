@@ -91,7 +91,7 @@ def train_rlmpc_sac(
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
-        eval_freq=eval_freq,
+        eval_freq=max(eval_freq // n_training_envs, 1),
         n_eval_episodes=n_eval_episodes,
         # callback_after_eval=stop_train_callback,
         experiment_name=experiment_name,

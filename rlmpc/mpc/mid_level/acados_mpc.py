@@ -135,6 +135,7 @@ class AcadosMPC:
         """Resets the MPC."""
         self._initialized = False
         self._xs_prev = np.array([])
+        self._s = 0.000000001
         self._prev_cost = 1e6
         self._prev_sol_status = 0
         self._t_prev = 0.0
@@ -406,6 +407,9 @@ class AcadosMPC:
         n_iter = self._acados_ocp_solver.get_stats("sqp_iter")
         final_residuals = self._acados_ocp_solver.get_stats("residuals")
         success = True if status == 0 else False
+        qp_failure = False
+        if status_str == "QPFailure":
+            qp_failure = True
 
         # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
         inputs, trajectory, slacks, lam_g = self._get_solution(self._acados_ocp_solver)
@@ -422,7 +426,7 @@ class AcadosMPC:
         # so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
         # self._x_warm_start = trajectory.copy()
         # self._u_warm_start = inputs.copy()
-        if verbose:
+        if verbose or (qp_failure and t < 2.0):
             np.set_printoptions(precision=3)
             print(
                 f"[ACADOS {self.identifier.upper()}] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
@@ -433,11 +437,6 @@ class AcadosMPC:
             xs_unwrapped, do_cr_list, do_ho_list, do_ot_list, prev_opt_abs_action=warm_start["prev_opt_abs_action"]
         )
         self._t_prev = t
-
-        qp_failure = False
-        if status_str == "QPFailure":
-            qp_failure = True
-        self._prev_sol_status = status
 
         output = {
             "soln": soln,
@@ -732,10 +731,11 @@ class AcadosMPC:
         n_path_constr = self._params.max_num_so_constr + self._params.max_num_do_constr_per_zone * n_colregs_zones
         nx_do = 6
         X_do = csd.MX.sym("X_do", nx_do * self._params.max_num_do_constr_per_zone * n_colregs_zones)
+        p_fixed.append(X_do)
+
         so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
             so_list, enc, safety_margins=[0.0], map_origin=self._map_origin, show_plots=debug
         )
-        p_fixed.append(X_do)
         so_surfaces = so_surfaces[0]
         self._so_surfaces = so_surfaces
 
@@ -831,11 +831,12 @@ class AcadosMPC:
             d_attenuation,
             colregs_weights,
         )
+        small_input_cost = 1e-5 * u.T @ u
         self._acados_ocp.model.cost_expr_ext_cost_0 = (
-            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost
+            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
         )
         self._acados_ocp.model.cost_expr_ext_cost = (
-            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost
+            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
         )
         self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + speed_dev_cost
 

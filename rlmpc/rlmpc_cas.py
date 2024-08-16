@@ -11,7 +11,7 @@ import copy
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import colav_simulator.behavior_generator as cs_bg
 import colav_simulator.common.map_functions as mapf
@@ -197,13 +197,27 @@ class RLMPC(ci.ICOLAV):
         waypoints: np.ndarray,
         speed_plan: np.ndarray,
         ownship_state: np.ndarray,
-        do_list: list,
+        do_list: List[Tuple[int, np.ndarray, np.ndarray, float, float]],
         enc: Optional[senc.ENC] = None,
         debug: bool = False,
+        recompile: bool = True,
         **kwargs,
     ) -> None:
         """Initialize the planner by setting up the nominal path, static obstacle inputs and constructing
-        the OCP"""
+        the OCP. Only reconstruct the OCP if recompile is set to True.
+
+        Args:
+            t (float): Current time.
+            waypoints (np.ndarray): Waypoints on the form [x, y]^T.
+            speed_plan (np.ndarray): Speed plan on the form [u]^T.
+            ownship_state (np.ndarray): Ownship state on the form [x, y, psi, u, v, r]^T.
+            do_list (List[Tuple[int, np.ndarray, np.ndarray, float, float]]): List of dynamic obstacles.
+            enc (Optional[senc.ENC]): ENC object.
+            debug (bool): Debug flag.
+            recompile (bool): Flag for recompiling the OCP.
+            **kwargs: Additional keyword arguments.
+
+        """
         self._waypoints = waypoints
         self._speed_plan = speed_plan
         self._speed_plan[self._speed_plan > 7.0] = 6.0
@@ -232,13 +246,14 @@ class RLMPC(ci.ICOLAV):
             arc_length_parameterization=True,
         )
         self._setup_mpc_static_obstacle_input(ownship_csog_state, self._enc, self._debug, **kwargs)
-        self._mpc.construct_ocp(
-            nominal_path=self._nominal_path,
-            so_list=self._mpc_rel_polygons,
-            enc=self._enc,
-            map_origin=self._map_origin,
-            min_depth=self._min_depth,
-        )
+        if recompile:
+            self._mpc.construct_ocp(
+                nominal_path=self._nominal_path,
+                so_list=self._mpc_rel_polygons,
+                enc=self._enc,
+                map_origin=self._map_origin,
+                min_depth=self._min_depth,
+            )
 
         self._goal_state = np.array([waypoints[0, -1], waypoints[1, -1], 0.0, 0.0, 0.0, 0.0])
         bbox = mapf.create_bbox_from_points(self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=300.0)
@@ -606,15 +621,12 @@ class RLMPC(ci.ICOLAV):
         waypoints: np.ndarray,
         speed_plan: np.ndarray,
         ownship_state: np.ndarray,
-        do_list: list,
+        do_list: List[Tuple[int, np.ndarray, np.ndarray, float, float]],
         enc: Optional[senc.ENC] = None,
         goal_state: Optional[np.ndarray] = None,
         w: Optional[stochasticity.DisturbanceData] = None,
         **kwargs,
     ) -> np.ndarray:
-        """Implements the ICOLAV plan interface function. Relies on getting the own-ship minimum depth
-        in order to extract relevant grounding hazards.
-        """
         assert enc is not None, "ENC must be provided to the RL-MPC"
         assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
         if not self._initialized:
@@ -777,6 +789,7 @@ class RLMPC(ci.ICOLAV):
         last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.array([0.0, 0.0, -0.04])
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
         rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
+        rrt_inputs[2, :] = np.array([u_omega * (0.95**u_idx) for u_idx, u_omega in enumerate(rrt_inputs[2, :])])
 
         # Add path timing dynamics to warm start trajectory
         mpc_model_traj = self._mpc.model_prediction(rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1])
@@ -791,7 +804,7 @@ class RLMPC(ci.ICOLAV):
             X -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
             warm_start.update({"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"]})
             X_comb = np.concatenate((X, rrt_trajectory[:, 1:]), axis=1)
-            U_comb = np.concatenate((U, rrt_inputs[:, 0:]), axis=1)
+            U_comb = np.concatenate((U, rrt_inputs[:, 1:]), axis=1)
             Sigma_comb = np.concatenate((Sigma, np.zeros((ns_total - Sigma.shape[0], 1))))
 
             dt_sim = t - self._t_prev_mpc
@@ -820,7 +833,7 @@ class RLMPC(ci.ICOLAV):
             w = self._mpc.decision_variables(U, X, Sigma).full().astype(np.float32)
             lam_g = np.zeros((dim_g, 1), dtype=np.float32)
             lam_x = np.zeros((w.shape[0], 1), dtype=np.float32)
-            prev_abs_action = X[2:4, 0]
+            prev_abs_action = X[2:4, 2]
         X = X.astype(np.float32)
         U = U.astype(np.float32)
         Sigma = Sigma.astype(np.float32)

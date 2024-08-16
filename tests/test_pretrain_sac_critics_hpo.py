@@ -4,6 +4,8 @@ from pathlib import Path
 import gymnasium as gym
 import numpy as np
 import optuna
+import rlmpc.action as rlmpc_actions
+import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
 import torch as th
@@ -11,6 +13,7 @@ from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.sac import SAC
 from rlmpc.scripts.train_critics import train_critics
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -45,7 +48,7 @@ def objective(trial: optuna.Trial) -> float:
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
     action_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
     n_mpc_params = 3 + 1 + 1 + 3 + 1
-    param_action_noise_std_dev = np.array([0.01 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.005 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -59,32 +62,37 @@ def objective(trial: optuna.Trial) -> float:
     env_config = {
         "scenario_file_folder": [scenario_folders[0]],
         "max_number_of_episodes": 1,
-        "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "render_update_rate": 0.5,
         "observation_type": observation_type,
-        "action_type": "relative_course_speed_reference_sequence_action",
+        "action_type_class": rlmpc_actions.MPCParameterSettingAction,
+        "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
+        "action_kwargs": action_kwargs,
         "reload_map": False,
         "identifier": "env",
         "seed": 0,
     }
-    env = Monitor(gym.make(id=env_id, **env_config))
+
+    n_cpus_used = 4
+    if n_cpus_used == 1:
+        env = Monitor(gym.make(id=env_id, **env_config))
+    else:
+        env = SubprocVecEnv([hf.make_env(env_id, env_config, i + 1) for i in range(n_cpus_used)])
 
     save_interval = 5
-    batch_size = 64  # trial.suggest_int("batch_size", 1, 32)
+    batch_size = 64  # trial.suggest_int("batch_size", 1, 64)
     buffer_size = 40000
     tau = 0.01
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3)
-    num_epochs = 100  # trial.suggest_int("num_epochs", 10, 100)
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 4e-4)
+    num_epochs = 60  # trial.suggest_int("num_epochs", 10, 100)
     actfn = th.nn.ReLU
     actfn_str = "ReLU"
 
-    n_layers = trial.suggest_int("n_layers", 1, 3)
+    n_layers = trial.suggest_int("n_layers", 2, 3)
     hidden_dims = []
     input_dim = 40 + 12 + 5 + 2  # enc + tracking + nav + action
     for i in range(n_layers):
         out_features = trial.suggest_int(f"n_units_l{i}", 64, 500)
         hidden_dims.append(out_features)
-    # hidden_dims = [1500, 1000, 500]
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
@@ -118,12 +126,21 @@ def objective(trial: optuna.Trial) -> float:
         "tensorboard_log": str(log_dir),
     }
 
+    experiment_name = "sac_nmpc_pp2"
     data_path = (
-        Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc4" / "models" / "sac_rlmpc4_replay_buffer"
+        Path.home()
+        / "Desktop"
+        / "machine_learning"
+        / "rlmpc"
+        / experiment_name
+        / "models"
+        / (experiment_name + "_replay_buffer")
     )
 
     model = SAC(env=env, **model_kwargs)
     model.load_replay_buffer(path=data_path)
+
+    print(f"Replay buffer size: {model.replay_buffer.size()}")
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
     name = "pretrained_sac_critics_HD_" + hidden_dims_str + f"_{actfn_str}"

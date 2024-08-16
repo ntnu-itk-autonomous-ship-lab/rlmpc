@@ -40,6 +40,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         mpc_param_list: List[str] = ["Q_p", "r_safe_do"],
         mpc_config_path: Path = rl_dp.config / "rlmpc.yaml",
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
+        recompile_on_reset: bool = False,
         deterministic: bool = True,
         debug: bool = False,
     ) -> None:
@@ -56,6 +57,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.mpc_params = self.mpc.get_mpc_params()
         self.mpc_action_dim = 2
         self.mpc_sensitivities = None
+        self.recompile_on_reset = recompile_on_reset
 
         nx, nu = self.mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
@@ -148,6 +150,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         """
         self.t_prev = 0.0
         self.action_result = csgym_action.ActionResult(success=True, info={})
+        self.last_action = np.zeros(self.mpc_action_dim)
         self.prev_noise_action = th.zeros(self.mpc_action_dim)
         t = self.env.time
         waypoints = self.env.ownship.waypoints
@@ -166,11 +169,13 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             do_list=do_list,
             enc=enc,
             debug=self.debug,
+            recompile=self.env.episodes == 1 or self.recompile_on_reset,
             **kwargs,
         )
         self.build_sensitivities = build_sensitivities
         if build_sensitivities:
-            self.mpc_sensitivities = self.mpc.build_sensitivities()
+            if self.mpc_sensitivities is None or self.recompile_on_reset:
+                self.mpc_sensitivities = self.mpc.build_sensitivities()
         print(f"[{self.env.env_id.upper()}] MPC initialized! Built sensitivities? {build_sensitivities}")
 
     def extract_mpc_observation_features(self) -> Tuple[float, np.ndarray, List, stochasticity.DisturbanceData]:
@@ -321,7 +326,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             parameter_indices=self.mpc_parameter_indices,
         )
         self.mpc.set_mpc_param_subset(param_subset=param_dict)
-        # print(f"[{self.env.env_id.upper()}] Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}")
+        print(f"[{self.env.env_id.upper()}] Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}")
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
         mpc_action, mpc_info = self.mpc.act(t, ownship_state, do_list, w)
@@ -336,7 +341,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         norm_mpc_action = self.normalize_mpc_action(mpc_action)
         expl_action = norm_mpc_action
-        if not self.deterministic:
+        if not self.deterministic and self.env.time > 2.0:
             expl_action = self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
 
         mpc_info.update(

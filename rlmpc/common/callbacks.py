@@ -143,11 +143,11 @@ class CollectStatisticsCallback(BaseCallback):
             "batch_processing_time": 0.0,
             "ep_rew_mean": model.logger.name_to_value["train/ep_rew_mean"],
             "actor_loss": model.logger.name_to_value["train/actor_loss"],
+            "actor_grad_norm": model.logger.name_to_value["train/actor_grad_norm"],
             "critic_loss": model.logger.name_to_value["train/critic_loss"],
             "ent_coef_loss": model.logger.name_to_value["train/ent_coef_loss"],
             "ent_coef": model.logger.name_to_value["train/ent_coef"],
             "learning_rate": model.logger.name_to_value["train/learning_rate"],
-            "actor_grad_norm": 0.0,
         }
         just_trained = False
         if info["n_updates"] > self.n_updates_prev:
@@ -220,10 +220,10 @@ class CollectStatisticsCallback(BaseCallback):
                     self.model.just_trained = False
 
             current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
-            if "ENCObservation" in current_obs:
-                pimg = th.from_numpy(current_obs["ENCObservation"])
+            if "PerceptionImageObservation" in current_obs:
+                pimg = th.from_numpy(current_obs["PerceptionImageObservation"])
                 pimg = self.img_transform(pimg)
-                pvae = self.model.critic.features_extractor.extractors["ENCObservation"]
+                pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
                 recon_frame = pvae.reconstruct(pimg)
                 # pvae.display_image(self.display_transform(pimg))
                 # pvae.display_image(self.display_transform(recon_frame))

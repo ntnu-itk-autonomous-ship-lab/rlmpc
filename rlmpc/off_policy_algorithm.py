@@ -481,6 +481,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
                 num_collected_steps += 1
 
+            self._update_locals(locals())
+
             self.num_timesteps += env.num_envs
             t_callback_start = time.time()
             callback.update_locals(locals())
@@ -491,8 +493,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             # if self.verbose:
             #     print(f"Callback time: {time.time() - t_callback_start:.2f}s")
-
-            self._update_locals(locals())
 
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)

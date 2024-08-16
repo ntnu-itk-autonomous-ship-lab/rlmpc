@@ -130,6 +130,6 @@ mpc:
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
       regularize_method: "PROJECT"
-      levenberg_marquardt: 0.0001
+      levenberg_marquardt: 0.001
       print_level: 0
       ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

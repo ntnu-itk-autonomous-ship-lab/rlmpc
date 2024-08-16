@@ -25,7 +25,8 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel, ContinuousCritic
-from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
+from stable_baselines3.common.preprocessing import (get_action_dim,
+                                                    is_image_space)
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -569,6 +570,9 @@ class SACMPCParameterProviderActor(BasePolicy):
             mpc_param_increment = np.zeros(self.action_space.shape[0])
             if not self.disable_parameter_provider:
                 mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
+
+            if not deterministic:
+                mpc_param_increment = self.sample_action(mean_actions=mpc_param_increment)
             unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment)
             info = {
                 "dnn_input_features": dnn_input.detach().cpu().numpy(),
@@ -602,28 +606,16 @@ class SACMPCParameterProviderActor(BasePolicy):
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
         return norm_actions
 
-    def sample_action(self, observation: Union[np.ndarray, Dict[str, np.ndarray]]) -> np.ndarray:
+    def sample_action(self, mean_actions: np.ndarray) -> np.ndarray:
         """Sample an action from the policy distribution
 
         Args:
-            observation: Union[np.ndarray, Dict[str, np.ndarray]],
+            mean_actions (np.ndarray): The mean action from the MPC parameter provider
 
         Returns:
-            np.ndarray: The sampled action (normalized)
+            np.ndarray: The sampled action (normalized) from the policy distribution
         """
-        obs_tensor = self._convert_obs_numpy_to_tensor(observation)
-        preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
-        features = self.features_extractor(preprocessed_obs)
-        batch_size = features.shape[0]
-        norm_actions = th.zeros((batch_size, self.action_space.shape[0]), dtype=th.float32)
-        for idx in range(batch_size):
-            norm_current_mpc_params = obs_tensor["MPCParameterObservation"][idx]
-            dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
-            mpc_param_increment = self.mpc_param_provider(dnn_input)
-            self.action_dist = self.action_dist.proba_distribution(
-                mean_actions=mpc_param_increment, log_std=self.log_std
-            )
-            norm_actions[idx] = self.action_dist.get_actions()
+        norm_actions = self.action_dist.get_actions()
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
         return norm_actions
 

@@ -52,6 +52,7 @@ def main(args):
     parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--eval_freq", type=int, default=2500)
     parser.add_argument("--timesteps", type=int, default=40000)
+    parser.add_argument("--disable_parameter_provider", type=bool, default=True)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
     args = parser.parse_args(args)
@@ -134,7 +135,7 @@ def main(args):
         "mpc_config": mpc_config_file,
         "activation_fn": th.nn.ReLU,
         "std_init": actor_noise_std_dev,
-        "disable_parameter_provider": False,
+        "disable_parameter_provider": args.disable_parameter_provider,
         "debug": False,
     }
     model_kwargs = {
