@@ -481,9 +481,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
                 num_collected_steps += 1
 
+            self.num_timesteps += env.num_envs
             self._update_locals(locals())
 
-            self.num_timesteps += env.num_envs
             t_callback_start = time.time()
             callback.update_locals(locals())
             if callback.on_step() is False:
