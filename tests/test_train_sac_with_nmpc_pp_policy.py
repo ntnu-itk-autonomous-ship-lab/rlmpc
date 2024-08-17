@@ -87,7 +87,7 @@ def main(args):
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.002, 0.002])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.01 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -130,14 +130,14 @@ def main(args):
     )
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [256, 128],
+        "hidden_sizes": [400, 300],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_234_153_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [258, 128],
+        "critic_arch": [400, 300],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,
         "std_init": param_action_noise_std_dev,

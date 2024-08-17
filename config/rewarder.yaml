@@ -1,12 +1,12 @@
 
 
 trajectory_tracking:
-  rho_d2path: 1.0
+  rho_d2path: 0.5
   rho_d2goal: 0.0005
-  rho_speed_dev: 6.0
-  rho_course_dev: 3.0
+  rho_speed_dev: 3.0
+  rho_course_dev: 1.5
   rho_turn_rate: 0.01
-  rho_goal_not_reached: 100.0
+  rho_goal_not_reached: 600.0
   goal_radius: 50.0
 colreg:
   alpha_cr: [0.03, 0.003]
@@ -17,36 +17,36 @@ colreg:
   x_0_ot: 300.0
   y_0_ot: 100.0
   d_attenuation: 300.0
-  w_colregs: [80.0, 80.0, 80.0]
+  w_colregs: [50.0, 50.0, 50.0]
   colregs_handler:
     theta_critical_ot: 45.0  # contact angle threshold for OT situation
     theta_critical_ho: 13.0 # contact and bearing angle threshold for HO situation
     theta_critical_cr: -13.0   # contact and bearing angle threshold for CR situation
     theta_ot_min: 112.5  # minimum bearing angle for OT situation
     theta_ot_max: 247.5  # maximum bearing angle for OT situation
-    d_critical_so: 60.0 # critical distance threshold where stand-on duties are aborted
+    d_critical_so: 70.0 # critical distance threshold where stand-on duties are aborted
     d_activation: 1000.0  # distance threshold for activation of COLREGS handler
     t_cpa_entry: 120.0  # time to CPA threshold for entry into COLREGS situation
-    d_cpa_entry: 50.0  # distance to CPA threshold for entry into COLREGS situation
+    d_cpa_entry: 70.0  # distance to CPA threshold for entry into COLREGS situation
 readily_apparent_maneuvering:
   alpha_app_course: [112.5, 0.00006]
   alpha_app_speed: [8.0, 0.001]
-  K_app_course: 60.0
-  K_app_speed: 60.0
+  K_app_course: 40.0
+  K_app_speed: 40.0
   r_max: 8.0
   a_max: 0.3
 collision_avoidance:
-  rho_colav: 300.0
+  rho_colav: 1000.0
   r_safe: 12.5
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
-  rho_anti_grounding: 300.0
+  rho_anti_grounding: 1000.0
   r_safe: 5.0
 dnn_parameter_provider:
   disable: False
-  rho_solver_time: 10.0
-  rho_non_optimal_solution: 300.0
-  rho_non_relevant_safety_param_change: 0.0
+  rho_solver_time: 20.0
+  rho_non_optimal_solution: 500.0
+  rho_non_relevant_safety_param_change: 20.0
 action_chatter:
   rho_course: 0.0001
   rho_speed: 0.0001

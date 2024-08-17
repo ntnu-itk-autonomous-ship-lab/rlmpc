@@ -566,6 +566,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
             self._last_course_error = 0.0
         truncated = kwargs.get("truncated", False)
         goal_reached = self.env.simulator.determine_ship_goal_reached()
+        d2goal = np.linalg.norm(self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1])
 
         ownship_state = self.env.ownship.state
         do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
@@ -575,7 +576,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
         no_dos_in_the_way = d2dos[0][1] > 100.0
         if truncated and not goal_reached and no_dos_in_the_way:
-            self.last_reward = -self._config.rho_goal_not_reached
+            self.last_reward = -self._config.rho_goal_not_reached #* d2goal
             return self.last_reward
 
         unnormalized_obs = self.env.observation_type.unnormalize(state)
@@ -636,7 +637,7 @@ class DNNParameterRewarder(cs_reward.IReward):
                 r_safe_incr = unnorm_param_increments[-1]
             else:
                 r_safe_incr = colav_info["new_mpc_params"][-1] - colav_info["old_mpc_params"][-1]
-            if d2dos[0][1] > 500.0 and abs(r_safe_incr) > 0.0:
+            if d2dos[0][1] > 400.0 and abs(r_safe_incr) > 0.0:
                 r_param_dnn += -self._config.rho_non_relevant_safety_param_change * abs(r_safe_incr)
 
         self.last_reward = r_param_dnn
@@ -693,7 +694,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_readily_apparent_maneuvering: float = 0.0
         self.r_action_chatter: float = 0.0
         self.r_dnn_parameters: float = 0.0
-        self.verbose: bool = False
+        self.verbose: bool = True
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)

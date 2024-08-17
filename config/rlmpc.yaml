@@ -22,7 +22,7 @@ rrtstar:
     params:
       max_nodes: 1000
       max_iter: 20000
-      max_time: 2.0
+      max_time: 5.0
       iter_between_direct_goal_growth: 50
       min_node_dist: 5.0
       goal_radius: 1000.0
@@ -121,7 +121,7 @@ mpc:
       nlp_solver_tol_comp: 0.0001
       nlp_solver_ext_qp_res: 0
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" # "FULL_CONDENSING_QPOASES"
-      qp_solver_iter_max: 50
+      qp_solver_iter_max: 100
       qp_solver_warm_start: 1
       qp_solver_tol_stat: 0.0001
       qp_solver_tol_eq: 0.0001

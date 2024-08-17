@@ -85,10 +85,10 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             offset += self.mpc_parameter_lengths[param]
         self.num_adjustable_mpc_params = offset
         self.mpc_param_list = mpc_param_list
-        self.mpc_adjustable_params_init = self.mpc.get_adjustable_mpc_params()
+        self.mpc_adjustable_params_arr_init = self.mpc.get_adjustable_mpc_params()
         self.mpc_adjustable_params_init = hf.map_mpc_param_incr_array_to_parameter_dict(
             x=np.zeros(self.num_adjustable_mpc_params),
-            current_params=self.mpc_adjustable_params_init,
+            current_params=self.mpc_adjustable_params_arr_init,
             param_list=self.mpc_param_list,
             parameter_ranges=self.mpc_parameter_ranges,
             parameter_incr_ranges=self.mpc_parameter_incr_ranges,
@@ -326,7 +326,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             parameter_indices=self.mpc_parameter_indices,
         )
         self.mpc.set_mpc_param_subset(param_subset=param_dict)
-        print(f"[{self.env.env_id.upper()}] Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}")
+        print(
+            f"[{self.env.env_id.upper()}] t = {self.env.time} | Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}"
+        )
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
         mpc_action, mpc_info = self.mpc.act(t, ownship_state, do_list, w)
