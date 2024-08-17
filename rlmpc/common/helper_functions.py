@@ -249,7 +249,7 @@ def map_mpc_param_incr_array_to_parameter_dict(
         param_length = parameter_lengths[param_name]
         pindx = parameter_indices[param_name]
 
-        x_param_incr = x_np[pindx : pindx + param_length]
+        x_param_incr = x_np[pindx : pindx + param_length].copy()
         for j in range(len(x_param_incr)):  # pylint: disable=consider-using-enumerate
             if param_name == "Q_p":
                 x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range[j]))

@@ -573,13 +573,13 @@ class SACMPCParameterProviderActor(BasePolicy):
 
             if not deterministic:
                 mpc_param_increment = self.sample_action(mean_actions=mpc_param_increment)
-            unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment)
+            unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment.detach().clone())
             info = {
                 "dnn_input_features": dnn_input.detach().cpu().numpy(),
-                "norm_mpc_param_increment": mpc_param_increment,
+                "norm_mpc_param_increment": mpc_param_increment.detach().clone().numpy(),
                 "unnorm_mpc_param_increment": unnorm_action,
-                "norm_old_mpc_params": norm_current_mpc_params.detach().numpy(),
-                "old_mpc_params": self.mpc_param_provider.unnormalize(norm_current_mpc_params),
+                "norm_old_mpc_params": norm_current_mpc_params.detach().clone().numpy(),
+                "old_mpc_params": self.mpc_param_provider.unnormalize(norm_current_mpc_params.detach().clone()),
             }
 
             unnormalized_actions[idx, :] = unnorm_action
