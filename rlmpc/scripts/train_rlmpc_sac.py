@@ -33,6 +33,8 @@ def train_rlmpc_sac(
     base_dir: Path,
     model_dir: Path,
     experiment_name: str,
+    load_critics: bool = False,
+    load_critics_path: str = "sac_drl1_critic",
     load_model: bool = True,
     load_model_path: str = "sac_drl1_0_steps",
     load_rb_path: str = "sac_drl1_replay_buffer",
@@ -53,11 +55,13 @@ def train_rlmpc_sac(
         base_dir (Path): The base directory.
         model_dir (Path): The model directory.
         experiment_name (str): The experiment name.
-        load_model (bool, optional): Whether to load the model. Defaults to True.
+        load_critics (bool, optional): Whether to load the critics.
+        load_critics_path (str, optional): The critics path for loading.
+        load_model (bool, optional): Whether to load the model.
         load_model_path (str, optional): The model path for loading.
         load_rb_path (str, optional): The replay buffer path
-        seed (int, optional): The seed. Defaults to 0.
-        iteration (int, optional): The iteration used for TB logging naming. Defaults to 0.
+        seed (int, optional): The seed.
+        iteration (int, optional): The iteration used for TB logging naming.
 
     Returns:
         rlmpc_sac.SAC: The trained RL agent.
@@ -100,6 +104,9 @@ def train_rlmpc_sac(
         verbose=1,
     )
     model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
+    if load_critics:
+        model.load_critics(path=load_critics_path)
+
     if load_model:
         model.inplace_load(path=load_model_path)
         model.load_replay_buffer(path=load_rb_path)
