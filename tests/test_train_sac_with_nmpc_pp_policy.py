@@ -37,16 +37,17 @@ def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp3")
-    parser.add_argument("--n_cpus", type=int, default=4)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--buffer_size", type=int, default=50000)
+    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp1_cont")
+    parser.add_argument("--n_training_envs", type=int, default=4)
+    parser.add_argument("--learning_rate", type=float, default=0.0002)
+    parser.add_argument("--buffer_size", type=int, default=40000)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--gradient_steps", type=int, default=1)
     parser.add_argument("--train_freq", type=int, default=4)
-    parser.add_argument("--n_eval_episodes", type=int, default=4)
-    parser.add_argument("--eval_freq", type=int, default=4000)
-    parser.add_argument("--timesteps", type=int, default=40000)
+    parser.add_argument("--n_eval_episodes", type=int, default=1)
+    parser.add_argument("--eval_freq", type=int, default=10000)
+    parser.add_argument("--n_eval_envs", type=int, default=2)
+    parser.add_argument("--timesteps", type=int, default=100000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
@@ -86,15 +87,15 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.002, 0.002])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
+    action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
+    param_action_noise_std_dev = np.array([0.04 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
         "mpc_param_list": mpc_param_list,
         "std_init": action_noise_std_dev,
-        "deterministic": True,
-        "recompile_on_reset": False,
+        "deterministic": False,
+        "recompile_on_reset": True,
     }
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
@@ -130,14 +131,14 @@ def main(args):
     )
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [400, 300],
+        "hidden_sizes": [357, 373],
         "activation_fn": th.nn.ReLU,
-        # "model_file": Path.home()
-        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_234_153_ReLU/best_model.pth",
+        "model_file": Path.home()
+        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_357_373_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [484, 370, 439],
+        "critic_arch": [278, 416, 310],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,
         "std_init": param_action_noise_std_dev,
@@ -153,23 +154,24 @@ def main(args):
         "gradient_steps": args.gradient_steps,
         "train_freq": (args.train_freq, "step"),
         "learning_starts": 40,
-        "tau": 0.005,
+        "tau": 0.008,
         "device": "cpu",
         "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
+        "replay_buffer_kwargs": {"handle_timeout_termination": True},
     }
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
 
-    load_critic = True
+    load_critic = False
     load_critic_path = (
-        str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_484_370_439_ReLU/models/best_model"
+        str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_278_416_310_ReLU/models/best_model"
     )
-    load_model = False
-    load_model_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_3000_steps"
+    load_model = True
+    load_model_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_10000_steps"
     load_rb_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_replay_buffer"
-    n_timesteps_per_learn = 10000
+    n_timesteps_per_learn = 20000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
         if i > 0:
@@ -184,8 +186,9 @@ def main(args):
             n_timesteps=n_timesteps_per_learn,
             env_id=env_id,
             training_env_config=copy.deepcopy(training_env_config),
-            n_training_envs=args.n_cpus,
+            n_training_envs=args.n_training_envs,
             eval_env_config=copy.deepcopy(eval_env_config),
+            n_eval_envs=args.n_eval_envs,
             n_eval_episodes=args.n_eval_episodes,
             eval_freq=args.eval_freq,
             base_dir=base_dir,
@@ -202,7 +205,7 @@ def main(args):
         model.custom_save(model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}")
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
         print(
-            f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn}/{args.timesteps}%"
+            f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn / args.timesteps:.1f}%"
         )
 
     eval_env = Monitor(gym.make(id=env_id, **eval_env_config))

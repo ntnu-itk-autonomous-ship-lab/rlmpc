@@ -84,7 +84,7 @@ def train_critics(
         if loss_meter.average_loss < best_train_loss:
             best_train_loss = loss_meter.average_loss
             best_epoch = epoch
-            save_path = f"{str(model_path)}/best_model.pth"
+            save_path = f"{str(model_path)}/best_model"
             model.save_critics(path=save_path)
             print(f"New best model saved at epoch {epoch} with loss {best_train_loss}")
 

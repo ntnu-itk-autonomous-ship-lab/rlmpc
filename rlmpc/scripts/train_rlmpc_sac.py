@@ -28,6 +28,7 @@ def train_rlmpc_sac(
     training_env_config: Dict[str, Any],
     n_training_envs: int,
     eval_env_config: Dict[str, Any],
+    n_eval_envs: int,
     n_eval_episodes: int,
     eval_freq: int,
     base_dir: Path,
@@ -50,6 +51,7 @@ def train_rlmpc_sac(
         training_env_config (Dict[str, Any]): The training environment configuration.
         n_training_envs (int): The number of training environments.
         eval_env_config (Dict[str, Any]): The evaluation environment configuration.
+        n_eval_envs (int): The number of evaluation environments.
         n_eval_episodes (int): The number of evaluation episodes.
         eval_freq (int): Evaluation callback frequency in number of steps.
         base_dir (Path): The base directory.
@@ -91,7 +93,10 @@ def train_rlmpc_sac(
         max_num_training_stats_entries=40000,
         verbose=1,
     )
-    eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
+    if n_eval_envs == 1:
+        eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
+    else:
+        eval_env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(n_eval_envs)])
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",
@@ -121,4 +126,9 @@ def train_rlmpc_sac(
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),
         progress_bar=True,
     )
+
+    training_env.close()
+    training_env = None
+    eval_env.close()
+    eval_env = None
     return model

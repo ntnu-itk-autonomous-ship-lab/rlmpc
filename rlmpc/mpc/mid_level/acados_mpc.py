@@ -11,6 +11,7 @@ import copy
 import pathlib
 import shutil
 import time
+from threading import Lock, Thread
 from typing import Dict, Tuple
 
 import casadi as csd
@@ -42,6 +43,8 @@ class AcadosMPC:
         self._acados_ocp_solver: AcadosOcpSolver = None
         self._acados_ocp_solver_nonreg: AcadosOcpSolver = None
         self._acados_code_gen_path: pathlib.Path = rl_dp.acados_code_gen / identifier
+
+        self._acados_ocp_mutex: Lock = Lock()
 
         self._prev_sol_status: int = 0
         self.identifier: str = identifier
@@ -140,8 +143,10 @@ class AcadosMPC:
         self._prev_sol_status = 0
         self._t_prev = 0.0
         if self._acados_ocp_solver is not None:
+            self._acados_ocp_mutex.acquire()
             self._acados_ocp_solver.reset()
-            self._acados_ocp_solver.load_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
+            # self._acados_ocp_solver.load_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
+            self._acados_ocp_mutex.release()
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
@@ -384,16 +389,16 @@ class AcadosMPC:
         self._x_warm_start = warm_start["X"]
         self._u_warm_start = warm_start["U"]
 
-        self._update_ocp(
-            self._acados_ocp_solver,
-            xs_unwrapped,
-            do_cr_list,
-            do_ho_list,
-            do_ot_list,
-            prev_opt_abs_action=warm_start["prev_opt_abs_action"],
-        )
-        # self.print_warm_start_info(xs_unwrapped)
         try:
+            self._update_ocp(
+                solver=self._acados_ocp_solver,
+                xs=xs_unwrapped,
+                do_cr_list=do_cr_list,
+                do_ho_list=do_ho_list,
+                do_ot_list=do_ot_list,
+                prev_opt_abs_action=warm_start["prev_opt_abs_action"],
+            )
+            # self.print_warm_start_info(xs_unwrapped)
             status = self._acados_ocp_solver.solve()
             status_str = mpc_common.map_acados_error_code(status)
         except Exception as _:  # pylint: disable=broad-except
@@ -401,8 +406,8 @@ class AcadosMPC:
             if verbose:
                 print(f"[ACADOS] OCP solution: {status} error: {c}")
 
-        if t == 0.0 and status == 0:
-            self._acados_ocp_solver.store_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
+        # if t == 0.0 and status == 0:
+        #     self._acados_ocp_solver.store_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
 
         if status != 0:
             self._acados_ocp_solver.print_statistics()
@@ -587,6 +592,7 @@ class AcadosMPC:
             - do_ot_list (list): List of dynamic obstacle info on the form (ID, state, cov, length, width) for the overtaking zone.
             - prev_opt_abs_action (np.ndarray): Previous optimal absolute action solution (output used as input to autopilot)
         """
+        self._acados_ocp_mutex.acquire()
         solver.constraints_set(0, "lbx", xs)
         solver.constraints_set(0, "ubx", xs)
         self._parameter_values = []
@@ -599,8 +605,8 @@ class AcadosMPC:
             if p_i.size != self._p_adjustable.shape[0] + self._p_fixed.shape[0] and self.verbose:
                 print(f"Parameter size mismatch: {p_i.size} vs {len(self._p_list)}")
             self._parameter_values.append(p_i)
-            solver.set(i, "p", p_i)
-        # print("OCP updated")
+            solver.set(i, "p", p_i) # exit due to external func param mismatch can happen due to path var size mismatch (fixed by setting self_acados_ocp_solver = None before reconstructing)
+        self._acados_ocp_mutex.release()
 
     def construct_ocp(
         self,
@@ -864,21 +870,25 @@ class AcadosMPC:
             stage_idx=0,
         )
 
+        self._acados_ocp_mutex.acquire()
         # remove files in the code export directory
         if self._acados_code_gen_path.exists():
             shutil.rmtree(self._acados_code_gen_path)
             self._acados_code_gen_path.mkdir(parents=True, exist_ok=True)
-        solver_json = str(self._acados_code_gen_path) + "/acados_ocp_" + self._acados_ocp.model.name + ".json"
 
         self._acados_ocp.model.name += "_" + self.identifier
+        solver_json = str(self._acados_code_gen_path) + "/acados_ocp_" + self._acados_ocp.model.name + ".json"
+
         self._acados_ocp.code_export_directory = self._acados_code_gen_path.as_posix()
         self._acados_ocp_solver = None
-        self._acados_ocp_solver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json, build=True)
+        self._acados_ocp_solver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json, build=True, generate=True)
+        # print("OCP compiled to C code at {}".format(str(self._acados_code_gen_path)))
 
         self._static_obstacle_constraints = csd.Function("so_constr", [x], [csd.vertcat(*so_constr_list)])
         self._dynamic_obstacle_constraints = csd.Function(
             "do_constr", [x, X_do, r_safe_do], [csd.vertcat(*do_constr_list)]
         )
+        self._acados_ocp_mutex.release()
 
         # formulate non-regularized ocp
         # self._acados_ocp.solver_options.regularize_method = "NO_REGULARIZE"
@@ -1039,8 +1049,18 @@ class AcadosMPC:
         fixed_parameter_values.extend(do_ho_parameter_values)
         fixed_parameter_values.extend(do_ot_parameter_values)
         self._p_fixed_values = np.array(fixed_parameter_values)
-
-        return np.concatenate((adjustable_params, np.array(fixed_parameter_values)))
+        params = np.concatenate((adjustable_params, np.array(fixed_parameter_values)))
+        if False: # stage_idx == 0:
+            print(f"dim adjustable_params: {adjustable_params.size}")
+            print(f"dim prev_opt_action: {prev_opt_abs_action.size}")
+            print(f"dim d: {d.size}")
+            print(f"dim path_parameter_values: {len(path_parameter_values)}")
+            print(f"dim non_adjustable_mpc_params: {non_adjustable_mpc_params.size}")
+            print(f"dim do_cr_parameter_values: {len(do_cr_parameter_values)}")
+            print(f"dim do_ho_parameter_values: {len(do_ho_parameter_values)}")
+            print(f"dim do_ot_parameter_values: {len(do_ot_parameter_values)}")
+            print(f"dim p_i: {params.size}")
+        return params
 
     def create_all_fixed_parameter_values(
         self,

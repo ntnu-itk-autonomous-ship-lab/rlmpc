@@ -110,7 +110,7 @@ class PathRelativeNavigationNN(BaseFeaturesExtractor):
         return self.passthrough(observations)
 
 
-class DisturbanceNN(BaseFeaturesExtractor):
+class DisturbanceFeedforward(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 4):
         """Feature extractor for the navigation state. This is a simple passthrough layer.
 
@@ -118,8 +118,23 @@ class DisturbanceNN(BaseFeaturesExtractor):
             observation_space (gym.spaces.Box): Navigation state observation space.
             features_dim (int, optional): Disturbance vector length. Defaults to 4, i.e. [V_c, beta_c, V_w, beta_w].
         """
-        super(DisturbanceNN, self).__init__(observation_space, features_dim=features_dim)
+        super(DisturbanceFeedforward, self).__init__(observation_space, features_dim=features_dim)
 
+        self.passthrough = nn.Identity()
+
+    def forward(self, observations: th.Tensor) -> th.Tensor:
+        return self.passthrough(observations)
+
+
+class MPCParameterFeedforward(BaseFeaturesExtractor):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 9):
+        """Feature extractor for the current MPC params. This is a simple passthrough layer.
+
+        Args:
+            observation_space (gym.spaces.Box): Navigation state observation space.
+            features_dim (int, optional): MPC parameter vector length. Defaults to 9, i.e. [Q_p (3), K_app(2), w_colregs (3), r_safe_do].
+        """
+        super(MPCParameterFeedforward, self).__init__(observation_space, features_dim=features_dim)
         self.passthrough = nn.Identity()
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
@@ -217,6 +232,9 @@ class CombinedExtractor(BaseFeaturesExtractor):
             elif key == "RelativeTrackingObservation":
                 extractors[key] = TrackingVAE(subspace, features_dim=12, num_layers=1)
                 total_concat_size += extractors[key].latent_dim
+            elif key == "MPCParameterObservation":
+                extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])
+                total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)
         self._features_dim = total_concat_size

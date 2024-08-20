@@ -25,8 +25,7 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel, ContinuousCritic
-from stable_baselines3.common.preprocessing import (get_action_dim,
-                                                    is_image_space)
+from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -410,6 +409,10 @@ class SACMPCParameterProviderActor(BasePolicy):
             th.zeros(self.mpc_action_dim), log_std=self.mpc_log_std
         )
 
+        self.t_prev: float = 0.0
+        self.noise_application_duration: float = 10.0
+        self.prev_noise_action = None
+
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
         data.update(
@@ -558,6 +561,8 @@ class SACMPCParameterProviderActor(BasePolicy):
         batch_size = observation["TrackingObservation"].shape[0]
         normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
+
+        t = observation["TimeObservation"][0]
         actor_infos = [{} for _ in range(batch_size)]
 
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
@@ -569,14 +574,21 @@ class SACMPCParameterProviderActor(BasePolicy):
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
             mpc_param_increment = np.zeros(self.action_space.shape[0])
             if not self.disable_parameter_provider:
-                mpc_param_increment = self.mpc_param_provider(dnn_input).detach().numpy()
+                mpc_param_increment = self.mpc_param_provider(dnn_input).detach().clone().numpy()
 
+            t = observation["TimeObservation"][idx][0]
             if not deterministic:
-                mpc_param_increment = self.sample_action(mean_actions=mpc_param_increment)
-            unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment.detach().clone())
+                if t == 0 or t - self.t_prev >= self.noise_application_duration:
+                    mpc_param_increment = self.sample_action(mean_actions=mpc_param_increment)
+                    self.t_prev = t
+                    self.prev_noise_action = mpc_param_increment.copy()
+                else:
+                    mpc_param_increment = self.prev_noise_action
+
+            unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment.copy())
             info = {
                 "dnn_input_features": dnn_input.detach().cpu().numpy(),
-                "norm_mpc_param_increment": mpc_param_increment.detach().clone().numpy(),
+                "norm_mpc_param_increment": mpc_param_increment.copy(),
                 "unnorm_mpc_param_increment": unnorm_action,
                 "norm_old_mpc_params": norm_current_mpc_params.detach().clone().numpy(),
                 "old_mpc_params": self.mpc_param_provider.unnormalize(norm_current_mpc_params.detach().clone()),
@@ -618,7 +630,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         self.action_dist = self.action_dist.proba_distribution(th.from_numpy(mean_actions.copy()), log_std=self.log_std)
         norm_actions = self.action_dist.get_actions()
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
-        return norm_actions
+        return norm_actions.detach().clone().numpy()
 
     def preprocess_obs_for_dnn(
         self,

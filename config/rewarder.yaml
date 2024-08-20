@@ -48,5 +48,4 @@ dnn_parameter_provider:
   rho_non_optimal_solution: 500.0
   rho_non_relevant_safety_param_change: 20.0
 action_chatter:
-  rho_course: 0.0001
-  rho_speed: 0.0001
+  rho_chatter: [0.0125, 0.025, 0.025, 0.05, 0.05, 0.05, 0.05, 0.05, 0.25]

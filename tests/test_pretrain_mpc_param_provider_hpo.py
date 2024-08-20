@@ -23,7 +23,7 @@ def objective(trial: optuna.Trial) -> float:
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    input_dim = 40 + 12 + 5  # this is, excluding the MPC parameters
+    input_dim = 40 + 12 + 5 + 9
 
     save_interval = 10
     batch_size = 8
@@ -31,7 +31,7 @@ def objective(trial: optuna.Trial) -> float:
     learning_rate = 5e-5
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
 
-    experiment_name = "sac_rlmpc_pp_eval3"
+    experiment_name = "sac_rlmpc_pp_eval1"
     data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
     data_filename_list = []
     for i in range(1, 2):
@@ -63,16 +63,16 @@ def objective(trial: optuna.Trial) -> float:
     if not log_dir.exists():
         log_dir.mkdir(parents=True)
 
-    batch_size = trial.suggest_int("batch_size", 1, 32)
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
-    num_epochs = trial.suggest_int("num_epochs", 10, 100)
+    batch_size = 32
+    learning_rate = 0.0001  # trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
+    num_epochs = 40
 
-    n_layers = trial.suggest_int("n_layers", 1, 3)
+    n_layers = trial.suggest_int("n_layers", 2, 3)
     actfn_str = "ReLU"  # trial.suggest_categorical("activation_fn", ["ReLU"])
     actfn = getattr(torch.nn, actfn_str)
     hidden_dims = []
     for i in range(n_layers):
-        out_features = trial.suggest_int(f"n_units_l{i}", 64, 400)
+        out_features = trial.suggest_int(f"n_units_l{i}", 100, 400)
         hidden_dims.append(out_features)
 
     model = MPCParameterDNN(

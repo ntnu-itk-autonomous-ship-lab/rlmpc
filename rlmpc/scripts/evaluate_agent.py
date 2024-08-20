@@ -86,12 +86,12 @@ def main(args):
         "--model_class", type=str, default="sac_rlmpc_param_provider_policy"
     )  # either "sac_rlmpc_policy", "sac_rlmpc_param_provider_policy" or "sb3_sac"
     parser.add_argument("--n_eval_episodes", type=int, default=50)
-    parser.add_argument("--n_cpus", type=int, default=1)
+    parser.add_argument("--n_cpus", type=int, default=2)
     parser.add_argument("--record", type=bool, default=True)
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--disable_rlmpc_parameter_provider", type=bool, default=True)
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc_pp_eval3")
+    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp_eval1")
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC eval:")

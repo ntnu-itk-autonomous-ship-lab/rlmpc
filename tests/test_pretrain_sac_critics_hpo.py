@@ -82,16 +82,15 @@ def objective(trial: optuna.Trial) -> float:
     batch_size = 64  # trial.suggest_int("batch_size", 1, 64)
     buffer_size = 40000
     tau = 0.01
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 4e-4)
-    num_epochs = 60  # trial.suggest_int("num_epochs", 10, 100)
+    learning_rate = 0.0001
+    num_epochs = 30  # trial.suggest_int("num_epochs", 10, 100)
     actfn = th.nn.ReLU
     actfn_str = "ReLU"
 
     n_layers = trial.suggest_int("n_layers", 2, 3)
     hidden_dims = []
-    input_dim = 40 + 12 + 5 + 2  # enc + tracking + nav + action
     for i in range(n_layers):
-        out_features = trial.suggest_int(f"n_units_l{i}", 64, 500)
+        out_features = trial.suggest_int(f"n_units_l{i}", 100, 500)
         hidden_dims.append(out_features)
 
     mpc_param_provider_kwargs = {

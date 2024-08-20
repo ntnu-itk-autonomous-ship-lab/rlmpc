@@ -186,16 +186,18 @@ class DNNParameterRewarderParams:
 
 @dataclass
 class ActionChatterRewarderParams:
-    rho_course: float = 0.0
-    rho_speed: float = 0.0
+    rho_chatter: np.ndarray = field(default_factory=lambda: np.diag([0.0] * 9))
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         cfg = cls(**config_dict)
+        cfg.rho_chatter = np.diag(cfg.rho_chatter)
         return cfg
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        out = asdict(self)
+        out["rho_chatter"] = self.rho_chatter.diagonal().tolist()
+        return out
 
 
 @dataclass
@@ -576,7 +578,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
         no_dos_in_the_way = d2dos[0][1] > 100.0
         if truncated and not goal_reached and no_dos_in_the_way:
-            self.last_reward = -self._config.rho_goal_not_reached #* d2goal
+            self.last_reward = -self._config.rho_goal_not_reached  # * d2goal
             return self.last_reward
 
         unnormalized_obs = self.env.observation_type.unnormalize(state)
@@ -659,9 +661,8 @@ class ActionChatterRewarder(cs_reward.IReward):
         if action is None:
             return 0.0
         unnorm_action = self.env.action_type.unnormalize(action)
-        course_change = unnorm_action[0]
-        speed_change = unnorm_action[1]
-        self.last_reward = -self._config.rho_course * course_change**2 - self._config.rho_speed * speed_change**2
+        chatter_cost = unnorm_action.T @ self._config.rho_chatter @ unnorm_action
+        self.last_reward = -chatter_cost
         return self.last_reward
 
     def get_last_rewards_as_dict(self) -> dict:
@@ -685,7 +686,7 @@ class MPCRewarder(cs_reward.IReward):
         self.readily_apparent_maneuvering_rewarder = ReadilyApparentManeuveringRewarder(
             env, config.readily_apparent_maneuvering
         )
-        # self.action_chatter_rewarder = ActionChatterRewarder(env, config.action_chatter)
+        self.action_chatter_rewarder = ActionChatterRewarder(env, config.action_chatter)
         self.dnn_parameter_provider_rewarder = DNNParameterRewarder(env, config.dnn_parameter_provider)
         self.r_antigrounding: float = 0.0
         self.r_collision_avoidance: float = 0.0
@@ -702,7 +703,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_colreg = self.colreg_rewarder(state, action, **kwargs)
         self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
-        # self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
+        self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
         self.r_dnn_parameters = self.dnn_parameter_provider_rewarder(state, action, **kwargs)
         reward = (
             self.r_antigrounding
@@ -710,7 +711,7 @@ class MPCRewarder(cs_reward.IReward):
             + self.r_colreg
             + self.r_trajectory_tracking
             + self.r_readily_apparent_maneuvering
-            # + self.r_action_chatter
+            + self.r_action_chatter
             + self.r_dnn_parameters
         )
         reward = reward / self.reward_scale
@@ -729,6 +730,6 @@ class MPCRewarder(cs_reward.IReward):
             "r_colreg": self.r_colreg,
             "r_trajectory_tracking": self.r_trajectory_tracking,
             "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering,
-            # "r_action_chatter": self.r_action_chatter,
+            "r_action_chatter": self.r_action_chatter,
             "r_dnn_parameters": self.r_dnn_parameters,
         }
