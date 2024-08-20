@@ -121,7 +121,7 @@ class TrajectoryTrackingRewarderParams:
     rho_d2goal: float = 0.1  # final path deviation reward weight
     rho_course_dev: float = 0.0  # course deviation reward weight
     rho_turn_rate: float = 0.0  # turn rate reward weight
-    rho_goal_not_reached: float = 100.0  # penalty for not reaching the goal
+    rho_goal: float = 100.0  # penalty for not reaching the goal
     goal_radius: float = 30.0  # radius around the goal point where the goal is considered reached
 
     @classmethod
@@ -568,6 +568,11 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
             self._last_course_error = 0.0
         truncated = kwargs.get("truncated", False)
         goal_reached = self.env.simulator.determine_ship_goal_reached()
+        # Positive reward if the goal is reached
+        if goal_reached:
+            self.last_reward = self._config.rho_goal
+            return self.last_reward
+
         d2goal = np.linalg.norm(self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1])
 
         ownship_state = self.env.ownship.state
@@ -578,7 +583,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
         no_dos_in_the_way = d2dos[0][1] > 100.0
         if truncated and not goal_reached and no_dos_in_the_way:
-            self.last_reward = -self._config.rho_goal_not_reached  # * d2goal
+            self.last_reward = -self._config.rho_goal  # * d2goal
             return self.last_reward
 
         unnormalized_obs = self.env.observation_type.unnormalize(state)

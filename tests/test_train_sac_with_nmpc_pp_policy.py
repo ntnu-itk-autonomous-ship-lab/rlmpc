@@ -37,14 +37,14 @@ def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp1_cont")
+    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp1_cont2")
     parser.add_argument("--n_training_envs", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.0002)
     parser.add_argument("--buffer_size", type=int, default=40000)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--gradient_steps", type=int, default=1)
-    parser.add_argument("--train_freq", type=int, default=4)
-    parser.add_argument("--n_eval_episodes", type=int, default=1)
+    parser.add_argument("--train_freq", type=int, default=2)
+    parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--eval_freq", type=int, default=10000)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=100000)
@@ -87,8 +87,8 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.04 for _ in range(n_mpc_params)])
+    action_noise_std_dev = np.array([0.0001, 0.0001])  # normalized std dev for the action space [course, speed]
+    param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -169,8 +169,9 @@ def main(args):
         str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_278_416_310_ReLU/models/best_model"
     )
     load_model = True
-    load_model_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_10000_steps"
-    load_rb_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1/models/sac_nmpc_pp1_replay_buffer"
+    load_name = "sac_nmpc_pp1_cont2"
+    load_model_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1_cont2/models/sac_nmpc_pp1_cont2_9500_steps"
+    load_rb_path = str(base_dir.parents[0]) + "/sac_nmpc_pp1_cont2/models/sac_nmpc_pp1_cont2_replay_buffer"
     n_timesteps_per_learn = 20000
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):

@@ -410,7 +410,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         )
 
         self.t_prev: float = 0.0
-        self.noise_application_duration: float = 10.0
+        self.noise_application_duration: float = 6.0
         self.prev_noise_action = None
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:

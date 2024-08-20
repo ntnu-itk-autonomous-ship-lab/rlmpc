@@ -298,8 +298,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self._acados_model = AcadosModel()
         self._params = params
         self.setup_equations_of_motion()
-
-        self.scale_eqs: bool = True
+        self.create_dynamics_erk4()
 
         # Input and state bounds
         U_max = self._params.U_max
@@ -308,7 +307,7 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         s_min = self._params.s_min
         s_max = self._params.s_max
         s_dot_max = self._params.s_dot_max
-        approx_inf = 1800.0  # to avoid numerical issues in acados
+        approx_inf = 2000.0  # to avoid numerical issues in acados
         self.lbu = np.array([-r_max, -a_max, -a_max])
         self.ubu = np.array([r_max, a_max, a_max])
         self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -U_max, s_min, 0.0])
@@ -348,6 +347,17 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self.p = p
         self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
         return f_impl, f_expl, xdot, x, u, p
+
+    def create_dynamics_erk4(self, dt: float = 2.0) -> csd.Function:
+        """Creates an explicit Runge-Kutta 4 dynamics function for the model"""
+        k1 = self.dynamics(self.x, self.u, self.p)
+        k2 = self.dynamics(self.x + 0.5 * dt * k1, self.u, self.p)
+        k3 = self.dynamics(self.x + 0.5 * dt * k2, self.u, self.p)
+        k4 = self.dynamics(self.x + dt * k3, self.u, self.p)
+        x_next = self.x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        self.dynamics_erk4 = csd.Function(
+            "dynamics_erk4", [self.x, self.u, self.p], [x_next], ["x", "u", "p"], ["x_next"]
+        )
 
     def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
         """Simulate N Euler steps for the model

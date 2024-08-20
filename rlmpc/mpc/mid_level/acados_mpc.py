@@ -286,6 +286,7 @@ class AcadosMPC:
         g_so_constr_vals = []
         g_bx_constr_vals = []
         g_bu_constr_vals = []
+        g_eq_constr_vals = []
         lbu, ubu, lbx, ubx = self.model.get_input_state_bounds()
 
         for i in range(N + 1):
@@ -295,9 +296,10 @@ class AcadosMPC:
             g_bx_constr_vals.extend((x_i - ubx).tolist())
             g_bx_constr_vals.extend((lbx - x_i).tolist())
             if i < N:
+                x_i_plus = self._acados_ocp_solver.get(i + 1, "x")
+                g_eq_constr_vals.extend(self._equality_constraints(x_i, u_i, x_i_plus).full().flatten().tolist())
                 g_bu_constr_vals.extend((u_i - ubu).tolist())
                 g_bu_constr_vals.extend((lbu - u_i).tolist())
-            # g_eq_vals.append(self.model.dynamics(x_i, u_i, csd.vertcat([])).full().flatten())
             g_do_constr_vals.extend(
                 self._dynamic_obstacle_constraints(x_i, self._X_do[i], self._params.r_safe_do).full().flatten().tolist()
             )
@@ -310,12 +312,12 @@ class AcadosMPC:
         g_bu_constr_vals = np.array(g_bu_constr_vals).flatten()
         g_do_constr_vals = np.array(g_do_constr_vals).flatten()
         g_so_constr_vals = np.array(g_so_constr_vals).flatten()
-        # g_eq_vals = np.array(g_eq_vals).flatten()
+        g_eq_constr_vals = np.abs(np.array(g_eq_constr_vals).flatten())
 
-        # if g_eq_vals.max() > 1e-6:
-        #     print(
-        #         f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_vals) > 1e-6).flatten().T}!"
-        #     )
+        if g_eq_constr_vals.max() > 1e-5:
+            print(
+                f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_constr_vals) > 1e-6).flatten().T}!"
+            )
         if g_bx_constr_vals.max() > 1e-6:
             print(
                 f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_bx_constr_vals > 1e-6).flatten().T}!"
@@ -388,7 +390,6 @@ class AcadosMPC:
         self._xs_prev = xs_unwrapped
         self._x_warm_start = warm_start["X"]
         self._u_warm_start = warm_start["U"]
-
         try:
             self._update_ocp(
                 solver=self._acados_ocp_solver,
@@ -398,7 +399,9 @@ class AcadosMPC:
                 do_ot_list=do_ot_list,
                 prev_opt_abs_action=warm_start["prev_opt_abs_action"],
             )
-            # self.print_warm_start_info(xs_unwrapped)
+            if t == 0.0:
+                self.print_warm_start_info(xs_unwrapped)
+
             status = self._acados_ocp_solver.solve()
             status_str = mpc_common.map_acados_error_code(status)
         except Exception as _:  # pylint: disable=broad-except
@@ -605,7 +608,9 @@ class AcadosMPC:
             if p_i.size != self._p_adjustable.shape[0] + self._p_fixed.shape[0] and self.verbose:
                 print(f"Parameter size mismatch: {p_i.size} vs {len(self._p_list)}")
             self._parameter_values.append(p_i)
-            solver.set(i, "p", p_i) # exit due to external func param mismatch can happen due to path var size mismatch (fixed by setting self_acados_ocp_solver = None before reconstructing)
+            solver.set(
+                i, "p", p_i
+            )  # exit due to external func param mismatch can happen due to path var size mismatch (fixed by setting self_acados_ocp_solver = None before reconstructing)
         self._acados_ocp_mutex.release()
 
     def construct_ocp(
@@ -869,6 +874,7 @@ class AcadosMPC:
             prev_opt_abs_action=np.zeros(len(self._action_indices)),
             stage_idx=0,
         )
+        self._parameter_values = self._acados_ocp.parameter_values
 
         self._acados_ocp_mutex.acquire()
         # remove files in the code export directory
@@ -888,6 +894,9 @@ class AcadosMPC:
         self._dynamic_obstacle_constraints = csd.Function(
             "do_constr", [x, X_do, r_safe_do], [csd.vertcat(*do_constr_list)]
         )
+        xnext = self.model.dynamics_erk4(x, u, csd.vertcat([]))
+        xnext_ = csd.MX.sym("xnext_", nx)
+        self._equality_constraints = csd.Function("eq_constr", [x, u, xnext_], [xnext - xnext_])
         self._acados_ocp_mutex.release()
 
         # formulate non-regularized ocp
@@ -1050,7 +1059,7 @@ class AcadosMPC:
         fixed_parameter_values.extend(do_ot_parameter_values)
         self._p_fixed_values = np.array(fixed_parameter_values)
         params = np.concatenate((adjustable_params, np.array(fixed_parameter_values)))
-        if False: # stage_idx == 0:
+        if False:  # stage_idx == 0:
             print(f"dim adjustable_params: {adjustable_params.size}")
             print(f"dim prev_opt_action: {prev_opt_abs_action.size}")
             print(f"dim d: {d.size}")

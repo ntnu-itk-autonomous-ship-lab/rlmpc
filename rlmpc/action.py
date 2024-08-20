@@ -150,6 +150,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         """
         self.t_prev = 0.0
         self.action_result = csgym_action.ActionResult(success=True, info={})
+        self.non_optimal_solutions = 0
         self.last_action = np.zeros(self.mpc_action_dim)
         self.prev_noise_action = th.zeros(self.mpc_action_dim)
         t = self.env.time
@@ -344,7 +345,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         norm_mpc_action = self.normalize_mpc_action(mpc_action)
         expl_action = norm_mpc_action
         if not self.deterministic and self.env.time > 2.0:
-            expl_action = self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
+            expl_action = self.sample_mpc_action(
+                mpc_actions=norm_mpc_action.copy()
+            )  # self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
 
         mpc_info.update(
             {

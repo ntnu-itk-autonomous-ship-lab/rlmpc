@@ -786,10 +786,10 @@ class RLMPC(ci.ICOLAV):
         else:
             rrt_trajectory[4:, 0] = np.array([path_var, path_var_dot])
 
-        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.array([0.0, 0.0, -0.04])
+        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.array([0.0, 0.0, -0.02])
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
         rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
-        rrt_inputs[2, :] = np.array([u_omega * (0.95**u_idx) for u_idx, u_omega in enumerate(rrt_inputs[2, :])])
+        rrt_inputs[2, :] = np.array([u_omega * (1.0**u_idx) for u_idx, u_omega in enumerate(rrt_inputs[2, :])])
 
         # Add path timing dynamics to warm start trajectory
         mpc_model_traj = self._mpc.model_prediction(rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1])

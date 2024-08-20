@@ -6,7 +6,7 @@ trajectory_tracking:
   rho_speed_dev: 6.0
   rho_course_dev: 3.0
   rho_turn_rate: 0.01
-  rho_goal_not_reached: 100.0
+  rho_goal: 100.0
   goal_radius: 30.0
 colreg:
   alpha_cr: [0.03, 0.003]
