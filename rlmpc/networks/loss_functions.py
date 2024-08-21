@@ -25,7 +25,9 @@ def mpc_parameter_provider_loss(predicted_param_increment: th.Tensor, target_par
     Returns:
         th.Tensor: The loss.
     """
-    loss = F.mse_loss(predicted_param_increment, target_param_increment)
+    target_loss = F.mse_loss(predicted_param_increment, target_param_increment)
+    chatter_loss = F.mse_loss(predicted_param_increment, th.zeros_like(predicted_param_increment))
+    loss = target_loss + 0.1 * chatter_loss
     return loss
 
 

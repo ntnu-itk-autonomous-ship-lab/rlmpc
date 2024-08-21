@@ -9,12 +9,12 @@ from torch.utils.data import DataLoader
 
 
 def test_prediction_of_mpc_dnn() -> None:
-    input_dim = 40 + 12 + 5  # this is, excluding the MPC parameters
+    input_dim = 40 + 12 + 5 + 9
 
     batch_size = 8
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
 
-    experiment_name = "sac_rlmpc_pp_eval3"
+    experiment_name = "sac_rlmpc_pp_eval1"
     data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
     data_filename_list = []
     for i in range(1, 2):
@@ -36,7 +36,7 @@ def test_prediction_of_mpc_dnn() -> None:
 
     actfn_str = "ReLU"
     actfn = getattr(torch.nn, actfn_str)
-    hidden_dims = [397, 284, 257]
+    hidden_dims = [493, 500]
 
     base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
     model = MPCParameterDNN(
@@ -44,10 +44,10 @@ def test_prediction_of_mpc_dnn() -> None:
         hidden_sizes=hidden_dims,
         activation_fn=actfn,
         features_dim=input_dim,
-        model_file=base_dir / "pretrained_dnn_pp_HD_397_284_257_ReLU/best_model.pth",
+        model_file=base_dir / "pretrained_dnn_pp_HD_493_500_ReLU/best_model.pth",
     )
     model.eval()
-    train_dataset.dataset.datasets[0].test_model_on_episode_data(model)
+    test_dataset.dataset.datasets[0].test_model_on_episode_data(model)
     print("Model tested on episode data")
 
 

@@ -137,6 +137,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.last_rollout_info: Dict[str, Any] = {}
         self.just_trained: bool = False  # Used by callback for logging purposes
         self.just_dumped_rollout_logs: bool = False  # Used by callback for logging purposes
+        self.non_optimal_solution_percentages: np.ndarray = np.zeros(self.n_envs, dtype=np.float32)
 
     @abstractmethod
     def train(self, gradient_steps: int, batch_size: int) -> None:
@@ -433,12 +434,13 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     if env.envs[env_idx].unwrapped.time < 0.0001:
                         self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
+            deterministic = num_collected_episodes == 0 or num_collected_episodes % 2 == 0
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
                 learning_starts,
                 observation=self._current_obs,
                 actor_info=self._last_actor_info,
-                deterministic=False,
+                deterministic=deterministic,
                 n_envs=env.num_envs,
             )
             # if self.verbose:
@@ -501,6 +503,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             for idx, done in enumerate(dones):
                 if done:
                     print(f"Rollout collection for episode {self._episode_num} finished")
+                    self.non_optimal_solution_percentages[idx] = self._last_infos[idx]["actor_info"][
+                        "non_optimal_solutions_per_episode"
+                    ]
                     num_collected_episodes += 1
                     self._episode_num += 1
                     action_count = 0
@@ -550,11 +555,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             self.non_optimal_solution_percentage = (
                 self.policy.actor.non_optimal_solutions / (self.num_timesteps) if self.num_timesteps > 0 else 0.0
-            )
-        else:
-            non_opt_solutions = np.array([info["actor_info"]["non_optimal_solutions"] for info in infos]).sum()
-            self.non_optimal_solution_percentage += (
-                non_opt_solutions / (self.num_timesteps) if self.num_timesteps > 0 else 0.0
             )
         self._last_dones = locals_dict["dones"]
         self._last_infos = infos
@@ -701,6 +701,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "mean_episode_length": ep_len_mean,
                 "episodes": self._episode_num,
                 "success_rate": success_rate,
-                "non_optimal_solution_rate": self.non_optimal_solution_percentage,
+                "non_optimal_solution_rate": self.non_optimal_solution_percentages.mean(),
             }
         )

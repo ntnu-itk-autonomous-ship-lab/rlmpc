@@ -94,7 +94,7 @@ def normalize_mpc_param_tensor(
     Returns:
         th.Tensor: The normalized parameter tensor
     """
-    x_norm = th.zeros_like(x)
+    x_norm = th.zeros_like(x, dtype=th.float32)
     for param_name in param_list:
         param_range = parameter_ranges[param_name]
         param_length = parameter_lengths[param_name]
@@ -131,7 +131,7 @@ def unnormalize_mpc_param_tensor(
     """
     if isinstance(x, th.Tensor):
         x = x.detach().numpy()
-    x_unnorm = np.zeros_like(x)
+    x_unnorm = np.zeros_like(x, dtype=np.float32)
     for param_name in param_list:
         param_range = parameter_ranges[param_name]
         param_length = parameter_lengths[param_name]
@@ -166,7 +166,7 @@ def normalize_mpc_param_increment_tensor(
     Returns:
         th.Tensor: The normalized parameter increment tensor
     """
-    x_norm = th.zeros_like(x)
+    x_norm = th.zeros_like(x, dtype=th.float32)
     for param_name in param_list:
         param_incr_range = parameter_incr_ranges[param_name]
         param_length = parameter_lengths[param_name]
@@ -201,7 +201,7 @@ def unnormalize_mpc_param_increment_tensor(
     Returns:
         np.ndarray: The unnormalized output as a numpy array
     """
-    x_unnorm = np.zeros_like(x)
+    x_unnorm = np.zeros_like(x, dtype=np.float32)
     for param_name in param_list:
         param_incr_range = parameter_incr_ranges[param_name]
         param_length = parameter_lengths[param_name]
@@ -263,7 +263,7 @@ def map_mpc_param_incr_array_to_parameter_dict(
                 x_param_new[j] = np.clip(x_param_new[j], param_range[j][0], param_range[j][1])
         else:
             x_param_new = np.clip(x_param_new, param_range[0], param_range[1])
-        params[param_name] = x_param_new
+        params[param_name] = x_param_new.astype(np.float32)
     return params
 
 

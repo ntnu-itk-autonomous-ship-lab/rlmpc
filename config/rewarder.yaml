@@ -1,9 +1,9 @@
 
 
 trajectory_tracking:
-  rho_d2path: 0.5
+  rho_d2path: 0.7
   rho_d2goal: 0.0
-  rho_speed_dev: 3.0
+  rho_speed_dev: 30.0
   rho_course_dev: 1.5
   rho_turn_rate: 0.01
   rho_goal: 600.0
@@ -17,7 +17,7 @@ colreg:
   x_0_ot: 300.0
   y_0_ot: 100.0
   d_attenuation: 300.0
-  w_colregs: [50.0, 50.0, 50.0]
+  w_colregs: [60.0, 60.0, 60.0]
   colregs_handler:
     theta_critical_ot: 45.0  # contact angle threshold for OT situation
     theta_critical_ho: 13.0 # contact and bearing angle threshold for HO situation
@@ -44,8 +44,8 @@ anti_grounding:
   r_safe: 5.0
 dnn_parameter_provider:
   disable: False
-  rho_solver_time: 10.0
+  rho_solver_time: 0.0
   rho_non_optimal_solution: 500.0
-  rho_non_relevant_safety_param_change: 20.0
+  rho_non_relevant_safety_param_change: 0.0
 action_chatter:
   rho_chatter: [0.0125, 0.025, 0.025, 0.05, 0.05, 0.05, 0.05, 0.05, 0.25]

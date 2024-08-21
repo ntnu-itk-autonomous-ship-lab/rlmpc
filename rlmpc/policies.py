@@ -409,9 +409,12 @@ class SACMPCParameterProviderActor(BasePolicy):
             th.zeros(self.mpc_action_dim), log_std=self.mpc_log_std
         )
 
-        self.t_prev: float = 0.0
-        self.noise_application_duration: float = 6.0
-        self.prev_noise_action = None
+        max_n_envs = 4
+        self.t_prev: np.ndarray = np.zeros(max_n_envs, dtype=np.float32)
+        self.noise_application_duration: float = 30.0
+        self.prev_noise_action: List[np.ndarray] = [
+            np.zeros(self.action_space.shape[0], dtype=np.float32) for _ in range(max_n_envs)
+        ]
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
@@ -488,7 +491,7 @@ class SACMPCParameterProviderActor(BasePolicy):
             Tuple[th.Tensor, th.Tensor]:
         """
 
-        batch_size = obs["TrackingObservation"].shape[0]
+        batch_size = obs["MPCParameterObservation"].shape[0]
         # obs = self._convert_obs_numpy_to_tensor(obs)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
@@ -558,18 +561,18 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
         """
-        batch_size = observation["TrackingObservation"].shape[0]
-        normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
-        unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
 
-        t = observation["TimeObservation"][0]
-        actor_infos = [{} for _ in range(batch_size)]
+        n_envs = observation["TimeObservation"].shape[0]
+        normalized_actions = np.zeros((n_envs, self.action_space.shape[0]), dtype=np.float32)
+        unnormalized_actions = np.zeros((n_envs, self.action_space.shape[0]), dtype=np.float32)
+
+        actor_infos = [{} for _ in range(n_envs)]
 
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
 
-        for idx in range(batch_size):
+        for idx in range(n_envs):
             norm_current_mpc_params = obs_tensor["MPCParameterObservation"][idx]
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
             mpc_param_increment = np.zeros(self.action_space.shape[0])
@@ -578,21 +581,21 @@ class SACMPCParameterProviderActor(BasePolicy):
 
             t = observation["TimeObservation"][idx][0]
             if not deterministic:
-                if t == 0 or t - self.t_prev >= self.noise_application_duration:
+                if t == 0 or t - self.t_prev[idx] >= self.noise_application_duration:
+                    # mpc_param_increment = self.sample_action(mean_actions=np.zeros(self.action_space.shape[0]))
                     mpc_param_increment = self.sample_action(mean_actions=mpc_param_increment)
-                    self.t_prev = t
-                    self.prev_noise_action = mpc_param_increment.copy()
+                    self.t_prev[idx] = t
+                    self.prev_noise_action[idx] = mpc_param_increment.copy()
                 else:
-                    mpc_param_increment = self.prev_noise_action
+                    mpc_param_increment = self.prev_noise_action[idx]
 
             unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment.copy())
             info = {
-                "dnn_input_features": dnn_input.detach().cpu().numpy(),
-                "norm_mpc_param_increment": mpc_param_increment.copy(),
-                "unnorm_mpc_param_increment": unnorm_action,
-                "norm_old_mpc_params": norm_current_mpc_params.detach().clone().numpy(),
+                "dnn_input_features": dnn_input.detach().cpu().numpy().astype(np.float32),  # 75 * 4 bytes = 300 bytes
+                "norm_mpc_param_increment": mpc_param_increment.astype(np.float32),  # 9 * 4 = 36 bytes
                 "old_mpc_params": self.mpc_param_provider.unnormalize(norm_current_mpc_params.detach().clone()),
             }
+            # rough size estimate: 300 + 36 * 3  = 408 bytes
 
             unnormalized_actions[idx, :] = unnorm_action
             normalized_actions[idx, :] = mpc_param_increment
@@ -622,7 +625,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         """Sample an action from the policy distribution
 
         Args:
-            mean_actions (np.ndarray): The mean action from the MPC parameter provider
+            mean_actions (np.ndarray): The mean action
 
         Returns:
             np.ndarray: The sampled action (normalized) from the policy distribution
@@ -945,12 +948,12 @@ class SACMPCActor(BasePolicy):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
         """
-        batch_size = observation["TrackingObservation"].shape[0]
+        batch_size = observation["MPCParameterObservation"].shape[0]
         normalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         unnormalized_actions = np.zeros((batch_size, self.action_space.shape[0]), dtype=np.float32)
         actor_infos = [{} for _ in range(batch_size)]
 
-        if isinstance(observation["TimeObservation"], th.Tensor):
+        if isinstance(observation["MPCParameterObservation"], th.Tensor):
             observation = self._convert_obs_tensor_to_numpy(observation)
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
 
@@ -983,7 +986,6 @@ class SACMPCActor(BasePolicy):
             info.update(
                 {
                     "da_dp_mpc": self.compute_mpc_sensitivities(info) if self.training else None,
-                    "unnorm_mpc_action": action,
                     "dnn_input_features": dnn_input.detach().cpu().numpy(),
                     "mpc_param_increment": mpc_param_increment if not self.disable_parameter_provider else None,
                     "new_mpc_params": self.mpc.get_adjustable_mpc_params(),

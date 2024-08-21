@@ -255,10 +255,6 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_dnn_feature_inputs = th.from_numpy(
             np.array([info["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
         )
-        # actor_dnn_old_mpc_param_inputs = th.from_numpy(
-        #     np.array([info["actor_info"]["norm_old_mpc_params"] for info in replay_data.infos], dtype=np.float32)
-        # )
-        # dnn_input = th.cat([actor_dnn_feature_inputs, actor_dnn_old_mpc_param_inputs], dim=1)
         dnn_input = actor_dnn_feature_inputs
         return dnn_input
 
@@ -336,6 +332,20 @@ class SAC(opa.OffPolicyAlgorithm):
             f"[TRAINING] Updates: {self._n_updates} | Timesteps: {self.num_timesteps} | Actor Loss: {mean_actor_loss:.4f} | Actor Grad Norm: {mean_actor_grad_norm:.8f} | MPC Param Grad Norm: {mean_mpc_param_grad_norm:.8f} | Critic Loss: {np.mean(critic_losses):.4f} | Ent Coeff Loss: {np.mean(ent_coef_losses):.4f} | Ent Coeff: {np.mean(ent_coefs):.4f} | Batch processing time: {time.time() - batch_start_time:.2f}s"
         )
 
+        self.last_training_info.update(
+            {
+                "actor_loss": mean_actor_loss,
+                "actor_grad_norm": mean_actor_grad_norm,
+                "critic_loss": np.mean(critic_losses),
+                "ent_coef_loss": np.mean(ent_coef_losses),
+                "ent_coef": np.mean(ent_coefs),
+                "batch_processing_time": time.time() - batch_start_time,
+                "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
+                "n_updates": self._n_updates,
+                "non_optimal_solution_rate": self.non_optimal_solution_percentages.mean(),
+            }
+        )
+
         if not disable_log:
             self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
             self.logger.record("train/ent_coef", np.mean(ent_coefs))
@@ -348,20 +358,7 @@ class SAC(opa.OffPolicyAlgorithm):
             self.logger.record(
                 "train/time_elapsed", max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
             )
-
-        self.last_training_info.update(
-            {
-                "actor_loss": mean_actor_loss,
-                "actor_grad_norm": mean_actor_grad_norm,
-                "critic_loss": np.mean(critic_losses),
-                "ent_coef_loss": np.mean(ent_coef_losses),
-                "ent_coef": np.mean(ent_coefs),
-                "batch_processing_time": time.time() - batch_start_time,
-                "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
-                "n_updates": self._n_updates,
-                "non_optimal_solution_rate": self.non_optimal_solution_percentage,
-            }
-        )
+            self.logger.record("train/non_optimal_solution_rate", self.non_optimal_solution_percentages.mean())
 
     def learn(
         self: SelfSAC,

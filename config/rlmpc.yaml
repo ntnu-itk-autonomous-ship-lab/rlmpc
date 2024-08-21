@@ -56,7 +56,7 @@ mpc:
     reference_traj_bbox_buffer: 200.0
     T: 60.0
     dt: 2.0
-    Q_p: [0.7, 30.0, 15.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
+    Q_p: [0.5, 30.0, 30.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
     K_prev_sol_dev: [10.0, 10.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.001]
@@ -70,11 +70,11 @@ mpc:
     alpha_ot: [0.005, 0.01]
     x_0_ot: 300.0
     y_0_ot: 100.0
-    d_attenuation: 300.0
+    d_attenuation: 350.0
     w_colregs: [70.0, 70.0, 70.0]
 
     w_L2: 0.0
-    w_L1: 1000.0 # 100000.0
+    w_L1: 4000.0 # 100000.0
     r_safe_so: 5.0
     r_safe_do: 15.0
     gamma: 1.0
@@ -114,14 +114,14 @@ mpc:
       derivative_test: "none"
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 300
+      nlp_solver_max_iter: 400
       nlp_solver_tol_stat: 0.00001
       nlp_solver_tol_eq: 0.00001
       nlp_solver_tol_ineq: 0.00001
       nlp_solver_tol_comp: 0.0001
       nlp_solver_ext_qp_res: 0
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" # "FULL_CONDENSING_QPOASES"
-      qp_solver_iter_max: 100
+      qp_solver_iter_max: 80
       qp_solver_warm_start: 1
       qp_solver_tol_stat: 0.0001
       qp_solver_tol_eq: 0.0001

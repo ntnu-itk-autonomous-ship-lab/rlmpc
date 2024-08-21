@@ -399,9 +399,6 @@ class AcadosMPC:
                 do_ot_list=do_ot_list,
                 prev_opt_abs_action=warm_start["prev_opt_abs_action"],
             )
-            if t == 0.0:
-                self.print_warm_start_info(xs_unwrapped)
-
             status = self._acados_ocp_solver.solve()
             status_str = mpc_common.map_acados_error_code(status)
         except Exception as _:  # pylint: disable=broad-except
@@ -413,7 +410,8 @@ class AcadosMPC:
         #     self._acados_ocp_solver.store_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
 
         if status != 0:
-            self._acados_ocp_solver.print_statistics()
+            self.print_warm_start_info(xs_unwrapped)
+            # self._acados_ocp_solver.print_statistics()
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
         n_iter = self._acados_ocp_solver.get_stats("sqp_iter")
@@ -683,7 +681,7 @@ class AcadosMPC:
         K_app_course = csd.MX.sym("K_app_course", 1, 1)
         K_app_speed = csd.MX.sym("K_app_speed", 1, 1)
 
-        s_dot_ref = csd.MX.sym("s_ref", 1, 1)
+        s_dot_ref = csd.MX.sym("s_dot_ref", 1, 1)
         p_fixed.append(self._x_path_coeffs)
         p_fixed.append(self._y_path_coeffs)
         p_fixed.append(self._x_dot_path_coeffs)
@@ -805,8 +803,12 @@ class AcadosMPC:
 
         x_path = self._x_path(x[4], self._x_path_coeffs)
         y_path = self._y_path(x[4], self._y_path_coeffs)
-        path_ref = csd.vertcat(x_path, y_path, s_dot_ref)
-        path_following_cost, _, _ = mpc_common.path_following_cost_huber(x, path_ref, Q_p_vec)
+        x_dot_path = self._x_dot_path(x[4], self._x_dot_path_coeffs)
+        y_dot_path = self._y_dot_path(x[4], self._y_dot_path_coeffs)
+        speed_ref = x[5] * csd.sqrt(1e-8 + x_dot_path**2 + y_dot_path**2)
+
+        x_ref = csd.vertcat(x_path, y_path, speed_ref, s_dot_ref)
+        path_following_cost, _, _, _ = mpc_common.path_following_cost_huber(x, x_ref, Q_p_vec)
         rate_cost, _, _ = mpc_common.rate_cost(
             u[0],
             u[1],
@@ -815,10 +817,6 @@ class AcadosMPC:
             r_max=ubu[0],
             a_max=ubu[1],
         )
-        x_dot_path = self._x_dot_path(x[4], self._x_dot_path_coeffs)
-        y_dot_path = self._y_dot_path(x[4], self._y_dot_path_coeffs)
-        speed_ref = x[5] * csd.sqrt(1e-8 + x_dot_path**2 + y_dot_path**2)
-        speed_dev_cost = Q_p_vec[1] * (x[3] - speed_ref) ** 2
 
         prev_sol_cost = (
             K_prev_sol_dev[0] * (self._prev_opt_abs_action[0] - x[2]) ** 2
@@ -848,12 +846,12 @@ class AcadosMPC:
         )
         small_input_cost = 1e-5 * u.T @ u
         self._acados_ocp.model.cost_expr_ext_cost_0 = (
-            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
+            path_following_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
         )
         self._acados_ocp.model.cost_expr_ext_cost = (
-            path_following_cost + speed_dev_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
+            path_following_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
         )
-        self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + speed_dev_cost
+        self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost
 
         # Parameters consist of RL adjustable parameters and fixed parameters
         # (either nominal path or dynamic obstacle related).
@@ -1012,16 +1010,13 @@ class AcadosMPC:
             adjustable_params[3] = 0.00001
             adjustable_params[4] = 0.00001
 
-        if n_dos == 0 or d2goal < 150.0 and "K_app_course" in self._adjustable_param_str_list:
-            if "K_prev_sol_dev" in self._adjustable_param_str_list:
-                adjustable_params[5] = 10.0
-                adjustable_params[6] = 5.0
-            else:
-                adjustable_params[3] = 10.0
-                adjustable_params[4] = 5.0
-
-        # if stage_idx == 0 and self.verbose:
-        #     print(f"Adjustable params: {adjustable_params}")
+        # if n_dos == 0 or d2goal < 150.0 and "K_app_course" in self._adjustable_param_str_list:
+        #     if "K_prev_sol_dev" in self._adjustable_param_str_list:
+        #         adjustable_params[5] = 10.0
+        #         adjustable_params[6] = 5.0
+        #     else:
+        #         adjustable_params[3] = 10.0
+        #         adjustable_params[4] = 5.0
 
         fixed_parameter_values = []
         fixed_parameter_values.extend(prev_opt_abs_action.flatten().tolist())
@@ -1041,17 +1036,17 @@ class AcadosMPC:
         do_ot_parameter_values = self._create_do_parameter_values(xs, do_ot_list, stage_idx)
         self._X_do.append(np.array(do_cr_parameter_values + do_ho_parameter_values + do_ot_parameter_values))
 
-        if n_dos == 0 or d2goal < 150.0 and "K_app_course" not in self._adjustable_param_str_list:
-            if "K_prev_sol_dev" in self._adjustable_param_str_list:
-                non_adjustable_mpc_params[4] = 10.0
-                non_adjustable_mpc_params[5] = 5.0
-            else:
-                non_adjustable_mpc_params[6] = 10.0
-                non_adjustable_mpc_params[7] = 5.0
+        # if n_dos == 0 or d2goal < 150.0 and "K_app_course" not in self._adjustable_param_str_list:
+        #     if "K_prev_sol_dev" in self._adjustable_param_str_list:
+        #         non_adjustable_mpc_params[4] = 10.0
+        #         non_adjustable_mpc_params[5] = 5.0
+        #     else:
+        #         non_adjustable_mpc_params[6] = 10.0
+        #         non_adjustable_mpc_params[7] = 5.0
 
         if "K_prev_sol_dev" not in self._adjustable_param_str_list and stage_idx != action_stage_index:
-            non_adjustable_mpc_params[0] = 0.00001
-            non_adjustable_mpc_params[1] = 0.00001
+            non_adjustable_mpc_params[0] = 0.0001
+            non_adjustable_mpc_params[1] = 0.0001
 
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
         fixed_parameter_values.extend(do_cr_parameter_values)
@@ -1114,13 +1109,13 @@ class AcadosMPC:
         n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
         p_goal = np.array(list(self.path_linestring.coords[-1]))
         d2goal = np.linalg.norm(state[0:2] - p_goal)
-        if n_dos == 0 or d2goal < 150.0:
-            if "K_prev_sol_dev" in self._adjustable_param_str_list:
-                non_adjustable_mpc_params[4] = 10.0
-                non_adjustable_mpc_params[5] = 5.0
-            else:
-                non_adjustable_mpc_params[6] = 10.0
-                non_adjustable_mpc_params[7] = 5.0
+        # if n_dos == 0 or d2goal < 150.0:
+        #     if "K_prev_sol_dev" in self._adjustable_param_str_list:
+        #         non_adjustable_mpc_params[4] = 10.0
+        #         non_adjustable_mpc_params[5] = 5.0
+        #     else:
+        #         non_adjustable_mpc_params[6] = 10.0
+        #         non_adjustable_mpc_params[7] = 5.0
 
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 

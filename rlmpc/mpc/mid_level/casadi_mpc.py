@@ -174,7 +174,7 @@ class CasadiMPC:
         """
         mdl_adjustable_params = np.array([])
         mpc_adjustable_params = self._params.adjustable(name_list=self._adjustable_param_str_list)
-        return np.concatenate((mdl_adjustable_params, mpc_adjustable_params))
+        return np.concatenate((mdl_adjustable_params, mpc_adjustable_params)).astype(np.float32)
 
     def get_fixed_params(self) -> np.ndarray:
         """Returns the fixed parameter values for the NLP problem.
@@ -182,7 +182,7 @@ class CasadiMPC:
         Returns:
             np.ndarray: Fixed parameter values for the NLP problem.
         """
-        return self._p_fixed_values
+        return self._p_fixed_values.astype(np.float32)
 
     def get_antigrounding_surface_functions(self) -> list:
         """Returns the anti-grounding surface functions.
@@ -678,7 +678,7 @@ class CasadiMPC:
 
         path_derivative_refs_list = []
         for k in range(N + 1):
-            s_dot_ref_k = csd.MX.sym("s_ref_" + str(k), 1, 1)
+            s_dot_ref_k = csd.MX.sym("s_dot_ref_" + str(k), 1, 1)
             path_derivative_refs_list.append(s_dot_ref_k)
         p_fixed.append(self._x_path_coeffs)
         p_fixed.append(self._y_path_coeffs)
@@ -846,17 +846,14 @@ class CasadiMPC:
 
             x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
             y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
-            s_dot_ref_k = path_derivative_refs_list[k]
-            path_ref_k = csd.vertcat(x_path_k, y_path_k, s_dot_ref_k)
-
-            # Sum stage cost
             x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
             y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
             speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
-            speed_dev_cost = Q_p_vec[1] * (x_k[3] - speed_ref_k) ** 2
 
-            path_following_cost, path_dev_cost, path_dot_dev_cost = mpc_common.path_following_cost_huber(
-                x_k, path_ref_k, Q_p_vec
+            s_dot_ref_nom_k = path_derivative_refs_list[k]
+            x_ref_k = csd.vertcat(x_path_k, y_path_k, speed_ref_k, s_dot_ref_nom_k)
+            path_following_cost, path_dev_cost, path_dot_dev_cost, speed_dev_cost = (
+                mpc_common.path_following_cost_huber(x_k, x_ref_k, Q_p_vec)
             )
 
             rate_cost, course_rate_cost, speed_rate_cost = mpc_common.rate_cost(
@@ -884,7 +881,7 @@ class CasadiMPC:
                 colregs_weights,
             )
 
-            J += path_following_cost + speed_dev_cost + rate_cost + colregs_cost + slack_penalty_cost
+            J += path_following_cost + rate_cost + colregs_cost + slack_penalty_cost
             if k == action_stage_index:
                 J += (
                     K_prev_sol_dev[0] * (self._prev_opt_abs_action[0] - x_k[2]) ** 2
@@ -988,18 +985,14 @@ class CasadiMPC:
 
         x_path_k = self._x_path(x_k[4], self._x_path_coeffs)
         y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
-        s_dot_ref_k = path_derivative_refs_list[-1]
-        path_ref_k = csd.vertcat(x_path_k, y_path_k, s_dot_ref_k)
-        path_following_cost, _, _ = mpc_common.path_following_cost_huber(x_k, path_ref_k, Q_p_vec)
-
         x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
         y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
         speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
-        speed_dev_cost = Q_p_vec[1] * (x_k[3] - speed_ref_k) ** 2
+        s_dot_ref_nom_k = path_derivative_refs_list[-1]
+        x_ref_k = csd.vertcat(x_path_k, y_path_k, speed_ref_k, s_dot_ref_nom_k)
+        path_following_cost, _, _, _ = mpc_common.path_following_cost_huber(x_k, x_ref_k, Q_p_vec)
 
-        # speed_dev_cost = 0.5 * Q_p_vec[2] * (x_k[3] - self._speed_spline(x_k[4], self._speed_spl_coeffs)) ** 2
-
-        J += path_following_cost + speed_dev_cost + slack_penalty_cost
+        J += path_following_cost + slack_penalty_cost
 
         so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_so_k, so_surfaces)
         so_constr_list.extend(so_constr_N)

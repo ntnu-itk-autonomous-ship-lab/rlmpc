@@ -257,24 +257,26 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
     return path_dev_cost + path_dot_dev_cost, path_dev_cost, path_dot_dev_cost
 
 
-def path_following_cost_huber(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, csd.MX, csd.MX]:
+def path_following_cost_huber(x: csd.MX, x_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
     """Computes the path following cost for an NMPFC COLAV using the Huber loss for position errors. Assumes the ship model is augmented by the path timing dynamics.
 
     Args:
         x (csd.MX): State vector.
-        p_ref (csd.MX): Reference path [x, y, s_dot]
-        Q_p (csd.MX): Path following cost weight vector.
+        x_ref (csd.MX): Reference state [x, y, U_ref s_dot_nom]^T.
+        Q_p (csd.MX): Cost weight vector.
         delta (csd.MX): Shape parameter for the Huber loss function.
 
     Returns:
-        Tuple[csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, speed deviation cost.
+        Tuple[csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, path derivative dev cost and actual speed deviation cost.
     """
-    z = csd.vertcat(x[:2], x[5])
-    assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
-    path_dev_squared = (z[:2] - p_ref[:2]).T @ (z[:2] - p_ref[:2])
+    z = csd.vertcat(x[:2], x[3], x[5])  # [x, y, U, s_dot]
+    assert z.shape[0] == x_ref.shape[0], "Path reference and output vector must have the same dimension."
+    path_dev_squared = (z[:2] - x_ref[:2]).T @ (z[:2] - x_ref[:2])
     path_dev_cost = Q_p[0] * huber_loss(path_dev_squared, delta=1.0)
-    path_dot_dev_cost = Q_p[2] * (z[2] - p_ref[2]) ** 2
-    return path_dev_cost + path_dot_dev_cost, path_dev_cost, path_dot_dev_cost
+    speed_dev_cost = Q_p[1] * (z[2] - x_ref[2]) ** 2
+    path_dot_dev_cost = Q_p[2] * (z[3] - x_ref[3]) ** 2
+    pfc_w_speed = path_dev_cost + path_dot_dev_cost + speed_dev_cost
+    return pfc_w_speed, path_dev_cost, path_dot_dev_cost, speed_dev_cost
 
 
 def huber_loss(x_squared: csd.MX, delta: csd.MX = 1.0) -> csd.MX:

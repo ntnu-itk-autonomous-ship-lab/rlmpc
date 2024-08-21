@@ -126,43 +126,52 @@ class RLMPC(ci.ICOLAV):
         self._mpc_inputs: np.ndarray = np.array([])
         self._geometry_tree: strtree.STRtree = strtree.STRtree([])
         self._mpc_rel_polygons: list = []
-        self._polygons: list = []
         self._all_polygons: list = []
-        self._set_generator: Optional[sg.SetGenerator] = None
-        self._debug: bool = True
+        self._hazards: list = []
+        self._debug: bool = False
         self._disturbance_handles: list = []
         self._rrt_traj_handle = None
         self._mpc_traj_handle = None
+        self._do_plt_handles: list = []
+
         self._action_indices: list = []
         self._goal_state: np.ndarray = np.array([])
-
         self._waypoints: np.ndarray = np.array([])
         self._speed_plan: np.ndarray = np.array([])
         self._enc: Optional[senc.ENC] = None
         self._nominal_path = None
         self._n_mpc_do: int = 0
-        self._do_plt_handles: list = []
 
-    def reset(self) -> None:
-        self._los.reset()
-        self._colregs_handler.reset()
-        self._mpc.reset()
+    def reset(self, hard: bool = False) -> None:
+        if hard:
+            self._mpc = None
+            self._los = None
+            self._ktp = None
+            self._colregs_handler = None
+            self._los = guidances.LOSGuidance(self._config.los)
+            self._ktp = guidances.KinematicTrajectoryPlanner()
+            self._mpc = mlmpc.MidlevelMPC(config=self._config.mpc, identifier=self.identifier)
+            self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
+        else:
+            self._los.reset()
+            self._colregs_handler.reset()
+            self._ktp.reset()
+            self._mpc.reset()
 
-        self._references = np.zeros((9, 1))
-        self._t_prev = 0.0
-        self._t_prev_mpc = 0.0
-        self._initialized = False
-        self._rrtstar = None
+        self._enc = None
         self._mpc_soln = {}
         self._mpc_trajectory = np.array([])
         self._mpc_inputs = np.array([])
+        self._rrtstar = None
+        self._t_prev = 0.0
+        self._t_prev_mpc = 0.0
+        self._initialized = False
         self._geometry_tree = strtree.STRtree([])
         self._min_depth = 0
         self._map_origin = np.array([])
         self._mpc_rel_polygons = []
-        self._polygons = []
         self._all_polygons = []
-        self._set_generator = None
+        self._hazards = []
         self._disturbance_handles = []
         self._action_indices = []
         self._rrt_traj_handle = None
@@ -170,7 +179,6 @@ class RLMPC(ci.ICOLAV):
         self._goal_state = np.array([])
         self._waypoints = np.array([])
         self._speed_plan = np.array([])
-        self._enc = None
         self._nominal_path = None
 
     def _clear_do_handles(self) -> None:
@@ -222,23 +230,18 @@ class RLMPC(ci.ICOLAV):
         self._speed_plan = speed_plan
         self._speed_plan[self._speed_plan > 7.0] = 6.0
         self._speed_plan[self._speed_plan < 2.0] = 2.0
-        self._mpc_soln: dict = {}
-        self._mpc_trajectory: np.ndarray = np.array([])
-        self._mpc_inputs: np.ndarray = np.array([])
-        self._mpc.reset()
-        self._colregs_handler.reset()
         self._debug = debug
-        enc.close_display()
-        self._enc = copy.deepcopy(enc)
 
+        self._enc = copy.deepcopy(enc)
         if self._debug:
+            enc.close_display()
             self._enc.start_display(figname="RL-MPC Debug")
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
         ownship_csog_state[3] = state_copy[2]
         ownship_csog_state[3] = ownship_state[3]
-        speed_plan[-1] = 0.0
+        speed_plan[-1] = 0.75
         self._map_origin = ownship_state[:2]
         self._nominal_path = self._ktp.compute_splines(
             waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
@@ -449,7 +452,7 @@ class RLMPC(ci.ICOLAV):
             param_subset (Dict[str, float | np.ndarray]): The subset of parameters.
         """
         self._mpc.set_param_subset(param_subset)
-        self._config.mpc = self._mpc.params
+        self._config.mpc.mpc = self._mpc.params
 
     def set_mpc_params(self, params: mpc_params.MidlevelMPCParams) -> None:
         """Sets the MPC parameters.
@@ -458,7 +461,7 @@ class RLMPC(ci.ICOLAV):
             params (mpc_params.MidlevelMPCParams): The MPC parameters.
         """
         self._mpc.set_params(params)
-        self._config.mpc = self._mpc.params
+        self._config.mpc.mpc = self._mpc.params
 
     def save_params(self, filename: Path) -> None:
         """Saves the parameters to a YAML file.
@@ -870,7 +873,6 @@ class RLMPC(ci.ICOLAV):
             - show_plots (bool): Whether to show plots or not.
             - **kwargs: Additional keyword arguments.
         """
-        self._polygons = []
         self._mpc_rel_polygons = []
         self._min_depth = mapf.find_minimum_depth(self._config.ship_draft, enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
@@ -893,8 +895,6 @@ class RLMPC(ci.ICOLAV):
             clip_to_bbox=False,
             show_plots=self._debug,
         )
-        for poly_tuple in poly_tuple_list:
-            self._polygons.extend(poly_tuple[0])
 
         if enc is not None and show_plots:
             ship_poly = mapf.create_ship_polygon(

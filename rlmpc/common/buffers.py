@@ -434,7 +434,9 @@ class DictReplayBuffer(ReplayBuffer):
 
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
-        self.infos = [{} for _ in range(self.buffer_size)]  # problematic, need to estimate size of infos!
+        self.infos = [
+            {} for _ in range(self.buffer_size)
+        ]  # problematic, need to estimate size of infos! Ca 150 + 408 = 558 bytes
 
         # Handle timeouts termination properly if needed
         # see https://github.com/DLR-RM/stable-baselines3/issues/284

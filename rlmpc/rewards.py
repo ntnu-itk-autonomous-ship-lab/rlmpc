@@ -444,6 +444,7 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
             return self.last_reward
 
         acceleration = (speed - self._prev_speed) / self.env.dt_action
+        acceleration = np.clip(acceleration, -self._config.a_max, self._config.a_max)
         rate_cost, _, _ = mpc_common.rate_cost(
             r=turn_rate,
             a=acceleration,
@@ -485,7 +486,7 @@ class COLREGRewarder(cs_reward.IReward):
             )
             self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
-        do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
+        do_list, _ = self.env.ownship.get_do_track_information()
         ownship_state = self.env.ownship.state
         translated_do_list = hf.translate_dynamic_obstacle_coordinates(
             do_list, self._map_origin[1], self._map_origin[0]
@@ -571,12 +572,13 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         # Positive reward if the goal is reached
         if goal_reached:
             self.last_reward = self._config.rho_goal
+            print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +rho_goal.")
             return self.last_reward
 
         d2goal = np.linalg.norm(self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1])
 
         ownship_state = self.env.ownship.state
-        do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
+        do_list, _ = self.env.ownship.get_do_track_information()
 
         d2dos = np.array([1e12])
         if len(do_list) > 0:
@@ -584,6 +586,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         no_dos_in_the_way = d2dos[0][1] > 100.0
         if truncated and not goal_reached and no_dos_in_the_way:
             self.last_reward = -self._config.rho_goal  # * d2goal
+            print(f"[{self.env.env_id.upper()}] Goal not reached! Rewarding -rho_goal.")
             return self.last_reward
 
         unnormalized_obs = self.env.observation_type.unnormalize(state)
@@ -635,7 +638,7 @@ class DNNParameterRewarder(cs_reward.IReward):
             r_param_dnn += -self._config.rho_non_optimal_solution
 
         ownship_state = self.env.ownship.state
-        do_list = hf.extract_do_list_from_tracking_observation(state["TrackingObservation"])
+        do_list, _ = self.env.ownship.get_do_track_information()
 
         if len(do_list) > 0:
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
@@ -667,6 +670,9 @@ class ActionChatterRewarder(cs_reward.IReward):
             return 0.0
         unnorm_action = self.env.action_type.unnormalize(action)
         chatter_cost = unnorm_action.T @ self._config.rho_chatter @ unnorm_action
+
+        # mpc_param_obs = state["MPCParameterObservation"]
+
         self.last_reward = -chatter_cost
         return self.last_reward
 
@@ -700,7 +706,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_readily_apparent_maneuvering: float = 0.0
         self.r_action_chatter: float = 0.0
         self.r_dnn_parameters: float = 0.0
-        self.verbose: bool = True
+        self.verbose: bool = False
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)

@@ -149,8 +149,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             build_sensitivities (bool, optional): Whether to build the sensitivities.
         """
         self.t_prev = 0.0
+        self.deterministic = self.env.episodes == 1 or self.env.episodes % 2 == 0
         self.action_result = csgym_action.ActionResult(success=True, info={})
-        self.non_optimal_solutions = 0
+        # self.non_optimal_solutions = 0
         self.last_action = np.zeros(self.mpc_action_dim)
         self.prev_noise_action = th.zeros(self.mpc_action_dim)
         t = self.env.time
@@ -160,6 +161,8 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         enc = self.env.enc
         do_list, _ = self.env.ownship.get_do_track_information()
 
+        self.mpc.reset()
+        self.mpc.set_adjustable_param_str_list(self.mpc_param_list)
         self.mpc.set_action_indices(self.action_indices)
         self.mpc.set_mpc_param_subset(self.mpc_adjustable_params_init)
         self.mpc.initialize(
@@ -177,7 +180,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         if build_sensitivities:
             if self.mpc_sensitivities is None or self.recompile_on_reset:
                 self.mpc_sensitivities = self.mpc.build_sensitivities()
-        print(f"[{self.env.env_id.upper()}] MPC initialized! Built sensitivities? {build_sensitivities}")
+        print(
+            f"[{self.env.env_id.upper()}] MPC initialized! | Built sensitivities? {build_sensitivities} | Deterministic? {self.deterministic}"
+        )
 
     def extract_mpc_observation_features(self) -> Tuple[float, np.ndarray, List, stochasticity.DisturbanceData]:
         """Extract features from the observation at a given index in the batch.
@@ -245,7 +250,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         action = np.array([bearing_to_do, 0.0])
         norm_collision_seeking_action = self.normalize_mpc_action(action)
         norm_collision_seeking_action[1] = norm_mpc_action[1]
-        return th.from_numpy(norm_collision_seeking_action)
+        return th.from_numpy(norm_collision_seeking_action.astype(np.float32))
 
     def get_exploratory_action(
         self,
@@ -284,7 +289,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             self.prev_noise_action = self.sample_mpc_action(norm_action)
         expln_action = self.prev_noise_action
         norm_action = norm_action.numpy()
-        return expln_action.numpy()
+        return expln_action.numpy().astype(np.float32)
 
     def sample_mpc_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
         """Sample an action from the policy distribution with mean from the input MPC action
@@ -301,7 +306,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.action_dist = self.action_dist.proba_distribution(mean_actions=mpc_actions, log_std=self.log_std)
         norm_actions = self.action_dist.get_actions()
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
-        return norm_actions
+        return norm_actions.detach().numpy().astype(np.float32)
 
     def act(self, action: Action, **kwargs) -> csgym_action.ActionResult:
         """Execute the action on the own-ship, which is to set new MPC parameters and solve the MPC problem to set new autopilot references for the ship course and speed.
@@ -312,6 +317,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         assert isinstance(action, np.ndarray), "Action must be a numpy array"
         if self.env.time < 0.0001:
             self.initialize(build_sensitivities=self.build_sensitivities, **kwargs)
+            action = np.zeros(self.num_adjustable_mpc_params)
 
         if kwargs["applied"]:
             return self.action_result
@@ -327,8 +333,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             parameter_indices=self.mpc_parameter_indices,
         )
         self.mpc.set_mpc_param_subset(param_subset=param_dict)
+        # print(f"[{self.env.env_id.upper()}] t = {self.env.time} | MPC param action: {action}")
         print(
-            f"[{self.env.env_id.upper()}] t = {self.env.time} | Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()}"
+            f"[{self.env.env_id.upper()}] t = {self.env.time} | Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()} | Increment: {action}"
         )
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
@@ -349,16 +356,22 @@ class MPCParameterSettingAction(csgym_action.ActionType):
                 mpc_actions=norm_mpc_action.copy()
             )  # self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
 
-        mpc_info.update(
-            {
-                "da_dp_mpc": self.compute_mpc_sensitivities(mpc_info) if self.build_sensitivities else None,
-                "non_optimal_solutions": self.non_optimal_solutions,
-                "norm_mpc_action": norm_mpc_action,
-                "unnorm_mpc_action": mpc_action,
-                "expl_action": expl_action,
-                "new_mpc_params": self.mpc.get_adjustable_mpc_params(),
-            }
-        )
+        out_mpc_info = {
+            "optimal": mpc_info["optimal"],  # 1 byte
+            "qp_failure": mpc_info["qp_failure"],  # 1 byte
+            "runtime": mpc_info["runtime"],  # 8 bytes
+            "cost_val": mpc_info["cost_val"],  # 8 bytes
+            "n_iter": mpc_info["n_iter"],  # 4 bytes
+            "da_dp_mpc": (
+                self.compute_mpc_sensitivities(mpc_info) if self.build_sensitivities else None
+            ),  # 2 x 9 x 4 = 72 bytes
+            "non_optimal_solutions_per_episode": float(self.non_optimal_solutions)
+            / float(self.env.episodes),  # 4 bytes
+            "norm_mpc_action": norm_mpc_action.astype(np.float32),  # 8 bytes
+            "expl_action": expl_action,  # 8 bytes
+            "new_mpc_params": self.mpc.get_adjustable_mpc_params(),  # 36 bytes
+        }
+        # rough size estimate: 150 bytes
 
         course = self.env.ownship.course
         speed = self.env.ownship.speed
@@ -367,5 +380,5 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         refs = np.array([0.0, 0.0, course_ref, speed_ref, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.env.ownship.set_references(refs)
 
-        self.action_result = csgym_action.ActionResult(success=success, info=mpc_info)
+        self.action_result = csgym_action.ActionResult(success=success, info=out_mpc_info)
         return self.action_result

@@ -61,7 +61,7 @@ class CollectStatisticsCallback(BaseCallback):
         save_stats_freq: int = 1,
         save_agent_model_freq: int = 100,
         log_freq: int = 1,
-        max_num_env_episodes: int = 5_000,
+        max_num_env_episodes: int = 1_000,
         max_num_training_stats_entries: int = 30_000,
         verbose: int = 1,
     ):
@@ -75,9 +75,9 @@ class CollectStatisticsCallback(BaseCallback):
             save_stats_freq (int): Frequency to save statistics in number of steps.
             save_agent_model_freq (int): Frequency to save the agent model in number of steps.
             log_freq (int): Frequency to log statistics in number of steps.
-            verbose (int, optional): Verbosity level. Defaults to 1.
-            max_num_env_episodes (int, optional): Maximum number of episodes to log before save and reset. Defaults to 5_000.
-            max_num_training_stats_entries (int, optional): Maximum number of training statistics entries to store. Defaults to 30_000.
+            verbose (int, optional): Verbosity level.
+            max_num_env_episodes (int, optional): Maximum number of episodes to log before save and reset.
+            max_num_training_stats_entries (int, optional): Maximum number of training statistics entries to store.
         """
         super(CollectStatisticsCallback, self).__init__(verbose)
         self.experiment_name = experiment_name
