@@ -80,7 +80,7 @@ def objective(trial: optuna.Trial) -> float:
     experiment_path = base_dir / name
 
     writer = SummaryWriter(log_dir=log_dir / name)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
 
     if not experiment_path.exists():

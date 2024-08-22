@@ -137,7 +137,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.last_rollout_info: Dict[str, Any] = {}
         self.just_trained: bool = False  # Used by callback for logging purposes
         self.just_dumped_rollout_logs: bool = False  # Used by callback for logging purposes
-        self.non_optimal_solution_percentages: np.ndarray = np.zeros(self.n_envs, dtype=np.float32)
+        self.non_optimal_solutions_per_episode: np.ndarray = np.zeros(self.n_envs, dtype=np.float32)
 
     @abstractmethod
     def train(self, gradient_steps: int, batch_size: int) -> None:
@@ -503,7 +503,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             for idx, done in enumerate(dones):
                 if done:
                     print(f"Rollout collection for episode {self._episode_num} finished")
-                    self.non_optimal_solution_percentages[idx] = self._last_infos[idx]["actor_info"][
+                    self.non_optimal_solutions_per_episode[idx] = self._last_infos[idx]["actor_info"][
                         "non_optimal_solutions_per_episode"
                     ]
                     num_collected_episodes += 1
@@ -701,6 +701,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "mean_episode_length": ep_len_mean,
                 "episodes": self._episode_num,
                 "success_rate": success_rate,
-                "non_optimal_solution_rate": self.non_optimal_solution_percentages.mean(),
+                "non_optimal_solution_rate": 100.0 * self.non_optimal_solutions_per_episode.mean(),
             }
         )

@@ -110,9 +110,11 @@ def train_rlmpc_sac(
     )
     model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
     if load_critics:
+        print(f"Loading critic at {load_critics_path}")
         model.load_critics(path=load_critics_path)
 
     if load_model:
+        print(f"Loading model at {load_model_path}")
         model.inplace_load(path=load_model_path)
         model.load_replay_buffer(path=load_rb_path)
         model.set_env(training_env)

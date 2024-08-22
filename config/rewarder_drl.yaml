@@ -45,8 +45,8 @@ anti_grounding:
 dnn_parameter_provider:
   disable: True
   rho_solver_time: 10.0
-  rho_non_optimal_solution: 300.0
-  rho_non_relevant_safety_param_change: 0.0
+  rho_qp_failure: 300.0
+  rho_low_safety_param: 0.0
 action_chatter:
   rho_course: 0.0001
   rho_speed: 0.0001

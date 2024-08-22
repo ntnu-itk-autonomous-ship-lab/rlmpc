@@ -314,10 +314,10 @@ class MidlevelMPCParams(IParams):
         parameter_ranges = {
             "Q_p": [[0.1, 3.0], [2.0, 60.0], [2.0, 60.0]],
             "K_prev_sol_dev": [1.0, 150.0],
-            "K_app_course": [1.0, 150.0],
-            "K_app_speed": [1.0, 150.0],
+            "K_app_course": [5.0, 150.0],
+            "K_app_speed": [5.0, 150.0],
             "d_attenuation": [100.0, 800.0],
-            "w_colregs": [5.0, 200.0],
+            "w_colregs": [5.0, 150.0],
             "r_safe_do": [5.0, 50.0],
         }
         parameter_incr_ranges = {

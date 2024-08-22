@@ -36,7 +36,7 @@ def test_prediction_of_mpc_dnn() -> None:
 
     actfn_str = "ReLU"
     actfn = getattr(torch.nn, actfn_str)
-    hidden_dims = [493, 500]
+    hidden_dims = [458, 242, 141]
 
     base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
     model = MPCParameterDNN(
@@ -44,7 +44,7 @@ def test_prediction_of_mpc_dnn() -> None:
         hidden_sizes=hidden_dims,
         activation_fn=actfn,
         features_dim=input_dim,
-        model_file=base_dir / "pretrained_dnn_pp_HD_493_500_ReLU/best_model.pth",
+        model_file=base_dir / "pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     )
     model.eval()
     test_dataset.dataset.datasets[0].test_model_on_episode_data(model)

@@ -241,7 +241,7 @@ class RLMPC(ci.ICOLAV):
         ownship_csog_state[2] = state_copy[3]
         ownship_csog_state[3] = state_copy[2]
         ownship_csog_state[3] = ownship_state[3]
-        speed_plan[-1] = 0.75
+        speed_plan[-1] = 2.0
         self._map_origin = ownship_state[:2]
         self._nominal_path = self._ktp.compute_splines(
             waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),

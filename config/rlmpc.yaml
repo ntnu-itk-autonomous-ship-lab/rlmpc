@@ -54,29 +54,29 @@ mpc:
   params:
     rate: 0.5
     reference_traj_bbox_buffer: 200.0
-    T: 60.0
+    T: 66.0
     dt: 2.0
-    Q_p: [0.5, 30.0, 30.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
-    K_prev_sol_dev: [10.0, 10.0]
+    Q_p: [0.6, 30.0, 30.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
+    K_prev_sol_dev: [5.0, 5.0]
     alpha_app_course: [112.5, 0.00006]
     alpha_app_speed: [8.0, 0.001]
-    K_app_course: 50.0
-    K_app_speed: 50.0
+    K_app_course: 60.0
+    K_app_speed: 60.0
 
     alpha_cr: [0.03, 0.003]
-    y_0_cr: 400.0
+    y_0_cr: 300.0
     alpha_ho: [0.003, 0.03]
-    x_0_ho: 400.0
+    x_0_ho: 300.0
     alpha_ot: [0.005, 0.01]
-    x_0_ot: 300.0
-    y_0_ot: 100.0
+    x_0_ot: 180.0
+    y_0_ot: 80.0
     d_attenuation: 350.0
     w_colregs: [70.0, 70.0, 70.0]
 
     w_L2: 0.0
-    w_L1: 4000.0 # 100000.0
+    w_L1: 2000.0 # too high weight here => QP-failure
     r_safe_so: 5.0
-    r_safe_do: 15.0
+    r_safe_do: 30.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
     max_num_so_constr: 10
@@ -104,7 +104,7 @@ mpc:
       print_time: 0
       mu_target: 0.00000001 # start higher
       mu_init: 0.01
-      max_iter: 400
+      max_iter: 300
       warm_start_init_point: "yes"
       verbose: False
       jit: False
@@ -114,7 +114,7 @@ mpc:
       derivative_test: "none"
     acados:
       nlp_solver_type: "SQP"
-      nlp_solver_max_iter: 400
+      nlp_solver_max_iter: 300
       nlp_solver_tol_stat: 0.00001
       nlp_solver_tol_eq: 0.00001
       nlp_solver_tol_ineq: 0.00001

@@ -203,7 +203,9 @@ class ParameterProviderDataset(Dataset):
         for epdata in env_data:
             dnn_input_features = np.array([ainfo["dnn_input_features"] for ainfo in epdata.actor_infos])
             dnn_input_current_norm_mpc_params = np.zeros((dnn_input_features.shape[0], self.num_adjustable_mpc_params))
-            dnn_input_current_norm_mpc_params[0, :] = dnn_input_features[0, -self.num_adjustable_mpc_params :]
+            dnn_input_current_norm_mpc_params[0, :] = np.array(
+                [-0.6552, -0.0345, -0.0345, -0.2081, -0.2081, -0.3333, -0.3333, -0.3333, 0.0]
+            )  # dnn_input_features[0, -self.num_adjustable_mpc_params :]
             n_timesteps = dnn_input_features.shape[0]
             norm_param_incr_preferences, new_norm_mpc_params = self._compute_ad_hoc_episode_parameter_preferences(
                 n_timesteps=n_timesteps,

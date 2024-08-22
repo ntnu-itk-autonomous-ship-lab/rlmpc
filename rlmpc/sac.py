@@ -342,7 +342,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 "batch_processing_time": time.time() - batch_start_time,
                 "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
                 "n_updates": self._n_updates,
-                "non_optimal_solution_rate": self.non_optimal_solution_percentages.mean(),
+                "non_optimal_solution_rate": self.non_optimal_solutions_per_episode.mean(),
             }
         )
 
@@ -358,7 +358,7 @@ class SAC(opa.OffPolicyAlgorithm):
             self.logger.record(
                 "train/time_elapsed", max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
             )
-            self.logger.record("train/non_optimal_solution_rate", self.non_optimal_solution_percentages.mean())
+            self.logger.record("train/non_optimal_solution_rate", self.non_optimal_solutions_per_episode.mean())
 
     def learn(
         self: SelfSAC,

@@ -171,8 +171,10 @@ class ReadilyApparentManeuveringRewarderParams:
 @dataclass
 class DNNParameterRewarderParams:
     rho_solver_time: float = 0.0
-    rho_non_optimal_solution: float = 0.0
-    rho_non_relevant_safety_param_change: float = 0.0
+    rho_qp_failure: float = 0.0
+    rho_low_safety_param: float = 0.0
+    rho_high_app_params: float = 0.0
+    rho_diff_colreg_weights: float = 0.0
     disable: bool = False
 
     @classmethod
@@ -567,16 +569,13 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._last_course_error = 0.0
-        truncated = kwargs.get("truncated", False)
-        goal_reached = self.env.simulator.determine_ship_goal_reached()
-        # Positive reward if the goal is reached
+        goal_reached = self.env.simulator.determine_ship_goal_reached(ship_idx=0)
         if goal_reached:
             self.last_reward = self._config.rho_goal
-            print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +rho_goal.")
+            print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +{self._config.rho_goal}.")
             return self.last_reward
 
         d2goal = np.linalg.norm(self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1])
-
         ownship_state = self.env.ownship.state
         do_list, _ = self.env.ownship.get_do_track_information()
 
@@ -584,9 +583,10 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         if len(do_list) > 0:
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
         no_dos_in_the_way = d2dos[0][1] > 100.0
+        truncated = kwargs.get("truncated", False)
         if truncated and not goal_reached and no_dos_in_the_way:
-            self.last_reward = -self._config.rho_goal  # * d2goal
-            print(f"[{self.env.env_id.upper()}] Goal not reached! Rewarding -rho_goal.")
+            self.last_reward = -0.01 * self._config.rho_goal * d2goal
+            print(f"[{self.env.env_id.upper()}] Goal not reached! Rewarding {self.last_reward}.")
             return self.last_reward
 
         unnormalized_obs = self.env.observation_type.unnormalize(state)
@@ -634,21 +634,42 @@ class DNNParameterRewarder(cs_reward.IReward):
         if mpc_solve_time > mpc_sampling_time:
             r_param_dnn += -self._config.rho_solver_time * (mpc_solve_time - mpc_sampling_time)
 
-        if not colav_info["optimal"]:
-            r_param_dnn += -self._config.rho_non_optimal_solution
+        if colav_info["qp_failure"]:
+            r_param_dnn += -self._config.rho_qp_failure
 
         ownship_state = self.env.ownship.state
         do_list, _ = self.env.ownship.get_do_track_information()
 
+        # Reward too high apparent parameters negatively when close to goal to facilitate braking
+        d2goal = np.linalg.norm(ownship_state[:2] - self.env.ownship.waypoints[:, -1])
+        K_app_course = colav_info["new_mpc_params"][3]
+        K_app_speed = colav_info["new_mpc_params"][4]
+        if d2goal <= 200.0 and (K_app_course > 20.0 and K_app_speed > 15.0):
+            r_param_dnn += -self._config.rho_high_app_params
+
+        r_safe_do = colav_info["new_mpc_params"][-1]
         if len(do_list) > 0:
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
-            if isinstance(self.env.action_type, mpc_action.MPCParameterSettingAction):
-                unnorm_param_increments = self.env.action_type.unnormalize(action)
-                r_safe_incr = unnorm_param_increments[-1]
-            else:
-                r_safe_incr = colav_info["new_mpc_params"][-1] - colav_info["old_mpc_params"][-1]
-            if d2dos[0][1] > 400.0 and abs(r_safe_incr) > 0.0:
-                r_param_dnn += -self._config.rho_non_relevant_safety_param_change * abs(r_safe_incr)
+
+        # Reward too low DO safety margin negatively when having adequate distance to SOs
+        d2so = self.env.simulator.distance_to_grounding(ship_idx=0)
+        if d2so >= 150.0 and r_safe_do < 2.0 * self.env.ownship.length:
+            r_param_dnn += -self._config.rho_low_safety_param
+
+        w_CR = colav_info["new_mpc_params"][5]
+        w_HO = colav_info["new_mpc_params"][6]
+        w_OT = colav_info["new_mpc_params"][7]
+        penalty_val_threshold = 30.0
+        if (
+            abs(w_CR - w_HO) > penalty_val_threshold
+            or abs(w_CR - w_OT) > penalty_val_threshold
+            or abs(w_HO - w_OT) > penalty_val_threshold
+        ):
+            r_param_dnn += -self._config.rho_diff_colreg_weights
+
+        # Reward large increments > 0.5 negatively when pushing towards a parameter bound
+        # thats already active
+        # find
 
         self.last_reward = r_param_dnn
         return self.last_reward

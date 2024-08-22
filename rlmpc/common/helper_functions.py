@@ -291,19 +291,19 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-def create_data_dirs(base_dir: Path, experiment_name: str) -> Tuple[Path, Path, Path]:
+def create_data_dirs(base_dir: Path, experiment_name: str, remove_log_files: bool = True) -> Tuple[Path, Path, Path]:
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
     if not log_dir.exists():
         log_dir.mkdir(parents=True)
     else:
-        # remove folders in log_dir
-        for file in log_dir.iterdir():
-            if file.is_dir():
-                for f in file.iterdir():
-                    f.unlink()
-                file.rmdir()
+        if remove_log_files:
+            for file in log_dir.iterdir():
+                if file.is_dir():
+                    for f in file.iterdir():
+                        f.unlink()
+                    file.rmdir()
     if not model_dir.exists():
         model_dir.mkdir(parents=True)
     return base_dir, log_dir, model_dir

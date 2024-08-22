@@ -201,8 +201,8 @@ class CollectStatisticsCallback(BaseCallback):
                 if hasattr(self.model, "just_dumped_rollout_logs"):
                     self.model.just_dumped_rollout_logs = False
                     self.logger.record(
-                        "mpc/non_optimal_solution_percentage",
-                        self.model.non_optimal_solution_percentage,
+                        "rollout/non_optimal_solutions_per_episode",
+                        self.model.non_optimal_solutions_per_episode.mean(),
                     )
                     # mpc_params = self.model.actor.mpc.mpc_params
                     # self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)

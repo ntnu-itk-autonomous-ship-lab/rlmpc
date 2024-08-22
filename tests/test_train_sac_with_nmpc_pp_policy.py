@@ -87,7 +87,7 @@ def main(args):
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.00007, 0.00007])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.2 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.5 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -129,23 +129,23 @@ def main(args):
         }
     )
 
-    load_model = False
+    load_model = True
     load_name = "sac_nmpc_pp6"
-    load_model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_4500_steps"
+    load_model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_3000_steps"
     load_rb_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_replay_buffer"
 
     load_critic = True
-    # load_critic_path = (
-    #     str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_278_416_310_ReLU/models/best_model"
-    # )
-    load_critic_path = load_model_path
+    load_critic_path = (
+        str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_278_416_310_ReLU/models/best_model"
+    )
+    #     load_critic_path = load_model_path
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [493, 500],
+        "hidden_sizes": [458, 242, 141],
         "activation_fn": th.nn.ReLU,
-        "model_file": Path.home()
-        / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_493_500_ReLU/best_model.pth",
+        # "model_file": Path.home()
+        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
@@ -164,7 +164,7 @@ def main(args):
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
         "train_freq": (args.train_freq, "step"),
-        "learning_starts": 200,
+        "learning_starts": 100 if not load_model else 0,
         "tau": 0.008,
         "device": "cpu",
         "ent_coef": "auto",

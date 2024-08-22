@@ -62,8 +62,10 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         nx, nu = self.mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         self.action_indices = [
-            int(nu * n_samples + (2 * nx) + 2),  # chi 2
-            int(nu * n_samples + (2 * nx) + 3),  # speed 2
+            int(nu * n_samples + (3 * nx) + 2),  # chi 2
+            int(nu * n_samples + (3 * nx) + 3),  # speed 2
+            # int(nu * n_samples + (2 * nx) + 2),  # chi 3
+            # int(nu * n_samples + (2 * nx) + 3),  # speed 3
         ]
         self.mpc.set_action_indices(self.action_indices)
 
@@ -334,19 +336,22 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         )
         self.mpc.set_mpc_param_subset(param_subset=param_dict)
         # print(f"[{self.env.env_id.upper()}] t = {self.env.time} | MPC param action: {action}")
+        d2goal = np.linalg.norm(self.env.ownship.state[0:2] - self.env.ownship.waypoints[:, -1])
+        np.printoptions(precision=2)
         print(
-            f"[{self.env.env_id.upper()}] t = {self.env.time} | Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()} | Increment: {action}"
+            f"[{self.env.env_id.upper()}] t = {self.env.time:.1f} | U = {self.env.ownship.speed:.1f} | d2goal = {d2goal:.1f} Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()} | Increment: {action}"
         )
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
         mpc_action, mpc_info = self.mpc.act(t, ownship_state, do_list, w)
         self.last_action = mpc_action
 
+        mpc_info["new_mpc_params"] = self.mpc.get_adjustable_mpc_params()
         self.env.ownship.set_colav_data(mpc_info)
         self.env.ownship.set_remote_actor_predicted_trajectory(mpc_info["trajectory"])
         success = not mpc_info["qp_failure"]
 
-        if not mpc_info["optimal"]:
+        if mpc_info["qp_failure"]:
             self.non_optimal_solutions += 1
 
         norm_mpc_action = self.normalize_mpc_action(mpc_action)
@@ -369,16 +374,25 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             / float(self.env.episodes),  # 4 bytes
             "norm_mpc_action": norm_mpc_action.astype(np.float32),  # 8 bytes
             "expl_action": expl_action,  # 8 bytes
-            "new_mpc_params": self.mpc.get_adjustable_mpc_params(),  # 36 bytes
+            "new_mpc_params": mpc_info["new_mpc_params"],  # 36 bytes
         }
         # rough size estimate: 150 bytes
 
+        self.apply_mpc_action(mpc_action)
+
+        self.action_result = csgym_action.ActionResult(success=success, info=out_mpc_info)
+        return self.action_result
+
+    def apply_mpc_action(self, mpc_action: np.ndarray) -> None:
+        """Apply the MPC action to the ownship.
+
+        Args:
+            mpc_action (np.ndarray): The MPC action, unnormalized
+        """
         course = self.env.ownship.course
         speed = self.env.ownship.speed
         course_ref = mf.wrap_angle_to_pmpi(mpc_action[0] + course)
         speed_ref = np.clip(mpc_action[1] + speed, self.env.ownship.min_speed + 0.5, self.env.ownship.max_speed)
         refs = np.array([0.0, 0.0, course_ref, speed_ref, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.env.ownship.set_references(refs)
-
-        self.action_result = csgym_action.ActionResult(success=success, info=out_mpc_info)
-        return self.action_result
+        return
