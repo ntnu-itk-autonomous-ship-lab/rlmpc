@@ -19,7 +19,8 @@ import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rlmpc_cas as rlmpc_cas
 import torch as th
-from stable_baselines3.common.distributions import DiagGaussianDistribution
+from stable_baselines3.common.distributions import DiagGaussianDistribution, SquashedDiagGaussianDistribution
+from stable_baselines3.common.noise import OrnsteinUhlenbeckActionNoise
 
 Action = Union[list, np.ndarray]
 import colav_simulator.common.math_functions as mf
@@ -27,7 +28,10 @@ import colav_simulator.common.math_functions as mf
 if TYPE_CHECKING:
     from colav_simulator.gym.environment import COLAVEnvironment
 
-LOG_PROB_MIN = -15.0
+# CAP the standard deviation of the actor
+LOG_STD_MAX = 2.0
+LOG_STD_MIN = -20.0
+LOG_PROB_MIN = -20.0
 
 
 class MPCParameterSettingAction(csgym_action.ActionType):
@@ -52,6 +56,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         self.mpc = rlmpc_cas.RLMPC(config=mpc_config_path, identifier=self.env.env_id + "_mpc")
         self.build_sensitivities = True if "train" in self.env.env_id else False
+        self.deterministic = deterministic if "train" in self.env.env_id else True
         self.mpc_param_list = mpc_param_list
         self.mpc.set_adjustable_param_str_list(mpc_param_list)
         self.mpc_params = self.mpc.get_mpc_params()
@@ -63,7 +68,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
         self.action_indices = [
             int(nu * n_samples + (3 * nx) + 2),  # chi 2
-            int(nu * n_samples + (3 * nx) + 3),  # speed 2
+            int(nu * n_samples + (2 * nx) + 3),  # speed 2
             # int(nu * n_samples + (2 * nx) + 2),  # chi 3
             # int(nu * n_samples + (2 * nx) + 3),  # speed 3
         ]
@@ -75,6 +80,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.log_std = log_std_init
         self.action_dist = DiagGaussianDistribution(self.mpc_action_dim).proba_distribution(
             th.zeros(self.mpc_action_dim), log_std=self.log_std
+        )
+        self.action_noise = OrnsteinUhlenbeckActionNoise(
+            mean=np.zeros(self.mpc_action_dim), sigma=std_init, theta=0.15, dt=self.env.dt_action
         )
 
         self.mpc_parameter_ranges, self.mpc_parameter_incr_ranges, self.mpc_parameter_lengths = (
@@ -136,7 +144,10 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             p = info["p"]
             p_fixed = info["p_fixed"]
             z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
-            da_dp_mpc = self.mpc_sensitivities.da_dp(z, p_fixed, p).full()
+            try:
+                da_dp_mpc = self.mpc_sensitivities.da_dp(z, p_fixed, p).full()
+            except Exception as e:
+                print(f"[{self.env.env_id.upper()}] Error computing sensitivities: {e}! Setting da_dp_mpc to zeros")
         return da_dp_mpc
 
     def initialize(
@@ -151,7 +162,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             build_sensitivities (bool, optional): Whether to build the sensitivities.
         """
         self.t_prev = 0.0
-        self.deterministic = self.env.episodes == 1 or self.env.episodes % 2 == 0
         self.action_result = csgym_action.ActionResult(success=True, info={})
         # self.non_optimal_solutions = 0
         self.last_action = np.zeros(self.mpc_action_dim)
@@ -162,7 +172,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         ownship_state = self.env.ownship.state
         enc = self.env.enc
         do_list, _ = self.env.ownship.get_do_track_information()
-
+        self.action_noise.reset()
         self.mpc.reset()
         self.mpc.set_adjustable_param_str_list(self.mpc_param_list)
         self.mpc.set_action_indices(self.action_indices)
@@ -356,10 +366,13 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         norm_mpc_action = self.normalize_mpc_action(mpc_action)
         expl_action = norm_mpc_action
-        if not self.deterministic and self.env.time > 2.0:
-            expl_action = self.sample_mpc_action(
-                mpc_actions=norm_mpc_action.copy()
-            )  # self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
+        if not self.deterministic:
+            expl_action = norm_mpc_action + self.action_noise()
+            expl_action = np.clip(expl_action, -1.0, 1.0)
+            # expl_action = self.sample_mpc_action(
+            #     mpc_actions=norm_mpc_action.copy()
+            # )
+            # expl_action = self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
 
         out_mpc_info = {
             "optimal": mpc_info["optimal"],  # 1 byte

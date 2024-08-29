@@ -310,9 +310,9 @@ def rate_cost(
         Tuple[csd.MX, csd.MX, csd.MX]: Total cost, course cost, speed cost.
     """
     q_chi = alpha_app[0] * r**2 + (1.0 - csd.exp(-(r**2) / alpha_app[1]))
-    q_chi_max = alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
+    q_chi_max = 1.0  # alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
     q_U = alpha_app[2] * a**2 + (1.0 - csd.exp(-(a**2) / alpha_app[3]))
-    q_U_max = alpha_app[2] * a_max**2 + (1.0 - csd.exp(-(a_max**2) / alpha_app[3]))
+    q_U_max = 1.0  # alpha_app[2] * a_max**2 + (1.0 - csd.exp(-(a_max**2) / alpha_app[3]))
     course_cost = K_app[0] * q_chi / q_chi_max
     speed_cost = K_app[1] * q_U / q_U_max
     return course_cost + speed_cost, course_cost, speed_cost
@@ -392,7 +392,7 @@ def potential_field_base_function(x: csd.MX) -> csd.MX:
     Returns:
         csd.MX: The base function value.
     """
-    return x / csd.sqrt(x**2 + 1) + 1
+    return x / csd.sqrt(x**2 + 1.0) + 1.0
 
 
 def cr_potential(p: csd.MX, alpha: csd.MX, y_0: csd.MX) -> csd.MX:
@@ -407,7 +407,7 @@ def cr_potential(p: csd.MX, alpha: csd.MX, y_0: csd.MX) -> csd.MX:
         csd.MX: The potential function value.
     """
     return (
-        0.25
+        0.33
         * potential_field_base_function(alpha[0] * p[0])
         * (potential_field_base_function(alpha[1] * (p[1] - y_0)) + 1)
     )
@@ -444,10 +444,8 @@ def ot_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX, y_0: csd.MX) -> csd.MX:
     Returns:
         csd.MX: The potential function value.
     """
-    return (
-        0.25
-        * potential_field_base_function(-alpha[0] * (x_0 - p[0]))
-        * potential_field_base_function(alpha[1] * csd.fabs(p[1] - y_0))
+    return potential_field_base_function(-alpha[0] * (x_0 - p[0])) * potential_field_base_function(
+        alpha[1] * csd.fabs(p[1] - y_0)
     )
 
 

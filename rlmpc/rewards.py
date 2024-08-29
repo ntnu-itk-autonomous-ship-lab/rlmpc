@@ -172,9 +172,11 @@ class ReadilyApparentManeuveringRewarderParams:
 class DNNParameterRewarderParams:
     rho_solver_time: float = 0.0
     rho_qp_failure: float = 0.0
-    rho_low_safety_param: float = 0.0
+    rho_safety_param: float = 0.0
     rho_high_app_params: float = 0.0
     rho_diff_colreg_weights: float = 0.0
+    rho_low_Q_p: float = 0.0
+    rho_hitting_bounds: float = 0.0
     disable: bool = False
 
     @classmethod
@@ -647,14 +649,20 @@ class DNNParameterRewarder(cs_reward.IReward):
         if d2goal <= 200.0 and (K_app_course > 20.0 and K_app_speed > 15.0):
             r_param_dnn += -self._config.rho_high_app_params
 
+        Q_p = colav_info["new_mpc_params"][0:3]
+        if d2goal <= 200.0 and (Q_p[0] < 0.6 and Q_p[1] < 15.0 and Q_p[2] < 15.0):
+            r_param_dnn += -self._config.rho_low_Q_p
+
         r_safe_do = colav_info["new_mpc_params"][-1]
         if len(do_list) > 0:
             d2dos = hf.compute_distances_to_dynamic_obstacles(ownship_state, do_list)
 
         # Reward too low DO safety margin negatively when having adequate distance to SOs
         d2so = self.env.simulator.distance_to_grounding(ship_idx=0)
-        if d2so >= 150.0 and r_safe_do < 2.0 * self.env.ownship.length:
-            r_param_dnn += -self._config.rho_low_safety_param
+        if (d2so >= 150.0 and r_safe_do < 2.0 * self.env.ownship.length) or (
+            d2so < 80.0 and r_safe_do > 2.0 * self.env.ownship.length
+        ):
+            r_param_dnn += -self._config.rho_safety_param
 
         w_CR = colav_info["new_mpc_params"][5]
         w_HO = colav_info["new_mpc_params"][6]
@@ -667,12 +675,53 @@ class DNNParameterRewarder(cs_reward.IReward):
         ):
             r_param_dnn += -self._config.rho_diff_colreg_weights
 
-        # Reward large increments > 0.5 negatively when pushing towards a parameter bound
-        # thats already active
-        # find
+        incr_threshold = 0.33
+        active_param_lb, active_param_ub = self.check_active_parameter_constraints(colav_info["new_mpc_params"])
+        for idx, param_incr in enumerate(action.tolist()):
+            if (active_param_lb[idx] and param_incr <= -incr_threshold) or (
+                active_param_ub[idx] and param_incr >= incr_threshold
+            ):
+                # print(f"Parameter {idx} is hitting bounds! Rewarding -{self._config.rho_hitting_bounds}.")
+                r_param_dnn += -self._config.rho_hitting_bounds
 
         self.last_reward = r_param_dnn
         return self.last_reward
+
+    def check_active_parameter_constraints(self, param_vals: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Find the active parameter constraints for the given parameter values.
+
+        Args:
+            param_vals (np.ndarray): The parameter values.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: The active lower and upper bounds.
+        """
+        param_list = self.env.action_type.mpc_param_list
+        active_lower_bounds = np.zeros_like(param_vals, dtype=bool)
+        active_upper_bounds = np.zeros_like(param_vals, dtype=bool)
+        eps = 1e-5
+        for param_name in param_list:
+            param_range = self.env.action_type.mpc_parameter_ranges[param_name]
+            param_length = self.env.action_type.mpc_parameter_lengths[param_name]
+            pindx = self.env.action_type.mpc_parameter_indices[param_name]
+            x_param = param_vals[pindx : pindx + param_length]
+            param_at_lower_bounds = np.zeros(param_length, dtype=bool)
+            param_at_upper_bounds = np.zeros(param_length, dtype=bool)
+
+            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+                if param_name == "Q_p":
+                    if x_param[j] <= param_range[j][0] + eps:
+                        param_at_lower_bounds[j] = True
+                    elif x_param[j] >= param_range[j][1] - eps:
+                        param_at_upper_bounds[j] = True
+                else:
+                    if x_param[j] <= param_range[0] + eps:
+                        param_at_lower_bounds[j] = True
+                    elif x_param[j] >= param_range[1] - eps:
+                        param_at_upper_bounds[j] = True
+            active_lower_bounds[pindx : pindx + param_length] = param_at_lower_bounds
+            active_upper_bounds[pindx : pindx + param_length] = param_at_upper_bounds
+        return active_lower_bounds, active_upper_bounds
 
     def get_last_rewards_as_dict(self) -> dict:
         return {"r_dnn": self.last_reward}

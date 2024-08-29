@@ -39,17 +39,25 @@ if __name__ == "__main__":
 
     npy = 100
     npx = 100
-    y = np.linspace(-500, 500, npy)
-    x = np.linspace(-500, 500, npx)
+    y = np.linspace(-400, 400, npy)
+    x = np.linspace(-400, 400, npx)
     Y, X = np.meshgrid(y, x, indexing="ij")
 
-    alpha_cr = [0.01, 0.002]
-    y_0_cr = 200.0
-    alpha_ho = [0.002, 0.01]
-    x_0_ho = 200.0
-    alpha_ot = [0.005, 0.02]
+    # alpha_cr = [0.01, 0.002]
+    # y_0_cr = 200.0
+    # alpha_ho = [0.002, 0.01]
+    # x_0_ho = 200.0
+    # alpha_ot = [0.005, 0.02]
+    # x_0_ot = 150.0
+    # y_0_ot = 50.0
+
+    alpha_cr = [0.02, 0.001]
+    y_0_cr = 300.0
+    alpha_ho = [0.01, 0.02]
+    x_0_ho = 300.0
+    alpha_ot = [0.002, 0.001]
     x_0_ot = 150.0
-    y_0_ot = 50.0
+    y_0_ot = 10.0
 
     # alpha_cr = np.array([1 / 500, 1 / 500])
     # y_0_cr = -500.0

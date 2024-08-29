@@ -8,7 +8,7 @@
 """
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import gymnasium as gym
 import rlmpc.common.helper_functions as hf
@@ -41,7 +41,7 @@ def train_rlmpc_sac(
     load_rb_path: str = "sac_drl1_replay_buffer",
     seed: int = 0,
     iteration: int = 0,
-) -> rlmpc_sac.SAC:
+) -> Tuple[rlmpc_sac.SAC, bool]:
     """Train the RL agent using the SAC algorithm.
 
     Args:
@@ -66,7 +66,7 @@ def train_rlmpc_sac(
         iteration (int, optional): The iteration used for TB logging naming.
 
     Returns:
-        rlmpc_sac.SAC: The trained RL agent.
+        Tuple[rlmpc_sac.SAC, bool]: The trained RL agent and whether the vector environment failed during a training step.
     """
     if n_training_envs == 1:
         training_env = Monitor(gym.make(id=env_id, **training_env_config))
@@ -120,6 +120,7 @@ def train_rlmpc_sac(
         model.set_env(training_env)
 
     model.set_random_seed(seed)
+    # put this into a try except block
     model.learn(
         total_timesteps=n_timesteps,
         log_interval=2,
@@ -129,8 +130,9 @@ def train_rlmpc_sac(
         progress_bar=True,
     )
 
-    training_env.close()
+    if not model.vecenv_failed:
+        training_env.close()
+        eval_env.close()
     training_env = None
-    eval_env.close()
     eval_env = None
-    return model
+    return model, model.vecenv_failed

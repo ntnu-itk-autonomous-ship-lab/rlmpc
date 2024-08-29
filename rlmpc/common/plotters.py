@@ -74,12 +74,13 @@ def plot_single_model_enc_snapshots(
         name = "model"
 
     fig = plt.figure(figsize=(10, 10), num=f"enc_snapshots_{name}")
+    fig.tight_layout()
     gs = gridspec.GridSpec(
         nrows,
         ncols,
         fig,
         wspace=0,
-        hspace=0.2,
+        hspace=0.1,
         top=0.95,
         bottom=0.05,
     )
@@ -107,8 +108,8 @@ def plot_single_model_enc_snapshots(
 def plot_multiple_model_reward_curves(
     model_data: List[Dict[str, Any]], model_names: List[str], save_path: Path, save_fig: bool = False
 ) -> None:
-    fig, axs = plt.subplots(2, 3, figsize=(15, 10), num="reward_curves")
-    fig.subplots_adjust(hspace=0.3, wspace=0.25)
+    fig, axs = plt.subplots(4, 2, figsize=(15, 10), num="reward_curves")
+    fig.subplots_adjust(hspace=0.4, wspace=0.25)
     colors = sns.color_palette("tab10", n_colors=len(model_data))
     for name, data in zip(model_names, model_data):
         color = colors.pop()
@@ -136,7 +137,7 @@ def plot_single_model_reward_curves(
     )
     axs[0, 0].set_title("Total return")
     axs[0, 0].set_ylabel("Average return", rotation=90)
-    axs[0, 0].set_xlabel("Episode")
+    # axs[0, 0].set_xlabel("Episode")
 
     sns.lineplot(x=range(len(data["r_colreg"])), y=data["r_colreg"], ax=axs[0, 1], label=model_name, color=color)
     axs[0, 1].fill_between(
@@ -147,70 +148,104 @@ def plot_single_model_reward_curves(
         color=color,
     )
     axs[0, 1].set_title("COLREG")
-    axs[0, 1].set_xlabel("Episode")
+    # axs[0, 1].set_xlabel("Episode")
 
-    sns.lineplot(x=range(len(data["r_colav"])), y=data["r_colav"], ax=axs[0, 2], label=model_name, color=color)
-    axs[0, 2].fill_between(
+    sns.lineplot(x=range(len(data["r_colav"])), y=data["r_colav"], ax=axs[1, 0], label=model_name, color=color)
+    axs[1, 0].fill_between(
         range(len(data["r_colav"])),
         np.array(data["r_colav"]) - np.array(data["std_r_colav"]),
         np.array(data["r_colav"]) + np.array(data["std_r_colav"]),
         alpha=0.2,
         color=color,
     )
-    axs[0, 2].set_xlabel("Episode")
-    axs[0, 2].set_title("Collision avoidance")
+    # axs[1, 0].set_xlabel("Episode")
+    axs[1, 0].set_title("Collision avoidance")
 
     sns.lineplot(
         x=range(len(data["r_antigrounding"])),
         y=data["r_antigrounding"],
-        ax=axs[1, 0],
+        ax=axs[1, 1],
         label=model_name,
         color=color,
     )
-    axs[1, 0].fill_between(
+    axs[1, 1].fill_between(
         range(len(data["r_antigrounding"])),
         np.array(data["r_antigrounding"]) - np.array(data["std_r_antigrounding"]),
         np.array(data["r_antigrounding"]) + np.array(data["std_r_antigrounding"]),
         alpha=0.2,
         color=color,
     )
-    axs[1, 0].set_title("Anti-grounding")
-    axs[1, 0].set_ylabel("Average return", rotation=90)
-    axs[1, 0].set_xlabel("Episode")
+    axs[1, 1].set_title("Anti-grounding")
+    axs[1, 1].set_ylabel("Average return", rotation=90)
+    # axs[1, 1].set_xlabel("Episode")
 
     sns.lineplot(
         x=range(len(data["r_trajectory_tracking"])),
         y=data["r_trajectory_tracking"],
-        ax=axs[1, 1],
+        ax=axs[2, 0],
         label=model_name,
         color=color,
     )
-    axs[1, 1].fill_between(
+    axs[2, 0].fill_between(
         range(len(data["r_trajectory_tracking"])),
         np.array(data["r_trajectory_tracking"]) - np.array(data["std_r_trajectory_tracking"]),
         np.array(data["r_trajectory_tracking"]) + np.array(data["std_r_trajectory_tracking"]),
         alpha=0.2,
         color=color,
     )
-    axs[1, 1].set_title("Trajectory tracking")
-    axs[1, 1].set_xlabel("Episode")
+    axs[2, 0].set_title("Trajectory tracking")
+    # axs[2, 0].set_xlabel("Episode")
 
     sns.lineplot(
         x=range(len(data["r_ra_maneuvering"])),
         y=data["r_ra_maneuvering"],
-        ax=axs[1, 2],
+        ax=axs[2, 1],
         label=model_name,
         color=color,
     )
-    axs[1, 2].fill_between(
+    axs[2, 1].fill_between(
         range(len(data["r_ra_maneuvering"])),
         np.array(data["r_ra_maneuvering"]) - np.array(data["std_r_ra_maneuvering"]),
         np.array(data["r_ra_maneuvering"]) + np.array(data["std_r_ra_maneuvering"]),
         alpha=0.2,
         color=color,
     )
-    axs[1, 2].set_title("RA maneuvering")
-    axs[1, 2].set_xlabel("Episode")
+    axs[2, 1].set_title("RA maneuvering")
+    # axs[2, 1].set_xlabel("Episode")
+
+    sns.lineplot(
+        x=range(len(data["r_action_chatter"])),
+        y=data["r_action_chatter"],
+        ax=axs[3, 0],
+        label=model_name,
+        color=color,
+    )
+    axs[3, 0].fill_between(
+        range(len(data["r_action_chatter"])),
+        np.array(data["r_action_chatter"]) - np.array(data["std_r_action_chatter"]),
+        np.array(data["r_action_chatter"]) + np.array(data["std_r_action_chatter"]),
+        alpha=0.2,
+        color=color,
+    )
+    axs[3, 0].set_title("Action chatter")
+    axs[3, 0].set_xlabel("Episode")
+
+    sns.lineplot(
+        x=range(len(data["r_dnn_pp"])),
+        y=data["r_dnn_pp"],
+        ax=axs[3, 1],
+        label=model_name,
+        color=color,
+    )
+    axs[3, 1].fill_between(
+        range(len(data["r_dnn_pp"])),
+        np.array(data["r_dnn_pp"]) - np.array(data["std_r_dnn_pp"]),
+        np.array(data["r_dnn_pp"]) + np.array(data["std_r_dnn_pp"]),
+        alpha=0.2,
+        color=color,
+    )
+    axs[3, 1].set_title("Parameters")
+    axs[3, 1].set_xlabel("Episode")
 
     plt.show(block=False)
 
@@ -422,7 +457,7 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 
 if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["sac_rlmpc4"]
+    experiment_names = ["sac_nmpc_pp8"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
     # plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
     print("Done plotting")

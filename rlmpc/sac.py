@@ -488,16 +488,10 @@ class SAC(opa.OffPolicyAlgorithm):
             if not actor_info["optimal"]:
                 continue
 
-            # soln = actor_info["soln"]
-            # p = actor_info["p"]
-            # p_fixed = actor_info["p_fixed"]
-            # z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
-            # da_dp_mpc = sens.da_dp(z, p_fixed, p).full()
-            # transition from eval to train cause err in dims, fix
-
             da_dp_mpc = actor_info["da_dp_mpc"]
             mpc_param_grad_norms.append(np.linalg.norm(da_dp_mpc))
             da_dp_mpc = th.from_numpy(da_dp_mpc).float()
+            # print(f"da_dp_mpc: {da_dp_mpc.numpy()}")
             da_dp_mpc.requires_grad = False
             d_log_pi_dp = (
                 (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp_mpc @ dnn_jacobians[b]

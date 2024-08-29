@@ -249,6 +249,13 @@ class CollectStatisticsCallback(BaseCallback):
         self.prev_infos = infos
         return True
 
+    def _on_training_end(self) -> None:
+        self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
+        self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
+        for env_idx in range(self.num_envs):
+            self.env_data_logger.reset_data_structures(env_idx=env_idx)
+        return
+
 
 class EvalCallback(EventCallback):
     """
@@ -289,7 +296,7 @@ class EvalCallback(EventCallback):
         n_eval_episodes: int = 5,
         eval_freq: int = 10000,
         experiment_name: str = "eval",
-        record: bool = False,
+        record: bool = True,
         render: bool = False,
         verbose: int = 1,
         warn: bool = True,
@@ -407,6 +414,7 @@ class EvalCallback(EventCallback):
                 record=self.record,
                 record_path=self.video_save_path,
                 record_name=f"eval_{self.experiment_name}_{self.num_timesteps}",
+                record_type="gif",
                 callback=self._log_success_callback,
                 env_data_logger=self.env_data_logger,
             )

@@ -44,14 +44,16 @@ def f(x: float) -> float:
 
 
 if __name__ == "__main__":
-    n = 100
+    n = 200
     a_max = 0.3
-    r_max = np.deg2rad(6)
+    r_max = np.deg2rad(8)
     a = np.linspace(-a_max, a_max, n)
     r = np.linspace(-r_max, r_max, n)
 
-    alpha_app = [112.5, 0.00006, 8.0, 0.001]
-    K_app = [20.0, 10.0]
+    # alpha_app = [112.5, 0.00006, 8.0, 0.001]
+    # alpha_app = [15.0, 0.0005, 8.0, 0.001]
+    alpha_app = [40.0, 0.003, 40.0, 0.005]
+    K_app = [40.0, 40.0]
 
     r_costs = np.zeros(n)
     a_costs = np.zeros(n)
@@ -75,11 +77,11 @@ if __name__ == "__main__":
     axes["a"].set_xlabel("m/s2")
     axes["a"].legend()
 
-    axes["r"].plot(r * 180.0 / np.pi, r_costs, color="r", label=r"r_{cost}")
+    axes["r"].plot(r, r_costs, color="r", label=r"r_{cost}")
     axes["r"].set_ylabel("cost")
-    axes["r"].set_xlabel("deg/s")
+    axes["r"].set_xlabel("rad/s")
     axes["r"].legend()
 
     fig.tight_layout()
-    plt.show()
+    plt.show(block=False)
     print("done")

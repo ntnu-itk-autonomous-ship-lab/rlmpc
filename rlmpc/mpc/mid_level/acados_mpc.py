@@ -100,7 +100,7 @@ class AcadosMPC:
         self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
         self._speed_spl_coeffs: csd.MX = csd.MX.sym("speed_spl_coeffs", 0)
         self._speed_spl_coeffs_values: np.ndarray = np.array([])
-        self._s: float = 0.001
+        self._s: float = 0.1
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
         self._path_linestring: geo.LineString = geo.LineString()
@@ -138,15 +138,16 @@ class AcadosMPC:
         """Resets the MPC."""
         self._initialized = False
         self._xs_prev = np.array([])
-        self._s = 0.000000001
+        self._s = 0.1
         self._prev_cost = 1e6
         self._prev_sol_status = 0
         self._t_prev = 0.0
         if self._acados_ocp_solver is not None:
-            self._acados_ocp_mutex.acquire()
             self._acados_ocp_solver.reset()
-            # self._acados_ocp_solver.load_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
-            self._acados_ocp_mutex.release()
+            self._acados_ocp_solver.load_iterate(
+                filename=str(self._acados_code_gen_path / "initial_iterate_success.json")
+            )
+            print(f"[ACADOS {self.identifier.upper()}] Solver reset.")
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
@@ -260,7 +261,7 @@ class AcadosMPC:
             [x_spline, y_spline], [x_spline.c, y_spline.c], s_final
         )
 
-        self._s = 0.000000001
+        self._s = 0.1
         self._s_final_value = s_final
         self.model.set_min_path_variable(self._s)
         self.model.set_max_path_variable(s_final)  # margin
@@ -275,11 +276,13 @@ class AcadosMPC:
         """
         self._params = params
 
-    def print_warm_start_info(self, xs: np.ndarray) -> None:
-        """Prints the warm start info.
+    def check_warm_start(self, xs: np.ndarray, correct_warm_start: bool = True, print_info: bool = False) -> None:
+        """Checks the warm start, and corrects it if necessary.
 
         Args:
             - xs (np.ndarray): Current state of the system.
+            - correct_warm_start (bool, optional): Whether to correct the warm start.
+            - print_info (bool, optional): Whether to print info about the warm start.
         """
         N = self._acados_ocp.dims.N
         g_do_constr_vals = []
@@ -288,16 +291,27 @@ class AcadosMPC:
         g_bu_constr_vals = []
         g_eq_constr_vals = []
         lbu, ubu, lbx, ubx = self.model.get_input_state_bounds()
-
+        hess_max = 0.0
         for i in range(N + 1):
             p_i = self._parameter_values[i]
-            u_i = self._acados_ocp_solver.get(i, "u")
             x_i = self._acados_ocp_solver.get(i, "x")
             g_bx_constr_vals.extend((x_i - ubx).tolist())
             g_bx_constr_vals.extend((lbx - x_i).tolist())
+            hess_max = max(hess_max, self._acados_ocp_solver.get_hessian_block(i).max())
             if i < N:
+                u_i = self._acados_ocp_solver.get(i, "u")
                 x_i_plus = self._acados_ocp_solver.get(i + 1, "x")
-                g_eq_constr_vals.extend(self._equality_constraints(x_i, u_i, x_i_plus).full().flatten().tolist())
+                g_eq_constr_k = (
+                    self._equality_constraints(x_i, u_i, x_i_plus).full().flatten()
+                )  # f(x, u) - x_plus = g_eq_k => f(x, u) = x_plus + g_eq_k
+                # print(f"k={i} Equality constraint before = {g_eq_constr_k}")
+                if correct_warm_start:
+                    self._x_warm_start[:, i + 1] = x_i_plus + g_eq_constr_k
+                    self._acados_ocp_solver.set(i + 1, "x", self._x_warm_start[:, i + 1])
+                    g_eq_constr_k = self._equality_constraints(x_i, u_i, self._x_warm_start[:, i + 1]).full().flatten()
+                    # print(f"k={i} Equality constraint after = {g_eq_constr_k}")
+
+                g_eq_constr_vals.extend(g_eq_constr_k.tolist())
                 g_bu_constr_vals.extend((u_i - ubu).tolist())
                 g_bu_constr_vals.extend((lbu - u_i).tolist())
             g_do_constr_vals.extend(
@@ -314,27 +328,30 @@ class AcadosMPC:
         g_so_constr_vals = np.array(g_so_constr_vals).flatten()
         g_eq_constr_vals = np.abs(np.array(g_eq_constr_vals).flatten())
 
-        if g_eq_constr_vals.max() > 1e-5:
-            print(
-                f"Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_constr_vals) > 1e-6).flatten().T}!"
-            )
-        if g_bx_constr_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_bx_constr_vals > 1e-6).flatten().T}!"
-            )
-        if g_bu_constr_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_bu_constr_vals > 1e-6).flatten().T}!"
-            )
-        if g_do_constr_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > 1e-6).flatten().T}!"
-            )
-        if g_so_constr_vals.max() > 1e-6:
-            print(
-                f"Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > 1e-6).flatten().T}!"
-            )
-        print(f"Initial state constraint diff = {self._x_warm_start[:, 0] - xs}")
+        if print_info:
+            print(f"Hess max = {hess_max}")
+            tol = 2e-5
+            if g_eq_constr_vals.max() > tol:
+                print(
+                    f"[ACADOS {self.identifier.upper()}] Warm start is infeasible wrt equality constraints at rows: {np.argwhere(np.abs(g_eq_constr_vals) > tol).flatten().T} | max value: {g_eq_constr_vals.max()}!"
+                )
+            if g_bx_constr_vals.max() > tol:
+                print(
+                    f"[ACADOS {self.identifier.upper()}] Warm start is infeasible wrt state box inequality constraints at rows: {np.argwhere(g_bx_constr_vals > tol).flatten().T}! | max value: {g_bx_constr_vals.max()}"
+                )
+            if g_bu_constr_vals.max() > tol:
+                print(
+                    f"[ACADOS {self.identifier.upper()}] Warm start is infeasible wrt input box inequality constraints at rows: {np.argwhere(g_bu_constr_vals > tol).flatten().T}! | max value: {g_bu_constr_vals.max()}"
+                )
+            if g_do_constr_vals.max() > tol:
+                print(
+                    f"[ACADOS {self.identifier.upper()}] Warm start is infeasible wrt dynamic obstacle inequality constraints at rows: {np.argwhere(g_do_constr_vals > tol).flatten().T}! | max value: {g_do_constr_vals.max()}"
+                )
+            if g_so_constr_vals.max() > tol:
+                print(
+                    f"[ACADOS {self.identifier.upper()}] Warm start is infeasible wrt static obstacle inequality constraints at rows: {np.argwhere(g_so_constr_vals > tol).flatten().T}! | max value: {g_so_constr_vals.max()}"
+                )
+            print(f"[ACADOS {self.identifier.upper()}] Initial state constraint diff = {self._x_warm_start[:, 0] - xs}")
 
     def plan(
         self,
@@ -375,10 +392,7 @@ class AcadosMPC:
             self._xs_prev[2] = xs[2] + np.arctan2(xs[4], xs[3])
             self._prev_cost = np.inf
             self._t_prev = t
-        else:
-            self._xs_prev = warm_start["X"][:, 0] - np.array(
-                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
-            )
+            self._initialized = True
 
         chi = xs[2] + np.arctan2(xs[4], xs[3])
         xs_unwrapped = xs.copy()
@@ -399,6 +413,7 @@ class AcadosMPC:
                 do_ot_list=do_ot_list,
                 prev_opt_abs_action=warm_start["prev_opt_abs_action"],
             )
+            self.check_warm_start(xs_unwrapped, print_info=False)
             status = self._acados_ocp_solver.solve()
             status_str = mpc_common.map_acados_error_code(status)
         except Exception as _:  # pylint: disable=broad-except
@@ -406,12 +421,15 @@ class AcadosMPC:
             if verbose:
                 print(f"[ACADOS] OCP solution: {status} error: {c}")
 
-        # if t == 0.0 and status == 0:
-        #     self._acados_ocp_solver.store_iterate(str(self._acados_code_gen_path / "initial_iterate.json"))
+        if t == 0.0 and status == 0:
+            self._acados_ocp_solver.dump_last_qp_to_json(
+                filename=str(self._acados_code_gen_path) + "/last_qp_success.json", overwrite=True
+            )
 
         if status != 0:
-            self.print_warm_start_info(xs_unwrapped)
-            # self._acados_ocp_solver.print_statistics()
+            self.check_warm_start(xs_unwrapped, correct_warm_start=False, print_info=True)
+            self._acados_ocp_solver.print_statistics()
+
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
         n_iter = self._acados_ocp_solver.get_stats("sqp_iter")
@@ -421,11 +439,8 @@ class AcadosMPC:
         if status_str == "QPFailure":
             qp_failure = True
 
-        # self._acados_ocp_solver.dump_last_qp_to_json("last_qp.json")
         inputs, trajectory, slacks, lam_g = self._get_solution(self._acados_ocp_solver)
         so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
-        self._x_warm_start = trajectory.copy()
-        self._u_warm_start = inputs.copy()
 
         # self._update_ocp(self._acados_ocp_solver_nonreg, xs_unwrapped, do_cr_list, do_ho_list, do_ot_list)
         # status = self._acados_ocp_solver_nonreg.solve()
@@ -437,6 +452,12 @@ class AcadosMPC:
         # self._x_warm_start = trajectory.copy()
         # self._u_warm_start = inputs.copy()
         if verbose or (qp_failure and t < 2.0):
+            self._acados_ocp_solver.store_iterate(
+                filename=str(self._acados_code_gen_path / "initial_iterate_fail.json"), overwrite=True
+            )
+            self._acados_ocp_solver.dump_last_qp_to_json(
+                filename=str(self._acados_code_gen_path) + "/last_qp_fail.json", overwrite=True
+            )
             np.set_printoptions(precision=3)
             print(
                 f"[ACADOS {self.identifier.upper()}] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
@@ -600,15 +621,17 @@ class AcadosMPC:
         self._X_do = []
         for i in range(self._acados_ocp.dims.N + 1):
             solver.set(i, "x", self._x_warm_start[:, i])
+            # lam_i = solver.get(i, "lam")
+            # solver.set(i, "lam", np.zeros_like(lam_i))
+            # t_i = solver.get(i, "t")
+            # solver.set(i, "t", np.zeros_like(t_i))
             if i < self._acados_ocp.dims.N:
+                # pi_i = solver.get(i, "pi")
+                # solver.set(i, "pi", np.zeros_like(pi_i))
                 solver.set(i, "u", self._u_warm_start[:, i])
             p_i = self.create_parameter_values(xs, do_cr_list, do_ho_list, do_ot_list, prev_opt_abs_action, i)
-            if p_i.size != self._p_adjustable.shape[0] + self._p_fixed.shape[0] and self.verbose:
-                print(f"Parameter size mismatch: {p_i.size} vs {len(self._p_list)}")
             self._parameter_values.append(p_i)
-            solver.set(
-                i, "p", p_i
-            )  # exit due to external func param mismatch can happen due to path var size mismatch (fixed by setting self_acados_ocp_solver = None before reconstructing)
+            solver.set(i, "p", p_i)
         self._acados_ocp_mutex.release()
 
     def construct_ocp(
@@ -720,7 +743,6 @@ class AcadosMPC:
         p_adjustable.append(r_safe_do)
         p_adjustable, p_fixed = self.prune_adjustable_params(p_adjustable, p_fixed)
 
-        approx_inf = 2000.0
         lbu, ubu, lbx, ubx = self.model.get_input_state_bounds()
 
         # Input constraints
@@ -729,8 +751,11 @@ class AcadosMPC:
         self._acados_ocp.constraints.ubu = ubu
 
         # State constraints
+        self._acados_ocp.constraints.idxbx_0 = np.array(range(nx))
+        self._acados_ocp.constraints.lbx_0 = lbx[self._acados_ocp.constraints.idxbx_0]
+        self._acados_ocp.constraints.ubx_0 = ubx[self._acados_ocp.constraints.idxbx_0]
+
         self._acados_ocp.constraints.idxbx = np.array(range(nx))
-        self._acados_ocp.constraints.x0 = np.zeros(nx)
         self._acados_ocp.constraints.lbx = lbx[self._acados_ocp.constraints.idxbx]
         self._acados_ocp.constraints.ubx = ubx[self._acados_ocp.constraints.idxbx]
         self._acados_ocp.constraints.idxsbx = self._idx_slacked_bx_constr
@@ -754,18 +779,19 @@ class AcadosMPC:
 
         so_constr_list = []
         do_constr_list = []
+        approx_inf = 1e4
         if n_path_constr:
             self._acados_ocp.constraints.lh_0 = -approx_inf * np.ones(n_path_constr)
-            self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
-            self._acados_ocp.constraints.lh_e = -approx_inf * np.ones(n_path_constr)
             self._acados_ocp.constraints.uh_0 = np.zeros(n_path_constr)
-            self._acados_ocp.constraints.uh = np.zeros(n_path_constr)
+            self._acados_ocp.constraints.lh_e = -approx_inf * np.ones(n_path_constr)
             self._acados_ocp.constraints.uh_e = np.zeros(n_path_constr)
+            self._acados_ocp.constraints.lh = -approx_inf * np.ones(n_path_constr)
+            self._acados_ocp.constraints.uh = np.zeros(n_path_constr)
 
             # Slacks on dynamic obstacle and static obstacle constraints
             self._acados_ocp.constraints.idxsh_0 = np.array(range(n_path_constr))
-            self._acados_ocp.constraints.idxsh = np.array(range(n_path_constr))
             self._acados_ocp.constraints.idxsh_e = np.array(range(n_path_constr))
+            self._acados_ocp.constraints.idxsh = np.array(range(n_path_constr))
 
             con_h_expr = []
             so_constr_list = self._create_static_obstacle_constraint(x, so_surfaces=so_surfaces)
@@ -779,25 +805,22 @@ class AcadosMPC:
             self._acados_ocp.model.con_h_expr_e = csd.vertcat(*con_h_expr)
 
         ns = n_path_constr + self._idx_slacked_bx_constr.size
-        self._acados_ocp.cost.Zl_0 = 0 * self._params.w_L2 * np.ones(n_path_constr)
-        self._acados_ocp.cost.Zl = 0 * self._params.w_L2 * np.ones(ns)
-        self._acados_ocp.cost.Zl_e = 0 * self._params.w_L2 * np.ones(ns)
-        self._acados_ocp.cost.Zu_0 = 0 * self._params.w_L2 * np.ones(n_path_constr)
-        self._acados_ocp.cost.Zu = 0 * self._params.w_L2 * np.ones(ns)
-        self._acados_ocp.cost.Zu_e = 0 * self._params.w_L2 * np.ones(ns)
+        self._acados_ocp.cost.Zl_0 = 0.0 * self._params.w_L2 * np.ones(n_path_constr)
+        self._acados_ocp.cost.Zu_0 = 0.0 * self._params.w_L2 * np.ones(n_path_constr)
+        self._acados_ocp.cost.Zl_e = 0.0 * self._params.w_L2 * np.ones(ns)
+        self._acados_ocp.cost.Zu_e = 0.0 * self._params.w_L2 * np.ones(ns)
+        self._acados_ocp.cost.Zl = 0.0 * self._params.w_L2 * np.ones(ns)
+        self._acados_ocp.cost.Zu = 0.0 * self._params.w_L2 * np.ones(ns)
 
         # We use L1 norm for the slack variables
         self._acados_ocp.cost.zl_0 = self._params.w_L1 * np.ones(n_path_constr)
-        self._acados_ocp.cost.zl = self._params.w_L1 * np.ones(ns)
-        self._acados_ocp.cost.zl_e = self._params.w_L1 * np.ones(ns)
         self._acados_ocp.cost.zu_0 = self._params.w_L1 * np.ones(n_path_constr)
-        self._acados_ocp.cost.zu = self._params.w_L1 * np.ones(ns)
+        self._acados_ocp.cost.zl_e = self._params.w_L1 * np.ones(ns)
         self._acados_ocp.cost.zu_e = self._params.w_L1 * np.ones(ns)
+        self._acados_ocp.cost.zl = self._params.w_L1 * np.ones(ns)
+        self._acados_ocp.cost.zu = self._params.w_L1 * np.ones(ns)
 
         # Cost function
-        # self._acados_ocp.model.cost_expr_ext_cost = u.T @ np.diag([0.00001, 0.00001, 0.00001]) @ u
-        # self._acados_ocp.model.cost_expr_ext_cost_e = 0.0
-        self._acados_ocp.cost.cost_type_0 = "EXTERNAL"
         self._acados_ocp.cost.cost_type = "EXTERNAL"
         self._acados_ocp.cost.cost_type_e = "EXTERNAL"
 
@@ -805,18 +828,20 @@ class AcadosMPC:
         y_path = self._y_path(x[4], self._y_path_coeffs)
         x_dot_path = self._x_dot_path(x[4], self._x_dot_path_coeffs)
         y_dot_path = self._y_dot_path(x[4], self._y_dot_path_coeffs)
-        speed_ref = x[5] * csd.sqrt(1e-8 + x_dot_path**2 + y_dot_path**2)
+        eps = 1e-5
+        speed_ref = x[5] * csd.sqrt(eps + x_dot_path**2 + y_dot_path**2)
 
         x_ref = csd.vertcat(x_path, y_path, speed_ref, s_dot_ref)
         path_following_cost, _, _, _ = mpc_common.path_following_cost_huber(x, x_ref, Q_p_vec)
-        rate_cost, _, _ = mpc_common.rate_cost(
-            u[0],
-            u[1],
-            csd.vertcat(alpha_app_course, alpha_app_speed),
-            csd.vertcat(K_app_course, K_app_speed),
-            r_max=ubu[0],
-            a_max=ubu[1],
-        )
+        # rate_cost, _, _ = mpc_common.rate_cost(
+        #     u[0],
+        #     u[1],
+        #     csd.vertcat(alpha_app_course, alpha_app_speed),
+        #     csd.vertcat(K_app_course, K_app_speed),
+        #     r_max=ubu[0],
+        #     a_max=ubu[1],
+        # )
+        rate_cost = K_app_course * (u[0] ** 2) + K_app_speed * (u[1] ** 2) + 0.5 * K_app_speed * (u[2] ** 2)
 
         prev_sol_cost = (
             K_prev_sol_dev[0] * (self._prev_opt_abs_action[0] - x[2]) ** 2
@@ -844,14 +869,9 @@ class AcadosMPC:
             d_attenuation,
             colregs_weights,
         )
-        small_input_cost = 1e-5 * u.T @ u
-        self._acados_ocp.model.cost_expr_ext_cost_0 = (
-            path_following_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
-        )
-        self._acados_ocp.model.cost_expr_ext_cost = (
-            path_following_cost + rate_cost + colregs_cost + prev_sol_cost + small_input_cost
-        )
-        self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost
+        self._acados_ocp.model.cost_expr_ext_cost_0 = path_following_cost + colregs_cost + rate_cost + prev_sol_cost
+        self._acados_ocp.model.cost_expr_ext_cost = path_following_cost + rate_cost + colregs_cost + prev_sol_cost
+        self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + colregs_cost
 
         # Parameters consist of RL adjustable parameters and fixed parameters
         # (either nominal path or dynamic obstacle related).
@@ -874,6 +894,56 @@ class AcadosMPC:
         )
         self._parameter_values = self._acados_ocp.parameter_values
 
+        self._rate_cost = csd.Function("rate_cost", [u, self._acados_ocp.model.p], [rate_cost])
+        self._rate_cost_grad = csd.Function(
+            "rate_cost_grad",
+            [u, self._acados_ocp.model.p],
+            [csd.jacobian(rate_cost, u)],
+        )
+        self._rate_cost_hess = csd.Function(
+            "rate_cost_hess",
+            [u, self._acados_ocp.model.p],
+            [csd.hessian(rate_cost, u)[0]],
+        )
+        u_test = np.zeros(3)
+        # rcg = self._rate_cost_grad(
+        #     u_test,
+        #     self._params.alpha_app_course,
+        #     self._params.alpha_app_speed,
+        #     self._params.K_app_course,
+        #     self._params.K_app_speed,
+        # ).full()
+        rch1 = self._rate_cost_hess(u_test, self._parameter_values).full()
+        self._colreg_cost = csd.Function(
+            "colregs_cost",
+            [x, self._acados_ocp.model.p],
+            [colregs_cost],
+        )
+        self._colreg_cost_grad = csd.Function(
+            "colregs_cost_grad",
+            [x, self._acados_ocp.model.p],
+            [csd.jacobian(colregs_cost, x)],
+        )
+        self._colreg_cost_hess = csd.Function(
+            "colregs_cost_hess",
+            [x, self._acados_ocp.model.p],
+            [csd.hessian(colregs_cost, x)[0]],
+        )
+        x_test = np.array([0.0, 500.0, 1.5, 4.0, 15.0, 4.0])
+        self._parameter_values[128:134] = np.array([0.0, 550.0, -1.5, 4.0, 10.0, 3.0])
+        cch = self._colreg_cost_hess(x_test, self._parameter_values).full()
+        self._path_following_cost = csd.Function(
+            "path_following_cost", [x, self._acados_ocp.model.p], [path_following_cost]
+        )
+        self._path_following_cost_grad = csd.Function(
+            "path_following_cost_grad", [x, self._acados_ocp.model.p], [csd.jacobian(path_following_cost, x)]
+        )
+        self._path_following_cost_hess = csd.Function(
+            "path_following_cost_hess", [x, self._acados_ocp.model.p], [csd.hessian(path_following_cost, x)[0]]
+        )
+        pfcg = self._path_following_cost_grad(x_test, self._parameter_values).full()
+        pfch = self._path_following_cost_hess(x_test, self._parameter_values).full()
+
         self._acados_ocp_mutex.acquire()
         # remove files in the code export directory
         if self._acados_code_gen_path.exists():
@@ -885,9 +955,21 @@ class AcadosMPC:
 
         self._acados_ocp.code_export_directory = self._acados_code_gen_path.as_posix()
         self._acados_ocp_solver = None
-        self._acados_ocp_solver = AcadosOcpSolver(self._acados_ocp, json_file=solver_json, build=True, generate=True)
-        # print("OCP compiled to C code at {}".format(str(self._acados_code_gen_path)))
+        try:
+            self._acados_ocp_solver = AcadosOcpSolver(
+                self._acados_ocp, json_file=solver_json, build=True, generate=True
+            )
+        except Exception as e:
+            print(f"Exception: {e} | Failed to build ACADOS OCP solver! Retrying...")
+            self._acados_ocp_solver = AcadosOcpSolver(
+                self._acados_ocp, json_file=solver_json, build=True, generate=True
+            )
 
+        self._acados_ocp_solver.store_iterate(
+            filename=str(self._acados_code_gen_path / "initial_iterate_success.json"), overwrite=True
+        )
+
+        # print("OCP compiled to C code at {}".format(str(self._acados_code_gen_path)))
         self._static_obstacle_constraints = csd.Function("so_constr", [x], [csd.vertcat(*so_constr_list)])
         self._dynamic_obstacle_constraints = csd.Function(
             "do_constr", [x, X_do, r_safe_do], [csd.vertcat(*do_constr_list)]
@@ -945,7 +1027,7 @@ class AcadosMPC:
             list: List of dynamic obstacle constraints at the current stage in the OCP.
         """
         do_constr_list = []
-        epsilon = 1e-4
+        epsilon = 1e-6
         n_do = int(X_do_k.shape[0] / nx_do)
         for i in range(n_do):
             x_aug_do_i = X_do_k[nx_do * i : nx_do * (i + 1)]
@@ -1006,9 +1088,9 @@ class AcadosMPC:
 
         adjustable_params = self._params.adjustable(self._adjustable_param_str_list)
         action_stage_index = self.action_indices_to_stage_index()
-        if "K_prev_sol_dev" in self._adjustable_param_str_list and stage_idx != action_stage_index:
-            adjustable_params[3] = 0.00001
-            adjustable_params[4] = 0.00001
+        # if "K_prev_sol_dev" in self._adjustable_param_str_list and stage_idx != action_stage_index:
+        #     adjustable_params[3] = 0.1
+        #     adjustable_params[4] = 0.1
 
         # if n_dos == 0 or d2goal < 150.0 and "K_app_course" in self._adjustable_param_str_list:
         #     if "K_prev_sol_dev" in self._adjustable_param_str_list:
@@ -1044,9 +1126,9 @@ class AcadosMPC:
         #         non_adjustable_mpc_params[6] = 10.0
         #         non_adjustable_mpc_params[7] = 5.0
 
-        if "K_prev_sol_dev" not in self._adjustable_param_str_list and stage_idx != action_stage_index:
-            non_adjustable_mpc_params[0] = 0.0001
-            non_adjustable_mpc_params[1] = 0.0001
+        # if "K_prev_sol_dev" not in self._adjustable_param_str_list and stage_idx != action_stage_index:
+        #     non_adjustable_mpc_params[0] = 0.1
+        #     non_adjustable_mpc_params[1] = 0.1
 
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
         fixed_parameter_values.extend(do_cr_parameter_values)
@@ -1106,17 +1188,6 @@ class AcadosMPC:
         fixed_parameter_values.extend(path_parameter_values)
 
         non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
-        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
-        p_goal = np.array(list(self.path_linestring.coords[-1]))
-        d2goal = np.linalg.norm(state[0:2] - p_goal)
-        # if n_dos == 0 or d2goal < 150.0:
-        #     if "K_prev_sol_dev" in self._adjustable_param_str_list:
-        #         non_adjustable_mpc_params[4] = 10.0
-        #         non_adjustable_mpc_params[5] = 5.0
-        #     else:
-        #         non_adjustable_mpc_params[6] = 10.0
-        #         non_adjustable_mpc_params[7] = 5.0
-
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 
         max_num_so_constr = (
@@ -1151,8 +1222,8 @@ class AcadosMPC:
             Tuple[float, float]: Path variable and its derivative.
         """
         s = mapf.find_closest_arclength_to_point(xs[:2], self.path_linestring)
-        if s < 0.000001:
-            s = 0.000001
+        if s < 0.1:
+            s = 0.1
         s_dot = self.compute_path_variable_derivative(s)
         return s, s_dot
 
@@ -1218,7 +1289,7 @@ class AcadosMPC:
         X_do = np.zeros(nx_do * self._params.max_num_do_constr_per_zone)
         t = stage * self._params.dt
         for i in range(self._params.max_num_do_constr_per_zone):
-            X_do[nx_do * i : nx_do * (i + 1)] = [csog_state[0] - 1e3, csog_state[1] - 1e3, 0.0, 0.0, 10.0, 3.0]
+            X_do[nx_do * i : nx_do * (i + 1)] = [csog_state[0] - 1000.0, csog_state[1] - 1000, 0.0, 0.0, 10.0, 3.0]
             if i < n_do:
                 (ID, do_state, cov, length, width) = do_list[i]
                 chi = np.arctan2(do_state[3], do_state[2])
@@ -1244,7 +1315,7 @@ class AcadosMPC:
         Returns:
             float | csd.MX: Path variable derivative.
         """
-        epsilon = 1e-8
+        epsilon = 1e-5
         if isinstance(s, float):
             s_dot = self._speed_spline(s, self._speed_spl_coeffs_values) / np.sqrt(
                 epsilon

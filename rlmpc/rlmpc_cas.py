@@ -152,6 +152,11 @@ class RLMPC(ci.ICOLAV):
             self._ktp = guidances.KinematicTrajectoryPlanner()
             self._mpc = mlmpc.MidlevelMPC(config=self._config.mpc, identifier=self.identifier)
             self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
+            self._mpc_rel_polygons = []
+            self._map_origin = np.array([])
+            self._all_polygons = []
+            self._hazards = []
+            self._nominal_path = None
         else:
             self._los.reset()
             self._colregs_handler.reset()
@@ -167,11 +172,6 @@ class RLMPC(ci.ICOLAV):
         self._t_prev_mpc = 0.0
         self._initialized = False
         self._geometry_tree = strtree.STRtree([])
-        self._min_depth = 0
-        self._map_origin = np.array([])
-        self._mpc_rel_polygons = []
-        self._all_polygons = []
-        self._hazards = []
         self._disturbance_handles = []
         self._action_indices = []
         self._rrt_traj_handle = None
@@ -179,7 +179,6 @@ class RLMPC(ci.ICOLAV):
         self._goal_state = np.array([])
         self._waypoints = np.array([])
         self._speed_plan = np.array([])
-        self._nominal_path = None
 
     def _clear_do_handles(self) -> None:
         if self._do_plt_handles:
@@ -234,22 +233,24 @@ class RLMPC(ci.ICOLAV):
 
         self._enc = copy.deepcopy(enc)
         if self._debug:
-            enc.close_display()
+            if recompile:
+                enc.close_display()
             self._enc.start_display(figname="RL-MPC Debug")
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
         ownship_csog_state[3] = state_copy[2]
         ownship_csog_state[3] = ownship_state[3]
-        speed_plan[-1] = 2.0
+        speed_plan[-1] = 1.5
         self._map_origin = ownship_state[:2]
-        self._nominal_path = self._ktp.compute_splines(
-            waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
-            speed_plan=speed_plan,
-            arc_length_parameterization=True,
-        )
-        self._setup_mpc_static_obstacle_input(ownship_csog_state, self._enc, self._debug, **kwargs)
+
         if recompile:
+            self._nominal_path = self._ktp.compute_splines(
+                waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
+                speed_plan=speed_plan,
+                arc_length_parameterization=True,
+            )
+            self._setup_mpc_static_obstacle_input(ownship_csog_state, self._enc, self._debug, **kwargs)
             self._mpc.construct_ocp(
                 nominal_path=self._nominal_path,
                 so_list=self._mpc_rel_polygons,
@@ -280,17 +281,16 @@ class RLMPC(ci.ICOLAV):
         self._rrtstar.transfer_safe_sea_triangulation(planning_cdt)
         self._rrtstar.set_goal_state(self._goal_state.tolist())
 
-        os_poly = mapf.create_ship_polygon(
-            ownship_csog_state[0],
-            ownship_csog_state[1],
-            ownship_csog_state[2],
-            self._config.ship_length,
-            self._config.ship_width,
-            1.0,
-            1.0,
-        )
-
         if self._debug:
+            os_poly = mapf.create_ship_polygon(
+                ownship_csog_state[0],
+                ownship_csog_state[1],
+                ownship_csog_state[2],
+                self._config.ship_length,
+                self._config.ship_width,
+                1.0,
+                1.0,
+            )
             self.plot_path()
             self._enc.draw_polygon(os_poly, color="pink")
             self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=3.0, color="black")
@@ -789,10 +789,10 @@ class RLMPC(ci.ICOLAV):
         else:
             rrt_trajectory[4:, 0] = np.array([path_var, path_var_dot])
 
-        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.array([0.0, 0.0, -0.02])
+        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.array([0.0, 0.0, 0.0])
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
         rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
-        rrt_inputs[2, :] = np.array([u_omega * (1.0**u_idx) for u_idx, u_omega in enumerate(rrt_inputs[2, :])])
+        # rrt_inputs[2, :] = np.array([u_omega * (1.0**u_idx) for u_idx, u_omega in enumerate(rrt_inputs[2, :])])
 
         # Add path timing dynamics to warm start trajectory
         mpc_model_traj = self._mpc.model_prediction(rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1])

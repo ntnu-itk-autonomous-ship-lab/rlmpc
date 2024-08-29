@@ -56,7 +56,7 @@ mpc:
     reference_traj_bbox_buffer: 200.0
     T: 66.0
     dt: 2.0
-    Q_p: [1.0, 30.0, 30.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
+    Q_p: [0.5, 30.0, 30.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
     K_prev_sol_dev: [0.0, 0.0]
     alpha_app_course: [40.0, 0.004]
     alpha_app_speed: [40.0, 0.005]
@@ -71,16 +71,16 @@ mpc:
     x_0_ot: 150.0
     y_0_ot: 10.0
     d_attenuation: 400.0
-    w_colregs: [70.0, 70.0, 70.0]
+    w_colregs: [90.0, 90.0, 90.0]
 
     w_L2: 0.0
-    w_L1: 600.0 # too high weight here => QP-failure
+    w_L1: 1000.0 # too high weight here => QP-failure
     r_safe_so: 5.0
     r_safe_do: 20.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"
     max_num_so_constr: 10
-    max_num_do_constr_per_zone: 4 # per shooting node in the mpc
+    max_num_do_constr_per_zone: 3 # per shooting node in the mpc
   model:
     kinematic_csog_with_acceleration_and_path_timing:
       draft: 0.5
@@ -121,8 +121,8 @@ mpc:
       nlp_solver_tol_comp: 0.00001
       nlp_solver_ext_qp_res: 1
       qp_solver_type: "PARTIAL_CONDENSING_HPIPM" # "FULL_CONDENSING_QPOASES"
-      qp_solver_iter_max: 200
-      qp_solver_warm_start: 1
+      qp_solver_iter_max: 100
+      qp_solver_warm_start: 0
       qp_solver_tol_stat: 0.00001
       qp_solver_tol_eq: 0.00001
       qp_solver_tol_ineq: 0.00001
@@ -130,6 +130,6 @@ mpc:
       hessian_approx_type: "EXACT"
       globalization: "MERIT_BACKTRACKING"
       regularize_method: "PROJECT"
-      levenberg_marquardt: 0.001
+      levenberg_marquardt: 0.0
       print_level: 0
       ext_fun_compile_flags: "-O0" # "-march=native -flto -fomit-frame-pointer -O0"

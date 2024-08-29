@@ -125,7 +125,6 @@ class MidlevelMPC:
         self._casadi_mpc.reset()
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.reset()
-        self.sens = None
 
     def compute_path_variable_info(self, xs: np.ndarray) -> Tuple[float, float]:
         """Computes the path variable and its derivative from the current state.
@@ -261,6 +260,8 @@ class MidlevelMPC:
         Returns:
             - dict: Dictionary containing the solution info (trajectory, decision variables, etc.)
         """
+        mpc_soln_csd = None
+        mpc_soln_ac = None
         if self._acados_enabled:
             mpc_soln_ac = self._acados_mpc.plan(
                 t,
@@ -292,81 +293,102 @@ class MidlevelMPC:
             )
         mpc_soln = mpc_soln_ac if self._acados_enabled else mpc_soln_csd
 
-        # self._check_optimality_conditions(mpc_soln_ac, mpc_soln_csd)
+        if t < 2.0:
+            self._check_optimality_conditions(mpc_soln_ac, mpc_soln_csd)
 
         return mpc_soln
 
-    def _check_optimality_conditions(self, mpc_soln_ac: dict, mpc_soln_csd: dict) -> None:
+    def _check_optimality_conditions(
+        self, mpc_soln_ac: Optional[dict] = None, mpc_soln_csd: Optional[dict] = None
+    ) -> None:
         """Check the optimality conditions for the acados and casadi solvers.
 
         Args:
             mpc_soln_ac (dict): Solution dictionary from the acados solver.
             mpc_soln_csd (dict): Solution dictionary from the casadi solver.
         """
-        lam_g_ac = mpc_soln_ac["soln"]["lam_g"].flatten() if self._acados_enabled else np.array([])
-        lam_g_csd = mpc_soln_csd["soln"]["lam_g"].flatten()
-        lam_g_diff = lam_g_ac - lam_g_csd
-        w_ac = mpc_soln_ac["soln"]["x"].flatten() if self._acados_enabled else np.array([])
-        w_csd = mpc_soln_csd["soln"]["x"].flatten()
-        w_diff = w_ac - w_csd
-        z_ac = np.concatenate(
-            (
-                mpc_soln_ac["soln"]["x"].flatten(),
-                mpc_soln_ac["soln"]["lam_g"].flatten(),
-            )
-        )
-        z_csd = np.concatenate(
-            (
-                mpc_soln_csd["soln"]["x"].flatten(),
-                mpc_soln_csd["soln"]["lam_g"].flatten(),
-            )
-        )
-        R_kkt_ac = self.sens.r_kkt(z_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-        R_kkt_csd = self.sens.r_kkt(z_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+        if mpc_soln_ac is None and mpc_soln_csd is None:
+            return
 
-        dlag_dw_ac = self.sens.dlag_dw(
-            mpc_soln_ac["soln"]["x"], lam_g_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
-        ).full()
-        dlag_dw_csd = self.sens.dlag_dw(
-            mpc_soln_csd["soln"]["x"], lam_g_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
-        ).full()
+        if mpc_soln_ac is not None:
+            lam_g_ac = mpc_soln_ac["soln"]["lam_g"].flatten() if self._acados_enabled else np.array([])
+            w_ac = mpc_soln_ac["soln"]["x"].flatten() if self._acados_enabled else np.array([])
+            z_ac = np.concatenate(
+                (
+                    mpc_soln_ac["soln"]["x"].flatten(),
+                    mpc_soln_ac["soln"]["lam_g"].flatten(),
+                )
+            )
+            R_kkt_ac = self.sens.r_kkt(z_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+            dlag_dw_ac = self.sens.dlag_dw(
+                mpc_soln_ac["soln"]["x"], lam_g_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+            ).full()
+
+            eq_constr_ac = self.sens.G(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+            eq_jac_ac = self.sens.G_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+            ineq_constr_ac = self.sens.H(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+            ineq_jac_ac = self.sens.H_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+            n_eq_constr = eq_jac_ac.shape[0]
+            active_constraints_ac = np.where(np.abs(np.concatenate((eq_constr_ac, ineq_constr_ac))) < 1e-4)[0]
+            active_constr_jac_ac = np.concatenate((eq_jac_ac, ineq_jac_ac), axis=0)[active_constraints_ac, :]
+            rank_active_constr_jac_ac = np.linalg.matrix_rank(active_constr_jac_ac)
+            max_rank_ac = np.min(active_constr_jac_ac.shape)
+        else:
+            dlag_dw_ac = np.array([0.0])
+            eq_constr_ac = np.array([0.0])
+            ineq_constr_ac = np.array([0.0])
+            lam_g_ac = np.array([0.0])
+            n_eq_constr = 0
+            rank_active_constr_jac_ac = 0
+            max_rank_ac = 0
+
+        if mpc_soln_csd is not None:
+            lam_g_csd = mpc_soln_csd["soln"]["lam_g"].flatten()
+            lam_g_diff = lam_g_ac - lam_g_csd
+            w_csd = mpc_soln_csd["soln"]["x"].flatten()
+            w_diff = w_ac - w_csd
+            z_csd = np.concatenate(
+                (
+                    mpc_soln_csd["soln"]["x"].flatten(),
+                    mpc_soln_csd["soln"]["lam_g"].flatten(),
+                )
+            )
+            R_kkt_csd = self.sens.r_kkt(z_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+            dlag_dw_csd = self.sens.dlag_dw(
+                mpc_soln_csd["soln"]["x"], lam_g_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+            ).full()
+
+            eq_constr_csd = self.sens.G(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+            eq_jac_csd = self.sens.G_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+            ineq_constr_csd = self.sens.H(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+            ineq_jac_csd = self.sens.H_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+
+            active_constraints_csd = np.where(np.abs(np.concatenate((eq_constr_csd, ineq_constr_csd))) < 1e-4)[0]
+            active_constr_jac_csd = np.concatenate((eq_jac_csd, ineq_jac_csd), axis=0)[active_constraints_csd, :]
+            rank_active_constr_jac_csd = np.linalg.matrix_rank(active_constr_jac_csd)
+            max_rank_csd = np.min(active_constr_jac_csd.shape)
+        else:
+            dlag_dw_csd = np.array([0.0])
+            eq_constr_csd = np.array([0.0])
+            ineq_constr_csd = np.array([0.0])
+            lam_g_csd = np.array([0.0])
+            rank_active_constr_jac_csd = 0
+            max_rank_csd = 0
+
+        # dep_rows_ac = cs_mf.find_dependent_rows(active_constr_jac_ac.copy())
+        # dep_rows_csd = cs_mf.find_dependent_rows(active_constr_jac_csd.copy())
+        # for dep in dep_rows_ac:
+        #     print(self._casadi_mpc.g_str_list[active_constraints_ac[dep]])
         print("Checking first order necessary conditions for optimality...: ")
         print(
             "dlag_dw = 0 condition | acados: ", np.linalg.norm(dlag_dw_ac), " | casadi: ", np.linalg.norm(dlag_dw_csd)
         )
-
-        eq_constr_ac = self.sens.G(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-        eq_jac_ac = self.sens.G_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-        ineq_constr_ac = self.sens.H(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-        ineq_jac_ac = self.sens.H_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-        n_eq_constr = eq_jac_ac.shape[0]
-
-        eq_constr_csd = self.sens.G(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
-        eq_jac_csd = self.sens.G_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
-        ineq_constr_csd = self.sens.H(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
-        ineq_jac_csd = self.sens.H_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
-
         print(
             f"c_i(x*) = 0 for all i in E | acados: {np.all(np.abs(eq_constr_ac) < 1e-4)} | casadi: {np.all(np.abs(eq_constr_csd) < 1e-4)}"
         )
         print(
             f"c_i(x*) <= 0 for all i in I | acados: {np.all(ineq_constr_ac < 1e-4)} | casadi: {np.all(ineq_constr_csd < 1e-4)}"
         )
-        active_constraints_ac = np.where(np.abs(np.concatenate((eq_constr_ac, ineq_constr_ac))) < 1e-4)[0]
-        active_constraints_csd = np.where(np.abs(np.concatenate((eq_constr_csd, ineq_constr_csd))) < 1e-4)[0]
-
-        active_constr_jac_ac = np.concatenate((eq_jac_ac, ineq_jac_ac), axis=0)[active_constraints_ac, :]
-        rank_active_constr_jac_ac = np.linalg.matrix_rank(active_constr_jac_ac)
-        max_rank_ac = np.min(active_constr_jac_ac.shape)
-        active_constr_jac_csd = np.concatenate((eq_jac_csd, ineq_jac_csd), axis=0)[active_constraints_csd, :]
-        rank_active_constr_jac_csd = np.linalg.matrix_rank(active_constr_jac_csd)
-        max_rank_csd = np.min(active_constr_jac_csd.shape)
-
-        # dep_rows_ac = cs_mf.find_dependent_rows(active_constr_jac_ac.copy())
-        # dep_rows_csd = cs_mf.find_dependent_rows(active_constr_jac_csd.copy())
-        # for dep in dep_rows_ac:
-        #     print(self._casadi_mpc.g_str_list[active_constraints_ac[dep]])
-
         print(
             f"Lamda_i >= 0 for i in I | acados: {np.all(lam_g_ac[n_eq_constr:] >= 0)} | casadi: {np.all(lam_g_csd[n_eq_constr:] >= 0)}"
         )

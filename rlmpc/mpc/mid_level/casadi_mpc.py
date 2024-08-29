@@ -103,7 +103,7 @@ class CasadiMPC:
         self._speed_spline: csd.Function = csd.Function("speed_spline", [], [])
         self._speed_spl_coeffs: csd.MX = csd.MX.sym("speed_spl_coeffs", 0)
         self._speed_spl_coeffs_values: np.ndarray = np.array([])
-        self._s: float = 0.001
+        self._s: float = 0.1
         self._s_dot: float = 0.0
         self._s_final_value: float = 0.0
         self._path_linestring: geo.LineString = geo.LineString()
@@ -254,7 +254,7 @@ class CasadiMPC:
             [x_spline, y_spline], [x_spline.c, y_spline.c], s_final
         )
 
-        self._s = 0.000000001
+        self._s = 0.1
         self._s_final_value = s_final
         self.model.set_min_path_variable(self._s)
         self.model.set_max_path_variable(s_final)  # margin
@@ -363,11 +363,7 @@ class CasadiMPC:
             self._xs_prev[2] = xs[2] + np.arctan2(xs[4], xs[3])
             self._prev_cost = np.inf
             self._t_prev = t
-        else:
-            # warm start is embedded in the previous solution in this case
-            self._xs_prev = warm_start["X"][:, 0] - np.array(
-                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
-            )
+            self._initialized = True
 
         chi = xs[2] + np.arctan2(xs[4], xs[3])
         xs_unwrapped = xs.copy()
@@ -379,11 +375,11 @@ class CasadiMPC:
         self._xs_prev = xs_unwrapped
         self._current_warmstart = warm_start
         parameter_values, do_cr_params, do_ho_params, do_ot_params = self.create_parameter_values(
-            xs_unwrapped,
-            do_cr_list,
-            do_ho_list,
-            do_ot_list,
-            warm_start["prev_opt_abs_action"],
+            state=xs_unwrapped,
+            do_cr_list=do_cr_list,
+            do_ho_list=do_ho_list,
+            do_ot_list=do_ot_list,
+            prev_opt_abs_action=warm_start["prev_opt_abs_action"],
             perturb_nlp=perturb_nlp,
             perturb_sigma=perturb_sigma,
             **kwargs,
@@ -535,7 +531,7 @@ class CasadiMPC:
         Returns:
             float | csd.MX: Path variable derivative.
         """
-        epsilon = 1e-8
+        epsilon = 1e-5
         if isinstance(s, float):
             s_dot = self._speed_spline(s, self._speed_spl_coeffs_values) / np.sqrt(
                 epsilon
@@ -615,14 +611,11 @@ class CasadiMPC:
         N = int(self._params.T / self._params.dt)
         dt = self._params.dt
         n_colregs_zones = 3
-        approx_inf = 2000.0
 
         # Ship model and path timing dynamics
         nx, nu = self.model.dims()
         xdot, x, u, p = self.model.as_casadi()
         lbu_k, ubu_k, lbx_k, ubx_k = self.model.get_input_state_bounds()
-        lbx_k[:3] = -approx_inf
-        ubx_k[:3] = approx_inf
         self._p_mdl = p
 
         hu = []  # Box constraints on inputs
@@ -774,6 +767,7 @@ class CasadiMPC:
         # stage_cost = csd.MX.sym("stage_cost", 1)
         erk4 = integrators.ERK4(x=x, p=csd.vertcat(u, self._p_mdl), ode=xdot, quad=csd.vertcat([]), h=dt)
         action_stage_index = self.action_indices_to_stage_index()
+        eps = 1e-5
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
             if k == 0:
@@ -786,7 +780,7 @@ class CasadiMPC:
             hu_constr_str_list.extend(["u_" + str(k) + f"{l} <= ubu{l}" for l in range(nu)])
 
             slack_penalty_cost = 0.0
-            if k > 0:  # We do not slack the first state variable.
+            if k > 0:  # We do not slack the first state variable nor apply nonlinear constraints
                 sigma_bxl_k = csd.MX.sym(
                     "sigma_bxl_" + str(k),
                     n_bx_slacks,
@@ -848,7 +842,7 @@ class CasadiMPC:
             y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
             x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
             y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
-            speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
+            speed_ref_k = x_k[5] * csd.sqrt(eps + x_dot_path_k**2 + y_dot_path_k**2)
 
             s_dot_ref_nom_k = path_derivative_refs_list[k]
             x_ref_k = csd.vertcat(x_path_k, y_path_k, speed_ref_k, s_dot_ref_nom_k)
@@ -856,14 +850,16 @@ class CasadiMPC:
                 mpc_common.path_following_cost_huber(x_k, x_ref_k, Q_p_vec)
             )
 
-            rate_cost, course_rate_cost, speed_rate_cost = mpc_common.rate_cost(
-                u_k[0],
-                u_k[1],
-                csd.vertcat(alpha_app_course, alpha_app_speed),
-                csd.vertcat(K_app_course, K_app_speed),
-                r_max=ubu_k[0],
-                a_max=ubu_k[1],
-            )
+            # rate_cost, course_rate_cost, speed_rate_cost = mpc_common.rate_cost(
+            #     u_k[0],
+            #     u_k[1],
+            #     csd.vertcat(alpha_app_course, alpha_app_speed),
+            #     csd.vertcat(K_app_course, K_app_speed),
+            #     r_max=ubu_k[0],
+            #     a_max=ubu_k[1],
+            # )
+            rate_cost = K_app_course * (u_k[0] ** 2) + K_app_speed * (u_k[1] ** 2) + 0.5 * K_app_speed * (u_k[2] ** 2)
+
             colregs_cost, crossing_cost, head_on_cost, overtaking_cost = mpc_common.colregs_cost(
                 x_k,
                 X_do_cr[:, k],
@@ -880,7 +876,6 @@ class CasadiMPC:
                 d_attenuation,
                 colregs_weights,
             )
-
             J += path_following_cost + rate_cost + colregs_cost + slack_penalty_cost
             if k == action_stage_index:
                 J += (
@@ -892,20 +887,20 @@ class CasadiMPC:
                 self._path_dev_cost = csd.Function("path_dev_cost", [x_k, self._p_path], [path_dev_cost])
                 self._path_dot_dev_cost = csd.Function("path_dot_dev_cost", [x_k, self._p_path], [path_dot_dev_cost])
                 self._speed_dev_cost = csd.Function("speed_dev_cost", [x_k, self._p_path], [speed_dev_cost])
-                self._course_rate_cost = csd.Function("course_rate_cost", [u_k, self._p_rate], [course_rate_cost])
-                self._speed_rate_cost = csd.Function("speed_rate_cost", [u_k, self._p_rate], [speed_rate_cost])
+                # self._course_rate_cost = csd.Function("course_rate_cost", [u_k, self._p_rate], [course_rate_cost])
+                # self._speed_rate_cost = csd.Function("speed_rate_cost", [u_k, self._p_rate], [speed_rate_cost])
                 self._crossing_cost = csd.Function("crossing_cost", [x_k, X_do_cr, self._p_colregs], [crossing_cost])
                 self._head_on_cost = csd.Function("head_on_cost", [x_k, X_do_ho, self._p_colregs], [head_on_cost])
                 self._overtaking_cost = csd.Function(
                     "overtaking_cost", [x_k, X_do_ot, self._p_colregs], [overtaking_cost]
                 )
+            X_do_k = csd.vertcat(X_do_cr[:, k], X_do_ho[:, k], X_do_ot[:, k])
 
             so_constr_k = self._create_static_obstacle_constraint(x_k, sigma_so_k, so_surfaces)
             so_constr_list.extend(so_constr_k)
             g_ineq_list.extend(so_constr_k)
             g_ineq_str_list.extend(["h_so_" + str(k) + f"{l} <= 0" for l in range(len(so_constr_k))])
 
-            X_do_k = csd.vertcat(X_do_cr[:, k], X_do_ho[:, k], X_do_ot[:, k])
             do_constr_k = self._create_dynamic_obstacle_constraint(x_k, sigma_do_k, X_do_k, nx_do, r_safe_do)
             do_constr_list.extend(do_constr_k)
             g_ineq_list.extend(do_constr_k)
@@ -987,12 +982,28 @@ class CasadiMPC:
         y_path_k = self._y_path(x_k[4], self._y_path_coeffs)
         x_dot_path_k = self._x_dot_path(x_k[4], self._x_dot_path_coeffs)
         y_dot_path_k = self._y_dot_path(x_k[4], self._y_dot_path_coeffs)
-        speed_ref_k = x_k[5] * csd.sqrt(1e-8 + x_dot_path_k**2 + y_dot_path_k**2)
+        speed_ref_k = x_k[5] * csd.sqrt(eps + x_dot_path_k**2 + y_dot_path_k**2)
         s_dot_ref_nom_k = path_derivative_refs_list[-1]
         x_ref_k = csd.vertcat(x_path_k, y_path_k, speed_ref_k, s_dot_ref_nom_k)
         path_following_cost, _, _, _ = mpc_common.path_following_cost_huber(x_k, x_ref_k, Q_p_vec)
 
-        J += path_following_cost + slack_penalty_cost
+        colregs_cost, _, _, _ = mpc_common.colregs_cost(
+            x_k,
+            X_do_cr[:, N],
+            X_do_ho[:, N],
+            X_do_ot[:, N],
+            nx_do,
+            alpha_cr,
+            y_0_cr,
+            alpha_ho,
+            x_0_ho,
+            alpha_ot,
+            x_0_ot,
+            y_0_ot,
+            d_attenuation,
+            colregs_weights,
+        )
+        J += path_following_cost + colregs_cost + slack_penalty_cost
 
         so_constr_N = self._create_static_obstacle_constraint(x_k, sigma_so_k, so_surfaces)
         so_constr_list.extend(so_constr_N)
@@ -1018,7 +1029,7 @@ class CasadiMPC:
 
         lbg_eq = [0.0] * g_eq.shape[0]
         ubg_eq = [0.0] * g_eq.shape[0]
-        lbg_ineq = [-np.inf] * g_ineq.shape[0]
+        lbg_ineq = [-1e4] * g_ineq.shape[0]
         ubg_ineq = [0.0] * g_ineq.shape[0]
         self._lbg = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg = np.concatenate((ubg_eq, ubg_ineq), axis=0)
@@ -1249,10 +1260,18 @@ class CasadiMPC:
         """
         assert len(state) == 6, "State must be of length 6."
 
-        adjustable_parameter_values = self.get_adjustable_params()
+        adjustable_parameter_values = self._params.adjustable(self._adjustable_param_str_list)
 
         fixed_parameter_values, do_parameter_values_cr, do_parameter_values_ho, do_parameter_values_ot = (
-            self.create_fixed_parameter_values(state, do_cr_list, do_ho_list, do_ot_list, perturb_nlp, perturb_sigma)
+            self.create_fixed_parameter_values(
+                state=state,
+                do_cr_list=do_cr_list,
+                do_ho_list=do_ho_list,
+                do_ot_list=do_ot_list,
+                prev_opt_abs_action=prev_opt_abs_action,
+                perturb_nlp=perturb_nlp,
+                perturb_sigma=perturb_sigma,
+            )
         )
         self._p_fixed_values = fixed_parameter_values
 
@@ -1298,16 +1317,6 @@ class CasadiMPC:
         fixed_parameter_values.extend(path_parameter_values)
 
         non_adjustable_mpc_params = self._params.adjustable(name_list=self._fixed_param_str_list)
-        n_dos = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
-        p_goal = np.array(list(self.path_linestring.coords[-1]))
-        d2goal = np.linalg.norm(state[0:2] - p_goal)
-        if n_dos == 0 or d2goal < 150.0:
-            if "K_prev_sol_dev" in self._adjustable_param_str_list:
-                non_adjustable_mpc_params[4] = 10.0
-                non_adjustable_mpc_params[5] = 5.0
-            else:
-                non_adjustable_mpc_params[6] = 10.0
-                non_adjustable_mpc_params[7] = 5.0
         fixed_parameter_values.extend(non_adjustable_mpc_params.tolist())
 
         max_num_so_constr = (
@@ -1342,8 +1351,8 @@ class CasadiMPC:
             Tuple[float, float]: Path variable and its derivative.
         """
         s = mapf.find_closest_arclength_to_point(xs[:2], self.path_linestring)
-        if s < 0.000001:
-            s = 0.000001
+        if s < 0.1:
+            s = 0.1
         s_dot = self.compute_path_variable_derivative(s)
         return s, s_dot
 
@@ -1396,7 +1405,7 @@ class CasadiMPC:
         for k in range(N + 1):
             t = k * self._params.dt
             for i in range(self._params.max_num_do_constr_per_zone):
-                x_do = [csog_state[0] - 1e3, csog_state[1] - 1e3, 0.0, 0.0, 10.0, 3.0]
+                x_do = [csog_state[0] - 1000.0, csog_state[1] - 1000.0, 0.0, 0.0, 10.0, 3.0]
                 if i < n_do:
                     (ID, do_state, cov, length, width) = do_list[i]
                     chi = np.arctan2(do_state[3], do_state[2])

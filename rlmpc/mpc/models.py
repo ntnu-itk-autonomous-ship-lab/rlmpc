@@ -301,17 +301,22 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self.create_dynamics_erk4()
 
         # Input and state bounds
+        U_min = self._params.U_min
         U_max = self._params.U_max
         a_max = self._params.a_max
         r_max = self._params.r_max
         s_min = self._params.s_min
         s_max = self._params.s_max
         s_dot_max = self._params.s_dot_max
-        approx_inf = 2000.0  # to avoid numerical issues in acados
+        ang_max = 4.0 * np.pi  # to avoid numerical issues in acados
+        xpos_min = -1000.0
+        xpos_max = 1000.0
+        ypos_min = -500.0
+        ypos_max = 2000.0
         self.lbu = np.array([-r_max, -a_max, -a_max])
         self.ubu = np.array([r_max, a_max, a_max])
-        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, -U_max, s_min, 0.0])
-        self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, s_max, s_dot_max])
+        self.lbx = np.array([xpos_min, ypos_min, -ang_max, U_min, s_min, 0.0])
+        self.ubx = np.array([xpos_max, ypos_max, ang_max, U_max, s_max, s_dot_max])
 
     def params(self) -> KinematicCSOGWithAccelerationAndPathtimingParams:
         return self._params

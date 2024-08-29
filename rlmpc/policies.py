@@ -25,7 +25,8 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel, ContinuousCritic
-from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
+from stable_baselines3.common.preprocessing import (get_action_dim,
+                                                    is_image_space)
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -580,7 +581,7 @@ class SACMPCParameterProviderActor(BasePolicy):
                 mpc_param_increment = self.mpc_param_provider(dnn_input).detach().clone().numpy()
 
             t = observation["TimeObservation"][idx][0]
-            if not deterministic:
+            if False: # not deterministic:
                 if t == 0 or t - self.t_prev[idx] >= self.noise_application_duration:
                     # mpc_param_increment = self.sample_action(mean_actions=np.zeros(self.action_space.shape[0]))
                     mpc_param_increment = self.sample_action(mean_actions=mpc_param_increment)

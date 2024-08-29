@@ -129,7 +129,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
         self._convert_train_freq()
-        self.non_optimal_solution_percentage: float = 0.0
         self.num_timesteps: int = 0
         self._episode_num: int = 0
         self.data_path: Path = data_path
@@ -138,6 +137,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.just_trained: bool = False  # Used by callback for logging purposes
         self.just_dumped_rollout_logs: bool = False  # Used by callback for logging purposes
         self.non_optimal_solutions_per_episode: np.ndarray = np.zeros(self.n_envs, dtype=np.float32)
+        self.vecenv_failed: bool = False
 
     @abstractmethod
     def train(self, gradient_steps: int, batch_size: int) -> None:
@@ -361,7 +361,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 log_interval=log_interval,
             )
 
-            if rollout.continue_training is False:
+            if rollout.continue_training is False or self.vecenv_failed:
                 break
 
             if self.num_timesteps > 0 and self.num_timesteps > self.learning_starts:
@@ -434,7 +434,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     if env.envs[env_idx].unwrapped.time < 0.0001:
                         self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
-            deterministic = num_collected_episodes == 0 or num_collected_episodes % 2 == 0
+            deterministic = True
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
                 learning_starts,
@@ -455,7 +455,15 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
 
             t_env_plotting_and_step_start = time.time()
-            next_obs, rewards, dones, infos = env.step(actions)
+
+            try:
+                next_obs, rewards, dones, infos = env.step(actions)
+            except Exception:  # pylint: disable=broad-except
+                print(f"Error when stepping vectorized environment! Exiting...")
+                self.vecenv_failed = True
+                return sb3_types.RolloutReturn(
+                    num_collected_steps * env.num_envs, num_collected_episodes, continue_training=False
+                )
 
             # if self.verbose:
             #     print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
@@ -552,10 +560,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     locals_dict["dones"][idx] = True
                     print("Episode terminated due to MPC QP failure")
                     info.update({"actor_failure": True})
-
-            self.non_optimal_solution_percentage = (
-                self.policy.actor.non_optimal_solutions / (self.num_timesteps) if self.num_timesteps > 0 else 0.0
-            )
         self._last_dones = locals_dict["dones"]
         self._last_infos = infos
 
