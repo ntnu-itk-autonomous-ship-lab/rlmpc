@@ -293,8 +293,8 @@ class MidlevelMPC:
             )
         mpc_soln = mpc_soln_ac if self._acados_enabled else mpc_soln_csd
 
-        if t < 2.0:
-            self._check_optimality_conditions(mpc_soln_ac, mpc_soln_csd)
+        # if t < 2.0:
+        #     self._check_optimality_conditions(mpc_soln_ac, mpc_soln_csd)
 
         return mpc_soln
 

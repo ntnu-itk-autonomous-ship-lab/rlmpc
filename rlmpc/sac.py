@@ -124,7 +124,11 @@ class SAC(opa.OffPolicyAlgorithm):
         device: Union[th.device, str] = "auto",
         _init_setup_model: bool = True,
     ):
-        policy_kwargs.update({"features_extractor_kwargs": {"batch_size": batch_size}})
+        if policy_kwargs is None:
+            policy_kwargs = {"features_extractor_kwargs": {"batch_size": batch_size}}
+        else:
+            policy_kwargs.update({"features_extractor_kwargs": {"batch_size": batch_size}})
+
         if isinstance(policy, rlmpc_policies.SACPolicyWithMPC):
             observation_type = env.unwrapped.observation_type
             action_type = env.unwrapped.action_type
@@ -358,7 +362,6 @@ class SAC(opa.OffPolicyAlgorithm):
             self.logger.record(
                 "train/time_elapsed", max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
             )
-            self.logger.record("train/non_optimal_solution_rate", self.non_optimal_solutions_per_episode.mean())
 
     def learn(
         self: SelfSAC,
@@ -494,7 +497,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # print(f"da_dp_mpc: {da_dp_mpc.numpy()}")
             da_dp_mpc.requires_grad = False
             d_log_pi_dp = (
-                (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp_mpc @ dnn_jacobians[b]
+                (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(1, -1)) @ da_dp_mpc @ dnn_jacobians[b]
             ).reshape(-1)
             d_log_pi_da = -cov_inv @ (sampled_actions[b] - norm_mpc_actions[b])
             df_repar_dp = da_dp_mpc @ dnn_jacobians[b]

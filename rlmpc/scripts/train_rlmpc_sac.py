@@ -36,6 +36,7 @@ def train_rlmpc_sac(
     experiment_name: str,
     load_critics: bool = False,
     load_critics_path: str = "sac_drl1_critic",
+    custom_load_model: bool = False,
     load_model: bool = True,
     load_model_path: str = "sac_drl1_0_steps",
     load_rb_path: str = "sac_drl1_replay_buffer",
@@ -59,7 +60,8 @@ def train_rlmpc_sac(
         experiment_name (str): The experiment name.
         load_critics (bool, optional): Whether to load the critics.
         load_critics_path (str, optional): The critics path for loading.
-        load_model (bool, optional): Whether to load the model.
+        custom_load_model (bool, optional): Whether to load the model with SAC custom load method.
+        load_model (bool, optional): Whether to load the model with SAC classmethod
         load_model_path (str, optional): The model path for loading.
         load_rb_path (str, optional): The replay buffer path
         seed (int, optional): The seed.
@@ -87,7 +89,7 @@ def train_rlmpc_sac(
         model_dir=model_dir,
         experiment_name=experiment_name,
         save_stats_freq=20,
-        save_agent_model_freq=500,
+        save_agent_model_freq=1000,
         log_freq=5,
         max_num_env_episodes=1000,
         max_num_training_stats_entries=40000,
@@ -108,19 +110,22 @@ def train_rlmpc_sac(
         render=True,
         verbose=1,
     )
-    model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
-    if load_critics:
-        print(f"Loading critic at {load_critics_path}")
-        model.load_critics(path=load_critics_path)
 
     if load_model:
+        model = rlmpc_sac.SAC.load(load_model_path, env=training_env, device="cpu")
         print(f"Loading model at {load_model_path}")
-        model.inplace_load(path=load_model_path)
         model.load_replay_buffer(path=load_rb_path)
         model.set_env(training_env)
+    elif custom_load_model:
+        model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
+        model.inplace_load(path=load_model_path)
+        # model.load_replay_buffer(path=load_rb_path)
+    else:
+        if load_critics:
+            print(f"Loading critic at {load_critics_path}")
+            model.load_critics(path=load_critics_path)
 
     model.set_random_seed(seed)
-    # put this into a try except block
     model.learn(
         total_timesteps=n_timesteps,
         log_interval=2,

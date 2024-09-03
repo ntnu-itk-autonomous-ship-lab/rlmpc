@@ -112,7 +112,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         self.non_optimal_solutions: int = 0
         self.debug: bool = debug
-        self.deterministic: bool = deterministic
         self.last_action: np.ndarray = np.zeros(self.mpc_action_dim)
         self.action_result: csgym_action.ActionResult = csgym_action.ActionResult(success=False, info={})
 
@@ -348,9 +347,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         # print(f"[{self.env.env_id.upper()}] t = {self.env.time} | MPC param action: {action}")
         d2goal = np.linalg.norm(self.env.ownship.state[0:2] - self.env.ownship.waypoints[:, -1])
         np.printoptions(precision=2)
-        print(
-            f"[{self.env.env_id.upper()}] t = {self.env.time:.1f} | U = {self.env.ownship.speed:.1f} | d2goal = {d2goal:.1f} Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()} | Increment: {action}"
-        )
+        # print(
+        #     f"[{self.env.env_id.upper()}] t = {self.env.time:.1f} | U = {self.env.ownship.speed:.1f} | d2goal = {d2goal:.1f} Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()} | Increment: {action}"
+        # )
 
         t, ownship_state, do_list, w = self.extract_mpc_observation_features()
         mpc_action, mpc_info = self.mpc.act(t, ownship_state, do_list, w)
@@ -378,8 +377,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             "optimal": mpc_info["optimal"],  # 1 byte
             "qp_failure": mpc_info["qp_failure"],  # 1 byte
             "runtime": mpc_info["runtime"],  # 8 bytes
-            "cost_val": mpc_info["cost_val"],  # 8 bytes
-            "n_iter": mpc_info["n_iter"],  # 4 bytes
             "da_dp_mpc": (
                 self.compute_mpc_sensitivities(mpc_info) if self.build_sensitivities else None
             ),  # 2 x 9 x 4 = 72 bytes

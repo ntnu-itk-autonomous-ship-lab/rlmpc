@@ -390,7 +390,7 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
                 1.0 / (0.5 * do_length + self._config.r_safe) ** 2,
             ],
         )
-        epsilon = 1e-6
+        epsilon = 1e-5
         return np.log(1.0 + epsilon) - np.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
@@ -475,7 +475,7 @@ class COLREGRewarder(cs_reward.IReward):
         self._colregs_handler: ch.COLREGSHandler = ch.COLREGSHandler(config.colregs_handler)
         self._nx_do: int = 6
         self._all_polygons: list = []
-        self._r_safe: float = 10.0
+        self._r_safe: float = 5.0
         self._min_depth: int = 0
         self._geometry_tree: Any = None
         self.last_reward = 0.0

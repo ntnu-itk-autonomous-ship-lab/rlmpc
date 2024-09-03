@@ -680,6 +680,30 @@ class RLMPC(ci.ICOLAV):
                 verbose=self._debug,
                 **kwargs,
             )
+            # Weird bug where the MPC sometimes fails to find a solution at t0 given the same initial state after resetting the solver => retry if this happens
+            if self._mpc_soln["qp_failure"] and t < 1.0:
+                print(
+                    f"[RLMPC {self.identifier.upper()}] Reconstructing MPC OCP and retrying MPC plan at t = {t} due to QP failure"
+                )
+                self._mpc.construct_ocp(
+                    nominal_path=self._nominal_path,
+                    so_list=self._mpc_rel_polygons,
+                    enc=self._enc,
+                    map_origin=self._map_origin,
+                    min_depth=self._min_depth,
+                )
+                self._mpc_soln = self._mpc.plan(
+                    t,
+                    xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                    do_cr_list=do_cr_list,
+                    do_ho_list=do_ho_list,
+                    do_ot_list=do_ot_list,
+                    so_list=self._mpc_rel_polygons,
+                    enc=self._enc,
+                    warm_start=warm_start,
+                    verbose=self._debug,
+                    **kwargs,
+                )
             self._mpc_trajectory = self._mpc_soln["trajectory"]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
             self._mpc_inputs = self._mpc_soln["inputs"]
@@ -753,7 +777,7 @@ class RLMPC(ci.ICOLAV):
             U_d=nominal_speed_ref,
             initialized=False,
             return_on_first_solution=False if t == 0 else True,
-            verbose=True if t == 0 else False,
+            verbose=False if t == 0 else False,
         )
         _, rrt_trajectory, rrt_inputs, rrt_times = cs_mhm.parse_rrt_solution(rrt_soln)
 

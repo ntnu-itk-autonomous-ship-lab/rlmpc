@@ -458,8 +458,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             try:
                 next_obs, rewards, dones, infos = env.step(actions)
-            except Exception:  # pylint: disable=broad-except
-                print(f"Error when stepping vectorized environment! Exiting...")
+            except Exception as e:  # pylint: disable=broad-except
+                print(f"Error when stepping vectorized environment! {e} Exiting...")
                 self.vecenv_failed = True
                 return sb3_types.RolloutReturn(
                     num_collected_steps * env.num_envs, num_collected_episodes, continue_training=False

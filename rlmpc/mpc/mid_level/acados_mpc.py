@@ -145,7 +145,7 @@ class AcadosMPC:
         if self._acados_ocp_solver is not None:
             self._acados_ocp_solver.reset()
             self._acados_ocp_solver.load_iterate(
-                filename=str(self._acados_code_gen_path / "initial_iterate_success.json")
+                filename=str(self._acados_code_gen_path / "initial_iterate_success.json"), verbose=False
             )
             print(f"[ACADOS {self.identifier.upper()}] Solver reset.")
 
@@ -421,12 +421,12 @@ class AcadosMPC:
             if verbose:
                 print(f"[ACADOS] OCP solution: {status} error: {c}")
 
-        if t == 0.0 and status == 0:
-            self._acados_ocp_solver.dump_last_qp_to_json(
-                filename=str(self._acados_code_gen_path) + "/last_qp_success.json", overwrite=True
-            )
+        # if t == 0.0 and status == 0:
+        #     self._acados_ocp_solver.dump_last_qp_to_json(
+        #         filename=str(self._acados_code_gen_path) + "/last_qp_success.json", overwrite=True
+        #     )
 
-        if status != 0:
+        if status != 0 and t == 0.0:
             self.check_warm_start(xs_unwrapped, correct_warm_start=False, print_info=True)
             self._acados_ocp_solver.print_statistics()
 
@@ -453,11 +453,11 @@ class AcadosMPC:
         # self._u_warm_start = inputs.copy()
         if verbose or (qp_failure and t < 2.0):
             self._acados_ocp_solver.store_iterate(
-                filename=str(self._acados_code_gen_path / "initial_iterate_fail.json"), overwrite=True
+                filename=str(self._acados_code_gen_path / "initial_iterate_fail.json"), overwrite=True, verbose=False
             )
-            self._acados_ocp_solver.dump_last_qp_to_json(
-                filename=str(self._acados_code_gen_path) + "/last_qp_fail.json", overwrite=True
-            )
+            # self._acados_ocp_solver.dump_last_qp_to_json(
+            #     filename=str(self._acados_code_gen_path) + "/last_qp_fail.json", overwrite=True
+            # )
             np.set_printoptions(precision=3)
             print(
                 f"[ACADOS {self.identifier.upper()}] Mid-level CAS NMPC: \n\t- Status: {status_str} \n\t- Num iter: {n_iter} \n\t- Runtime: {t_solve:.3f} \n\t- Cost: {cost_val:.3f} \n\t- Slacks (max, argmax): ({slacks.max():.3f}, {np.argmax(slacks)}) \n\t- Static obstacle constraints (max, argmax): ({so_constr_vals.max():.3f}, {np.argmax(so_constr_vals)}) \n\t- Dynamic obstacle constraints (max, argmax): ({do_constr_vals.max():.3f}, {np.argmax(do_constr_vals)})) \n\t- Final residuals: {final_residuals}"
@@ -779,7 +779,7 @@ class AcadosMPC:
 
         so_constr_list = []
         do_constr_list = []
-        approx_inf = 1e4
+        approx_inf = 1000.0
         if n_path_constr:
             self._acados_ocp.constraints.lh_0 = -approx_inf * np.ones(n_path_constr)
             self._acados_ocp.constraints.uh_0 = np.zeros(n_path_constr)
@@ -869,9 +869,19 @@ class AcadosMPC:
             d_attenuation,
             colregs_weights,
         )
-        self._acados_ocp.model.cost_expr_ext_cost_0 = path_following_cost + colregs_cost + rate_cost + prev_sol_cost
-        self._acados_ocp.model.cost_expr_ext_cost = path_following_cost + rate_cost + colregs_cost + prev_sol_cost
-        self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + colregs_cost
+        small_state_cost = (
+            1e-5 * (x[2] - np.pi / 2.0) ** 2
+            + 1e-5 * (x[3] - 4.0) ** 2
+            + 1e-5 * (x[4] - self._s_final_value) ** 2
+            + 1e-5 * (x[5] - 4.0) ** 2
+        )
+        self._acados_ocp.model.cost_expr_ext_cost_0 = (
+            path_following_cost + colregs_cost + rate_cost + prev_sol_cost + small_state_cost
+        )
+        self._acados_ocp.model.cost_expr_ext_cost = (
+            path_following_cost + rate_cost + colregs_cost + prev_sol_cost + small_state_cost
+        )
+        self._acados_ocp.model.cost_expr_ext_cost_e = path_following_cost + colregs_cost + small_state_cost
 
         # Parameters consist of RL adjustable parameters and fixed parameters
         # (either nominal path or dynamic obstacle related).
@@ -941,8 +951,10 @@ class AcadosMPC:
         self._path_following_cost_hess = csd.Function(
             "path_following_cost_hess", [x, self._acados_ocp.model.p], [csd.hessian(path_following_cost, x)[0]]
         )
-        pfcg = self._path_following_cost_grad(x_test, self._parameter_values).full()
-        pfch = self._path_following_cost_hess(x_test, self._parameter_values).full()
+        x_test2 = np.array([0.0, 1.0, 1.5, 4.0, 10.0, 4.0])
+        pfc = self._path_following_cost(x_test2, self._parameter_values).full()
+        pfcg = self._path_following_cost_grad(x_test2, self._parameter_values).full()
+        pfch = self._path_following_cost_hess(x_test2, self._parameter_values).full()
 
         self._acados_ocp_mutex.acquire()
         # remove files in the code export directory
@@ -957,17 +969,18 @@ class AcadosMPC:
         self._acados_ocp_solver = None
         try:
             self._acados_ocp_solver = AcadosOcpSolver(
-                self._acados_ocp, json_file=solver_json, build=True, generate=True
+                self._acados_ocp, json_file=solver_json, build=True, generate=True, verbose=False
             )
         except Exception as e:
             print(f"Exception: {e} | Failed to build ACADOS OCP solver! Retrying...")
             self._acados_ocp_solver = AcadosOcpSolver(
-                self._acados_ocp, json_file=solver_json, build=True, generate=True
+                self._acados_ocp, json_file=solver_json, build=True, generate=True, verbose=False
             )
 
         self._acados_ocp_solver.store_iterate(
-            filename=str(self._acados_code_gen_path / "initial_iterate_success.json"), overwrite=True
+            filename=str(self._acados_code_gen_path / "initial_iterate_success.json"), overwrite=True, verbose=False
         )
+        # print(f"[ACADOS {self.identifier.upper()}] OCP constructed successfully!")
 
         # print("OCP compiled to C code at {}".format(str(self._acados_code_gen_path)))
         self._static_obstacle_constraints = csd.Function("so_constr", [x], [csd.vertcat(*so_constr_list)])

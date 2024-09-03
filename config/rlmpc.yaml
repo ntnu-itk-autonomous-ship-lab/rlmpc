@@ -74,7 +74,7 @@ mpc:
     w_colregs: [70.0, 70.0, 70.0]
 
     w_L2: 0.0
-    w_L1: 600.0 # too high weight here => QP-failure
+    w_L1: 500.0 # too high weight here => QP-failure
     r_safe_so: 5.0
     r_safe_do: 20.0
     gamma: 1.0

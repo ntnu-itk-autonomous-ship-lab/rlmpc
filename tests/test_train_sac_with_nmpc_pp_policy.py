@@ -37,22 +37,22 @@ def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp110")
+    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp0")
     parser.add_argument("--n_training_envs", type=int, default=2)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--buffer_size", type=int, default=10000)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--buffer_size", type=int, default=20000)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=5)
     parser.add_argument("--eval_freq", type=int, default=10000)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=100000)
-    parser.add_argument("--n_timesteps_per_learn", type=int, default=10000)
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=25000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
-    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=20)
-    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=5)
-    parser.add_argument("--load_model", type=bool, default=False)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=5)
+    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
+    parser.add_argument("--load_model", type=bool, default=True)
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -114,7 +114,7 @@ def main(args):
         "reload_map": False,
         "show_loaded_scenario_data": False,
         "merge_loaded_scenario_episodes": True,
-        "shuffle_loaded_scenario_data": True,
+        "shuffle_loaded_scenario_data": False,
         "identifier": "training_env_" + args.experiment_name,
         "seed": 0,
     }
@@ -131,8 +131,8 @@ def main(args):
         }
     )
 
-    load_model = args.load_model
-    load_name = "sac_nmpc_pp8"
+    custom_load_model = args.load_model
+    load_name = "sac_nmpc_pp02"
     model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_10000_steps"
     load_rb_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_replay_buffer"
 
@@ -166,8 +166,8 @@ def main(args):
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
         "train_freq": (args.train_freq, "step"),
-        "learning_starts": 100 if not load_model else 0,
-        "tau": 0.008,
+        "learning_starts": 0 if not custom_load_model else 0,
+        "tau": 0.009,
         "device": "cpu",
         "ent_coef": "auto",
         "verbose": 1,
@@ -179,11 +179,13 @@ def main(args):
 
     n_learn_iterations = args.timesteps // args.n_timesteps_per_learn
     vecenv_failed = False
-
+    load_model = False
+    timesteps_completed = 0
     for i in range(n_learn_iterations):
         if i > 0:
             load_critic = False
             load_model = True
+            custom_load_model = False
             load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer"
             model_kwargs["learning_starts"] = 0
 
@@ -202,21 +204,19 @@ def main(args):
             experiment_name=args.experiment_name,
             load_critics=load_critic,
             load_critics_path=load_critic_path,
+            custom_load_model=custom_load_model,
             load_model=load_model,
             load_model_path=model_path,
             load_rb_path=load_rb_path,
             seed=0,
             iteration=i + 1,
         )
-
-        if vecenv_failed:
-            model_path = model_dir / f"{args.experiment_name}_{(i + 1) * model.num_timesteps}"
-        else:
-            model_path = str(model_dir) + "/" + args.experiment_name + f"_{(i + 1) * args.n_timesteps_per_learn}"
-        model.custom_save(model_path)
+        timesteps_completed = timesteps_completed + model.num_timesteps
+        model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}"
+        model.save(model_path)
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
         print(
-            f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * args.n_timesteps_per_learn / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
+            f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * timesteps_completed / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
         )
 
     eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
