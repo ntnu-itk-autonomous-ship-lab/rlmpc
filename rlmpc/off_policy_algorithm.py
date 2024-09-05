@@ -679,6 +679,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         time_elapsed = max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
         fps = int((self.num_timesteps - self._num_timesteps_at_start) / time_elapsed)
         self.logger.record("time/episodes", self._episode_num, exclude="tensorboard")
+        self.logger.record(
+            "rollout/non_optimal_solutions_per_episode",
+            self.non_optimal_solutions_per_episode.mean(),
+        )
         ep_len_mean = 0.0
         ep_rew_mean = 0.0
         if len(self.ep_info_buffer) > 0 and len(self.ep_info_buffer[0]) > 0:

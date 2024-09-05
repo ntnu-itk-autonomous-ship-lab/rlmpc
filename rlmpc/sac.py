@@ -210,15 +210,16 @@ class SAC(opa.OffPolicyAlgorithm):
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
-    def load_critics(self, path: pathlib.Path, different_arch: Optional[List[int]] = None) -> None:
+    def load_critics(self, path: pathlib.Path, critic_arch: Optional[List[int]] = None) -> None:
         """Loads the model critics.
 
         Args:
             - path (pathlib.Path): The path to the saved critics (2 files), includes the base model name.
-            - different_arch (Optional[List[int]]): Optional list of integers to rebuild the critic and actor.
+            - critic_arch (Optional[List[int]]): Optional list of integers to rebuild the critic with.
         """
-        if different_arch:
-            self.policy.rebuild_critic_and_actor(critic_arch=different_arch)
+        if critic_arch:
+            self.policy.rebuild_critic_and_actor(critic_arch=critic_arch)
+            self.policy_kwargs["critic_arch"] = critic_arch
             self._create_aliases()
 
         self.critic.load_state_dict(th.load(pathlib.Path(str(path) + "_critic.pth")))

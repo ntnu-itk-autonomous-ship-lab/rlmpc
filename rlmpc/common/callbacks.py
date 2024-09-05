@@ -198,19 +198,6 @@ class CollectStatisticsCallback(BaseCallback):
                 self.training_stats_logger.update_rollout_metrics(last_rollout_info)
                 if hasattr(self.model, "just_dumped_rollout_logs"):
                     self.model.just_dumped_rollout_logs = False
-                    self.logger.record(
-                        "rollout/non_optimal_solutions_per_episode",
-                        self.model.non_optimal_solutions_per_episode.mean(),
-                    )
-                    # mpc_params = self.model.actor.mpc.mpc_params
-                    # self.logger.record("mpc/r_safe_do", mpc_params.r_safe_do)
-                    # self.logger.record("mpc/Q_p_path", mpc_params.Q_p[0, 0])
-                    # self.logger.record("mpc/Q_p_speed", mpc_params.Q_p[1, 1])
-                    # self.logger.record("mpc/Q_p_s", mpc_params.Q_p[2, 2])
-                    # self.logger.record("mpc/K_app_course", mpc_params.K_app_course)
-                    # self.logger.record("mpc/K_app_speed", mpc_params.K_app_speed)
-                    # self.logger.record("mpc/w_colregs", mpc_params.w_colregs)
-                    # self.logger.record("mpc/d_attenuation", mpc_params.d_attenuation)
 
             last_training_info, just_trained = self.extract_training_info(self.model)
             if just_trained:

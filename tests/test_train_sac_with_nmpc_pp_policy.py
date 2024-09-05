@@ -37,10 +37,10 @@ def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
-    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp01")
+    parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp000")
     parser.add_argument("--n_training_envs", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.0004)
-    parser.add_argument("--buffer_size", type=int, default=15000)
+    parser.add_argument("--buffer_size", type=int, default=20000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
@@ -48,7 +48,7 @@ def main(args):
     parser.add_argument("--eval_freq", type=int, default=5000)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1_000_000)
-    parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=10_000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=5)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
@@ -167,7 +167,7 @@ def main(args):
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
         "train_freq": (args.train_freq, "step"),
-        "learning_starts": 0 if not load_model else 0,
+        "learning_starts": 100 if not load_model else 0,
         "tau": 0.009,
         "device": "cpu",
         "ent_coef": "auto",

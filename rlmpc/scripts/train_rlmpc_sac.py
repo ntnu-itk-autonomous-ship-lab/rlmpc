@@ -102,14 +102,27 @@ def train_rlmpc_sac(
     )
 
     if load_model:
-        model = rlmpc_sac.SAC.load(load_model_path, env=training_env, device="cpu", print_system_info=False)
+        model = rlmpc_sac.SAC.load(
+            load_model_path,
+            env=training_env,
+            learning_rate=model_kwargs["learning_rate"],
+            device=model_kwargs["device"],
+            tau=model_kwargs["tau"],
+            buffer_size=model_kwargs["buffer_size"],
+            batch_size=model_kwargs["batch_size"],
+            gradient_steps=model_kwargs["gradient_steps"],
+            train_freq=model_kwargs["train_freq"],
+            replay_buffer_kwargs=model_kwargs["replay_buffer_kwargs"],
+            tensorboard_log=base_dir / "logs",
+            verbose=1,
+        )
         print(f"Loading model at {load_model_path}")
         # model.load_replay_buffer(path=load_rb_path)
         print(f"Loading replay buffer at {load_rb_path}")
         model.set_env(training_env)
     if load_critics:
         print(f"Loading critic at {load_critics_path}")
-        model.load_critics(path=load_critics_path, different_arch=model_kwargs["policy_kwargs"]["critic_arch"])
+        model.load_critics(path=load_critics_path, critic_arch=model_kwargs["policy_kwargs"]["critic_arch"])
 
     model.set_random_seed(seed)
     model.learn(

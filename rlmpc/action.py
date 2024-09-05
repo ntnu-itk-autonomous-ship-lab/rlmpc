@@ -191,9 +191,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         if build_sensitivities:
             if self.mpc_sensitivities is None or self.recompile_on_reset:
                 self.mpc_sensitivities = self.mpc.build_sensitivities()
-        print(
-            f"[{self.env.env_id.upper()}] MPC initialized! | Built sensitivities? {build_sensitivities} | Deterministic? {self.deterministic}"
-        )
+        # print(
+        #     f"[{self.env.env_id.upper()}] MPC initialized! | Built sensitivities? {build_sensitivities} | Deterministic? {self.deterministic}"
+        # )
 
     def extract_mpc_observation_features(self) -> Tuple[float, np.ndarray, List, stochasticity.DisturbanceData]:
         """Extract features from the observation at a given index in the batch.
