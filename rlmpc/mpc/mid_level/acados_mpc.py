@@ -147,7 +147,7 @@ class AcadosMPC:
             self._acados_ocp_solver.load_iterate(
                 filename=str(self._acados_code_gen_path / "initial_iterate_success.json"), verbose=False
             )
-            print(f"[ACADOS {self.identifier.upper()}] Solver reset.")
+            # print(f"[ACADOS {self.identifier.upper()}] Solver reset.")
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices
@@ -904,60 +904,59 @@ class AcadosMPC:
         )
         self._parameter_values = self._acados_ocp.parameter_values
 
-        self._rate_cost = csd.Function("rate_cost", [u, self._acados_ocp.model.p], [rate_cost])
-        self._rate_cost_grad = csd.Function(
-            "rate_cost_grad",
-            [u, self._acados_ocp.model.p],
-            [csd.jacobian(rate_cost, u)],
-        )
-        self._rate_cost_hess = csd.Function(
-            "rate_cost_hess",
-            [u, self._acados_ocp.model.p],
-            [csd.hessian(rate_cost, u)[0]],
-        )
-        u_test = np.zeros(3)
-        # rcg = self._rate_cost_grad(
-        #     u_test,
-        #     self._params.alpha_app_course,
-        #     self._params.alpha_app_speed,
-        #     self._params.K_app_course,
-        #     self._params.K_app_speed,
-        # ).full()
-        rch1 = self._rate_cost_hess(u_test, self._parameter_values).full()
-        self._colreg_cost = csd.Function(
-            "colregs_cost",
-            [x, self._acados_ocp.model.p],
-            [colregs_cost],
-        )
-        self._colreg_cost_grad = csd.Function(
-            "colregs_cost_grad",
-            [x, self._acados_ocp.model.p],
-            [csd.jacobian(colregs_cost, x)],
-        )
-        self._colreg_cost_hess = csd.Function(
-            "colregs_cost_hess",
-            [x, self._acados_ocp.model.p],
-            [csd.hessian(colregs_cost, x)[0]],
-        )
-        x_test = np.array([0.0, 500.0, 1.5, 4.0, 15.0, 4.0])
-        self._parameter_values[128:134] = np.array([0.0, 550.0, -1.5, 4.0, 10.0, 3.0])
-        cch = self._colreg_cost_hess(x_test, self._parameter_values).full()
-        self._path_following_cost = csd.Function(
-            "path_following_cost", [x, self._acados_ocp.model.p], [path_following_cost]
-        )
-        self._path_following_cost_grad = csd.Function(
-            "path_following_cost_grad", [x, self._acados_ocp.model.p], [csd.jacobian(path_following_cost, x)]
-        )
-        self._path_following_cost_hess = csd.Function(
-            "path_following_cost_hess", [x, self._acados_ocp.model.p], [csd.hessian(path_following_cost, x)[0]]
-        )
-        x_test2 = np.array([0.0, 1.0, 1.5, 4.0, 10.0, 4.0])
-        pfc = self._path_following_cost(x_test2, self._parameter_values).full()
-        pfcg = self._path_following_cost_grad(x_test2, self._parameter_values).full()
-        pfch = self._path_following_cost_hess(x_test2, self._parameter_values).full()
+        # self._rate_cost = csd.Function("rate_cost", [u, self._acados_ocp.model.p], [rate_cost])
+        # self._rate_cost_grad = csd.Function(
+        #     "rate_cost_grad",
+        #     [u, self._acados_ocp.model.p],
+        #     [csd.jacobian(rate_cost, u)],
+        # )
+        # self._rate_cost_hess = csd.Function(
+        #     "rate_cost_hess",
+        #     [u, self._acados_ocp.model.p],
+        #     [csd.hessian(rate_cost, u)[0]],
+        # )
+        # u_test = np.zeros(3)
+        # # rcg = self._rate_cost_grad(
+        # #     u_test,
+        # #     self._params.alpha_app_course,
+        # #     self._params.alpha_app_speed,
+        # #     self._params.K_app_course,
+        # #     self._params.K_app_speed,
+        # # ).full()
+        # rch1 = self._rate_cost_hess(u_test, self._parameter_values).full()
+        # self._colreg_cost = csd.Function(
+        #     "colregs_cost",
+        #     [x, self._acados_ocp.model.p],
+        #     [colregs_cost],
+        # )
+        # self._colreg_cost_grad = csd.Function(
+        #     "colregs_cost_grad",
+        #     [x, self._acados_ocp.model.p],
+        #     [csd.jacobian(colregs_cost, x)],
+        # )
+        # self._colreg_cost_hess = csd.Function(
+        #     "colregs_cost_hess",
+        #     [x, self._acados_ocp.model.p],
+        #     [csd.hessian(colregs_cost, x)[0]],
+        # )
+        # x_test = np.array([0.0, 500.0, 1.5, 4.0, 15.0, 4.0])
+        # self._parameter_values[128:134] = np.array([0.0, 550.0, -1.5, 4.0, 10.0, 3.0])
+        # cch = self._colreg_cost_hess(x_test, self._parameter_values).full()
+        # self._path_following_cost = csd.Function(
+        #     "path_following_cost", [x, self._acados_ocp.model.p], [path_following_cost]
+        # )
+        # self._path_following_cost_grad = csd.Function(
+        #     "path_following_cost_grad", [x, self._acados_ocp.model.p], [csd.jacobian(path_following_cost, x)]
+        # )
+        # self._path_following_cost_hess = csd.Function(
+        #     "path_following_cost_hess", [x, self._acados_ocp.model.p], [csd.hessian(path_following_cost, x)[0]]
+        # )
+        # x_test2 = np.array([0.0, 1.0, 1.5, 4.0, 10.0, 4.0])
+        # pfc = self._path_following_cost(x_test2, self._parameter_values).full()
+        # pfcg = self._path_following_cost_grad(x_test2, self._parameter_values).full()
+        # pfch = self._path_following_cost_hess(x_test2, self._parameter_values).full()
 
         self._acados_ocp_mutex.acquire()
-        # remove files in the code export directory
         if self._acados_code_gen_path.exists():
             shutil.rmtree(self._acados_code_gen_path)
             self._acados_code_gen_path.mkdir(parents=True, exist_ok=True)
