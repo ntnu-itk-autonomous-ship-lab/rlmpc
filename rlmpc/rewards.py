@@ -587,7 +587,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         no_dos_in_the_way = d2dos[0][1] > 100.0
         truncated = kwargs.get("truncated", False)
         if truncated and not goal_reached and no_dos_in_the_way:
-            self.last_reward = -0.01 * self._config.rho_goal * d2goal
+            self.last_reward = -0.05 * self._config.rho_goal * d2goal
             print(f"[{self.env.env_id.upper()}] Goal not reached! Rewarding {self.last_reward}.")
             return self.last_reward
 

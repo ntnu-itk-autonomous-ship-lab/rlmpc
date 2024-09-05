@@ -46,7 +46,7 @@ def objective(trial: optuna.Trial) -> float:
     }
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
-    action_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.0001, 0.0001])  # normalized std dev for the action space [course, speed]
     n_mpc_params = 3 + 1 + 1 + 3 + 1
     param_action_noise_std_dev = np.array([0.005 for _ in range(n_mpc_params)])
     action_kwargs = {
@@ -81,7 +81,7 @@ def objective(trial: optuna.Trial) -> float:
     save_interval = 5
     batch_size = 64  # trial.suggest_int("batch_size", 1, 64)
     buffer_size = 40000
-    tau = 0.01
+    tau = 0.005
     learning_rate = 0.0001
     num_epochs = 30  # trial.suggest_int("num_epochs", 10, 100)
     actfn = th.nn.ReLU
@@ -90,7 +90,7 @@ def objective(trial: optuna.Trial) -> float:
     n_layers = trial.suggest_int("n_layers", 2, 3)
     hidden_dims = []
     for i in range(n_layers):
-        out_features = trial.suggest_int(f"n_units_l{i}", 100, 500)
+        out_features = trial.suggest_int(f"n_units_l{i}", 200, 500)
         hidden_dims.append(out_features)
 
     mpc_param_provider_kwargs = {
@@ -125,7 +125,7 @@ def objective(trial: optuna.Trial) -> float:
         "tensorboard_log": str(log_dir),
     }
 
-    experiment_name = "sac_nmpc_pp2"
+    experiment_name = "sac_nmpc_pp4"
     data_path = (
         Path.home()
         / "Desktop"
@@ -164,7 +164,7 @@ def objective(trial: optuna.Trial) -> float:
 
 
 def main(args):
-    study_name = "sac_critics_hpo"
+    study_name = "sac_critics_hpo1"
     storage_name = "sqlite:///{}.db".format(study_name)
     study = optuna.create_study(
         direction="minimize",

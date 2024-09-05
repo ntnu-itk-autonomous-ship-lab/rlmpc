@@ -312,7 +312,7 @@ class MidlevelMPCParams(IParams):
             Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]: Tuple of parameter ranges, increment ranges and lengths.
         """
         parameter_ranges = {
-            "Q_p": [[0.1, 4.0], [2.0, 60.0], [2.0, 60.0]],
+            "Q_p": [[0.1, 5.0], [2.0, 60.0], [2.0, 60.0]],
             "K_prev_sol_dev": [1.0, 80.0],
             "K_app_course": [5.0, 80.0],
             "K_app_speed": [5.0, 80.0],
@@ -321,13 +321,13 @@ class MidlevelMPCParams(IParams):
             "r_safe_do": [5.0, 50.0],
         }
         parameter_incr_ranges = {
-            "Q_p": [[-0.1, 0.1], [-2.0, 2.0], [-2.0, 2.0]],
-            "K_prev_sol_dev": [-4.0, 4.0],
-            "K_app_course": [-4.0, 4.0],
-            "K_app_speed": [-4.0, 4.0],
+            "Q_p": [[-0.2, 0.2], [-4.0, 4.0], [-4.0, 4.0]],
+            "K_prev_sol_dev": [-8.0, 8.0],
+            "K_app_course": [-8.0, 8.0],
+            "K_app_speed": [-8.0, 8.0],
             "d_attenuation": [-50.0, 50.0],
-            "w_colregs": [-4.0, 4.0],
-            "r_safe_do": [-4.0, 4.0],
+            "w_colregs": [-8.0, 8.0],
+            "r_safe_do": [-8.0, 8.0],
         }
         parameter_lengths = {
             "Q_p": 3,

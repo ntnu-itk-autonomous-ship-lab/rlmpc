@@ -210,12 +210,17 @@ class SAC(opa.OffPolicyAlgorithm):
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
-    def load_critics(self, path: pathlib.Path) -> None:
+    def load_critics(self, path: pathlib.Path, different_arch: Optional[List[int]] = None) -> None:
         """Loads the model critics.
 
         Args:
             - path (pathlib.Path): The path to the saved critics (2 files), includes the base model name.
+            - different_arch (Optional[List[int]]): Optional list of integers to rebuild the critic and actor.
         """
+        if different_arch:
+            self.policy.rebuild_critic_and_actor(critic_arch=different_arch)
+            self._create_aliases()
+
         self.critic.load_state_dict(th.load(pathlib.Path(str(path) + "_critic.pth")))
         self.critic_target.load_state_dict(th.load(pathlib.Path(str(path) + "_critic_target.pth")))
 
@@ -408,10 +413,7 @@ class SAC(opa.OffPolicyAlgorithm):
         """
         with th.no_grad():
             actions, next_actions, next_log_prob = self.extract_action_info_from_sarsa_buffer(replay_data)
-            # next_norm_mpc_action = replay_data.infos[0]["next_actor_info"]["norm_mpc_action"]
-            # print(
-            #     f"Next log probs: {next_log_prob} | actions: {replay_data.next_actions[0]} | mpc actions: {next_norm_mpc_action}"
-            # )
+
             # Compute the next Q values: min over all critics targets
             next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_actions), dim=1)
             next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
@@ -497,7 +499,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # print(f"da_dp_mpc: {da_dp_mpc.numpy()}")
             da_dp_mpc.requires_grad = False
             d_log_pi_dp = (
-                (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(1, -1)) @ da_dp_mpc @ dnn_jacobians[b]
+                (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp_mpc @ dnn_jacobians[b]
             ).reshape(-1)
             d_log_pi_da = -cov_inv @ (sampled_actions[b] - norm_mpc_actions[b])
             df_repar_dp = da_dp_mpc @ dnn_jacobians[b]

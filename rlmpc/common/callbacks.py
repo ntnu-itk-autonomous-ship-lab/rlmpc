@@ -177,22 +177,20 @@ class CollectStatisticsCallback(BaseCallback):
         # Some models use keyword 'done' (e.g.,: SAC, TD3, DQN, DDPG)
         # While some models use keyword 'dones' (e.g.,: A2C, PPO)
         done_array = np.array(self.locals.get("dones"))
-        if self.locals.get("done") is not None:
-            done_array = np.array([self.locals.get("done")])
 
         infos = list(self.locals.get("infos"))
         if np.any(done_array):
             self.n_episodes += np.sum(done_array).item()
 
-        if self.num_timesteps % self.log_freq == 0 or np.sum(done_array).item() > 0:
-            for env_idx in range(self.num_envs):
-                if np.any(done_array):  # only one element in done_array for SAC
-                    infos[env_idx] = self.prev_infos[env_idx]
-                    # (
-                    #     self.prev_infos[env_idx]
-                    #     if isinstance(self.locals["env"], SubprocVecEnv)
-                    #     else self.locals["env"].envs[env_idx].unwrapped.terminal_info
-                    # )
+        if self.num_timesteps % self.log_freq == 0 or np.any(done_array) > 0:
+            # for env_idx in range(self.num_envs):
+            #     if np.any(done_array):  # only one element in done_array for SAC
+            #         infos[env_idx] = self.prev_infos[env_idx]
+            # (
+            #     self.prev_infos[env_idx]
+            #     if isinstance(self.locals["env"], SubprocVecEnv)
+            #     else self.locals["env"].envs[env_idx].unwrapped.terminal_info
+            # )
             self.env_data_logger(infos)
 
             last_rollout_info, just_dumped_rollout_logs = self.extract_rollout_info(self.model)
@@ -378,6 +376,9 @@ class EvalCallback(EventCallback):
                 self._is_success_buffer.append(maybe_is_success)
 
     def _on_step(self) -> bool:
+        if self.n_calls == 0:
+            self.n_calls = self.model.num_timesteps // self.num_envs
+
         continue_training = True
 
         if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
@@ -467,10 +468,10 @@ class EvalCallback(EventCallback):
                 if self.verbose >= 1:
                     print("New best mean reward!")
                 if self.best_model_save_path is not None:
-                    if hasattr(self.model, "custom_save"):
-                        self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
-                    else:
-                        self.model.save(Path(self.best_model_save_path / "best_model_eval"))
+                    # if hasattr(self.model, "custom_save"):
+                    #     self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
+                    # else:
+                    self.model.save(Path(self.best_model_save_path / "best_model_eval_at_{self.num_timesteps}_steps"))
                 self.best_mean_reward = mean_reward
                 # Trigger callback on new best model, if needed
                 if self.callback_on_new_best is not None:

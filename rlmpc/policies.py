@@ -581,7 +581,7 @@ class SACMPCParameterProviderActor(BasePolicy):
                 mpc_param_increment = self.mpc_param_provider(dnn_input).detach().clone().numpy()
 
             t = observation["TimeObservation"][idx][0]
-            if False: # not deterministic:
+            if False:  # not deterministic:
                 if t == 0 or t - self.t_prev[idx] >= self.noise_application_duration:
                     # mpc_param_increment = self.sample_action(mean_actions=np.zeros(self.action_space.shape[0]))
                     mpc_param_increment = self.sample_action(mean_actions=mpc_param_increment)
@@ -593,8 +593,10 @@ class SACMPCParameterProviderActor(BasePolicy):
             unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment.copy())
             info = {
                 "dnn_input_features": dnn_input.detach().cpu().numpy().astype(np.float32),  # 75 * 4 bytes = 300 bytes
-                "norm_mpc_param_increment": mpc_param_increment.astype(np.float32),  # 9 * 4 = 36 bytes
-                "old_mpc_params": self.mpc_param_provider.unnormalize(norm_current_mpc_params.detach().clone()),
+                # "norm_mpc_param_increment": mpc_param_increment.astype(np.float32),  # 9 * 4 = 36 bytes
+                "old_mpc_params": self.mpc_param_provider.unnormalize(
+                    norm_current_mpc_params.detach().clone()
+                ),  # 9 * 4 = 36 bytes
             }
             # rough size estimate: 300 + 36 * 3  = 408 bytes
 
@@ -1441,9 +1443,11 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
             "mpc_std_init": mpc_std_init,
         }
 
+        self.lr_schedule = lr_schedule
         self._build_critic(lr_schedule)
 
         mpc_param_provider_kwargs.update({"features_dim": self.critic.features_extractor.features_dim})
+        self.mpc_param_provider_kwargs = mpc_param_provider_kwargs
         self._build_actor(lr_schedule)
 
     def _build_critic(self, lr_schedule: Schedule) -> None:
@@ -1471,6 +1475,17 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         self.actor.optimizer = self.optimizer_class(
             self.actor.mpc_param_provider.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
         )
+
+    def rebuild_critic_and_actor(self, critic_arch: List[int]) -> None:
+        """In case the critic and actor need to be rebuilt, this method can be called to rebuild them.
+
+        Args:
+            critic_arch (List[int]): The critic architecture
+
+        """
+        self.critic_kwargs["net_arch"] = critic_arch
+        self._build_critic(self.lr_schedule)
+        self._build_actor(self.lr_schedule)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()

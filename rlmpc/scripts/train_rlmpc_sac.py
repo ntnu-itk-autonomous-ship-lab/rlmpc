@@ -36,7 +36,6 @@ def train_rlmpc_sac(
     experiment_name: str,
     load_critics: bool = False,
     load_critics_path: str = "sac_drl1_critic",
-    custom_load_model: bool = False,
     load_model: bool = True,
     load_model_path: str = "sac_drl1_0_steps",
     load_rb_path: str = "sac_drl1_replay_buffer",
@@ -60,7 +59,6 @@ def train_rlmpc_sac(
         experiment_name (str): The experiment name.
         load_critics (bool, optional): Whether to load the critics.
         load_critics_path (str, optional): The critics path for loading.
-        custom_load_model (bool, optional): Whether to load the model with SAC custom load method.
         load_model (bool, optional): Whether to load the model with SAC classmethod
         load_model_path (str, optional): The model path for loading.
         load_rb_path (str, optional): The replay buffer path
@@ -74,14 +72,6 @@ def train_rlmpc_sac(
         training_env = Monitor(gym.make(id=env_id, **training_env_config))
     else:
         training_env = SubprocVecEnv([hf.make_env(env_id, training_env_config, i + 1) for i in range(n_training_envs)])
-        # make_vec_env(
-        #     env_id=env_id,
-        #     env_kwargs=training_env_config,
-        #     n_envs=n_training_envs,
-        #     monitor_dir=str(base_dir),
-        #     vec_env_cls=SubprocVecEnv,
-        #     seed=seed,
-        # )
 
     stats_callback = CollectStatisticsCallback(
         env=training_env,
@@ -112,23 +102,19 @@ def train_rlmpc_sac(
     )
 
     if load_model:
-        model = rlmpc_sac.SAC.load(load_model_path, env=training_env, device="cpu")
+        model = rlmpc_sac.SAC.load(load_model_path, env=training_env, device="cpu", print_system_info=False)
         print(f"Loading model at {load_model_path}")
-        model.load_replay_buffer(path=load_rb_path)
-        model.set_env(training_env)
-    elif custom_load_model:
-        model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
-        model.inplace_load(path=load_model_path)
         # model.load_replay_buffer(path=load_rb_path)
-    else:
-        if load_critics:
-            print(f"Loading critic at {load_critics_path}")
-            model.load_critics(path=load_critics_path)
+        print(f"Loading replay buffer at {load_rb_path}")
+        model.set_env(training_env)
+    if load_critics:
+        print(f"Loading critic at {load_critics_path}")
+        model.load_critics(path=load_critics_path, different_arch=model_kwargs["policy_kwargs"]["critic_arch"])
 
     model.set_random_seed(seed)
     model.learn(
         total_timesteps=n_timesteps,
-        log_interval=2,
+        log_interval=1,
         tb_log_name=experiment_name + f"_{iteration}",
         reset_num_timesteps=True,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),

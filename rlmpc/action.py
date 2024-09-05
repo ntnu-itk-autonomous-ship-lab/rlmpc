@@ -345,7 +345,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         )
         self.mpc.set_mpc_param_subset(param_subset=param_dict)
         # print(f"[{self.env.env_id.upper()}] t = {self.env.time} | MPC param action: {action}")
-        d2goal = np.linalg.norm(self.env.ownship.state[0:2] - self.env.ownship.waypoints[:, -1])
+        # d2goal = np.linalg.norm(self.env.ownship.state[0:2] - self.env.ownship.waypoints[:, -1])
         np.printoptions(precision=2)
         # print(
         #     f"[{self.env.env_id.upper()}] t = {self.env.time:.1f} | U = {self.env.ownship.speed:.1f} | d2goal = {d2goal:.1f} Setting MPC parameters: {self.mpc.get_adjustable_mpc_params()} | Increment: {action}"

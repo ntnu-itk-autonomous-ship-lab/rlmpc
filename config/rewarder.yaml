@@ -1,12 +1,12 @@
 
 
 trajectory_tracking:
-  rho_d2path: 0.6
+  rho_d2path: 0.5
   rho_d2goal: 0.0
   rho_speed_dev: 50.0
   rho_course_dev: 1.0
   rho_turn_rate: 0.01
-  rho_goal: 500.0
+  rho_goal: 1000.0
   goal_radius: 50.0
 colreg:
   alpha_cr: [0.02, 0.001]
@@ -24,10 +24,10 @@ colreg:
     theta_critical_cr: -13.0   # contact and bearing angle threshold for CR situation
     theta_ot_min: 112.5  # minimum bearing angle for OT situation
     theta_ot_max: 247.5  # maximum bearing angle for OT situation
-    d_critical_so: 70.0 # critical distance threshold where stand-on duties are aborted
+    d_critical_so: 100.0 # critical distance threshold where stand-on duties are aborted
     d_activation: 1000.0  # distance threshold for activation of COLREGS handler
     t_cpa_entry: 120.0  # time to CPA threshold for entry into COLREGS situation
-    d_cpa_entry: 70.0  # distance to CPA threshold for entry into COLREGS situation
+    d_cpa_entry: 100.0  # distance to CPA threshold for entry into COLREGS situation
 readily_apparent_maneuvering:
   alpha_app_course: [20.0, 0.0005]
   alpha_app_speed: [15.0, 0.001]
@@ -36,20 +36,20 @@ readily_apparent_maneuvering:
   r_max: 8.0
   a_max: 0.3
 collision_avoidance:
-  rho_colav: 2000.0
+  rho_colav: 3000.0
   r_safe: 15.0
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
-  rho_anti_grounding: 2000.0
+  rho_anti_grounding: 3000.0
   r_safe: 5.0
 dnn_parameter_provider:
   disable: False
   rho_solver_time: 0.0
-  rho_qp_failure: 2000.0
+  rho_qp_failure: 3000.0
   rho_high_app_params: 0.0
   rho_safety_param: 5.0
   rho_diff_colreg_weights: 0.0
   rho_hitting_bounds: 3.0
   rho_low_Q_p: 3.0
 action_chatter:
-  rho_chatter: [0.02, 0.025, 0.025, 0.05, 0.05, 0.05, 0.05, 0.05, 0.5]
+  rho_chatter: [0.01, 0.02, 0.025, 0.025, 0.025, 0.025, 0.025, 0.025, 0.025]

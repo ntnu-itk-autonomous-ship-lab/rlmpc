@@ -401,6 +401,7 @@ class DictReplayBuffer(ReplayBuffer):
         n_envs: int = 1,
         optimize_memory_usage: bool = False,
         handle_timeout_termination: bool = True,
+        disable_action_storage: bool = True,  # used if the infos contain the effective actions (case for the SACMPCParameterProviderPolicy)
     ):
         super(ReplayBuffer, self).__init__(buffer_size, observation_space, action_space, device, n_envs=n_envs)
 
@@ -415,6 +416,7 @@ class DictReplayBuffer(ReplayBuffer):
         # disabling as this adds quite a bit of complexity
         # https://github.com/DLR-RM/stable-baselines3/pull/243#discussion_r531535702
         self.optimize_memory_usage = optimize_memory_usage
+        self.disable_action_storage = disable_action_storage
 
         self.observations = {
             key: np.zeros((self.buffer_size, self.n_envs, *_obs_shape), dtype=observation_space[key].dtype)
@@ -425,12 +427,16 @@ class DictReplayBuffer(ReplayBuffer):
             for key, _obs_shape in self.obs_shape.items()
         }
 
-        self.actions = np.zeros(
-            (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
-        )
-        self.next_actions = np.zeros(
-            (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
-        )
+        if not self.disable_action_storage:
+            self.actions = np.zeros(
+                (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+            )
+            self.next_actions = np.zeros(
+                (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+            )
+        else:
+            self.actions = np.empty(0)
+            self.next_actions = np.empty(0)
 
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
         self.dones = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
@@ -448,12 +454,17 @@ class DictReplayBuffer(ReplayBuffer):
             for _, obs in self.observations.items():
                 obs_nbytes += obs.nbytes
 
-            total_memory_usage = obs_nbytes + self.actions.nbytes + self.rewards.nbytes + self.dones.nbytes
+            est_info_bytes = self.buffer_size * self.n_envs * 558
+
+            total_memory_usage = (
+                obs_nbytes + self.actions.nbytes + self.rewards.nbytes + self.dones.nbytes + est_info_bytes
+            )
             if self.next_observations is not None:
                 next_obs_nbytes = 0
                 for _, obs in self.observations.items():
                     next_obs_nbytes += obs.nbytes
                 total_memory_usage += next_obs_nbytes
+            print(f"The replay buffer requires {total_memory_usage / 1e9} GB")
 
             if total_memory_usage > mem_available:
                 # Convert to GB
@@ -487,12 +498,12 @@ class DictReplayBuffer(ReplayBuffer):
                 next_obs[key] = next_obs[key].reshape((self.n_envs,) + self.obs_shape[key])
             self.next_observations[key][self.pos] = np.array(next_obs[key]).copy()
 
-        # Reshape to handle multi-dim and discrete action spaces, see GH #970 #1392
-        action = action.reshape((self.n_envs, self.action_dim))
-        next_action = next_action.reshape((self.n_envs, self.action_dim))
-
-        self.actions[self.pos] = np.array(action).copy()
-        self.next_actions[self.pos] = np.array(next_action).copy()
+        if not self.disable_action_storage:
+            # Reshape to handle multi-dim and discrete action spaces, see GH #970 #1392
+            action = action.reshape((self.n_envs, self.action_dim))
+            next_action = next_action.reshape((self.n_envs, self.action_dim))
+            self.actions[self.pos] = np.array(action).copy()
+            self.next_actions[self.pos] = np.array(next_action).copy()
         self.rewards[self.pos] = np.array(reward).copy()
         self.dones[self.pos] = np.array(done).copy()
         self.infos[self.pos] = infos
@@ -537,9 +548,15 @@ class DictReplayBuffer(ReplayBuffer):
         infos = [self.infos[b_idx][env_idx] for b_idx, env_idx in zip(batch_inds, env_indices)]
         return DictReplayBufferSamples(
             observations=observations,
-            actions=self.to_torch(self.actions[batch_inds, env_indices]),
+            actions=(
+                self.to_torch(self.actions[batch_inds, env_indices]) if not self.disable_action_storage else np.empty(0)
+            ),
             next_observations=next_observations,
-            next_actions=self.to_torch(self.next_actions[batch_inds, env_indices]),
+            next_actions=(
+                self.to_torch(self.next_actions[batch_inds, env_indices])
+                if not self.disable_action_storage
+                else np.empty(0)
+            ),
             # Only use dones that are not due to timeouts
             # deactivated by default (timeouts is initialized as an array of False)
             dones=self.to_torch(

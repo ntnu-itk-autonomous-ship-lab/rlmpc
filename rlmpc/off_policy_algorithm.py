@@ -180,7 +180,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         observation: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
         actor_info: Optional[Union[Dict, List[Dict]]] = None,
         deterministic: bool = False,
-        n_envs: int = 1,
     ) -> Tuple[np.ndarray, np.ndarray, List[Dict]]:
         """
         Sample an action according to the exploration policy.
@@ -193,7 +192,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - observation (Optional[Union[np.ndarray, Dict[str, np.ndarray]]]): The current observation
             - actor_info (Optional[Union[Dict, List[Dict]]]): The last MPC internal states (solution info etc.)
             - deterministic (bool): Whether or not to return deterministic actions.
-            - n_envs (int): Number of parallel environments.
 
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict]]: scaled action(s) to take in the environment, and the corresponding unscaled action(s). Also, information on the MPC internal states (solution info etc.) is returned.
@@ -425,8 +423,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         continue_training = True
 
         action_count = 0
-        if self._current_obs is None:
+        if self._current_obs is None or self._current_obs["TimeObservation"].shape[0] != env.num_envs:
             self._current_obs = self._last_obs
+            self._last_actor_info = [{} for _ in range(env.num_envs)]
+            self.non_optimal_solutions_per_episode = np.zeros(env.num_envs, dtype=np.float32)
 
         while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
             if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
@@ -441,7 +441,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 observation=self._current_obs,
                 actor_info=self._last_actor_info,
                 deterministic=deterministic,
-                n_envs=env.num_envs,
             )
             # if self.verbose:
             #     print(f"Action sampling time: {time.time() - t_action_start:.2f}s")
@@ -472,21 +471,23 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
                     info.update({"next_actor_info": actor_infos[idx]})
                 else:
-                    info["next_actor_info"] = infos[idx]["actor_info"] | actor_infos[idx]
+                    info["next_actor_info"] = {}
+                    info["next_actor_info"]["expl_action"] = infos[idx]["actor_info"]["expl_action"]
+                    info["next_actor_info"]["norm_mpc_action"] = infos[idx]["actor_info"]["norm_mpc_action"]
 
             # SARSA style buffer storage
             action_count += 1
             if action_count == 2:
                 action_count = 0
                 self._store_transition(
-                    replay_buffer,
-                    self._last_obs,
-                    self._last_actions,
-                    self._current_obs,
-                    actions,
-                    self._last_rewards,
-                    self._last_dones,
-                    self._last_infos,
+                    replay_buffer=replay_buffer,
+                    obs=self._last_obs,
+                    buffer_action=self._last_actions,
+                    new_obs=self._current_obs,
+                    next_buffer_action=actions,
+                    reward=self._last_rewards,
+                    dones=self._last_dones,
+                    infos=self._last_infos,
                 )
 
                 num_collected_steps += 1

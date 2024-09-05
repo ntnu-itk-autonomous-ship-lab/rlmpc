@@ -13,10 +13,10 @@ colregs_handler:
   theta_critical_cr: -13.0   # contact and bearing angle threshold for CR situation
   theta_ot_min: 112.5  # minimum bearing angle for OT situation
   theta_ot_max: 247.5  # maximum bearing angle for OT situation
-  d_critical_so: 70.0 # critical distance threshold where stand-on duties are aborted
+  d_critical_so: 100.0 # critical distance threshold where stand-on duties are aborted
   d_activation: 1000.0  # distance threshold for activation of COLREGS handler
   t_cpa_entry: 120.0  # time to CPA threshold for entry into COLREGS situation
-  d_cpa_entry: 70.0  # distance to CPA threshold for entry into COLREGS situation
+  d_cpa_entry: 100.0  # distance to CPA threshold for entry into COLREGS situation
 
 rrtstar:
     params:
