@@ -279,7 +279,7 @@ class EvalCallback(EventCallback):
         eval_freq: int = 10000,
         experiment_name: str = "eval",
         record: bool = True,
-        render: bool = False,
+        render: bool = True,
         verbose: int = 1,
         warn: bool = True,
     ):
@@ -363,9 +363,6 @@ class EvalCallback(EventCallback):
                 self._is_success_buffer.append(maybe_is_success)
 
     def _on_step(self) -> bool:
-        if self.n_calls == 0:
-            self.n_calls = self.model.num_timesteps // self.num_envs
-
         continue_training = True
 
         if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:

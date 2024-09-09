@@ -16,7 +16,7 @@ colreg:
   alpha_ot: [0.002, 0.001]
   x_0_ot: 150.0
   y_0_ot: 10.0
-  d_attenuation: 400.0
+  d_attenuation: 350.0
   w_colregs: [90.0, 90.0, 90.0]
   colregs_handler:
     theta_critical_ot: 45.0  # contact angle threshold for OT situation
@@ -52,4 +52,4 @@ dnn_parameter_provider:
   rho_hitting_bounds: 0.0
   rho_low_Q_p: 0.0
 action_chatter:
-  rho_chatter: [0.01, 0.02, 0.025, 0.025, 0.025, 0.025, 0.025, 0.025, 0.025]
+  rho_chatter: [0.01, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]

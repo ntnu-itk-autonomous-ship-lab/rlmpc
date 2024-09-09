@@ -40,7 +40,7 @@ def main(args):
     parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp000")
     parser.add_argument("--n_training_envs", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.0004)
-    parser.add_argument("--buffer_size", type=int, default=14000)
+    parser.add_argument("--buffer_size", type=int, default=25000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
@@ -53,13 +53,16 @@ def main(args):
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
     parser.add_argument("--load_model", type=bool, default=False)
-    parser.add_argument("--load_critics", type=bool, default=False)
+    parser.add_argument("--load_critics", type=bool, default=True)
+
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to training SAC with NMPC parameter provider DNN:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
-    base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=args.experiment_name)
+    base_dir, log_dir, model_dir = hf.create_data_dirs(
+        base_dir=args.base_dir, experiment_name=args.experiment_name, remove_log_files=False
+    )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
@@ -88,7 +91,7 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.00015, 0.00015])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.0002, 0.0002])  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.5 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
@@ -134,7 +137,7 @@ def main(args):
     load_model = args.load_model
     load_name = "sac_nmpc_pp_db"
     rb_load_name = "sac_nmpc_pp_db"
-    model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_21376_steps"
+    model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_30096_steps"
     load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer"
 
     load_critic = args.load_critics
@@ -145,7 +148,7 @@ def main(args):
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [400, 300, 300],  # [458, 242, 141],
+        "hidden_sizes": [400, 300],  # [458, 242, 141],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",

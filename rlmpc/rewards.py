@@ -757,7 +757,7 @@ class MPCRewarder(cs_reward.IReward):
 
     def __init__(self, env: "COLAVEnvironment", config: Config = Config()) -> None:
         super().__init__(env)
-        self.reward_scale: float = 10.0
+        self.reward_scale: float = 100.0
         self.last_reward: float = 0.0
         self._config = config
         self.anti_grounding_rewarder = AntiGroundingRewarder(env, config.anti_grounding)
