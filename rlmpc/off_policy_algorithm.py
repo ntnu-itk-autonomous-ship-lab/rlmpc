@@ -485,6 +485,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     # Only store the actor info in the replay buffer unless you want OOM errors.
                     rb_info[idx]["actor_info"] = info["actor_info"]
                     rb_info[idx]["next_actor_info"] = info["next_actor_info"]
+                    rb_info[idx]["TimeLimit.truncated"] = info.get("TimeLimit.truncated", False)
 
                 self._store_transition(
                     replay_buffer=replay_buffer,
