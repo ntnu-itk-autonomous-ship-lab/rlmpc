@@ -128,6 +128,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.replay_buffer_class = replay_buffer_class
         self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
+        self.num_episodes: int = 0
         self._convert_train_freq()
         self.num_timesteps: int = 0
         self._episode_num: int = 0
@@ -279,7 +280,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         Args:
             - path (Path): path where the replay buffer should be loaded from
         """
-        self.replay_buffer = sb3_sutils.load_from_pkl(path, self.verbose)
+        self.replay_buffer = sb3_sutils.load_from_pkl(path, verbose=2)
         assert isinstance(
             self.replay_buffer, rlmpc_buffers.ReplayBuffer
         ), "The replay buffer must be a ReplayBuffer class"
@@ -404,6 +405,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         # self.policy.set_training_mode(False)
 
         num_collected_steps, num_collected_episodes = 0, 0
+        self.vecenv_failed = False
 
         assert isinstance(env, VecEnv), "You must pass a VecEnv. "
         if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
@@ -467,18 +469,23 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             # if self.verbose:
             #     print(f"Env plotting and step time: {time.time() - t_env_plotting_and_step_start:.2f}s")
 
-            for idx, info in enumerate(self._last_infos):
-                if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
-                    info.update({"next_actor_info": actor_infos[idx]})
-                else:
-                    info["next_actor_info"] = {}
-                    info["next_actor_info"]["expl_action"] = infos[idx]["actor_info"]["expl_action"]
-                    info["next_actor_info"]["norm_mpc_action"] = infos[idx]["actor_info"]["norm_mpc_action"]
-
             # SARSA style buffer storage
             action_count += 1
             if action_count == 2:
                 action_count = 0
+
+                rb_info = [{} for _ in range(env.num_envs)]
+                for idx, info in enumerate(self._last_infos):
+                    if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
+                        info.update({"next_actor_info": actor_infos[idx]})
+                    else:
+                        info["next_actor_info"] = {}
+                        info["next_actor_info"]["expl_action"] = infos[idx]["actor_info"]["expl_action"]
+                        info["next_actor_info"]["norm_mpc_action"] = infos[idx]["actor_info"]["norm_mpc_action"]
+                    # Only store the actor info in the replay buffer unless you want OOM errors.
+                    rb_info[idx]["actor_info"] = info["actor_info"]
+                    rb_info[idx]["next_actor_info"] = info["next_actor_info"]
+
                 self._store_transition(
                     replay_buffer=replay_buffer,
                     obs=self._last_obs,
@@ -487,7 +494,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     next_buffer_action=actions,
                     reward=self._last_rewards,
                     dones=self._last_dones,
-                    infos=self._last_infos,
+                    infos=rb_info,
                 )
 
                 num_collected_steps += 1
@@ -516,6 +523,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                         "non_optimal_solutions_per_episode"
                     ]
                     num_collected_episodes += 1
+                    self.num_episodes += 1
                     self._episode_num += 1
                     action_count = 0
                     self._last_actor_info[idx] = {}

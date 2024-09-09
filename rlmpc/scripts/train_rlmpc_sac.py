@@ -117,9 +117,12 @@ def train_rlmpc_sac(
             verbose=1,
         )
         print(f"Loading model at {load_model_path}")
-        # model.load_replay_buffer(path=load_rb_path)
+        model.load_replay_buffer(path=load_rb_path)
         print(f"Loading replay buffer at {load_rb_path}")
         model.set_env(training_env)
+    else:
+        model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
+
     if load_critics:
         print(f"Loading critic at {load_critics_path}")
         model.load_critics(path=load_critics_path, critic_arch=model_kwargs["policy_kwargs"]["critic_arch"])
@@ -137,6 +140,6 @@ def train_rlmpc_sac(
     if not model.vecenv_failed:
         training_env.close()
         eval_env.close()
-    training_env = None
-    eval_env = None
+    del training_env
+    del eval_env
     return model, model.vecenv_failed

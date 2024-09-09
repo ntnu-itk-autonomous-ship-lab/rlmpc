@@ -40,20 +40,20 @@ def main(args):
     parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp000")
     parser.add_argument("--n_training_envs", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.0004)
-    parser.add_argument("--buffer_size", type=int, default=20000)
+    parser.add_argument("--buffer_size", type=int, default=14000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--eval_freq", type=int, default=5000)
+    parser.add_argument("--eval_freq", type=int, default=4500)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1_000_000)
-    parser.add_argument("--n_timesteps_per_learn", type=int, default=10_000)
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
-    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=5)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
-    parser.add_argument("--load_model", type=bool, default=True)
-
+    parser.add_argument("--load_model", type=bool, default=False)
+    parser.add_argument("--load_critics", type=bool, default=False)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to training SAC with NMPC parameter provider DNN:")
@@ -132,12 +132,12 @@ def main(args):
     )
 
     load_model = args.load_model
-    load_name = "sac_nmpc_pp4"
-    rb_load_name = "sac_nmpc_pp4"
-    model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_80136_steps"
+    load_name = "sac_nmpc_pp_db"
+    rb_load_name = "sac_nmpc_pp_db"
+    model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_21376_steps"
     load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer"
 
-    load_critic = True
+    load_critic = args.load_critics
     load_critic_path = (
         str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_495_498_ReLU/models/best_model"
     )
@@ -181,6 +181,7 @@ def main(args):
     n_learn_iterations = args.timesteps // args.n_timesteps_per_learn
     vecenv_failed = False
     timesteps_completed = 0
+    episodes_completed = 0
     for i in range(n_learn_iterations):
         if i > 0:
             load_critic = False
@@ -210,6 +211,7 @@ def main(args):
             iteration=i + 1,
         )
         timesteps_completed = timesteps_completed + model.num_timesteps
+        episodes_completed = episodes_completed + model.num_episodes
         model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
         model.save(model_path)
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
@@ -217,6 +219,8 @@ def main(args):
         print(
             f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * timesteps_completed / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
         )
+        if i < n_learn_iterations - 1:
+            del model
 
     eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
     mean_reward, std_reward = evaluate_policy(
