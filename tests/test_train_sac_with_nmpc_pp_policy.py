@@ -41,19 +41,19 @@ def main(args):
     parser.add_argument("--n_training_envs", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.0004)
     parser.add_argument("--buffer_size", type=int, default=25000)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--eval_freq", type=int, default=4500)
+    parser.add_argument("--eval_freq", type=int, default=40)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1_000_000)
     parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
-    parser.add_argument("--load_model", type=bool, default=False)
-    parser.add_argument("--load_critics", type=bool, default=True)
+    parser.add_argument("--load_model", type=bool, default=True)
+    parser.add_argument("--load_critics", type=bool, default=False)
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -137,8 +137,8 @@ def main(args):
     load_model = args.load_model
     load_name = "sac_nmpc_pp_db"
     rb_load_name = "sac_nmpc_pp_db"
-    model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_30096_steps"
-    load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer"
+    model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_71888_steps"
+    load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer.pkl"
 
     load_critic = args.load_critics
     load_critic_path = (
