@@ -334,10 +334,7 @@ class EvalCallback(EventCallback):
 
         if not self.video_save_path.exists():
             self.video_save_path.mkdir(parents=True, exist_ok=True)
-        else:
-            # Clean the video folder
-            for file in self.video_save_path.iterdir():
-                file.unlink()
+
         if not self.best_model_save_path.exists():
             self.best_model_save_path.mkdir(parents=True, exist_ok=True)
 
@@ -584,7 +581,8 @@ def evaluate_policy(
 
     episode_starts = np.ones((env.num_envs,), dtype=bool)
     if env_data_logger is not None:
-        env_data_logger.reset_data_structures(env_idx=0)
+        for env_idx in range(n_envs):
+            env_data_logger.reset_data_structures(env_idx=env_idx)
 
     is_mpc_policy = isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC) or isinstance(
         model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider
