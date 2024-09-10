@@ -27,8 +27,8 @@ def main():
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
 
-            if idx == 0:
-                continue
+            # if idx == 0:
+            #     continue
 
             if idx > 0:
                 scenario_generator.behavior_generator.set_ownship_method(
@@ -36,16 +36,16 @@ def main():
                 )
 
             scenario_generator.seed(idx)
-            _ = scenario_generator.generate(
-                config_file=rl_dp.scenarios / (name + ".yaml"),
-                new_load_of_map_data=False if idx == 0 else False,
-                save_scenario=True,
-                save_scenario_folder=rl_dp.scenarios / "training_data" / name,
-                show_plots=True,
-                episode_idx_save_offset=0,
-                n_episodes=200,
-                delete_existing_files=False,
-            )
+            # _ = scenario_generator.generate(
+            #     config_file=rl_dp.scenarios / (name + ".yaml"),
+            #     new_load_of_map_data=True if idx == 0 else True,
+            #     save_scenario=True,
+            #     save_scenario_folder=rl_dp.scenarios / "training_data" / name,
+            #     show_plots=True,
+            #     episode_idx_save_offset=0,
+            #     n_episodes=500,
+            #     delete_existing_files=True,
+            # )
 
             scenario_generator.seed(idx + 103)
             _ = scenario_generator.generate(
@@ -56,7 +56,7 @@ def main():
                 show_plots=True,
                 episode_idx_save_offset=0,
                 n_episodes=50,
-                delete_existing_files=False,
+                delete_existing_files=True,
             )
 
     # map_size: [4000.0, 4000.0]

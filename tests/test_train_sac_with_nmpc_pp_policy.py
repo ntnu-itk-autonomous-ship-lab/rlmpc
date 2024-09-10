@@ -148,7 +148,7 @@ def main(args):
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [400, 300],  # [458, 242, 141],
+        "hidden_sizes": [400, 400, 300],  # [458, 242, 141],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
