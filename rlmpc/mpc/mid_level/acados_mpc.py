@@ -136,6 +136,7 @@ class AcadosMPC:
 
     def reset(self) -> None:
         """Resets the MPC."""
+        self._acados_ocp_mutex.acquire()
         self._initialized = False
         self._xs_prev = np.array([])
         self._s = 0.1
@@ -144,10 +145,17 @@ class AcadosMPC:
         self._t_prev = 0.0
         if self._acados_ocp_solver is not None:
             self._acados_ocp_solver.reset()
-            self._acados_ocp_solver.load_iterate(
-                filename=str(self._acados_code_gen_path / "initial_iterate_success.json"), verbose=False
-            )
+            n_attempts = 10
+            for a in range(n_attempts):
+                try:
+                    self._acados_ocp_solver.load_iterate(
+                        filename=str(self._acados_code_gen_path / "initial_iterate_success.json"), verbose=False
+                    )
+                except Exception as e:
+                    print(f"Acados reset fail: {e}! Trying again...")
+                    continue
             # print(f"[ACADOS {self.identifier.upper()}] Solver reset.")
+        self._acados_ocp_mutex.release()
 
     def set_action_indices(self, action_indices: list):
         self._action_indices = action_indices

@@ -45,15 +45,15 @@ def main(args):
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--eval_freq", type=int, default=40)
+    parser.add_argument("--eval_freq", type=int, default=4500)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1_000_000)
     parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
-    parser.add_argument("--load_model", type=bool, default=True)
-    parser.add_argument("--load_critics", type=bool, default=False)
+    parser.add_argument("--load_model", default=False, action='store_true')
+    parser.add_argument("--load_critics", default=False, action='store_true')
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -91,7 +91,7 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.0002, 0.0002])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.00015, 0.00015])  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.5 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
@@ -120,6 +120,7 @@ def main(args):
         "shuffle_loaded_scenario_data": False,
         "identifier": "training_env_" + args.experiment_name,
         "seed": 0,
+        "verbose": True,
     }
 
     eval_env_config = copy.deepcopy(training_env_config)
