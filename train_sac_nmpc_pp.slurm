@@ -30,12 +30,14 @@ helpFunction()
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=128
 LEARNING_RATE=0.0004
-NCPUS=6
+NCPUS=10 # Equal to number of training environments
 TRAIN_FREQ=8
 GRADIENT_STEPS=2
 BUFFER_SIZE=30000
+MAX_NUM_TRAIN_EPS=100 # Maximum number of loaded training episodes
+MAX_NUM_EVAL_EPS=10 # Maximum number of loaded evaluation episodes
 EXPERIMENT_NAME="sac_nmpc_1"
-TIMESTEPS=10000000
+TIMESTEPS=10_000_000
 
 setArgs(){
   while [ "${1:-}" != "" ]; do
@@ -94,6 +96,8 @@ echo "TRAIN_FREQ = $TRAIN_FREQ"
 echo "BUFFER_SIZE = $BUFFER_SIZE"
 echo "EXPERIMENT_NAME = $EXPERIMENT_NAME"
 echo "TIMESTEPS = $TIMESTEPS"
+echo "MAX_NUM_TRAIN_EPS = $MAX_NUM_TRAIN_EPS"
+echo "MAX_NUM_EVAL_EPS = $MAX_NUM_EVAL_EPS"
 
 echo "we are running from this directory: $SLURM_SUBMIT_DIR"
 echo " the name of the job is: $SLURM_JOB_NAME"
@@ -130,7 +134,7 @@ which python
 echo -e "\n\n"
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_train_sac_with_nmpc_pp_policy.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
+srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_train_sac_with_nmpc_pp_policy.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE --n_training_envs=$NCPUS --max_num_loaded_train_scen_episodes=$MAX_NUM_TRAIN_EPS --max_num_loaded_eval_scen_episodes=$MAX_NUM_EVAL_EPS
 
 # running the analysis script sequentially after the srun command has finished
 
