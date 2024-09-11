@@ -6,8 +6,8 @@
 #SBATCH --time=5-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=256G
+#SBATCH --cpus-per-task=10
+#SBATCH --mem=128G
 #SBATCH --output=idun/R-%x.%j.out
 
 # show available resources
@@ -37,10 +37,10 @@ N_EVAL_ENVS=4
 TRAIN_FREQ=16
 GRADIENT_STEPS=4
 BUFFER_SIZE=200_000
-MAX_NUM_TRAIN_EPS=100 # Maximum number of loaded training episodes
-MAX_NUM_EVAL_EPS=10 # Maximum number of loaded evaluation episodes
-N_EVAL_EPS=5
-EXPERIMENT_NAME="sac_nmpc_5"
+MAX_NUM_TRAIN_EPS=1 # Maximum number of loaded training episodes
+MAX_NUM_EVAL_EPS=1 # Maximum number of loaded evaluation episodes
+N_EVAL_EPS=1
+EXPERIMENT_NAME="sac_nmpc_db2_1ep"
 TIMESTEPS=10_000_000
 
 setArgs(){

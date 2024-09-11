@@ -100,6 +100,7 @@ def main(args):
         "std_init": action_noise_std_dev,
         "deterministic": False,
         "recompile_on_reset": False,
+        "acados_code_gen_path": str(base_dir.parents[0]) + f"/{args.experiment_name}/acados_code_gen",
     }
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
@@ -190,7 +191,7 @@ def main(args):
         if i > 0:
             load_critic = False
             load_model = True
-            load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer"
+            load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer.pkl"
             model_kwargs["learning_starts"] = 0
 
         model, vecenv_failed = train_rlmpc_sac(
@@ -219,7 +220,7 @@ def main(args):
         model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
         model.save(model_path)
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
-        print(f"[SAC RLMPC] Replay buffer size: {model.replay_buffer.size()}")
+        print(f"[SAC RLMPC] Replay buffer size: {model.replay_buffer.size()} | Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}")
         print(
             f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * timesteps_completed / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
         )

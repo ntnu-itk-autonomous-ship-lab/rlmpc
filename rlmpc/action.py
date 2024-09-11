@@ -46,6 +46,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
         recompile_on_reset: bool = False,
         deterministic: bool = True,
+        acados_code_gen_path: str = None,
         debug: bool = False,
     ) -> None:
         super().__init__(env, sample_time)
@@ -54,7 +55,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.speed_range = (-self.env.ownship.max_speed / 4.0, self.env.ownship.max_speed / 4.0)
         self.name = "MPCParameterSettingAction"
 
-        self.mpc = rlmpc_cas.RLMPC(config=mpc_config_path, identifier=self.env.env_id + "_mpc")
+        self.mpc = rlmpc_cas.RLMPC(config=mpc_config_path, identifier="_mpc" + self.env.env_id, acados_code_gen_path=acados_code_gen_path)
         self.build_sensitivities = True if "train" in self.env.env_id else False
         self.deterministic = deterministic if "train" in self.env.env_id else True
         self.mpc_param_list = mpc_param_list

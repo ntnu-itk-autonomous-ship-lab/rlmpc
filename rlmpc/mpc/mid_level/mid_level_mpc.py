@@ -76,7 +76,7 @@ class MidlevelMPC:
     """Class for a mid-level COLAV planner with multiple economic goals. Nonlinear obstacle constraints."""
 
     def __init__(
-        self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rlmpc_config, identifier: str = ""
+        self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rlmpc_config, identifier: str = "", acados_code_gen_path: str = None
     ) -> None:
         if config:
             self._solver_options: common.SolverConfig = config.solver_options
@@ -91,7 +91,7 @@ class MidlevelMPC:
         )
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc: acados_mpc.AcadosMPC = acados_mpc.AcadosMPC(
-                config.model, config.mpc, self._solver_options.acados, identifier
+                config.model, config.mpc, self._solver_options.acados, identifier=identifier, acados_code_gen_path=acados_code_gen_path
             )
         self.sens: common.NLPSensitivities = None
 

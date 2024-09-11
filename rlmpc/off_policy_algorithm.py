@@ -280,7 +280,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         Args:
             - path (Path): path where the replay buffer should be loaded from
         """
-        self.replay_buffer = sb3_sutils.load_from_pkl(path, verbose=2)
+        self.replay_buffer = sb3_sutils.load_from_pkl(path)
         assert isinstance(
             self.replay_buffer, rlmpc_buffers.ReplayBuffer
         ), "The replay buffer must be a ReplayBuffer class"

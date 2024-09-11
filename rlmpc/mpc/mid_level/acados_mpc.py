@@ -37,12 +37,20 @@ class AcadosMPC:
         params: parameters.MidlevelMPCParams,
         solver_options: AcadosOcpOptions,
         identifier: str = "",
+        acados_code_gen_path: str = None
     ) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._solver_options = mpc_common.parse_acados_solver_options(solver_options)
         self._acados_ocp_solver: AcadosOcpSolver = None
         self._acados_ocp_solver_nonreg: AcadosOcpSolver = None
-        self._acados_code_gen_path: pathlib.Path = rl_dp.acados_code_gen / identifier
+        if acados_code_gen_path:
+            self._acados_code_gen_path = pathlib.Path(acados_code_gen_path) / identifier
+        else:
+            self._acados_code_gen_path: pathlib.Path = rl_dp.acados_code_gen / identifier
+
+        if not self._acados_code_gen_path.exists():
+            self._acados_code_gen_path.mkdir(parents=True, exist_ok=True)
+
 
         self._acados_ocp_mutex: Lock = Lock()
 

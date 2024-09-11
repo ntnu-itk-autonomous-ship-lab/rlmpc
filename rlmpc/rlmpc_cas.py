@@ -102,7 +102,7 @@ class RLMPC(ci.ICOLAV):
 
     """
 
-    def __init__(self, config: RLMPCParams | Path = dp.rlmpc_config, identifier: str = "") -> None:
+    def __init__(self, config: RLMPCParams | Path = dp.rlmpc_config, identifier: str = "", acados_code_gen_path: str = None) -> None:
         if isinstance(config, RLMPCParams):
             self._config: RLMPCParams = config
         elif isinstance(config, Path):
@@ -111,7 +111,7 @@ class RLMPC(ci.ICOLAV):
 
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
-        self._mpc = mlmpc.MidlevelMPC(self._config.mpc, identifier=identifier)
+        self._mpc = mlmpc.MidlevelMPC(self._config.mpc, identifier=identifier, acados_code_gen_path=acados_code_gen_path)
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
         self._dt_sim: float = 0.5  # get from scenario config, typically always 0.5
         self._rrtstar = None
