@@ -463,12 +463,15 @@ def compute_smooted_mean_and_std(data: List[float], window_size: int = 10) -> Tu
     return mean, std
 
 
-def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: int = 5) -> Dict[str, Any]:
+def extract_reward_data(
+    data: List[colav_logger.EpisodeData], ma_window_size: int = 5, scale_reward_components: bool = False
+) -> Dict[str, Any]:
     """Extracts reward metrics from the environment data.
 
     Args:
         data (List[EpisodeData]): List of EpisodeData objects from training.
-        ma_window_size (int, optional): Window size for moving average. Defaults to 10.
+        ma_window_size (int, optional): Window size for moving average.
+        scale_reward_components (bool, optional): Whether to scale reward components.
 
     Returns:
         Dict[str, Any]: Dictionary containing reward metrics.
@@ -481,16 +484,20 @@ def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: in
     r_ra_maneuvering = []
     r_action_chatter = []
     r_dnn_pp = []
+    ep_lengths = []
+    r_scale = 100.0
     for env_idx, env_data in enumerate(data):
-        return_colreg_ep = np.sum([r["r_colreg"] for r in env_data.reward_components])
-        return_colav_ep = np.sum([r["r_collision_avoidance"] for r in env_data.reward_components])
-        return_antigrounding_ep = np.sum([r["r_antigrounding"] for r in env_data.reward_components])
-        return_trajectory_tracking_ep = np.sum([r["r_trajectory_tracking"] for r in env_data.reward_components])
-        return_readily_apparent_maneuvering_ep = np.sum(
-            [r["r_readily_apparent_maneuvering"] for r in env_data.reward_components]
+        return_colreg_ep = np.sum([r["r_colreg"] for r in env_data.reward_components]) / r_scale
+        return_colav_ep = np.sum([r["r_collision_avoidance"] for r in env_data.reward_components]) / r_scale
+        return_antigrounding_ep = np.sum([r["r_antigrounding"] for r in env_data.reward_components]) / r_scale
+        return_trajectory_tracking_ep = (
+            np.sum([r["r_trajectory_tracking"] for r in env_data.reward_components]) / r_scale
         )
-        return_action_chatter = np.sum([r["r_action_chatter"] for r in env_data.reward_components])
-        return_dnn_pp = np.sum([r["r_dnn_parameters"] for r in env_data.reward_components])
+        return_readily_apparent_maneuvering_ep = (
+            np.sum([r["r_readily_apparent_maneuvering"] for r in env_data.reward_components]) / r_scale
+        )
+        return_action_chatter = np.sum([r["r_action_chatter"] for r in env_data.reward_components]) / r_scale
+        return_dnn_pp = np.sum([r["r_dnn_parameters"] for r in env_data.reward_components]) / r_scale
 
         r_colreg.append(return_colreg_ep)
         r_colav.append(return_colav_ep)
@@ -499,6 +506,7 @@ def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: in
         r_ra_maneuvering.append(return_readily_apparent_maneuvering_ep)
         r_action_chatter.append(return_action_chatter)
         r_dnn_pp.append(return_dnn_pp)
+        ep_lengths.append(env_data.timesteps)
         rewards.append(env_data.cumulative_reward)
 
     rewards_smoothed, std_rewards_smoothed = compute_smooted_mean_and_std(rewards, ma_window_size)
@@ -511,6 +519,8 @@ def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: in
     r_ra_maneuvering, std_r_ra_maneuvering = compute_smooted_mean_and_std(r_ra_maneuvering, ma_window_size)
     r_action_chatter, std_r_action_chatter = compute_smooted_mean_and_std(r_action_chatter, ma_window_size)
     r_dnn_pp, std_r_dnn_pp = compute_smooted_mean_and_std(r_dnn_pp, ma_window_size)
+
+    ep_lengths_smoothed, std_ep_lengths_smoothed = compute_smooted_mean_and_std(ep_lengths, ma_window_size)
 
     out = {
         "rewards": rewards,
@@ -530,6 +540,9 @@ def extract_reward_data(data: List[colav_logger.EpisodeData], ma_window_size: in
         "std_r_action_chatter": std_r_action_chatter,
         "r_dnn_pp": r_dnn_pp,
         "std_r_dnn_pp": std_r_dnn_pp,
+        "ep_lengths": ep_lengths,
+        "ep_lengths_smoothed": ep_lengths_smoothed,
+        "std_ep_lengths_smoothed": std_ep_lengths_smoothed,
     }
     return out
 

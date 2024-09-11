@@ -139,96 +139,98 @@ def plot_single_model_reward_curves(
     axs[0, 0].set_ylabel("Average return", rotation=90)
     # axs[0, 0].set_xlabel("Episode")
 
-    sns.lineplot(x=range(len(data["r_colreg"])), y=data["r_colreg"], ax=axs[0, 1], label=model_name, color=color)
+    sns.lineplot(
+        x=range(len(data["ep_lengths_smoothed"])),
+        y=data["ep_lengths_smoothed"],
+        ax=axs[0, 1],
+        label=model_name,
+        color=color,
+    )
     axs[0, 1].fill_between(
+        range(len(data["ep_lengths_smoothed"])),
+        np.array(data["ep_lengths_smoothed"]) - np.array(data["std_ep_lengths_smoothed"]),
+        np.array(data["ep_lengths_smoothed"]) + np.array(data["std_ep_lengths_smoothed"]),
+        alpha=0.2,
+        color=color,
+    )
+    axs[0, 1].set_title("Episode length")
+    # axs[0, 1].set_xlabel("Episode")
+
+    sns.lineplot(x=range(len(data["r_colreg"])), y=data["r_colreg"], ax=axs[1, 0], label=model_name, color=color)
+    axs[1, 0].fill_between(
         range(len(data["r_colreg"])),
         np.array(data["r_colreg"]) - np.array(data["std_r_colreg"]),
         np.array(data["r_colreg"]) + np.array(data["std_r_colreg"]),
         alpha=0.2,
         color=color,
     )
-    axs[0, 1].set_title("COLREG")
+    axs[1, 0].set_title("COLREG")
     # axs[0, 1].set_xlabel("Episode")
+    axs[1, 0].set_ylabel("Average return", rotation=90)
 
-    sns.lineplot(x=range(len(data["r_colav"])), y=data["r_colav"], ax=axs[1, 0], label=model_name, color=color)
-    axs[1, 0].fill_between(
+    sns.lineplot(x=range(len(data["r_colav"])), y=data["r_colav"], ax=axs[1, 1], label=model_name, color=color)
+    axs[1, 1].fill_between(
         range(len(data["r_colav"])),
         np.array(data["r_colav"]) - np.array(data["std_r_colav"]),
         np.array(data["r_colav"]) + np.array(data["std_r_colav"]),
         alpha=0.2,
         color=color,
     )
-    # axs[1, 0].set_xlabel("Episode")
-    axs[1, 0].set_title("Collision avoidance")
+    # axs[1, 1].set_xlabel("Episode")
+    axs[1, 1].set_title("Collision avoidance")
 
     sns.lineplot(
         x=range(len(data["r_antigrounding"])),
         y=data["r_antigrounding"],
-        ax=axs[1, 1],
+        ax=axs[2, 0],
         label=model_name,
         color=color,
     )
-    axs[1, 1].fill_between(
+    axs[2, 0].fill_between(
         range(len(data["r_antigrounding"])),
         np.array(data["r_antigrounding"]) - np.array(data["std_r_antigrounding"]),
         np.array(data["r_antigrounding"]) + np.array(data["std_r_antigrounding"]),
         alpha=0.2,
         color=color,
     )
-    axs[1, 1].set_title("Anti-grounding")
-    axs[1, 1].set_ylabel("Average return", rotation=90)
-    # axs[1, 1].set_xlabel("Episode")
+    axs[2, 0].set_title("Anti-grounding")
+    axs[2, 0].set_ylabel("Average return", rotation=90)
+    # axs[2, 0].set_xlabel("Episode")
 
     sns.lineplot(
         x=range(len(data["r_trajectory_tracking"])),
         y=data["r_trajectory_tracking"],
-        ax=axs[2, 0],
+        ax=axs[2, 1],
         label=model_name,
         color=color,
     )
-    axs[2, 0].fill_between(
+    axs[2, 1].fill_between(
         range(len(data["r_trajectory_tracking"])),
         np.array(data["r_trajectory_tracking"]) - np.array(data["std_r_trajectory_tracking"]),
         np.array(data["r_trajectory_tracking"]) + np.array(data["std_r_trajectory_tracking"]),
         alpha=0.2,
         color=color,
     )
-    axs[2, 0].set_title("Trajectory tracking")
-    # axs[2, 0].set_xlabel("Episode")
+    axs[2, 1].set_title("Trajectory tracking")
+    # axs[2, 1].set_xlabel("Episode")
 
     sns.lineplot(
         x=range(len(data["r_ra_maneuvering"])),
         y=data["r_ra_maneuvering"],
-        ax=axs[2, 1],
+        ax=axs[3, 0],
         label=model_name,
         color=color,
     )
-    axs[2, 1].fill_between(
+    axs[3, 0].fill_between(
         range(len(data["r_ra_maneuvering"])),
         np.array(data["r_ra_maneuvering"]) - np.array(data["std_r_ra_maneuvering"]),
         np.array(data["r_ra_maneuvering"]) + np.array(data["std_r_ra_maneuvering"]),
         alpha=0.2,
         color=color,
     )
-    axs[2, 1].set_title("RA maneuvering")
-    # axs[2, 1].set_xlabel("Episode")
-
-    sns.lineplot(
-        x=range(len(data["r_action_chatter"])),
-        y=data["r_action_chatter"],
-        ax=axs[3, 0],
-        label=model_name,
-        color=color,
-    )
-    axs[3, 0].fill_between(
-        range(len(data["r_action_chatter"])),
-        np.array(data["r_action_chatter"]) - np.array(data["std_r_action_chatter"]),
-        np.array(data["r_action_chatter"]) + np.array(data["std_r_action_chatter"]),
-        alpha=0.2,
-        color=color,
-    )
-    axs[3, 0].set_title("Action chatter")
-    axs[3, 0].set_xlabel("Episode")
+    axs[3, 0].set_title("RA maneuvering")
+    # axs[3, 0].set_xlabel("Episode")
+    axs[3, 0].set_ylabel("Average return", rotation=90)
 
     sns.lineplot(
         x=range(len(data["r_dnn_pp"])),
@@ -388,7 +390,7 @@ def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
             env_logger.load_from_pickle(f"{experiment_name}_env_training_data")
             env_data_list.append(env_logger.env_data)
 
-            reward_data = hf.extract_reward_data(env_logger.env_data)
+            reward_data = hf.extract_reward_data(env_logger.env_data, scale_reward_components=True)
             reward_data_list.append(reward_data)
 
         if plot_env_snapshots:
@@ -457,7 +459,7 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 
 if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["sac_nmpc_pp_db"]
+    experiment_names = ["sac_nmpc_pp_db_3env"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
     # plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
     print("Done plotting")
