@@ -241,13 +241,7 @@ class CollectStatisticsCallback(BaseCallback):
 
 class EvalCallback(EventCallback):
     """
-    Callback for evaluating an agent.
-
-    .. warning::
-
-      When using multiple environments, each call to  ``env.step()``
-      will effectively correspond to ``n_envs`` steps.
-      To account for that, you can use ``eval_freq = max(eval_freq // n_envs, 1)``
+    Callback for evaluating an agent. Modified version.
 
     Args:
         - eval_env (Union[colav_env.COLAVEnvironment, VecEnv]): The environment used for initialization
@@ -362,7 +356,7 @@ class EvalCallback(EventCallback):
     def _on_step(self) -> bool:
         continue_training = True
 
-        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+        if self.eval_freq > 0 and self.num_timesteps % self.eval_freq == 0:
             # Sync training and eval env if there is VecNormalize
             if self.model.get_vec_normalize_env() is not None:
                 try:

@@ -6,7 +6,8 @@ acados_code_gen/
 data/
 scenarios/training_data
 scenarios/test_data
-casadi_code_gen
+casadi_code_gen/
+idun/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
