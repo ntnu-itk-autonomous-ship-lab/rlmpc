@@ -254,6 +254,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             observation_space=self.observation_space,
             action_space=self.action_space,
             lr_schedule=self.lr_schedule,
+            device=self.device,
             **self.policy_kwargs,  # pytype:disable=not-instantiable
         )
 

@@ -224,6 +224,8 @@ class SAC(opa.OffPolicyAlgorithm):
 
         self.critic.load_state_dict(th.load(pathlib.Path(str(path) + "_critic.pth")))
         self.critic_target.load_state_dict(th.load(pathlib.Path(str(path) + "_critic_target.pth")))
+        self.critic.to(self.device)
+        self.critic_target.to(self.device)
 
     def save_critics(self, path: pathlib.Path) -> None:
         """Saves only the SAC critics.
@@ -292,7 +294,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # reparameterization trick
             norm_mpc_actions = th.from_numpy(
                 np.array([info["actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32)
-            )
+            ).to(self.device)
             sampled_actions, sampled_log_prob = self.sample_actions(
                 observations=replay_data.observations, mpc_actions=norm_mpc_actions, infos=replay_data.infos
             )
@@ -475,7 +477,7 @@ class SAC(opa.OffPolicyAlgorithm):
         min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
         dnn_input = self.extract_mpc_param_provider_inputs(replay_data)
-        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input)
+        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input).to(self.device)
 
         alpha = 10.0  # amplification factor for the mpc_param_provider gradients
         actor_loss = 0.0
@@ -486,9 +488,9 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_losses = []
 
         if isinstance(self.actor, rlmpc_policies.SACMPCActor):
-            cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std)))
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std))).to(self.device)
         else:
-            cov_inv = th.inverse(th.diag(th.exp(self.actor.mpc_log_std)))
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.mpc_log_std))).to(self.device)
         for b in range(batch_size):
             actor_info = replay_data.infos[b]["actor_info"]
             if not actor_info["optimal"]:
@@ -496,7 +498,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
             da_dp_mpc = actor_info["da_dp_mpc"]
             mpc_param_grad_norms.append(np.linalg.norm(da_dp_mpc))
-            da_dp_mpc = th.from_numpy(da_dp_mpc).float()
+            da_dp_mpc = th.from_numpy(da_dp_mpc).to(self.device)
             # print(f"da_dp_mpc: {da_dp_mpc.numpy()}")
             da_dp_mpc.requires_grad = False
             d_log_pi_dp = (
@@ -528,14 +530,30 @@ class SAC(opa.OffPolicyAlgorithm):
 
         return actor_loss, actor_grad, mpc_param_grad_norm
 
-    def sample_actions(self, observations: th.Tensor, mpc_actions: th.Tensor, infos: List[Dict[str, Any]]) -> th.Tensor:
+    def sample_actions(
+        self, observations: th.Tensor, mpc_actions: th.Tensor, infos: List[Dict[str, Any]]
+    ) -> Tuple[th.Tensor, th.Tensor]:
+        """Samples actions from the actor policy, depending on the actor type. Also returns the corresponding log probabilities.
+
+        Args:
+            observations (th.Tensor): Observations tensor.
+            mpc_actions (th.Tensor): Current MPC actions.
+            infos (List[Dict[str, Any]]): List of info dictionaries.
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor]: The sampled actions and the corresponding log probabilities.
+        """
         if isinstance(self.actor, rlmpc_policies.SACMPCActor):
             sampled_actions = self.actor.sample_action(mpc_actions)
             sampled_log_prob = self.actor.action_log_prob(observations, actions=sampled_actions, infos=infos)
         else:
-            sampled_actions = self.actor.sample_mpc_action(mpc_actions)
-            sampled_log_prob = self.actor.mpc_action_log_prob(observations, actions=sampled_actions, infos=infos)
-        return sampled_actions, sampled_log_prob
+            sampled_actions = self.actor.sample_mpc_action(mpc_actions, device=self.device)
+            sampled_log_prob = self.actor.mpc_action_log_prob(
+                observations, actions=sampled_actions, infos=infos, device=self.device
+            )
+        if isinstance(sampled_actions, np.ndarray):
+            sampled_actions = th.from_numpy(sampled_actions)
+        return sampled_actions.to(self.device), sampled_log_prob.to(self.device)
 
     def extract_action_info_from_sarsa_buffer(
         self, replay_data: rlmpc_buffers.DictReplayBufferSamples
@@ -560,14 +578,15 @@ class SAC(opa.OffPolicyAlgorithm):
         elif isinstance(self.actor, rlmpc_policies.SACMPCParameterProviderActor):
             next_actions = th.from_numpy(
                 np.array([info["next_actor_info"]["expl_action"] for info in replay_data.infos], dtype=np.float32)
-            )
+            ).to(self.device)
             actions = th.from_numpy(
                 np.array([info["actor_info"]["expl_action"] for info in replay_data.infos], dtype=np.float32)
-            )
+            ).to(self.device)
             next_log_prob = self.actor.mpc_action_log_prob(
                 replay_data.next_observations,
                 actions=next_actions,
                 infos=replay_data.infos,
                 is_next_action=True,
+                device=self.device,
             )
         return actions, next_actions, next_log_prob

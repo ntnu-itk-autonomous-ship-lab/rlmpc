@@ -42,7 +42,7 @@ def train_rlmpc_sac(
     seed: int = 0,
     iteration: int = 0,
     timesteps_completed: int = 0,
-    episodes_completed: int = 0
+    episodes_completed: int = 0,
 ) -> Tuple[rlmpc_sac.SAC, bool]:
     """Train the RL agent using the SAC algorithm.
 
@@ -75,7 +75,12 @@ def train_rlmpc_sac(
     if n_training_envs == 1:
         training_env = Monitor(gym.make(id=env_id, **training_env_config))
     else:
-        training_env = SubprocVecEnv([hf.make_env(env_id, training_env_config, i + 1) for i in range(n_training_envs)])
+        training_env = SubprocVecEnv(
+            [
+                hf.make_env(env_id=env_id, env_config=training_env_config, rank=i + 1, seed=seed)
+                for i in range(n_training_envs)
+            ]
+        )
 
     stats_callback = CollectStatisticsCallback(
         env=training_env,
@@ -92,7 +97,9 @@ def train_rlmpc_sac(
     if n_eval_envs == 1:
         eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
     else:
-        eval_env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(n_eval_envs)])
+        eval_env = SubprocVecEnv(
+            [hf.make_env(env_id=env_id, env_config=eval_env_config, rank=i + 1, seed=seed) for i in range(n_eval_envs)]
+        )
     eval_callback = EvalCallback(
         eval_env,
         log_path=base_dir / "eval_data",

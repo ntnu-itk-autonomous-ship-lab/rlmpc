@@ -55,7 +55,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.speed_range = (-self.env.ownship.max_speed / 4.0, self.env.ownship.max_speed / 4.0)
         self.name = "MPCParameterSettingAction"
 
-        self.mpc = rlmpc_cas.RLMPC(config=mpc_config_path, identifier=self.env.env_id + "_mpc", acados_code_gen_path=acados_code_gen_path)
+        self.mpc = rlmpc_cas.RLMPC(
+            config=mpc_config_path, identifier=self.env.env_id + "_mpc", acados_code_gen_path=acados_code_gen_path
+        )
         self.build_sensitivities = True if "train" in self.env.env_id else False
         self.deterministic = deterministic if "train" in self.env.env_id else True
         self.mpc_param_list = mpc_param_list
@@ -145,7 +147,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             p_fixed = info["p_fixed"]
             z = np.concatenate((soln["x"], soln["lam_g"]), axis=0).astype(np.float32)
             try:
-                da_dp_mpc = self.mpc_sensitivities.da_dp(z, p_fixed, p).full()
+                da_dp_mpc = self.mpc_sensitivities.da_dp(z, p_fixed, p).full().astype(np.float32)
             except Exception as e:
                 print(f"[{self.env.env_id.upper()}] Error computing sensitivities: {e}! Setting da_dp_mpc to zeros")
         return da_dp_mpc
