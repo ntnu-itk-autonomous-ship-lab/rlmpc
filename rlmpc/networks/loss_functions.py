@@ -2,7 +2,7 @@
     loss_functions.py
 
     Summary:
-        Contains feature extractors for neural networks (NNs) used in DRL. Feature extractor inspired by stable-baselines3 (SB3) implementation, the CNN-work of Thomas Larsen, and variational autoencoders (VAEs).
+        Contains various loss functions used in the training of VAE models.
 
     Author: Trym Tengesdal
 """

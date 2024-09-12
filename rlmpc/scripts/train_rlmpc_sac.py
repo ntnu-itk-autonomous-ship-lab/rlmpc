@@ -41,6 +41,8 @@ def train_rlmpc_sac(
     load_rb_path: str = "sac_drl1_replay_buffer",
     seed: int = 0,
     iteration: int = 0,
+    timesteps_completed: int = 0,
+    episodes_completed: int = 0
 ) -> Tuple[rlmpc_sac.SAC, bool]:
     """Train the RL agent using the SAC algorithm.
 
@@ -64,6 +66,8 @@ def train_rlmpc_sac(
         load_rb_path (str, optional): The replay buffer path
         seed (int, optional): The seed.
         iteration (int, optional): The iteration used for TB logging naming.
+        timesteps_completed (int, optional): Number of timesteps completed up until now (for multiple runs of learn())
+        episodes_completed (int, optional): Same as above, only for episodes.
 
     Returns:
         Tuple[rlmpc_sac.SAC, bool]: The trained RL agent and whether the vector environment failed during a training step.
@@ -132,9 +136,9 @@ def train_rlmpc_sac(
         total_timesteps=n_timesteps,
         log_interval=1,
         tb_log_name=experiment_name + f"_{iteration}",
-        reset_num_timesteps=True,
+        reset_num_timesteps=True if iteration == 1 else False,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),
-        progress_bar=True,
+        progress_bar=False,
     )
 
     if not model.vecenv_failed:

@@ -572,10 +572,10 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         if self.env.time < 0.0001:
             self._last_course_error = 0.0
         goal_reached = self.env.simulator.determine_ship_goal_reached(ship_idx=0)
-        if goal_reached:
-            self.last_reward = self._config.rho_goal
-            print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +{self._config.rho_goal}.")
-            return self.last_reward
+        # if goal_reached:
+        #     self.last_reward = self._config.rho_goal
+        #     print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +{self._config.rho_goal}.")
+        #     return self.last_reward
 
         d2goal = np.linalg.norm(self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1])
         ownship_state = self.env.ownship.state
@@ -806,11 +806,11 @@ class MPCRewarder(cs_reward.IReward):
     def get_last_rewards_as_dict(self) -> dict:
         return {
             "r_scaled": self.last_reward,
-            "r_antigrounding": self.r_antigrounding,
-            "r_collision_avoidance": self.r_collision_avoidance,
-            "r_colreg": self.r_colreg,
-            "r_trajectory_tracking": self.r_trajectory_tracking,
-            "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering,
-            "r_action_chatter": self.r_action_chatter,
-            "r_dnn_parameters": self.r_dnn_parameters,
+            "r_antigrounding": self.r_antigrounding / self.reward_scale,
+            "r_collision_avoidance": self.r_collision_avoidance / self.reward_scale,
+            "r_colreg": self.r_colreg / self.reward_scale,
+            "r_trajectory_tracking": self.r_trajectory_tracking / self.reward_scale,
+            "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering / self.reward_scale,
+            "r_action_chatter": self.r_action_chatter / self.reward_scale,
+            "r_dnn_parameters": self.r_dnn_parameters / self.reward_scale,
         }

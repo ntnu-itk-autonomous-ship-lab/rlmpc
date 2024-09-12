@@ -45,10 +45,10 @@ def main(args):
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--eval_freq", type=int, default=4500)
+    parser.add_argument("--eval_freq", type=int, default=9500)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1_000_000)
-    parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=10000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
@@ -214,6 +214,8 @@ def main(args):
             load_rb_path=load_rb_path,
             seed=0,
             iteration=i + 1,
+            timesteps_completed=timesteps_completed,
+            episodes_completed=episodes_completed
         )
         timesteps_completed = timesteps_completed + model.num_timesteps
         episodes_completed = episodes_completed + model.num_episodes

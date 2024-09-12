@@ -1,6 +1,8 @@
 #!/bin/sh
 
-#SBATCH --job-name=train_sac_nmpc_pp
+
+
+#SBATCH --job-name=train_snmpc
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
 #SBATCH --time=5-12:00:00
@@ -9,6 +11,20 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=128G
 #SBATCH --output=idun/R-%x.%j.out
+
+BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
+BATCH_SIZE=64
+LEARNING_RATE=0.0002
+NCPUS=12 # Equal to number of training environments
+N_EVAL_ENVS=4
+TRAIN_FREQ=16
+GRADIENT_STEPS=4
+BUFFER_SIZE=200000
+MAX_NUM_TRAIN_EPS=1 # Maximum number of loaded training episodes
+MAX_NUM_EVAL_EPS=1 # Maximum number of loaded evaluation episodes
+N_EVAL_EPS=1
+EXPERIMENT_NAME="snmpc1_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_${NCPUS}cpus_"
+TIMESTEPS=10_000_000
 
 # show available resources
 sinfo -o "%10P %5D %34N  %5c  %7m  %47f  %23G"
@@ -29,19 +45,7 @@ helpFunction()
 }
 
 
-BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
-BATCH_SIZE=128
-LEARNING_RATE=0.0001
-NCPUS=12 # Equal to number of training environments
-N_EVAL_ENVS=4
-TRAIN_FREQ=16
-GRADIENT_STEPS=4
-BUFFER_SIZE=150_000
-MAX_NUM_TRAIN_EPS=1 # Maximum number of loaded training episodes
-MAX_NUM_EVAL_EPS=1 # Maximum number of loaded evaluation episodes
-N_EVAL_EPS=1
-EXPERIMENT_NAME="snmpc_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_${NCPUS}cpus_${BUFFER_SIZE}bufsz"
-TIMESTEPS=10_000_000
+
 
 setArgs(){
   while [ "${1:-}" != "" ]; do
