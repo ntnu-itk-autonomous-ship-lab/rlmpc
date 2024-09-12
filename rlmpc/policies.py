@@ -25,8 +25,7 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import DiagGaussianDistribution
 from stable_baselines3.common.policies import BaseModel, ContinuousCritic
-from stable_baselines3.common.preprocessing import (get_action_dim,
-                                                    is_image_space)
+from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -360,16 +359,12 @@ class SACMPCParameterProviderActor(BasePolicy):
     Args:
         - observation_space (spaces.Space): Observation space
         - action_space (spaces.Box): Action space
-        - observation_type (Any): Observation type
-        - action_type (Any): Action type
-        - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
-        - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
-        - features_extractor_kwargs (Optional[Dict[str, Any]]): Keyword arguments
-        - use_sde (bool, optional): Whether to use State Dependent Exploration or not. Defaults to False.
-        - log_std_init (float, optional): Initial value for the log standard deviation. Defaults to -3.
-        - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` when using gSDE to ensure
-            a positive standard deviation (cf paper). It allows to keep variance
-            above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough. Defaults to False.
+        - features_extractor (BaseFeaturesExtractor): Features extractor to use
+        - features_dim (int): Number of features
+        - mpc_param_provider_kwargs (Dict[str, Any]): Keyword arguments for the MPC parameter provider DNN
+        - std_init (Union[float, np.ndarray], optional): Initial value for the log standard deviation. Defaults to -3.
+        - mpc_std_init (Union[float, np.ndarray], optional): Initial value for the log standard deviation for the MPC action. Defaults to -3.
+        - disable_parameter_provider (bool, optional): Whether to disable the parameter provider or not. Defaults to False.
     """
 
     action_space: spaces.Box
@@ -378,6 +373,8 @@ class SACMPCParameterProviderActor(BasePolicy):
         self,
         observation_space: spaces.Space,
         action_space: spaces.Box,
+        features_extractor: rlmpc_fe.CombinedExtractor,
+        features_dim: int,
         mpc_param_provider_kwargs: Dict[str, Any],
         std_init: Union[float, np.ndarray] = -3.0,
         mpc_std_init: Union[float, np.ndarray] = -3.0,
@@ -390,7 +387,8 @@ class SACMPCParameterProviderActor(BasePolicy):
             normalize_images=False,
             squash_output=True,
         )
-
+        self.features_extractor = features_extractor
+        mpc_param_provider_kwargs["features_dim"] = features_dim
         self.disable_parameter_provider = disable_parameter_provider
         self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
         if isinstance(std_init, float):
@@ -432,7 +430,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         Args:
             - grads (th.Tensor): The parameter gradient tensor 1 x num_params.
         """
-        self.mpc_param_provider.set_gradients(grads)
+        self.mpc_param_provider.set_gradients(grads.to("cpu"))
 
     def mpc_action_log_prob(
         self,
@@ -440,6 +438,7 @@ class SACMPCParameterProviderActor(BasePolicy):
         actions: Optional[th.Tensor] = None,
         infos: Optional[List[Dict[str, Any]]] = None,
         is_next_action: bool = False,
+        device: th.device = th.device("cpu"),
     ) -> Tuple[th.Tensor, th.Tensor]:
         """Computes the log probability of the policy distribution for the given observation.
 
@@ -448,6 +447,7 @@ class SACMPCParameterProviderActor(BasePolicy):
             actions (th.Tensor): (MPC) Actions to evaluate the log probability for
             infos (Optional[List[Dict[str, Any]]], optional): Additional information.
             is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
+            device (th.device, optional): The device to use for the tensor operations.
 
         Returns:
             Tuple[th.Tensor, th.Tensor]:
@@ -467,8 +467,12 @@ class SACMPCParameterProviderActor(BasePolicy):
         if isinstance(actions, np.ndarray):
             actions = th.from_numpy(actions)
 
+        actions = actions.to(device)
+        norm_mpc_actions = norm_mpc_actions.to(device)
+        mpc_log_std = self.mpc_log_std.to(device)
+
         self.mpc_action_dist = self.mpc_action_dist.proba_distribution(
-            mean_actions=norm_mpc_actions, log_std=self.mpc_log_std
+            mean_actions=norm_mpc_actions, log_std=mpc_log_std
         )
         log_prob = self.mpc_action_dist.log_prob(actions)
 
@@ -489,7 +493,7 @@ class SACMPCParameterProviderActor(BasePolicy):
             is_next_action (bool, optional): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
 
         Returns:
-            Tuple[th.Tensor, th.Tensor]:
+            th.Tensor: The log probability of the policy distribution for the given observation
         """
 
         batch_size = obs["MPCParameterObservation"].shape[0]
@@ -502,7 +506,7 @@ class SACMPCParameterProviderActor(BasePolicy):
             norm_current_mpc_params = obs["MPCParameterObservation"][idx]
             norm_current_mpc_params = th.from_numpy(norm_current_mpc_params).float()
             dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
-            mpc_param_increment = self.mpc_param_provider(dnn_input)
+            mpc_param_increment = self.mpc_param_provider(dnn_input).detach().clone()
             self.action_dist = self.action_dist.proba_distribution(
                 mean_actions=mpc_param_increment, log_std=self.log_std
             )
@@ -606,19 +610,18 @@ class SACMPCParameterProviderActor(BasePolicy):
 
         return unnormalized_actions, normalized_actions, actor_infos
 
-    def sample_mpc_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
+    def sample_mpc_action(self, mpc_actions: th.Tensor, device: th.device) -> th.Tensor:
         """Sample an mpc action from the policy distribution with mean from the input MPC action.
 
         Args:
-            mpc_actions (np.ndarray | th.Tensor): The input MPC action (normalized)
+            mpc_actions (th.Tensor): The input MPC action (normalized), assumed to be on device `device` if a tensor.
+            device (th.device): The device to use for the tensor operations.
 
         Returns:
-            np.ndarray: The sampled action (normalized)
+            th.Tensor: The sampled action (normalized)
         """
-        if isinstance(mpc_actions, np.ndarray):
-            mpc_actions = th.from_numpy(mpc_actions)
         self.mpc_action_dist = self.mpc_action_dist.proba_distribution(
-            mean_actions=mpc_actions, log_std=self.mpc_log_std
+            mean_actions=mpc_actions, log_std=self.mpc_log_std.to(device)
         )
         norm_actions = self.mpc_action_dist.get_actions()
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
@@ -820,7 +823,7 @@ class SACMPCActor(BasePolicy):
         actions: Optional[th.Tensor] = None,
         infos: Optional[List[Dict[str, Any]]] = None,
         is_next_action: bool = False,
-    ) -> Tuple[th.Tensor, th.Tensor]:
+    ) -> th.Tensor:
         """Computes the log probability of the policy distribution for the given observation.
 
         Args:
@@ -830,7 +833,7 @@ class SACMPCActor(BasePolicy):
             is_next_action (bool): Whether the action is the next action in the SARSA tuple. Used for extracting the correct (mpc) mean action.
 
         Returns:
-            Tuple[th.Tensor, th.Tensor]:
+            th.Tensor: The log probability of the actions
         """
         # obs = obs.to("cpu").detach()
         # action = action.to("cpu").detach()
@@ -1219,6 +1222,7 @@ class SACPolicyWithMPC(BasePolicy):
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         n_critics: int = 2,
+        device: Union[th.device, str] = "auto",
         debug: bool = False,
     ):
         super().__init__(
@@ -1231,6 +1235,7 @@ class SACPolicyWithMPC(BasePolicy):
             squash_output=True,
             normalize_images=normalize_images,
         )
+        self.device = device
         self.observation_type = observation_type
         self.action_type = action_type
         self.activation_fn = activation_fn
@@ -1411,6 +1416,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         normalize_images: bool = True,
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        device: Union[th.device, str] = "auto",
         n_critics: int = 2,
     ):
         super().__init__(
@@ -1423,6 +1429,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
             squash_output=True,
             normalize_images=normalize_images,
         )
+
         self.activation_fn = activation_fn
         self.mpc_action_dim = 2
         self.critic_kwargs = {
@@ -1444,20 +1451,19 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         }
 
         self.lr_schedule = lr_schedule
-        self._build_critic(lr_schedule)
+        self._build_critic(lr_schedule, device)
 
-        mpc_param_provider_kwargs.update({"features_dim": self.critic.features_extractor.features_dim})
         self.mpc_param_provider_kwargs = mpc_param_provider_kwargs
         self._build_actor(lr_schedule)
 
-    def _build_critic(self, lr_schedule: Schedule) -> None:
+    def _build_critic(self, lr_schedule: Schedule, device: Union[th.device, str]) -> None:
         # Create a separate features extractor for the critic
         # this requires more memory and computation
-        self.critic = self.make_critic(features_extractor=None)
+        self.critic = self.make_critic(features_extractor=None, device=device)
         critic_parameters = list(self.critic.parameters())
 
         # Critic target should not share the features extractor with critic
-        self.critic_target = self.make_critic(features_extractor=None)
+        self.critic_target = self.make_critic(features_extractor=None, device=device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         self.critic.optimizer = self.optimizer_class(
@@ -1469,9 +1475,11 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         # Target networks should always be in eval mode
         self.critic_target.set_training_mode(False)
 
-    def _build_actor(self, lr_schedule: Schedule) -> None:
+    def _build_actor(
+        self, lr_schedule: Schedule, feature_extractor: Optional[rlmpc_fe.CombinedExtractor] = None
+    ) -> None:
+        self.actor_kwargs = self._update_features_extractor(self.actor_kwargs, features_extractor=feature_extractor)
         self.actor = SACMPCParameterProviderActor(**self.actor_kwargs)
-        self.actor.features_extractor = self.critic.features_extractor  # share features extractor with critic
         self.actor.optimizer = self.optimizer_class(
             self.actor.mpc_param_provider.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
         )
@@ -1484,7 +1492,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
 
         """
         self.critic_kwargs["net_arch"] = critic_arch
-        self._build_critic(self.lr_schedule)
+        self._build_critic(self.lr_schedule, device=self.device)
         self._build_actor(self.lr_schedule)
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
@@ -1504,12 +1512,15 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         )
         return data
 
-    def make_critic(self, features_extractor: Optional[rlmpc_fe.CombinedExtractor] = None) -> ContinuousCritic:
+    def make_critic(
+        self, features_extractor: Optional[rlmpc_fe.CombinedExtractor] = None, device: Union[th.device, str] = "cpu"
+    ) -> ContinuousCritic:
         critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
+        critic_kwargs["features_extractor"] = critic_kwargs["features_extractor"].to(device)
         critic_kwargs.update(
             {"action_space": spaces.Box(low=-1.0, high=1.0, shape=(self.mpc_action_dim,), dtype=np.float32)}
         )
-        return ContinuousCritic(**critic_kwargs).to(self.device)
+        return ContinuousCritic(**critic_kwargs).to(device)
 
     def _predict(
         self,

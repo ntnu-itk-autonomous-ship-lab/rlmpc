@@ -40,20 +40,21 @@ def main(args):
     parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp000")
     parser.add_argument("--n_training_envs", type=int, default=3)
     parser.add_argument("--learning_rate", type=float, default=0.0002)
-    parser.add_argument("--buffer_size", type=int, default=25000)
+    parser.add_argument("--buffer_size", type=int, default=15000)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--eval_freq", type=int, default=9500)
+    parser.add_argument("--eval_freq", type=int, default=4500)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1_000_000)
-    parser.add_argument("--n_timesteps_per_learn", type=int, default=10000)
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
     parser.add_argument("--load_model", default=False, action="store_true")
-    parser.add_argument("--load_critics", default=False, action="store_true")
+    parser.add_argument("--load_critics", default=True, action="store_true")
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -174,7 +175,7 @@ def main(args):
         "train_freq": (args.train_freq, "step"),
         "learning_starts": 100 if not load_model else 0,
         "tau": 0.009,
-        "device": "cpu",
+        "device": args.device,
         "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
@@ -215,14 +216,16 @@ def main(args):
             seed=0,
             iteration=i + 1,
             timesteps_completed=timesteps_completed,
-            episodes_completed=episodes_completed
+            episodes_completed=episodes_completed,
         )
         timesteps_completed = timesteps_completed + model.num_timesteps
         episodes_completed = episodes_completed + model.num_episodes
         model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
         model.save(model_path)
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
-        print(f"[SAC RLMPC] Replay buffer size: {model.replay_buffer.size()} | Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}")
+        print(
+            f"[SAC RLMPC] Replay buffer size: {model.replay_buffer.size()} | Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}"
+        )
         print(
             f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * timesteps_completed / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
         )
