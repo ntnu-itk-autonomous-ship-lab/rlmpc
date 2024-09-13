@@ -488,9 +488,9 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_losses = []
 
         if isinstance(self.actor, rlmpc_policies.SACMPCActor):
-            cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std))).to(self.device)
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std))).float().to(self.device)
         else:
-            cov_inv = th.inverse(th.diag(th.exp(self.actor.mpc_log_std))).to(self.device)
+            cov_inv = th.inverse(th.diag(th.exp(self.actor.mpc_log_std))).float().to(self.device)
         for b in range(batch_size):
             actor_info = replay_data.infos[b]["actor_info"]
             if not actor_info["optimal"]:
@@ -498,7 +498,7 @@ class SAC(opa.OffPolicyAlgorithm):
 
             da_dp_mpc = actor_info["da_dp_mpc"]
             mpc_param_grad_norms.append(np.linalg.norm(da_dp_mpc))
-            da_dp_mpc = th.from_numpy(da_dp_mpc).to(self.device)
+            da_dp_mpc = th.from_numpy(da_dp_mpc).float().to(self.device)
             # print(f"da_dp_mpc: {da_dp_mpc.numpy()}")
             da_dp_mpc.requires_grad = False
             d_log_pi_dp = (

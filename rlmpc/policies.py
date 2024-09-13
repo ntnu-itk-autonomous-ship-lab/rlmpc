@@ -348,7 +348,7 @@ class MPCParameterDNN(th.nn.Module):
             return grads
 
         # no we can use vmap to calculate the gradients for all samples at once
-        dnn_jacobians = th.vmap(compute_sample_jacobian)(x)
+        dnn_jacobians = th.vmap(compute_sample_jacobian)(x).float()
         return dnn_jacobians
 
 
