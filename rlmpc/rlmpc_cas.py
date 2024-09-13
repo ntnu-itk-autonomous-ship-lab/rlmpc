@@ -99,7 +99,7 @@ class RLMPC(ci.ICOLAV):
     Args:
         config (RLMPCParams | Path): The configuration parameters for the RL-MPC.
         identifier (str): Identifier for the RL-MPC, used for multiprocessing process IDs.
-
+        acados_code_gen_path (str): Path to the acados code generation folder.
     """
 
     def __init__(self, config: RLMPCParams | Path = dp.rlmpc_config, identifier: str = "", acados_code_gen_path: str = None) -> None:
@@ -707,9 +707,6 @@ class RLMPC(ci.ICOLAV):
             self._mpc_trajectory = self._mpc_soln["trajectory"]
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
             self._mpc_inputs = self._mpc_soln["inputs"]
-
-            if t > 280.0:
-                print("")
 
             if self._debug:
                 if self._mpc_traj_handle:

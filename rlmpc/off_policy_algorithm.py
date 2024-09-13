@@ -131,7 +131,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.num_episodes: int = 0
         self._convert_train_freq()
         self.num_timesteps: int = 0
-        self._episode_num: int = 0
         self.data_path: Path = data_path
         self.last_training_info: Dict[str, Any] = {}
         self.last_rollout_info: Dict[str, Any] = {}
@@ -383,7 +382,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         train_freq: sb3_types.TrainFreq,
         replay_buffer: rlmpc_buffers.ReplayBuffer,
         action_noise: Optional[np.ndarray] = None,
-        learning_starts: int = 10,
+        learning_starts: int = 0,
         log_interval: Optional[int] = None,
     ) -> sb3_types.RolloutReturn:
         """
@@ -520,13 +519,12 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             for idx, done in enumerate(dones):
                 if done:
-                    print(f"Rollout collection for episode {self._episode_num} finished")
+                    print(f"Rollout collection for episode {self.num_episodes} finished")
                     self.non_optimal_solutions_per_episode[idx] = self._last_infos[idx]["actor_info"][
                         "non_optimal_solutions_per_episode"
                     ]
                     num_collected_episodes += 1
                     self.num_episodes += 1
-                    self._episode_num += 1
                     action_count = 0
                     self._last_actor_info[idx] = {}
                     self._last_dones[idx] = False
@@ -539,7 +537,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                         kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
                         action_noise.reset(**kwargs)
 
-                    if log_interval is not None and self._episode_num % log_interval == 0:
+                    if log_interval is not None and self.num_episodes % log_interval == 0:
                         self._dump_logs()
                         self.just_dumped_rollout_logs = True
 
@@ -688,7 +686,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         """
         time_elapsed = max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
         fps = int((self.num_timesteps - self._num_timesteps_at_start) / time_elapsed)
-        self.logger.record("time/episodes", self._episode_num, exclude="tensorboard")
+        self.logger.record("time/episodes", self.num_episodes, exclude="tensorboard")
         self.logger.record(
             "rollout/non_optimal_solutions_per_episode",
             self.non_optimal_solutions_per_episode.mean(),
@@ -718,7 +716,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "timesteps": self.num_timesteps,
                 "mean_episode_reward": ep_rew_mean,
                 "mean_episode_length": ep_len_mean,
-                "episodes": self._episode_num,
+                "episodes": self.num_episodes,
                 "success_rate": success_rate,
                 "non_optimal_solution_rate": 100.0 * self.non_optimal_solutions_per_episode.mean(),
             }

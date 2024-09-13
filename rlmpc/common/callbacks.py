@@ -63,6 +63,7 @@ class CollectStatisticsCallback(BaseCallback):
         log_freq: int = 1,
         max_num_env_episodes: int = 1_000,
         max_num_training_stats_entries: int = 30_000,
+        minimal_logging: bool = True,
         verbose: int = 1,
     ):
         """Initializes the CollectStatisticsCallback class.
@@ -75,9 +76,10 @@ class CollectStatisticsCallback(BaseCallback):
             save_stats_freq (int): Frequency to save statistics in number of steps.
             save_agent_model_freq (int): Frequency to save the agent model in number of steps.
             log_freq (int): Frequency to log statistics in number of steps.
-            verbose (int, optional): Verbosity level.
             max_num_env_episodes (int, optional): Maximum number of episodes to log before save and reset.
             max_num_training_stats_entries (int, optional): Maximum number of training statistics entries to store.
+            minimal_logging (bool, optional): Whether to log only the most important env information (rewards and episode termination/truncation diagnostics).
+            verbose (int, optional): Verbosity level.
         """
         super(CollectStatisticsCallback, self).__init__(verbose)
         self.experiment_name = experiment_name
@@ -90,12 +92,14 @@ class CollectStatisticsCallback(BaseCallback):
         self.last_ep_rew_mean: float = 0.0
         self.model_save_path = model_dir
         self.log_dir = log_dir
+        self.num_timesteps_start = 0
         self.num_envs = env.num_envs if isinstance(env, SubprocVecEnv) else 1
         self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(
             experiment_name,
             self.log_dir,
             n_envs=self.num_envs,
             max_num_logged_episodes=max_num_env_episodes,
+            minimal_logging=minimal_logging,
         )
         self.training_stats_logger: rlmpc_logger.Logger = rlmpc_logger.Logger(
             experiment_name, self.log_dir, max_num_entries=max_num_training_stats_entries
@@ -124,6 +128,10 @@ class CollectStatisticsCallback(BaseCallback):
 
         self.n_updates_prev = 0
         self.last_ep_rew_mean = 0.0
+        self.num_timesteps_start = self.num_timesteps
+
+    def _on_training_start(self) -> None:
+        self.num_timesteps_start = self.num_timesteps
 
     def extract_training_info(self, model: "type_aliases.PolicyPredictor") -> Tuple[Dict[str, Any], bool]:
         """Extracts training information from the model.
@@ -182,7 +190,7 @@ class CollectStatisticsCallback(BaseCallback):
         if np.any(done_array):
             self.n_episodes += np.sum(done_array).item()
 
-        if self.num_timesteps % self.log_freq == 0 or np.any(done_array) > 0:
+        if (self.num_timesteps - self.num_timesteps_start) % self.log_freq == 0 or np.any(done_array) > 0:
             # for env_idx in range(self.num_envs):
             #     if np.any(done_array):  # only one element in done_array for SAC
             #         infos[env_idx] = self.prev_infos[env_idx]
@@ -205,7 +213,7 @@ class CollectStatisticsCallback(BaseCallback):
                 if hasattr(self.model, "just_trained"):
                     self.model.just_trained = False
 
-            current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
+            # current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
             # if "PerceptionImageObservation" in current_obs:
             #     pimg = th.from_numpy(current_obs["PerceptionImageObservation"])
             #     pimg = self.img_transform(pimg)
@@ -216,14 +224,14 @@ class CollectStatisticsCallback(BaseCallback):
             #     self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
             #     self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
-        if self.num_timesteps % self.save_agent_freq == 0:
-            # print("Saving agent after", self.num_timesteps, "timesteps")
+        if (self.num_timesteps - self.num_timesteps_start) % self.save_agent_freq == 0:
+            print("Saving agent after", self.num_timesteps, "timesteps")
             # NMPC SAC model must have a custom_save method
             self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
             if hasattr(self.model, "save_replay_buffer"):
                 self.model.save_replay_buffer(self.model_save_path / f"{self.experiment_name}_replay_buffer")
 
-        if self.num_timesteps % self.save_stats_freq == 0:
+        if (self.num_timesteps - self.num_timesteps_start) % self.save_stats_freq == 0:
             # print("Saving training data after", self.num_timesteps, "timesteps")
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
@@ -245,22 +253,22 @@ class EvalCallback(EventCallback):
 
     Args:
         - eval_env (Union[colav_env.COLAVEnvironment, VecEnv]): The environment used for initialization
-        - eval_model (Optional[BaseAlgorithm], optional): The model to evaluate. If not specified, uses the model associated with the callback.
         - callback_on_new_best (Optional[BaseCallback], optional): Callback to trigger
             when there is a new best model according to the ``mean_reward``
         - callback_after_eval (Optional[BaseCallback], optional): Callback to trigger after every evaluation
-        - n_eval_episodes (int, optional): The number of episodes to test the agent. Defaults to 5.
-        - eval_freq (int, optional): Evaluate the agent every ``eval_freq`` call of the callback. Defaults to 10000.
+        - minimal_env_logging (bool, optional): Whether to log only the most important env information (rewards and episode termination/truncation diagnostics).
+        - n_eval_episodes (int, optional): The number of episodes to test the agent.
+        - eval_freq (int, optional): Evaluate the agent every ``eval_freq`` call of the callback.
         - log_path (Optional[str], optional): Path to a folder where the evaluations (``evaluations.npz``)
-            will be saved. It will be updated at each evaluation. Defaults to None.
+            will be saved. It will be updated at each evaluation.
         - best_model_save_path (Optional[str], optional): Path to a folder where the best model
-            according to performance on the eval env will be saved. Defaults to None.
-        - video_save_path (Optional[str], optional): Path to a folder where videos of the agent will be saved. Defaults to None.
-        - deterministic (bool, optional): Whether the evaluation should use a stochastic or deterministic actions. Defaults to True.
-        - render (bool, optional): Whether to render or not the environment during evaluation. Defaults to False.
-        - verbose (int, optional): Verbosity level: 0 for no output, 1 for indicating information about evaluation results. Defaults to 1.
+            according to performance on the eval env will be saved.
+        - video_save_path (Optional[str], optional): Path to a folder where videos of the agent will be saved.
+        - deterministic (bool, optional): Whether the evaluation should use a stochastic or deterministic actions.
+        - render (bool, optional): Whether to render or not the environment during evaluation.
+        - verbose (int, optional): Verbosity level: 0 for no output, 1 for indicating information about evaluation results.
         - warn (bool, optional): Passed to ``evaluate_policy`` (warns if ``eval_env`` has not been
-            wrapped with a Monitor wrapper). Defaults to True.
+            wrapped with a Monitor wrapper).
     """
 
     def __init__(
@@ -269,6 +277,7 @@ class EvalCallback(EventCallback):
         log_path: Path,
         callback_on_new_best: Optional[BaseCallback] = None,
         callback_after_eval: Optional[BaseCallback] = None,
+        minimal_env_logging: bool = False,
         n_eval_episodes: int = 5,
         eval_freq: int = 10000,
         experiment_name: str = "eval",
@@ -291,6 +300,7 @@ class EvalCallback(EventCallback):
         self.render = render
         self.record = record
         self.warn = warn
+        self.num_timesteps_start = 0
 
         # Convert to VecEnv for consistency
         if not isinstance(eval_env, VecEnv):
@@ -308,6 +318,7 @@ class EvalCallback(EventCallback):
             log_dir=log_path,
             n_envs=self.num_envs,
             max_num_logged_episodes=100,
+            minimal_logging=minimal_env_logging,
         )
 
         self.evaluations_results = []
@@ -336,6 +347,11 @@ class EvalCallback(EventCallback):
         if self.callback_on_new_best is not None:
             self.callback_on_new_best.init_callback(self.model)
 
+        self.num_timesteps_start = self.num_timesteps
+
+    def _on_training_start(self) -> None:
+        self.num_timesteps_start = self.num_timesteps
+
     def _log_success_callback(self, locals_: Dict[str, Any], globals_: Dict[str, Any]) -> None:
         """
         Callback passed to the  ``evaluate_policy`` function
@@ -356,7 +372,8 @@ class EvalCallback(EventCallback):
     def _on_step(self) -> bool:
         continue_training = True
 
-        if self.eval_freq > 0 and self.num_timesteps % self.eval_freq == 0:
+        check = self.num_timesteps - self.num_timesteps_start
+        if self.eval_freq > 0 and check % self.eval_freq == 0:
             # Sync training and eval env if there is VecNormalize
             if self.model.get_vec_normalize_env() is not None:
                 try:

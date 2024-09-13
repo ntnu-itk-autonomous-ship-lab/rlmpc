@@ -87,11 +87,12 @@ def train_rlmpc_sac(
         log_dir=base_dir,
         model_dir=model_dir,
         experiment_name=experiment_name,
-        save_stats_freq=20,
-        save_agent_model_freq=1000,
-        log_freq=5,
+        save_stats_freq=200,
+        save_agent_model_freq=200,
+        log_freq=n_training_envs,
         max_num_env_episodes=1000,
         max_num_training_stats_entries=40000,
+        minimal_logging=True,
         verbose=1,
     )
     if n_eval_envs == 1:
@@ -105,7 +106,7 @@ def train_rlmpc_sac(
         log_path=base_dir / "eval_data",
         eval_freq=eval_freq,
         n_eval_episodes=n_eval_episodes,
-        # callback_after_eval=stop_train_callback,
+        minimal_env_logging=False,
         experiment_name=experiment_name,
         record=True,
         render=True,
@@ -125,7 +126,11 @@ def train_rlmpc_sac(
             train_freq=model_kwargs["train_freq"],
             replay_buffer_kwargs=model_kwargs["replay_buffer_kwargs"],
             tensorboard_log=base_dir / "logs",
+            num_episodes=episodes_completed,
             verbose=1,
+        )
+        print(
+            f"Before learn: | Number of timesteps completed: {timesteps_completed} | Number of episodes completed: {model.num_episodes}"
         )
         print(f"Loading model at {load_model_path}")
         model.load_replay_buffer(path=load_rb_path)
