@@ -5,7 +5,7 @@
 #SBATCH --job-name=train_snmpc
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
-#SBATCH --time=5-12:00:00
+#SBATCH --time=2-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=12
@@ -19,12 +19,12 @@ NCPUS=12 # Equal to number of training environments
 N_EVAL_ENVS=4
 TRAIN_FREQ=16
 GRADIENT_STEPS=4
-BUFFER_SIZE=200000
+BUFFER_SIZE=100000
 DEVICE="cpu"
 MAX_NUM_TRAIN_EPS=1 # Maximum number of loaded training episodes
 MAX_NUM_EVAL_EPS=1 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=1
-EXPERIMENT_NAME="snmpc1_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_${NCPUS}cpus_"
+EXPERIMENT_NAME="snmpc0_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_${NCPUS}cpus"
 TIMESTEPS=10_000_000
 N_TIMESTEPS_PER_LEARN=10000
 

@@ -41,11 +41,11 @@ def main(args):
     parser.add_argument("--n_training_envs", type=int, default=3)
     parser.add_argument("--learning_rate", type=float, default=0.0002)
     parser.add_argument("--buffer_size", type=int, default=15000)
-    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=2)
-    parser.add_argument("--eval_freq", type=int, default=4500)
+    parser.add_argument("--eval_freq", type=int, default=10000)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=1_000_000)
     parser.add_argument("--device", type=str, default="cpu")
@@ -151,7 +151,7 @@ def main(args):
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [400, 400, 300],  # [458, 242, 141],
+        "hidden_sizes": [600, 500],  # [458, 242, 141],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
