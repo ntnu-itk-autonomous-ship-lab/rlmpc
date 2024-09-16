@@ -224,14 +224,18 @@ class CollectStatisticsCallback(BaseCallback):
             #     self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
             #     self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
-        if (self.num_timesteps - self.num_timesteps_start) > 0 and (self.num_timesteps - self.num_timesteps_start) % self.save_agent_freq == 0:
+        if (self.num_timesteps - self.num_timesteps_start) > 0 and (
+            self.num_timesteps - self.num_timesteps_start
+        ) % self.save_agent_freq == 0:
             print("Saving agent after", self.num_timesteps, "timesteps")
             # NMPC SAC model must have a custom_save method
             self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
             if hasattr(self.model, "save_replay_buffer"):
                 self.model.save_replay_buffer(self.model_save_path / f"{self.experiment_name}_replay_buffer")
 
-        if (self.num_timesteps - self.num_timesteps_start) > 0 and (self.num_timesteps - self.num_timesteps_start) % self.save_stats_freq == 0:
+        if (self.num_timesteps - self.num_timesteps_start) > 0 and (
+            self.num_timesteps - self.num_timesteps_start
+        ) % self.save_stats_freq == 0:
             # print("Saving training data after", self.num_timesteps, "timesteps")
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
@@ -296,6 +300,7 @@ class EvalCallback(EventCallback):
         self.n_eval_episodes = n_eval_episodes
         self.eval_freq = eval_freq
         self.best_mean_reward = -np.inf
+        self.worst_mean_reward = np.inf
         self.last_mean_reward = -np.inf
         self.render = render
         self.record = record
@@ -309,6 +314,7 @@ class EvalCallback(EventCallback):
         self.experiment_name = experiment_name
         self.eval_env = eval_env
         self.best_model_save_path = log_path
+        self.worst_model_save_path = log_path
         self.log_path = log_path
         self.video_save_path = log_path / "eval_videos"
         self.num_envs = eval_env.num_envs if isinstance(eval_env, SubprocVecEnv) else 1
@@ -463,11 +469,16 @@ class EvalCallback(EventCallback):
                     # if hasattr(self.model, "custom_save"):
                     #     self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
                     # else:
-                    self.model.save(Path(self.best_model_save_path / f"best_model_eval_at_{self.num_timesteps}_steps"))
+                    self.model.save(Path(self.best_model_save_path / "best_model_eval"))
                 self.best_mean_reward = mean_reward
                 # Trigger callback on new best model, if needed
                 if self.callback_on_new_best is not None:
                     continue_training = self.callback_on_new_best.on_step()
+
+            if mean_reward < self.worst_mean_reward:
+                self.worst_mean_reward = mean_reward
+                if self.worst_model_save_path is not None:
+                    self.model.save(Path(self.worst_model_save_path / "worst_model_eval"))
 
             # Trigger callback after every evaluation, if needed
             if self.callback is not None:
@@ -689,7 +700,6 @@ def evaluate_policy(
             frame = env.render()
             frames.append(frame)
 
-    env.close()
     if record_type == "gif":
         ihm.save_frames_as_gif(frames, record_path / f"{record_name}.gif", verbose=False)
 

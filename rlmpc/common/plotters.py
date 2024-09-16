@@ -8,7 +8,7 @@
 """
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import colav_simulator.common.image_helper_methods as ihm
 import colav_simulator.gym.logger as csenv_logger
@@ -89,6 +89,8 @@ def plot_single_model_enc_snapshots(
     for i, idx in enumerate(indices):
         ax = plt.subplot(gs[i])
         episode = data[idx]
+        if episode.frames.size == 0:
+            continue
         ep_len = len(episode.frames)
         frame = episode.frames[int(3 * ep_len / 4)]
         # upscale the image
@@ -363,6 +365,132 @@ def plot_single_model_training_stats(
     plt.show(block=False)
 
 
+def plot_multiple_model_eval_results(
+    eval_data_list: List[Dict[str, Any]],
+    model_names: List[str],
+    save_fig: bool = False,
+    save_path: Path = None,
+) -> None:
+    """Plots the evaluation results for multiple models, with different colors for each model and different markers for different outcomes.
+
+    Args:
+        eval_data_list (List[Dict[str, Any]]): List of tuples containing evaluation return data dictionaries (timesteps, episode lengths, and results) and indices for different outcomes (goal reached, colliding, grounding, truncating, actor failed).
+        model_names (List[str]): List of model names.
+        save_fig (bool, optional): Whether to save the figure.
+        save_path (Path, optional): Path to save the figure.
+    """
+    fig, axs = plt.subplots(2, 1, figsize=(15, 10), num="mm_eval_results")
+    fig.subplots_adjust(hspace=0.3, wspace=0.25)
+    colors = sns.color_palette("tab10", n_colors=len(eval_data_list))
+    for name, data in zip(model_names, eval_data_list):
+        goal_reached_indices = data[1]
+        colliding_indices = data[2]
+        grounding_indices = data[3]
+        truncating_indices = data[4]
+        actor_failed_indices = data[5]
+
+        color = colors.pop()
+        ts_gr = [data[0]["timesteps"][i] for i in goal_reached_indices]
+        ts_col = [data[0]["timesteps"][i] for i in colliding_indices]
+        ts_grd = [data[0]["timesteps"][i] for i in grounding_indices]
+        ts_tr = [data[0]["timesteps"][i] for i in truncating_indices]
+        ts_af = [data[0]["timesteps"][i] for i in actor_failed_indices]
+        axs[0].plot(data[0]["timesteps"], data[0]["ep_lengths"], label=name, color=color)
+        axs[0].scatter(ts_gr, [data[0]["ep_lengths"][i] for i in goal_reached_indices], color="green", marker="o")
+        axs[0].scatter(ts_col, [data[0]["ep_lengths"][i] for i in colliding_indices], color="red", marker="o")
+        axs[0].scatter(ts_grd, [data[0]["ep_lengths"][i] for i in grounding_indices], color="red", marker="o")
+        axs[0].scatter(ts_tr, [data[0]["ep_lengths"][i] for i in truncating_indices], color="yellow", marker="o")
+        axs[0].scatter(ts_af, [data[0]["ep_lengths"][i] for i in actor_failed_indices], color="red", marker="o")
+        axs[0].set_ylabel("Episode length")
+        axs[1].plot(data[0]["timesteps"], data[0]["results"], label=name, color=color)
+        axs[1].scatter(ts_gr, [data[0]["results"][i] for i in goal_reached_indices], color="green", marker="o")
+        axs[1].scatter(ts_col, [data[0]["results"][i] for i in colliding_indices], color="red", marker="o")
+        axs[1].scatter(ts_grd, [data[0]["results"][i] for i in grounding_indices], color="red", marker="o")
+        axs[1].scatter(ts_tr, [data[0]["results"][i] for i in truncating_indices], color="yellow", marker="o")
+        axs[1].scatter(ts_af, [data[0]["results"][i] for i in actor_failed_indices], color="red", marker="o")
+        axs[1].set_xlabel("Timesteps")
+        axs[1].set_ylabel("Return")
+    axs[0].legend()
+    axs[1].legend()
+    plt.show(block=False)
+    if save_fig:
+        save_path = save_path if save_path is not None else Path("./")
+        if not save_path.exists():
+            save_path.mkdir(parents=True)
+        fig.savefig(save_path / "mm_eval_results.pdf", bbox_inches="tight", dpi=100)
+
+
+def plot_multiple_model_worst_and_best_episode_data(
+    wb_env_data_list: List[Tuple[csgym_logger.EpisodeData, csgym_logger.EpisodeData]],
+    model_names: List[str],
+    save_fig: bool = False,
+    save_path: Path = None,
+) -> None:
+    """Plots the worst and best episode data for each model in the list.
+
+    Args:
+        wb_env_data_list (List[Tuple[csgym_logger.EpisodeData, csgym_logger.EpisodeData]]): Worst and best episode data for each model.
+        model_names (List[str]): List of model names.
+        save_fig (bool, optional): Whether to save the figure.
+        save_path (Path, optional): Path to save the figure.
+    """
+    colors = sns.color_palette("tab10", n_colors=len(wb_env_data_list))
+    for name, data in zip(model_names, wb_env_data_list):
+        color = colors.pop()
+        plot_episode_data_series(data[0], name=name + "_worst_ep", save_figs=save_fig, save_path=save_path)
+        plot_episode_data_series(data[1], name=name + "_best_ep", save_figs=save_fig, save_path=save_path)
+
+
+def plot_episode_data_series(
+    data: csgym_logger.EpisodeData,
+    name: str,
+    save_figs: bool = False,
+    save_path: Path = None,
+) -> Tuple[plt.axes, plt.axes]:
+    """Plots the episode data series.
+
+    Args:
+        axs (plt.Axes): Axes to plot on.
+        data (csgym_logger.EpisodeData): Episode data to plot.
+        name (str): Name of the model + episode used in saving the figure.
+        save_figs (bool, optional): Whether to save the figures.
+        save_path (Path, optional): Path to save the figure.
+    """
+    mpc_params = np.array([data.actor_infos[i]["old_mpc_params"] for i in range(len(data.actor_infos))])
+    r_safe_so = 5.0
+
+    fig1, axs1 = plt.subplots(2, 1, figsize=(15, 10), num="worst_ep_data1")
+    fig1.subplots_adjust(hspace=0.3, wspace=0.25)
+    times = np.linspace(0, data.timesteps, len(data.timesteps))
+    axs1[0].plot(times, data.distances_to_collision, label="Dist. to collision", color="r")
+    axs1[0].plot(times, data.distances_to_grounding, label="Dist. to grounding", color="r", linestyle="--")
+    axs1[0].plot(times, r_safe_so * np.ones_like(times), label="r_safe_so", color="k", linestyle="--")
+
+    # Plot, 1: distances to cllision and grounding, 2: figure for mpc parms (Q_p, K_app (course and speed), w_colreg, r_safe), 3: actions (course and speed refs) vs actual course and speed,
+
+    fig2, axs2 = plt.subplots(3, 1, figsize=(15, 10), num="worst_ep_data2")
+    fig2.subplots_adjust(hspace=0.3, wspace=0.25)
+    axs2[0].plot(times, mpc_params[:, 0], label="Q_p[0]")
+    axs2[0].plot(times, mpc_params[:, 1], label="Q_p[1]")
+    axs2[0].plot(times, mpc_params[:, 2], label="Q_p[2]")
+
+    axs2[1].plot(times, mpc_params[:, 3], label="K_app_course")
+    axs2[1].plot(times, mpc_params[:, 4], label="K_app_speed")
+
+    axs2[2].plot(times, mpc_params[:, 5], label="w_colregs[0]")
+    axs2[2].plot(times, mpc_params[:, 6], label="w_colregs[1]")
+    axs2[2].plot(times, mpc_params[:, 7], label="w_colregs[2]")
+
+    axs2[3].plot(times, mpc_params[:, 8], label="r_safe_do")
+
+    if save_figs:
+        save_path = save_path if save_path is not None else Path("./")
+        if not save_path.exists():
+            save_path.mkdir(parents=True)
+        fig1.savefig(save_path / (name + "_d2fail_actions.pdf"), bbox_inches="tight", dpi=100)
+        fig2.savefig(save_path / (name + "_mpc_params.pdf"), bbox_inches="tight", dpi=100)
+
+
 def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
     """Plots results from training.
 
@@ -386,7 +514,9 @@ def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
         training_stats_list.append(smoothed_training_stats)
 
         if plot_env_snapshots or plot_reward_curves:
-            env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+            env_logger = csenv_logger.Logger(
+                experiment_name=experiment_name, log_dir=log_dir, max_num_logged_episodes=1000000
+            )
             env_logger.load_from_pickle(f"{experiment_name}_env_training_data")
             env_data_list.append(env_logger.env_data)
 
@@ -423,21 +553,75 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
         base_dir (Path): Base path to the experiment directories
         experiment_names (List[str]): List of experiment names (experiment folder names).
     """
-    env_data_list = []
-    reward_data_list = []
+    wb_env_data_list = []
+    eval_data_list = []
 
-    plot_env_snapshots = True
-    plot_reward_curves = True
+    plot_env_snapshots = False
+    plot_evaluation_curves = True
+    plot_worst_and_best_episode_data = True
     for experiment_name in experiment_names:
         log_dir = base_dir / experiment_name
+        eval_data_dir = log_dir / "eval_data"
+        env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+        env_data_pkl_file_list = [file for file in eval_data_dir.iterdir()]
+        env_data_pkl_file_list = [eval_data_dir / file.stem for file in env_data_pkl_file_list if file.suffix == ".pkl"]
+        env_data_pkl_file_list.sort(key=lambda x: int(x.stem.split("_")[-3]))
 
-        if plot_env_snapshots or plot_reward_curves:
-            env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
-            env_logger.load_from_pickle(f"{experiment_name}_env_data")
-            env_data_list.append(env_logger.env_data)
+        eval_return_data = {}
+        eval_return_data["timesteps"] = []
+        eval_return_data["ep_lengths"] = []
+        eval_return_data["results"] = []
+        npz_file_list = [file for file in eval_data_dir.iterdir()]
+        npz_file_list = [file for file in npz_file_list if file.suffix == ".npz"]
+        npz_file_list.sort(key=lambda x: int(x.stem.split("_")[-1]))
+        if not npz_file_list:
+            continue
 
-            reward_data = hf.extract_reward_data(env_logger.env_data)
-            reward_data_list.append(reward_data)
+        indices_with_above_100_ep_lengths = []
+        goal_reached_indices = []
+        colliding_indices = []
+        grounding_indices = []
+        truncating_indices = []
+        actor_failed_indices = []
+        for idx, npzf in enumerate(npz_file_list):
+            with np.load(npzf) as data:
+                eval_return_data["timesteps"].append(int(data["timesteps"].item()))
+                eval_return_data["ep_lengths"].append(int(data["ep_lengths"].item()))
+                eval_return_data["results"].append(float(data["results"].item()))
+                if int(data["ep_lengths"].item()) > 100:
+                    indices_with_above_100_ep_lengths.append(idx)
+
+            env_logger.load_from_pickle(str(env_data_pkl_file_list[idx]))
+            if env_logger.env_data[0].goal_reached:
+                goal_reached_indices.append(idx)
+            elif env_logger.env_data[0].collision:
+                colliding_indices.append(idx)
+            elif env_logger.env_data[0].grounding:
+                grounding_indices.append(idx)
+            elif env_logger.env_data[0].truncated:
+                truncating_indices.append(idx)
+            elif env_logger.env_data[0].actor_failure:
+                actor_failed_indices.append(idx)
+
+        eval_data_list.append(
+            (
+                eval_return_data,
+                goal_reached_indices,
+                colliding_indices,
+                grounding_indices,
+                truncating_indices,
+                actor_failed_indices,
+            )
+        )
+
+        if plot_worst_and_best_episode_data:
+            argmin_reward = int(np.argmin(eval_return_data["results"]))
+            argmax_reward = int(np.argmax([eval_return_data["results"][i] for i in indices_with_above_100_ep_lengths]))
+            env_logger.load_from_pickle(str(env_data_pkl_file_list[argmin_reward]))
+            worst_env_data = env_logger.env_data[0]
+            env_logger.load_from_pickle(str(env_data_pkl_file_list[argmax_reward]))
+            best_env_data = env_logger.env_data[0]
+            wb_env_data_list.append((worst_env_data, best_env_data))
 
         if plot_env_snapshots:
             plot_single_model_enc_snapshots(
@@ -448,18 +632,25 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
                 save_path=base_dir / experiment_name / "figures",
             )
 
-    if plot_reward_curves:
-        plot_multiple_model_reward_curves(
-            reward_data_list,
+    if plot_evaluation_curves:
+        plot_multiple_model_eval_results(
+            eval_data_list=eval_data_list,
             model_names=experiment_names,
             save_fig=True,
-            save_path=base_dir / experiment_name / "figures",
+            save_path=base_dir / "figures",
+        )
+    if plot_worst_and_best_episode_data:
+        plot_multiple_model_worst_and_best_episode_data(
+            wb_env_data_list=wb_env_data_list,
+            model_names=experiment_names,
+            save_fig=True,
+            save_path=base_dir / "figures",
         )
 
 
 if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["sac_nmpc_pp_db_3env"]
-    plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
-    # plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
+    experiment_names = ["snmpc_test"]
+    # plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
+    plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
     print("Done plotting")

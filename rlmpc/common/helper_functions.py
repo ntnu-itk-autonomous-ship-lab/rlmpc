@@ -485,7 +485,7 @@ def extract_reward_data(
     r_action_chatter = []
     r_dnn_pp = []
     ep_lengths = []
-    r_scale = 100.0
+    r_scale = 1.0
     for env_idx, env_data in enumerate(data):
         return_colreg_ep = np.sum([r["r_colreg"] for r in env_data.reward_components]) / r_scale
         return_colav_ep = np.sum([r["r_collision_avoidance"] for r in env_data.reward_components]) / r_scale

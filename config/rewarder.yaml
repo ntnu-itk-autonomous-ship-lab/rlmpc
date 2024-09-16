@@ -29,23 +29,23 @@ colreg:
     t_cpa_entry: 120.0  # time to CPA threshold for entry into COLREGS situation
     d_cpa_entry: 100.0  # distance to CPA threshold for entry into COLREGS situation
 readily_apparent_maneuvering:
-  alpha_app_course: [20.0, 0.0005]
+  alpha_app_course: [40.0, 0.0008]
   alpha_app_speed: [15.0, 0.001]
   K_app_course: 60.0
   K_app_speed: 30.0
   r_max: 8.0
   a_max: 0.3
 collision_avoidance:
-  rho_colav: 3000.0
+  rho_colav: 6000.0
   r_safe: 15.0
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
-  rho_anti_grounding: 3000.0
+  rho_anti_grounding: 6000.0
   r_safe: 5.0
 dnn_parameter_provider:
   disable: False
   rho_solver_time: 0.0
-  rho_qp_failure: 3000.0
+  rho_qp_failure: 6000.0
   rho_high_app_params: 0.0
   rho_safety_param: 5.0
   rho_diff_colreg_weights: 0.0

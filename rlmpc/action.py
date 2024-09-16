@@ -115,7 +115,10 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         self.non_optimal_solutions: int = 0
         self.debug: bool = debug
-        self.last_action: np.ndarray = np.zeros(self.mpc_action_dim)
+        self.last_action: np.ndarray = np.zeros(self.mpc_action_dim)  # last mpc action computed (unnormalized)
+        self.applied_refs: np.ndarray = np.zeros(
+            self.mpc_action_dim
+        )  # unnormalized course and speed applied as ownship references
         self.action_result: csgym_action.ActionResult = csgym_action.ActionResult(success=False, info={})
 
     def normalize_mpc_action(self, mpc_action: np.ndarray) -> np.ndarray:
@@ -376,6 +379,8 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             # )
             # expl_action = self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
 
+        self.apply_mpc_action(mpc_action)
+
         out_mpc_info = {
             "optimal": mpc_info["optimal"],  # 1 byte
             "qp_failure": mpc_info["qp_failure"],  # 1 byte
@@ -386,12 +391,10 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             "non_optimal_solutions_per_episode": float(self.non_optimal_solutions)
             / float(self.env.episodes),  # 4 bytes
             "norm_mpc_action": norm_mpc_action.astype(np.float32),  # 8 bytes
+            "applied_refs": self.applied_refs,  # 8 bytes
             "expl_action": expl_action,  # 8 bytes
             "new_mpc_params": mpc_info["new_mpc_params"],  # 36 bytes
         }
-        # rough size estimate: 150 bytes
-
-        self.apply_mpc_action(mpc_action)
 
         self.action_result = csgym_action.ActionResult(success=success, info=out_mpc_info)
         return self.action_result
@@ -406,6 +409,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         speed = self.env.ownship.speed
         course_ref = mf.wrap_angle_to_pmpi(mpc_action[0] + course)
         speed_ref = np.clip(mpc_action[1] + speed, self.env.ownship.min_speed + 0.5, self.env.ownship.max_speed)
+        self.applied_refs = np.array([course_ref, speed_ref], dtype=np.float32)
         refs = np.array([0.0, 0.0, course_ref, speed_ref, 0.0, 0.0, 0.0, 0.0, 0.0])
         self.env.ownship.set_references(refs)
         return

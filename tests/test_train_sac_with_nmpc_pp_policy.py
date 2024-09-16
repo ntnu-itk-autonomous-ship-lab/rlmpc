@@ -32,24 +32,24 @@ def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp000")
-    parser.add_argument("--n_training_envs", type=int, default=1)
+    parser.add_argument("--n_training_envs", type=int, default=4)
     parser.add_argument("--learning_rate", type=float, default=0.0002)
-    parser.add_argument("--buffer_size", type=int, default=15000)
+    parser.add_argument("--buffer_size", type=int, default=10000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
-    parser.add_argument("--n_eval_episodes", type=int, default=2)
+    parser.add_argument("--n_eval_episodes", type=int, default=4)
     parser.add_argument("--eval_freq", type=int, default=10000)
     parser.add_argument("--n_eval_envs", type=int, default=2)
-    parser.add_argument("--timesteps", type=int, default=2000)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--n_timesteps_per_learn", type=int, default=200)
+    parser.add_argument("--timesteps", type=int, default=100000)
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
-    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
-    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=50)
+    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=4)
     parser.add_argument("--load_model_name", type=str, default="")
     parser.add_argument("--load_critics", default=True, action="store_true")
-    parser.add_argument("--reset_num_timesteps", default=False, action="store_true")
+    parser.add_argument("--reset_num_timesteps", default=True, action="store_true")
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -117,7 +117,7 @@ def main(args):
         "shuffle_loaded_scenario_data": False,
         "identifier": "training_env_" + args.experiment_name,
         "seed": 0,
-        "verbose": True,
+        "verbose": False,
     }
 
     eval_env_config = copy.deepcopy(training_env_config)
@@ -133,10 +133,10 @@ def main(args):
     )
 
     load_model = True if not args.load_model_name == "" else False
-    load_name = "snmpc_db_200te_5ee_16cpus"
-    rb_load_name = "snmpc_db_200te_5ee_16cpus"
+
     load_model_name = args.load_model_name if not args.load_model_name else "snmpc_db_200te_5ee_16cpus"
-    model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_71888_steps"
+    rb_load_name = args.load_model_name if not args.load_model_name else "snmpc_db_200te_5ee_16cpus"
+    model_path = str(base_dir.parents[0]) + f"/{load_model_name}/models/{load_model_name}_71888_steps"
     load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer.pkl"
 
     load_critic = args.load_critics

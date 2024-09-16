@@ -369,6 +369,7 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
         super().__init__(env)
         self._config = config
         self.last_reward = 0.0
+        self.verbose = False
 
     def compute_dynamic_obstacle_constraint(self, do_tuple: Tuple[int, np.ndarray, np.ndarray, float, float]) -> float:
         """Compute the dynamic obstacle constraint for the given dynamic obstacle.
@@ -401,7 +402,7 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
             d2do = np.linalg.norm(self.env.ownship.state[:2] - do_tup[1][:2])
             g_do[i] = self.compute_dynamic_obstacle_constraint(do_tup)
             g_do[i] = np.clip(g_do[i], 0.0, 1.0)
-            if g_do[i] > 0.0:
+            if g_do[i] > 0.0 and self.verbose:
                 print(
                     f"[{self.env.env_id.upper()}] Dynamic obstacle {i} is too close to the ownship! g_do[i] = {g_do[i]} | distance = {d2do}."
                 )

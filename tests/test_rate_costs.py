@@ -51,9 +51,9 @@ if __name__ == "__main__":
     r = np.linspace(-r_max, r_max, n)
 
     # alpha_app = [112.5, 0.00006, 8.0, 0.001]
-    # alpha_app = [15.0, 0.0005, 8.0, 0.001]
-    alpha_app = [40.0, 0.003, 40.0, 0.005]
-    K_app = [40.0, 40.0]
+    alpha_app = [40.0, 0.001, 15.0, 0.001]
+    # alpha_app = [40.0, 0.003, 40.0, 0.005]
+    K_app = [60.0, 30.0]
 
     r_costs = np.zeros(n)
     a_costs = np.zeros(n)
