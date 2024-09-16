@@ -469,7 +469,7 @@ class EvalCallback(EventCallback):
                     # if hasattr(self.model, "custom_save"):
                     #     self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
                     # else:
-                    self.model.save(Path(self.best_model_save_path / f"best_model_eval"))
+                    self.model.save(Path(self.best_model_save_path / "best_model_eval"))
                 self.best_mean_reward = mean_reward
                 # Trigger callback on new best model, if needed
                 if self.callback_on_new_best is not None:
@@ -478,7 +478,7 @@ class EvalCallback(EventCallback):
             if mean_reward < self.worst_mean_reward:
                 self.worst_mean_reward = mean_reward
                 if self.worst_model_save_path is not None:
-                    self.model.save(Path(self.worst_model_save_path / f"worst_model_eval"))
+                    self.model.save(Path(self.worst_model_save_path / "worst_model_eval"))
 
             # Trigger callback after every evaluation, if needed
             if self.callback is not None:
@@ -700,7 +700,6 @@ def evaluate_policy(
             frame = env.render()
             frames.append(frame)
 
-    env.close()
     if record_type == "gif":
         ihm.save_frames_as_gif(frames, record_path / f"{record_name}.gif", verbose=False)
 
