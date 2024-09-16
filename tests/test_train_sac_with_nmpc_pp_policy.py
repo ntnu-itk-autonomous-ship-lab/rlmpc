@@ -32,7 +32,7 @@ def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
     parser.add_argument("--experiment_name", type=str, default="sac_nmpc_pp000")
-    parser.add_argument("--n_training_envs", type=int, default=4)
+    parser.add_argument("--n_training_envs", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.0002)
     parser.add_argument("--buffer_size", type=int, default=15000)
     parser.add_argument("--batch_size", type=int, default=64)
@@ -47,8 +47,9 @@ def main(args):
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
-    parser.add_argument("--load_model", default=False, action="store_true")
+    parser.add_argument("--load_model_name", type=str, default="")
     parser.add_argument("--load_critics", default=True, action="store_true")
+    parser.add_argument("--reset_num_timesteps", default=False, action="store_true")
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -131,9 +132,10 @@ def main(args):
         }
     )
 
-    load_model = args.load_model
-    load_name = "sac_nmpc_pp_db"
-    rb_load_name = "sac_nmpc_pp_db"
+    load_model = True if not args.load_model_name == "" else False
+    load_name = "snmpc_db_200te_5ee_16cpus"
+    rb_load_name = "snmpc_db_200te_5ee_16cpus"
+    load_model_name = args.load_model_name if not args.load_model_name else "snmpc_db_200te_5ee_16cpus"
     model_path = str(base_dir.parents[0]) + f"/{load_name}/models/{load_name}_71888_steps"
     load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer.pkl"
 
@@ -145,7 +147,7 @@ def main(args):
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [600, 500],  # [458, 242, 141],
+        "hidden_sizes": [500, 500],  # [458, 242, 141],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
@@ -182,12 +184,14 @@ def main(args):
     vecenv_failed = False
     timesteps_completed = 0
     episodes_completed = 0
+    reset_num_timesteps = args.reset_num_timesteps
     for i in range(n_learn_iterations):
         if i > 0:
             load_critic = False
             load_model = True
             load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer.pkl"
             model_kwargs["learning_starts"] = 0
+            reset_num_timesteps = False
 
         model, vecenv_failed = train_rlmpc_sac(
             model_kwargs=model_kwargs,
@@ -209,6 +213,7 @@ def main(args):
             load_rb_path=load_rb_path,
             seed=0,
             iteration=i + 1,
+            reset_num_timesteps=reset_num_timesteps,
             timesteps_completed=timesteps_completed,
             episodes_completed=episodes_completed,
         )

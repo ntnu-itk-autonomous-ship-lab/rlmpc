@@ -224,14 +224,14 @@ class CollectStatisticsCallback(BaseCallback):
             #     self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
             #     self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
-        if (self.num_timesteps - self.num_timesteps_start) % self.save_agent_freq == 0:
+        if (self.num_timesteps - self.num_timesteps_start) > 0 and (self.num_timesteps - self.num_timesteps_start) % self.save_agent_freq == 0:
             print("Saving agent after", self.num_timesteps, "timesteps")
             # NMPC SAC model must have a custom_save method
             self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
             if hasattr(self.model, "save_replay_buffer"):
                 self.model.save_replay_buffer(self.model_save_path / f"{self.experiment_name}_replay_buffer")
 
-        if (self.num_timesteps - self.num_timesteps_start) % self.save_stats_freq == 0:
+        if (self.num_timesteps - self.num_timesteps_start) > 0 and (self.num_timesteps - self.num_timesteps_start) % self.save_stats_freq == 0:
             # print("Saving training data after", self.num_timesteps, "timesteps")
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")

@@ -1,11 +1,11 @@
 
 
 trajectory_tracking:
-  rho_d2path: 0.5
+  rho_d2path: 0.3
   rho_d2goal: 0.0
   rho_speed_dev: 50.0
   rho_course_dev: 1.0
-  rho_turn_rate: 0.01
+  rho_turn_rate: 10.0
   rho_goal: 300.0
   goal_radius: 50.0
 colreg:
@@ -17,7 +17,7 @@ colreg:
   x_0_ot: 150.0
   y_0_ot: 10.0
   d_attenuation: 400.0
-  w_colregs: [100.0, 100.0, 100.0]
+  w_colregs: [120.0, 120.0, 100.0]
   colregs_handler:
     theta_critical_ot: 45.0  # contact angle threshold for OT situation
     theta_critical_ho: 13.0 # contact and bearing angle threshold for HO situation
@@ -31,7 +31,7 @@ colreg:
 readily_apparent_maneuvering:
   alpha_app_course: [20.0, 0.0005]
   alpha_app_speed: [15.0, 0.001]
-  K_app_course: 30.0
+  K_app_course: 60.0
   K_app_speed: 30.0
   r_max: 8.0
   a_max: 0.3

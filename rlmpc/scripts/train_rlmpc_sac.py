@@ -41,6 +41,7 @@ def train_rlmpc_sac(
     load_rb_path: str = "sac_drl1_replay_buffer",
     seed: int = 0,
     iteration: int = 0,
+    reset_num_timesteps: int = False,
     timesteps_completed: int = 0,
     episodes_completed: int = 0,
 ) -> Tuple[rlmpc_sac.SAC, bool]:
@@ -66,6 +67,7 @@ def train_rlmpc_sac(
         load_rb_path (str, optional): The replay buffer path
         seed (int, optional): The seed.
         iteration (int, optional): The iteration used for TB logging naming.
+        reset_num_timesteps (bool, optional): Whether to reset model num timesteps before learning.
         timesteps_completed (int, optional): Number of timesteps completed up until now (for multiple runs of learn())
         episodes_completed (int, optional): Same as above, only for episodes.
 
@@ -88,9 +90,9 @@ def train_rlmpc_sac(
         model_dir=model_dir,
         experiment_name=experiment_name,
         save_stats_freq=200,
-        save_agent_model_freq=2500,
+        save_agent_model_freq=5000,
         log_freq=n_training_envs,
-        max_num_env_episodes=1000,
+        max_num_env_episodes=2000,
         max_num_training_stats_entries=40000,
         minimal_logging=True,
         verbose=1,
@@ -130,7 +132,7 @@ def train_rlmpc_sac(
             verbose=1,
         )
         print(
-            f"Before learn: | Number of timesteps completed: {timesteps_completed} | Number of episodes completed: {model.num_episodes}"
+            f"Before learn: | Number of timesteps completed: {model.num_timesteps} | Number of episodes completed: {model.num_episodes}"
         )
         print(f"Loading model at {load_model_path}")
         model.load_replay_buffer(path=load_rb_path)
@@ -148,7 +150,7 @@ def train_rlmpc_sac(
         total_timesteps=n_timesteps,
         log_interval=1,
         tb_log_name=experiment_name + f"_{iteration}",
-        reset_num_timesteps=True if iteration == 1 else False,
+        reset_num_timesteps=reset_num_timesteps,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),
         progress_bar=False,
     )
