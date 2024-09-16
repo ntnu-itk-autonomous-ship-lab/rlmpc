@@ -8,14 +8,14 @@
 #SBATCH --time=10-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --output=idun/R-%x.%j.out
 
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=128
 LEARNING_RATE=0.0002
-NCPUS=20 # Equal to number of training environments
+NCPUS=16 # Equal to number of training environments
 N_EVAL_ENVS=4
 TRAIN_FREQ=16
 GRADIENT_STEPS=4
@@ -24,7 +24,7 @@ DEVICE="cpu"
 MAX_NUM_TRAIN_EPS=200 # Maximum number of loaded training episodes
 MAX_NUM_EVAL_EPS=8 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=8
-EXPERIMENT_NAME="snmpc_db10_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_${NCPUS}cpus"
+EXPERIMENT_NAME="snmpc_db_high_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_${NCPUS}cpus"
 TIMESTEPS=10_000_000
 N_TIMESTEPS_PER_LEARN=20000
 LOAD_MODEL_NAME=""
