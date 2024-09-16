@@ -90,7 +90,7 @@ def train_rlmpc_sac(
         model_dir=model_dir,
         experiment_name=experiment_name,
         save_stats_freq=1000,
-        save_agent_model_freq=5000,
+        save_agent_model_freq=2500,
         log_freq=n_training_envs,
         max_num_env_episodes=2000,
         max_num_training_stats_entries=40000,

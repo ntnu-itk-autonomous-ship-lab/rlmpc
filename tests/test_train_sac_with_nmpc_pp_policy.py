@@ -38,7 +38,7 @@ def main(args):
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=8)
-    parser.add_argument("--n_eval_episodes", type=int, default=2)
+    parser.add_argument("--n_eval_episodes", type=int, default=4)
     parser.add_argument("--eval_freq", type=int, default=10000)
     parser.add_argument("--n_eval_envs", type=int, default=2)
     parser.add_argument("--timesteps", type=int, default=2000)

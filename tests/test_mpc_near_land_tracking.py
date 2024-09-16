@@ -9,5 +9,5 @@ if __name__ == "__main__":
     scenario_generator = ScenarioGenerator()
     scenario_data = scenario_generator.generate(config_file=planning_scenario)
     simulator = Simulator()
-    output = simulator.run([scenario_data], ownship_colav_system=ttmpc_obj)
+    output = simulator.run([scenario_data], ownship_colav_system=[(0, ttmpc_obj)])
     print("done")

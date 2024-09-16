@@ -89,6 +89,8 @@ def plot_single_model_enc_snapshots(
     for i, idx in enumerate(indices):
         ax = plt.subplot(gs[i])
         episode = data[idx]
+        if episode.frames.size == 0:
+            continue
         ep_len = len(episode.frames)
         frame = episode.frames[int(3 * ep_len / 4)]
         # upscale the image
@@ -386,7 +388,9 @@ def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
         training_stats_list.append(smoothed_training_stats)
 
         if plot_env_snapshots or plot_reward_curves:
-            env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+            env_logger = csenv_logger.Logger(
+                experiment_name=experiment_name, log_dir=log_dir, max_num_logged_episodes=1000000
+            )
             env_logger.load_from_pickle(f"{experiment_name}_env_training_data")
             env_data_list.append(env_logger.env_data)
 
@@ -426,7 +430,7 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
     env_data_list = []
     reward_data_list = []
 
-    plot_env_snapshots = True
+    plot_env_snapshots = False
     plot_reward_curves = True
     for experiment_name in experiment_names:
         log_dir = base_dir / experiment_name
@@ -459,7 +463,7 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 
 if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["sac_nmpc_pp_db_3env"]
+    experiment_names = ["snmpc_db_1te_1ee_16cpus"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
     # plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
     print("Done plotting")
