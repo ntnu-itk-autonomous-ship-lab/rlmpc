@@ -40,7 +40,7 @@ def main(args):
     parser.add_argument("--train_freq", type=int, default=8)
     parser.add_argument("--n_eval_episodes", type=int, default=4)
     parser.add_argument("--eval_freq", type=int, default=10000)
-    parser.add_argument("--n_eval_envs", type=int, default=2)
+    parser.add_argument("--n_eval_envs", type=int, default=4)
     parser.add_argument("--timesteps", type=int, default=100000)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--n_timesteps_per_learn", type=int, default=5000)
@@ -50,6 +50,7 @@ def main(args):
     parser.add_argument("--load_model_name", type=str, default="")
     parser.add_argument("--load_critics", default=True, action="store_true")
     parser.add_argument("--reset_num_timesteps", default=True, action="store_true")
+    parser.add_argument("--seed", default=0, type=int)
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -116,7 +117,7 @@ def main(args):
         "merge_loaded_scenario_episodes": True,
         "shuffle_loaded_scenario_data": False,
         "identifier": "training_env_" + args.experiment_name,
-        "seed": 0,
+        "seed": args.seed,
         "verbose": False,
     }
 
@@ -126,7 +127,7 @@ def main(args):
             "reload_map": False,
             "max_number_of_episodes": args.max_num_loaded_eval_scen_episodes,
             "scenario_file_folder": test_scenario_folders,
-            "seed": 1,
+            "seed": args.seed + 1,
             "simulator_config": eval_sim_config,
             "identifier": "eval_env_" + args.experiment_name,
         }
@@ -211,7 +212,7 @@ def main(args):
             load_model=load_model,
             load_model_path=model_path,
             load_rb_path=load_rb_path,
-            seed=0,
+            seed=args.seed,
             iteration=i + 1,
             reset_num_timesteps=reset_num_timesteps,
             timesteps_completed=timesteps_completed,

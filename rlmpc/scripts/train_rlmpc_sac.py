@@ -65,7 +65,7 @@ def train_rlmpc_sac(
         load_model (bool, optional): Whether to load the model with SAC classmethod
         load_model_path (str, optional): The model path for loading.
         load_rb_path (str, optional): The replay buffer path
-        seed (int, optional): The seed.
+        seed (int, optional): The seed used for the enviroment, action spaces etc.
         iteration (int, optional): The iteration used for TB logging naming.
         reset_num_timesteps (bool, optional): Whether to reset model num timesteps before learning.
         timesteps_completed (int, optional): Number of timesteps completed up until now (for multiple runs of learn())
