@@ -379,39 +379,47 @@ def plot_multiple_model_eval_results(
         save_fig (bool, optional): Whether to save the figure.
         save_path (Path, optional): Path to save the figure.
     """
-    fig, axs = plt.subplots(2, 1, figsize=(15, 10), num="mm_eval_results")
+    fig, axs = plt.subplots(3, 1, figsize=(10, 15), num="mm_eval_results")
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     colors = sns.color_palette("tab10", n_colors=len(eval_data_list))
     for name, data in zip(model_names, eval_data_list):
-        goal_reached_indices = data[1]
-        colliding_indices = data[2]
-        grounding_indices = data[3]
-        truncating_indices = data[4]
-        actor_failed_indices = data[5]
+        return_data = data[0]
+        # indices_with_ep_lengths_above_100 = data[1]
+        goal_reached_rate = data[2]
+        collision_rate = data[3]
+        grounding_rate = data[4]
+        truncation_rate = data[5]
+        actor_failed_rate = data[6]
 
         color = colors.pop()
-        ts_gr = [data[0]["timesteps"][i] for i in goal_reached_indices]
-        ts_col = [data[0]["timesteps"][i] for i in colliding_indices]
-        ts_grd = [data[0]["timesteps"][i] for i in grounding_indices]
-        ts_tr = [data[0]["timesteps"][i] for i in truncating_indices]
-        ts_af = [data[0]["timesteps"][i] for i in actor_failed_indices]
-        axs[0].plot(data[0]["timesteps"], data[0]["ep_lengths"], label=name, color=color)
-        axs[0].scatter(ts_gr, [data[0]["ep_lengths"][i] for i in goal_reached_indices], color="green", marker="o")
-        axs[0].scatter(ts_col, [data[0]["ep_lengths"][i] for i in colliding_indices], color="red", marker="o")
-        axs[0].scatter(ts_grd, [data[0]["ep_lengths"][i] for i in grounding_indices], color="red", marker="o")
-        axs[0].scatter(ts_tr, [data[0]["ep_lengths"][i] for i in truncating_indices], color="yellow", marker="o")
-        axs[0].scatter(ts_af, [data[0]["ep_lengths"][i] for i in actor_failed_indices], color="red", marker="o")
+        axs[0].plot(data[0]["timesteps"], data[0]["mean_ep_length"], label=name, color=color)
+        axs[0].fill_between(
+            data[0]["timesteps"],
+            np.array(data[0]["mean_ep_length"]) - np.array(data[0]["std_ep_length"]),
+            np.array(data[0]["mean_ep_length"]) + np.array(data[0]["std_ep_length"]),
+            alpha=0.2,
+            color=color,
+        )
         axs[0].set_ylabel("Episode length")
-        axs[1].plot(data[0]["timesteps"], data[0]["results"], label=name, color=color)
-        axs[1].scatter(ts_gr, [data[0]["results"][i] for i in goal_reached_indices], color="green", marker="o")
-        axs[1].scatter(ts_col, [data[0]["results"][i] for i in colliding_indices], color="red", marker="o")
-        axs[1].scatter(ts_grd, [data[0]["results"][i] for i in grounding_indices], color="red", marker="o")
-        axs[1].scatter(ts_tr, [data[0]["results"][i] for i in truncating_indices], color="yellow", marker="o")
-        axs[1].scatter(ts_af, [data[0]["results"][i] for i in actor_failed_indices], color="red", marker="o")
-        axs[1].set_xlabel("Timesteps")
+        axs[1].plot(return_data["timesteps"], return_data["mean_ep_rew"], label=name, color=color)
+        axs[1].fill_between(
+            return_data["timesteps"],
+            np.array(return_data["mean_ep_rew"]) - np.array(return_data["std_ep_rew"]),
+            np.array(return_data["mean_ep_rew"]) + np.array(return_data["std_ep_rew"]),
+            alpha=0.2,
+            color=color,
+        )
         axs[1].set_ylabel("Return")
+        axs[2].plot(return_data["timesteps"], goal_reached_rate, label="Goals reached rate", color="g")
+        axs[2].plot(return_data["timesteps"], collision_rate, label="Collision rate", color="r")
+        axs[2].plot(return_data["timesteps"], grounding_rate, label="Grounding rate", color="b")
+        axs[2].plot(return_data["timesteps"], truncation_rate, label="Truncation rate", color="k")
+        axs[2].plot(return_data["timesteps"], actor_failed_rate, label="Actor failure rate", color="y")
+        axs[2].set_xlabel("Timesteps")
+        axs[2].set_ylabel("Rate")
     axs[0].legend()
     axs[1].legend()
+    axs[2].legend()
     plt.show(block=False)
     if save_fig:
         save_path = save_path if save_path is not None else Path("./")
@@ -459,29 +467,81 @@ def plot_episode_data_series(
     mpc_params = np.array([data.actor_infos[i]["old_mpc_params"] for i in range(len(data.actor_infos))])
     r_safe_so = 5.0
 
-    fig1, axs1 = plt.subplots(2, 1, figsize=(15, 10), num="worst_ep_data1")
+    fig1, axs1 = plt.subplots(4, 1, figsize=(10, 15), num=name + "_d2fail_actions")
     fig1.subplots_adjust(hspace=0.3, wspace=0.25)
-    times = np.linspace(0, data.timesteps, len(data.timesteps))
-    axs1[0].plot(times, data.distances_to_collision, label="Dist. to collision", color="r")
-    axs1[0].plot(times, data.distances_to_grounding, label="Dist. to grounding", color="r", linestyle="--")
-    axs1[0].plot(times, r_safe_so * np.ones_like(times), label="r_safe_so", color="k", linestyle="--")
+    times = np.linspace(0, data.duration, len(data.distances_to_collision))
+    axs1[0].semilogy(times, data.distances_to_grounding, label="Dist. to grounding", color="b")
+    axs1[0].semilogy(times, r_safe_so * np.ones_like(times), label=r"$r_{safe, so}$", color="r", linestyle="--")
+    axs1[0].set_ylabel("Distance [m]")
 
-    # Plot, 1: distances to cllision and grounding, 2: figure for mpc parms (Q_p, K_app (course and speed), w_colreg, r_safe), 3: actions (course and speed refs) vs actual course and speed,
+    axs1[1].semilogy(times, data.distances_to_collision, label="Dist. to collision", color="b")
+    axs1[1].semilogy(times, mpc_params[:, 8], label=r"$r_{safe, do}$", color="r", linestyle="--")
+    axs1[1].set_xlabel("Time [s]")
 
-    fig2, axs2 = plt.subplots(3, 1, figsize=(15, 10), num="worst_ep_data2")
+    course_refs = np.array([data.actor_infos[i]["applied_refs"][0] for i in range(len(data.actor_infos))])
+    courses = data.ownship_states[:, 2] + np.arctan2(data.ownship_states[:, 4], data.ownship_states[:, 3])
+    courses = np.unwrap(courses)
+    speed_refs = np.array([data.actor_infos[i]["applied_refs"][1] for i in range(len(data.actor_infos))])
+    speeds = np.sqrt(data.ownship_states[:, 3] ** 2 + data.ownship_states[:, 4] ** 2)
+    axs1[2].plot(times, 180.0 * course_refs / np.pi, label=r"$\chi_{d}$", color="r", linestyle="--")
+    axs1[2].plot(times, 180.0 * courses / np.pi, label=r"$\chi$", color="b")
+    axs1[2].set_ylabel("Course [deg]")
+
+    axs1[3].plot(times, speed_refs, label=r"$U_{d}$", color="r", linestyle="--")
+    axs1[3].plot(times, speeds, label=r"$U$", color="b")
+    axs1[3].set_ylabel("Speed [m/s]")
+
+    axs1[0].legend()
+    axs1[1].legend()
+    axs1[2].legend()
+    axs1[3].legend()
+
+    fig2, axs2 = plt.subplots(3, 1, figsize=(10, 15), num=name + "_mpc_params")
     fig2.subplots_adjust(hspace=0.3, wspace=0.25)
-    axs2[0].plot(times, mpc_params[:, 0], label="Q_p[0]")
-    axs2[0].plot(times, mpc_params[:, 1], label="Q_p[1]")
-    axs2[0].plot(times, mpc_params[:, 2], label="Q_p[2]")
+    axs2[0].semilogy(times, mpc_params[:, 0], label=r"$K_p$")
+    axs2[0].semilogy(times, mpc_params[:, 1], label=r"$K_U$")
+    axs2[0].semilogy(times, mpc_params[:, 2], label=r"$K_{\omega}$")
+    axs2[1].plot(times, mpc_params[:, 3], label=r"$K_{\dot{\chi}}$")
+    axs2[1].plot(times, mpc_params[:, 4], label=r"$K_{\dot{U}}$")
+    axs2[2].plot(times, mpc_params[:, 5], label=r"$w_{HO}$")
+    axs2[2].plot(times, mpc_params[:, 6], label=r"$w_{CR}$")
+    axs2[2].plot(times, mpc_params[:, 7], label=r"$w_{OT}$")
+    axs2[2].set_xlabel("Time [s]")
+    axs2[0].legend()
+    axs2[1].legend()
+    axs2[2].legend()
 
-    axs2[1].plot(times, mpc_params[:, 3], label="K_app_course")
-    axs2[1].plot(times, mpc_params[:, 4], label="K_app_speed")
-
-    axs2[2].plot(times, mpc_params[:, 5], label="w_colregs[0]")
-    axs2[2].plot(times, mpc_params[:, 6], label="w_colregs[1]")
-    axs2[2].plot(times, mpc_params[:, 7], label="w_colregs[2]")
-
-    axs2[3].plot(times, mpc_params[:, 8], label="r_safe_do")
+    fig3, axs3 = plt.subplots(4, 2, figsize=(10, 15), num=name + "_rewards")
+    r_total = data.rewards
+    r_colreg = np.array([data.reward_components[i]["r_colreg"] for i in range(len(data.reward_components))])
+    r_app_man = np.array(
+        [data.reward_components[i]["r_readily_apparent_maneuvering"] for i in range(len(data.reward_components))]
+    )
+    r_colav = np.array([data.reward_components[i]["r_collision_avoidance"] for i in range(len(data.reward_components))])
+    r_antigrounding = np.array(
+        [data.reward_components[i]["r_antigrounding"] for i in range(len(data.reward_components))]
+    )
+    r_trajectory_tracking = np.array(
+        [data.reward_components[i]["r_trajectory_tracking"] for i in range(len(data.reward_components))]
+    )
+    r_dnn_params = np.array([data.reward_components[i]["r_dnn_parameters"] for i in range(len(data.reward_components))])
+    axs3[0, 0].plot(times, r_total, label="Total reward")
+    axs3[0, 1].plot(times, r_colreg, label="COLREG reward")
+    axs3[1, 0].plot(times, r_colav, label="COLAV reward")
+    axs3[1, 1].plot(times, r_antigrounding, label="Anti-grounding reward")
+    axs3[2, 0].plot(times, r_trajectory_tracking, label="Trajectory tracking reward")
+    axs3[2, 1].plot(times, r_app_man, label="Readily apparent maneuvering reward")
+    axs3[3, 0].plot(times, r_dnn_params, label="DNN parameters reward")
+    axs3[3, 0].set_xlabel("Time [s]")
+    axs3[3, 1].set_xlabel("Time [s]")
+    axs3[0, 0].legend()
+    axs3[0, 1].legend()
+    axs3[1, 0].legend()
+    axs3[1, 1].legend()
+    axs3[2, 0].legend()
+    axs3[2, 1].legend()
+    axs3[3, 0].legend()
+    plt.show(block=False)
 
     if save_figs:
         save_path = save_path if save_path is not None else Path("./")
@@ -489,6 +549,7 @@ def plot_episode_data_series(
             save_path.mkdir(parents=True)
         fig1.savefig(save_path / (name + "_d2fail_actions.pdf"), bbox_inches="tight", dpi=100)
         fig2.savefig(save_path / (name + "_mpc_params.pdf"), bbox_inches="tight", dpi=100)
+        fig3.savefig(save_path / (name + "_rewards.pdf"), bbox_inches="tight", dpi=100)
 
 
 def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
@@ -547,7 +608,8 @@ def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
 
 
 def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None:
-    """Plots results from training.
+    """Plots results from training, more specifically the environment data logged by the COLAVENvironment gym logger, and
+    the .npz files from each evaluation (stored using stable-baselines3 evaluation callback).
 
     Args:
         base_dir (Path): Base path to the experiment directories
@@ -569,8 +631,10 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 
         eval_return_data = {}
         eval_return_data["timesteps"] = []
-        eval_return_data["ep_lengths"] = []
-        eval_return_data["results"] = []
+        eval_return_data["mean_ep_length"] = []
+        eval_return_data["std_ep_length"] = []
+        eval_return_data["mean_ep_rew"] = []
+        eval_return_data["std_ep_rew"] = []
         npz_file_list = [file for file in eval_data_dir.iterdir()]
         npz_file_list = [file for file in npz_file_list if file.suffix == ".npz"]
         npz_file_list.sort(key=lambda x: int(x.stem.split("_")[-1]))
@@ -578,50 +642,72 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
             continue
 
         indices_with_above_100_ep_lengths = []
-        goal_reached_indices = []
-        colliding_indices = []
-        grounding_indices = []
-        truncating_indices = []
-        actor_failed_indices = []
+        goal_reached_rate = []
+        collision_rate = []
+        grounding_rate = []
+        truncating_rate = []
+        actor_failed_rate = []
         for idx, npzf in enumerate(npz_file_list):
             with np.load(npzf) as data:
-                eval_return_data["timesteps"].append(int(data["timesteps"].item()))
-                eval_return_data["ep_lengths"].append(int(data["ep_lengths"].item()))
-                eval_return_data["results"].append(float(data["results"].item()))
-                if int(data["ep_lengths"].item()) > 100:
+                timesteps = data["timesteps"][-1]
+                mean_ep_length = data["ep_lengths"][-1]
+                mean_rew = data["results"][-1]
+                if mean_ep_length.size > 1:
+                    mean_ep_length = mean_ep_length.mean()
+                    mean_rew = mean_rew.mean()
+                    std_ep_length = data["ep_lengths"][-1].std()
+                    std_rew = data["results"][-1].std()
+                eval_return_data["timesteps"].append(timesteps)
+                eval_return_data["mean_ep_length"].append(mean_ep_length)
+                eval_return_data["std_ep_length"].append(std_ep_length)
+                eval_return_data["mean_ep_rew"].append(mean_rew)
+                eval_return_data["std_ep_rew"].append(std_rew)
+                if mean_ep_length > 100:
                     indices_with_above_100_ep_lengths.append(idx)
 
-            env_logger.load_from_pickle(str(env_data_pkl_file_list[idx]))
-            if env_logger.env_data[0].goal_reached:
-                goal_reached_indices.append(idx)
-            elif env_logger.env_data[0].collision:
-                colliding_indices.append(idx)
-            elif env_logger.env_data[0].grounding:
-                grounding_indices.append(idx)
-            elif env_logger.env_data[0].truncated:
-                truncating_indices.append(idx)
-            elif env_logger.env_data[0].actor_failure:
-                actor_failed_indices.append(idx)
+                n_eval_eps = data["results"][-1].size
+                goals_reached = 0
+                collisions = 0
+                groundings = 0
+                truncations = 0
+                actor_failures = 0
+                for eidx, ep_len in enumerate(data["ep_lengths"][0]):
+                    env_logger.load_from_pickle(str(env_data_pkl_file_list[idx]))
+                    if env_logger.env_data[eidx].goal_reached:
+                        goals_reached += 1
+                    elif env_logger.env_data[eidx].collision:
+                        collisions += 1
+                    elif env_logger.env_data[eidx].grounding:
+                        groundings += 1
+                    elif env_logger.env_data[eidx].truncated:
+                        truncations += 1
+                    elif env_logger.env_data[eidx].actor_failure:
+                        actor_failures += 1
+
+                goal_reached_rate.append(goals_reached / n_eval_eps)
+                collision_rate.append(collisions / n_eval_eps)
+                grounding_rate.append(groundings / n_eval_eps)
+                truncating_rate.append(truncations / n_eval_eps)
+                actor_failed_rate.append(actor_failures / n_eval_eps)
 
         eval_data_list.append(
             (
                 eval_return_data,
-                goal_reached_indices,
-                colliding_indices,
-                grounding_indices,
-                truncating_indices,
-                actor_failed_indices,
+                indices_with_above_100_ep_lengths,
+                goal_reached_rate,
+                collision_rate,
+                grounding_rate,
+                truncating_rate,
+                actor_failed_rate,
             )
         )
-
-        if plot_worst_and_best_episode_data:
-            argmin_reward = int(np.argmin(eval_return_data["results"]))
-            argmax_reward = int(np.argmax([eval_return_data["results"][i] for i in indices_with_above_100_ep_lengths]))
-            env_logger.load_from_pickle(str(env_data_pkl_file_list[argmin_reward]))
-            worst_env_data = env_logger.env_data[0]
-            env_logger.load_from_pickle(str(env_data_pkl_file_list[argmax_reward]))
-            best_env_data = env_logger.env_data[0]
-            wb_env_data_list.append((worst_env_data, best_env_data))
+        argmin_reward = int(np.argmin(eval_return_data["mean_ep_rew"]))
+        argmax_reward = int(np.argmax([eval_return_data["mean_ep_rew"][i] for i in indices_with_above_100_ep_lengths]))
+        env_logger.load_from_pickle(str(env_data_pkl_file_list[argmin_reward]))
+        worst_env_data = env_logger.env_data[0]
+        env_logger.load_from_pickle(str(env_data_pkl_file_list[argmax_reward]))
+        best_env_data = env_logger.env_data[0]
+        wb_env_data_list.append((worst_env_data, best_env_data))
 
         if plot_env_snapshots:
             plot_single_model_enc_snapshots(
@@ -650,7 +736,7 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 
 if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["snmpc_test"]
+    experiment_names = ["sac_nmpc_pp000"]
     # plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
     plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
     print("Done plotting")
