@@ -43,7 +43,7 @@ def main(args):
     parser.add_argument("--n_eval_envs", type=int, default=4)
     parser.add_argument("--timesteps", type=int, default=100000)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--n_timesteps_per_learn", type=int, default=4000)
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=20000)
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=4)
@@ -88,7 +88,7 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.00015, 0.00015])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.0001, 0.0001])  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.5 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,

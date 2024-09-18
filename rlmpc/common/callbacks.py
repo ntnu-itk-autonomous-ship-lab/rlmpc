@@ -92,7 +92,9 @@ class CollectStatisticsCallback(BaseCallback):
         self.last_ep_rew_mean: float = 0.0
         self.model_save_path = model_dir
         self.log_dir = log_dir
-        self.num_timesteps_start = 0
+        self._num_timesteps_prev_log = 0
+        self._num_timesteps_prev_agent_save = 0
+        self._num_timesteps_prev_save_stats = 0
         self.num_envs = env.num_envs if isinstance(env, SubprocVecEnv) else 1
         self.env_data_logger: colav_env_logger.Logger = colav_env_logger.Logger(
             experiment_name,
@@ -128,10 +130,14 @@ class CollectStatisticsCallback(BaseCallback):
 
         self.n_updates_prev = 0
         self.last_ep_rew_mean = 0.0
-        self.num_timesteps_start = self.num_timesteps
+        self._num_timesteps_prev_save_stats = self.num_timesteps
+        self._num_timesteps_prev_agent_save = self.num_timesteps
+        self._num_timesteps_prev_log = self.num_timesteps
 
     def _on_training_start(self) -> None:
-        self.num_timesteps_start = self.num_timesteps
+        self._num_timesteps_prev_save_stats = self.num_timesteps
+        self._num_timesteps_prev_agent_save = self.num_timesteps
+        self._num_timesteps_prev_log = self.num_timesteps
 
     def extract_training_info(self, model: "type_aliases.PolicyPredictor") -> Tuple[Dict[str, Any], bool]:
         """Extracts training information from the model.
@@ -190,7 +196,8 @@ class CollectStatisticsCallback(BaseCallback):
         if np.any(done_array):
             self.n_episodes += np.sum(done_array).item()
 
-        if (self.num_timesteps - self.num_timesteps_start) % self.log_freq == 0 or np.any(done_array) > 0:
+        if (self.num_timesteps - self._num_timesteps_prev_log) > self.log_freq or np.any(done_array) > 0:
+            self._num_timesteps_prev_log = self.num_timesteps
             # for env_idx in range(self.num_envs):
             #     if np.any(done_array):  # only one element in done_array for SAC
             #         infos[env_idx] = self.prev_infos[env_idx]
@@ -224,18 +231,16 @@ class CollectStatisticsCallback(BaseCallback):
             #     self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
             #     self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
-        if (self.num_timesteps - self.num_timesteps_start) > 0 and (
-            self.num_timesteps - self.num_timesteps_start
-        ) % self.save_agent_freq == 0:
+        if (self.num_timesteps - self._num_timesteps_prev_agent_save) > self.save_agent_freq:
             print("Saving agent after", self.num_timesteps, "timesteps")
+            self._num_timesteps_prev_agent_save = self.num_timesteps
             # NMPC SAC model must have a custom_save method
             self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
             if hasattr(self.model, "save_replay_buffer"):
                 self.model.save_replay_buffer(self.model_save_path / f"{self.experiment_name}_replay_buffer")
 
-        if (self.num_timesteps - self.num_timesteps_start) > 0 and (
-            self.num_timesteps - self.num_timesteps_start
-        ) % self.save_stats_freq == 0:
+        if (self.num_timesteps - self._num_timesteps_prev_save_stats) > self.save_stats_freq:
+            self._num_timesteps_prev_save_stats = self.num_timesteps
             # print("Saving training data after", self.num_timesteps, "timesteps")
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
@@ -305,7 +310,7 @@ class EvalCallback(EventCallback):
         self.render = render
         self.record = record
         self.warn = warn
-        self.num_timesteps_start = 0
+        self._num_timesteps_prev_eval = 0
 
         # Convert to VecEnv for consistency
         if not isinstance(eval_env, VecEnv):
@@ -353,10 +358,10 @@ class EvalCallback(EventCallback):
         if self.callback_on_new_best is not None:
             self.callback_on_new_best.init_callback(self.model)
 
-        self.num_timesteps_start = self.num_timesteps
+        self._num_timesteps_prev_eval = self.num_timesteps
 
     def _on_training_start(self) -> None:
-        self.num_timesteps_start = self.num_timesteps
+        self._num_timesteps_prev_eval = self.num_timesteps
 
     def _log_success_callback(self, locals_: Dict[str, Any], globals_: Dict[str, Any]) -> None:
         """
@@ -378,8 +383,9 @@ class EvalCallback(EventCallback):
     def _on_step(self) -> bool:
         continue_training = True
 
-        check = self.num_timesteps - self.num_timesteps_start
-        if self.eval_freq > 0 and check % self.eval_freq == 0:
+        check = self.num_timesteps - self._num_timesteps_prev_eval
+        if self.eval_freq > 0 and check > self.eval_freq:
+            self._num_timesteps_prev_eval = self.num_timesteps
             # Sync training and eval env if there is VecNormalize
             if self.model.get_vec_normalize_env() is not None:
                 try:

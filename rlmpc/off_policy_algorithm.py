@@ -537,7 +537,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                         kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
                         action_noise.reset(**kwargs)
 
-                    if log_interval is not None and self.num_episodes % log_interval == 0:
+                    if log_interval is not None and num_collected_episodes % log_interval == 0:
                         self._dump_logs()
                         self.just_dumped_rollout_logs = True
 

@@ -573,10 +573,10 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         if self.env.time < 0.0001:
             self._last_course_error = 0.0
         goal_reached = self.env.simulator.determine_ship_goal_reached(ship_idx=0)
-        # if goal_reached:
-        #     self.last_reward = self._config.rho_goal
-        #     print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +{self._config.rho_goal}.")
-        #     return self.last_reward
+        if goal_reached:
+            self.last_reward = self._config.rho_goal
+            print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +{self._config.rho_goal}.")
+            return self.last_reward
 
         d2goal = np.linalg.norm(self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1])
         ownship_state = self.env.ownship.state
@@ -588,7 +588,7 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
         no_dos_in_the_way = d2dos[0][1] > 100.0
         truncated = kwargs.get("truncated", False)
         if truncated and not goal_reached and no_dos_in_the_way:
-            self.last_reward = -0.01 * self._config.rho_goal * d2goal
+            self.last_reward = -0.002 * self._config.rho_goal * d2goal
             print(f"[{self.env.env_id.upper()}] Goal not reached! Rewarding {self.last_reward}.")
             return self.last_reward
 
