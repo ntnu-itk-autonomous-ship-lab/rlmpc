@@ -564,7 +564,7 @@ def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
     reward_data_list = []
     training_stats_list = []
 
-    plot_env_snapshots = True
+    plot_env_snapshots = False
     plot_reward_curves = True
     for experiment_name in experiment_names:
         log_dir = base_dir / experiment_name
@@ -735,8 +735,9 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 
 
 if __name__ == "__main__":
+    matplotlib.use("TkAgg")
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["sac_nmpc_pp000"]
-    # plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
+    experiment_names = ["snmpc_gr_200te_8ee_seed0_jid20257839"]
+    plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
     plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
     print("Done plotting")
