@@ -33,7 +33,7 @@ class CasadiMPC:
         model: models.MPCModel,
         params: parameters.MidlevelMPCParams,
         solver_options: mpc_common.CasadiSolverOptions,
-        identifier: str = "",
+        identifier: str = "cmpc",
     ) -> None:
         self.model = copy.deepcopy(model)
         self._params: parameters.MidlevelMPCParams = copy.deepcopy(params)
@@ -109,7 +109,7 @@ class CasadiMPC:
         self._path_linestring: geo.LineString = geo.LineString()
 
         self._idx_slacked_bx_constr: np.ndarray = np.array([])
-        self._action_indices = [0, 1, 2]
+        self._action_indices = [0, 1]
 
         self.g_str_list: list = []
 

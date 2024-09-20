@@ -57,11 +57,11 @@ mpc:
     T: 66.0
     dt: 2.0
     Q_p: [0.5, 30.0, 30.0] # [0.5, 9.0, 10.0] # path dev, speed ref dev, path dot ref dev
-    K_prev_sol_dev: [0.0, 0.0]
+    K_prev_sol_dev: [5.0, 5.0]
     alpha_app_course: [40.0, 0.004]
     alpha_app_speed: [40.0, 0.005]
-    K_app_course: 20.0
-    K_app_speed: 20.0
+    K_app_course: 60.0
+    K_app_speed: 60.0
 
     alpha_cr: [0.02, 0.001]
     y_0_cr: 300.0
@@ -71,7 +71,7 @@ mpc:
     x_0_ot: 150.0
     y_0_ot: 10.0
     d_attenuation: 400.0
-    w_colregs: [90.0, 90.0, 90.0]
+    w_colregs: [120.0, 90.0, 90.0]
 
     w_L2: 0.0
     w_L1: 1000.0 # too high weight here => QP-failure

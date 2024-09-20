@@ -36,8 +36,8 @@ class AcadosMPC:
         model: models.MPCModel,
         params: parameters.MidlevelMPCParams,
         solver_options: AcadosOcpOptions,
-        identifier: str = "",
-        acados_code_gen_path: str = None
+        identifier: str = "ampc",
+        acados_code_gen_path: str = None,
     ) -> None:
         self._acados_ocp: AcadosOcp = AcadosOcp()
         self._solver_options = mpc_common.parse_acados_solver_options(solver_options)
@@ -50,7 +50,6 @@ class AcadosMPC:
 
         if not self._acados_code_gen_path.exists():
             self._acados_code_gen_path.mkdir(parents=True, exist_ok=True)
-
 
         self._acados_ocp_mutex: Lock = Lock()
 
@@ -117,7 +116,7 @@ class AcadosMPC:
         self._s_dot_refs: np.ndarray = np.array([])
 
         self._idx_slacked_bx_constr: np.ndarray = np.array([])
-        self._action_indices = [0, 1, 2]
+        self._action_indices = [0, 1]
 
         self._p_path = csd.MX.sym("p_path", 0)
         self._p_rate = csd.MX.sym("p_rate", 0)
