@@ -66,8 +66,8 @@ ship_list:
     goal_csog_state: [6574800.0, -30584, 4.0, 0.0] #[6583580.0, -31824.0, 0.0, 0.0]
     tracker:
       kf:
-        P_0: [49.1, 49.1, 0.11, 0.11]
-        q: 0.4
+        P_0: [49.1, 49.1, 0.5, 0.5]
+        q: 0.3
       # god_tracker: ""
     sensors:
       - radar:
@@ -90,10 +90,10 @@ ship_list:
         cross_track_error_int_threshold: 30.0
     controller:
       flsc:
-        K_p_u: 3.0
+        K_p_u: 2.8
         K_i_u: 0.3
-        K_p_chi: 2.5
-        K_d_chi: 3.0
+        K_p_chi: 1.8
+        K_d_chi: 3.6
         K_i_chi: 0.1
         max_speed_error_int: 4.0
         speed_error_int_threshold: 0.5
@@ -121,27 +121,6 @@ ship_list:
           ais_class: A
           R: [26.3, 26.3, 0.1, 0.1]
           R_true: [26.3, 26.3, 0.1, 0.1]
-    guidance:
-      los:
-        pass_angle_threshold: 80.0
-        R_a: 15.0
-        K_p: 0.024
-        K_i: 0.0
-        max_cross_track_error_int: 101.0
-        cross_track_error_int_threshold: 30.0
-    controller:
-      flsc:
-        K_p_u: 3.0
-        K_i_u: 0.3
-        K_p_chi: 2.5
-        K_d_chi: 3.0
-        K_i_chi: 0.1
-        max_speed_error_int: 4.0
-        speed_error_int_threshold: 0.5
-        max_chi_error_int: 90.0
-        chi_error_int_threshold: 20.0
-    model:
-      telemetron: ''
   - waypoints: [[6574820.0, 6574750.0, 6574730.0, 6574560.0, 6574560.0], [-30584.0, -30904.0, -31104.0, -31404.0, -31804.0]]
     speed_plan: [3.0, 3.0, 3.0, 3.0, 3.0]
     csog_state: [6574820.0, -30584.0, 4.0, -110.0]
@@ -162,27 +141,6 @@ ship_list:
           ais_class: A
           R: [26.3, 26.3, 0.1, 0.1]
           R_true: [26.3, 26.3, 0.1, 0.1]
-    guidance:
-      los:
-        pass_angle_threshold: 80.0
-        R_a: 15.0
-        K_p: 0.024
-        K_i: 0.0
-        max_cross_track_error_int: 101.0
-        cross_track_error_int_threshold: 30.0
-    controller:
-      flsc:
-        K_p_u: 3.0
-        K_i_u: 0.3
-        K_p_chi: 2.5
-        K_d_chi: 3.0
-        K_i_chi: 0.1
-        max_speed_error_int: 4.0
-        speed_error_int_threshold: 0.5
-        max_chi_error_int: 90.0
-        chi_error_int_threshold: 20.0
-    model:
-      telemetron: ''
   - waypoints: [[6574680.0, 6574580.0, 6574560.0], [-31104.0, -31404.0, -31804.0]]
     speed_plan: [5.0, 5.0, 5.0]
     csog_state: [6574680.0, -31104.0, 4.0, -110.0]
@@ -203,27 +161,6 @@ ship_list:
           ais_class: A
           R: [26.3, 26.3, 0.1, 0.1]
           R_true: [26.3, 26.3, 0.1, 0.1]
-    guidance:
-      los:
-        pass_angle_threshold: 80.0
-        R_a: 15.0
-        K_p: 0.024
-        K_i: 0.0
-        max_cross_track_error_int: 101.0
-        cross_track_error_int_threshold: 30.0
-    controller:
-      flsc:
-        K_p_u: 3.0
-        K_i_u: 0.3
-        K_p_chi: 2.5
-        K_d_chi: 3.0
-        K_i_chi: 0.1
-        max_speed_error_int: 4.0
-        speed_error_int_threshold: 0.5
-        max_chi_error_int: 90.0
-        chi_error_int_threshold: 20.0
-    model:
-      telemetron: ''
   - csog_state: [6574850.0, -30584, 5.0, -110.0]
     waypoints: [[6574850.0, 6574720.0, 6574700.0], [-30584.0, -30904.0, -31294.0]]
     speed_plan: [5.0, 7.0, 5.0]
@@ -253,16 +190,3 @@ ship_list:
         K_i: 0.0
         max_cross_track_error_int: 101.0
         cross_track_error_int_threshold: 30.0
-    controller:
-      flsc:
-        K_p_u: 3.0
-        K_i_u: 0.3
-        K_p_chi: 2.5
-        K_d_chi: 3.0
-        K_i_chi: 0.1
-        max_speed_error_int: 4.0
-        speed_error_int_threshold: 0.5
-        max_chi_error_int: 90.0
-        chi_error_int_threshold: 20.0
-    model:
-      telemetron: ''

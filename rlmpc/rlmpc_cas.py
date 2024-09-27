@@ -247,7 +247,7 @@ class RLMPC(ci.ICOLAV):
         self._speed_plan = speed_plan
         self._speed_plan[self._speed_plan > 7.0] = 6.0
         self._speed_plan[self._speed_plan < 2.0] = 2.0
-        self._debug = True
+        self._debug = debug
 
         self._enc = copy.deepcopy(enc)
         if self._debug:
@@ -981,7 +981,6 @@ class RLMPC(ci.ICOLAV):
                 "mpc_soln": self._mpc_soln,
                 "mpc_trajectory": self._mpc_trajectory,
                 "mpc_inputs": self._mpc_inputs,
-                "params": self._config,
                 "t": self._t_prev,
             }
         return output
