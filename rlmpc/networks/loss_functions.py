@@ -184,7 +184,7 @@ def sigma_reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.T
     return recon_loss, log_sigma_opt + 1e-7
 
 
-def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor) -> th.Tensor:
+def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor, threshold_dist: float) -> th.Tensor:
     """
     Compute the reconstruction loss of the VAE.
 
@@ -192,17 +192,18 @@ def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor)
         recon_x (th.Tensor): The reconstructed image of dim [batch_size, n_channels, height, width].
         x (th.Tensor): The input image of dim [batch_size, n_channels, height, width].
         seq_lengths (th.Tensor): The length of the sequences in the batch.
+        threshold_dist (float): The threshold distance for the normalized obstacle distance.
 
     Returns:
         th.Tensor: The reconstruction loss.
     """
     dims = [i for i in range(1, len(x.shape))]
-    weights = 10.0 * th.ones_like(x)
-    weights[:, :, 0][th.where(x[:, :, 0] >= -1.0)] = 50.0  # increase the weight for the first four channels
+    weights = 0.1 * th.ones_like(x)
+    weights[:, :, 0][th.where(x[:, :, 0] >= -1.0)] = 100.0  # increase the weight for the first four channels
     weights[:, :, 1][th.where(x[:, :, 1] >= -1.0)] = 50.0
     weights[:, :, 2][th.where(x[:, :, 2] >= -1.0)] = 50.0
     weights[:, :, 3][th.where(x[:, :, 3] >= -1.0)] = 50.0
-    weights[th.where(x[:, :, 0] > 0.99)] = 0.0
+    weights[th.where(x[:, :, 0] > threshold_dist)] = 0.0
     if weights.sum() == 0.0:
         print("Weights are zero!")
     seq_lengths = seq_lengths.clamp(min=1)

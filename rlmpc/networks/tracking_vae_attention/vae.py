@@ -74,9 +74,11 @@ class VAE(nn.Module):
             rnn_type=rnn_type,
             rnn_hidden_dim=rnn_hidden_dim,
             bidirectional=bidirectional,
+            embedding_dim=embedding_dim,
+            num_heads=num_heads,
         )
 
-        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.6 * th.eye(self.latent_dim))
+        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.3 * th.eye(self.latent_dim))
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
@@ -90,7 +92,7 @@ class VAE(nn.Module):
         # extract length of valid obstacle observations
         seq_lengths = (
             th.sum(observations[:, 0, :] < 0.99, dim=1).to("cpu").type(th.int64)
-        )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
+        )  # idx 0 is normalized distance, where vals = 1.0 is max dist and most often far far away => not valid
         observations = observations.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
         return observations, seq_lengths

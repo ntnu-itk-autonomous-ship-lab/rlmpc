@@ -8,7 +8,7 @@
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import colav_simulator.common.image_helper_methods as ihm
 import colav_simulator.gym.logger as csenv_logger
@@ -110,7 +110,7 @@ def plot_single_model_enc_snapshots(
 def plot_multiple_model_reward_curves(
     model_data: List[Dict[str, Any]], model_names: List[str], save_path: Path, save_fig: bool = False
 ) -> None:
-    fig, axs = plt.subplots(4, 2, figsize=(15, 10), num="reward_curves")
+    fig, axs = plt.subplots(4, 2, figsize=(15, 15), num="training_reward_curves")
     fig.subplots_adjust(hspace=0.4, wspace=0.25)
     colors = sns.color_palette("tab10", n_colors=len(model_data))
     for name, data in zip(model_names, model_data):
@@ -120,7 +120,7 @@ def plot_multiple_model_reward_curves(
         save_path = save_path if save_path is not None else Path("./")
         if not save_path.exists():
             save_path.mkdir(parents=True)
-        plt.savefig(save_path / "reward_curves.pdf", bbox_inches="tight", dpi=100)
+        plt.savefig(save_path / "training_reward_curves.pdf", bbox_inches="tight", dpi=100)
 
 
 def plot_single_model_reward_curves(
@@ -138,9 +138,16 @@ def plot_single_model_reward_curves(
         color=color,
     )
     axs[0, 0].set_title("Total return")
-    axs[0, 0].set_ylabel("Average return", rotation=90)
+    axs[0, 0].set_ylabel("Avg. return", rotation=90)
     # axs[0, 0].set_xlabel("Episode")
 
+    axs[0, 1].plot(
+        range(len(data["ep_lengths_smoothed"])),
+        200.0 * np.ones_like(data["ep_lengths_smoothed"]),
+        label="Truncation limit",
+        color="r",
+        linestyle="--",
+    )
     sns.lineplot(
         x=range(len(data["ep_lengths_smoothed"])),
         y=data["ep_lengths_smoothed"],
@@ -156,6 +163,7 @@ def plot_single_model_reward_curves(
         color=color,
     )
     axs[0, 1].set_title("Episode length")
+    axs[0, 1].set_ylabel("Avg. length", rotation=90)
     # axs[0, 1].set_xlabel("Episode")
 
     sns.lineplot(x=range(len(data["r_colreg"])), y=data["r_colreg"], ax=axs[1, 0], label=model_name, color=color)
@@ -168,7 +176,7 @@ def plot_single_model_reward_curves(
     )
     axs[1, 0].set_title("COLREG")
     # axs[0, 1].set_xlabel("Episode")
-    axs[1, 0].set_ylabel("Average return", rotation=90)
+    axs[1, 0].set_ylabel("Avg. return", rotation=90)
 
     sns.lineplot(x=range(len(data["r_colav"])), y=data["r_colav"], ax=axs[1, 1], label=model_name, color=color)
     axs[1, 1].fill_between(
@@ -196,7 +204,7 @@ def plot_single_model_reward_curves(
         color=color,
     )
     axs[2, 0].set_title("Anti-grounding")
-    axs[2, 0].set_ylabel("Average return", rotation=90)
+    axs[2, 0].set_ylabel("Avg. return", rotation=90)
     # axs[2, 0].set_xlabel("Episode")
 
     sns.lineplot(
@@ -231,8 +239,8 @@ def plot_single_model_reward_curves(
         color=color,
     )
     axs[3, 0].set_title("RA maneuvering")
-    # axs[3, 0].set_xlabel("Episode")
-    axs[3, 0].set_ylabel("Average return", rotation=90)
+    axs[3, 0].set_xlabel("Episode")
+    axs[3, 0].set_ylabel("Avg. return", rotation=90)
 
     sns.lineplot(
         x=range(len(data["r_dnn_pp"])),
@@ -392,7 +400,9 @@ def plot_multiple_model_eval_results(
         actor_failed_rate = data[6]
 
         color = colors.pop()
-        axs[0].plot(data[0]["timesteps"], data[0]["mean_ep_length"], label=name, color=color)
+        axs[0].plot(
+            data[0]["timesteps"], data[0]["mean_ep_length"], label=name, color=color, marker=".", linestyle="--"
+        )
         axs[0].fill_between(
             data[0]["timesteps"],
             np.array(data[0]["mean_ep_length"]) - np.array(data[0]["std_ep_length"]),
@@ -401,7 +411,9 @@ def plot_multiple_model_eval_results(
             color=color,
         )
         axs[0].set_ylabel("Episode length")
-        axs[1].plot(return_data["timesteps"], return_data["mean_ep_rew"], label=name, color=color)
+        axs[1].plot(
+            return_data["timesteps"], return_data["mean_ep_rew"], label=name, color=color, marker=".", linestyle="--"
+        )
         axs[1].fill_between(
             return_data["timesteps"],
             np.array(return_data["mean_ep_rew"]) - np.array(return_data["std_ep_rew"]),
@@ -410,11 +422,18 @@ def plot_multiple_model_eval_results(
             color=color,
         )
         axs[1].set_ylabel("Return")
-        axs[2].plot(return_data["timesteps"], goal_reached_rate, label="Goals reached rate", color="g")
-        axs[2].plot(return_data["timesteps"], collision_rate, label="Collision rate", color="r")
-        axs[2].plot(return_data["timesteps"], grounding_rate, label="Grounding rate", color="b")
-        axs[2].plot(return_data["timesteps"], truncation_rate, label="Truncation rate", color="k")
-        axs[2].plot(return_data["timesteps"], actor_failed_rate, label="Actor failure rate", color="y")
+        axs[2].plot(
+            return_data["timesteps"],
+            goal_reached_rate,
+            label="Goals reached rate",
+            color=color,
+            marker=".",
+            linestyle="--",
+        )
+        # axs[2].plot(return_data["timesteps"], collision_rate, label="Collision rate", color="r")
+        # axs[2].plot(return_data["timesteps"], grounding_rate, label="Grounding rate", color="b")
+        # axs[2].plot(return_data["timesteps"], truncation_rate, label="Truncation rate", color="k")
+        # axs[2].plot(return_data["timesteps"], actor_failed_rate, label="Actor failure rate", color="y")
         axs[2].set_xlabel("Timesteps")
         axs[2].set_ylabel("Rate")
     axs[0].legend()
@@ -476,7 +495,7 @@ def plot_episode_data_series(
 
     axs1[1].semilogy(times, data.distances_to_collision, label="Dist. to collision", color="b")
     axs1[1].semilogy(times, mpc_params[:, 8], label=r"$r_{safe, do}$", color="r", linestyle="--")
-    axs1[1].set_xlabel("Time [s]")
+    axs1[1].set_ylabel("Distance [m]")
 
     course_refs = np.array([data.actor_infos[i]["applied_refs"][0] for i in range(len(data.actor_infos))])
     courses = data.ownship_states[:, 2] + np.arctan2(data.ownship_states[:, 4], data.ownship_states[:, 3])
@@ -490,6 +509,7 @@ def plot_episode_data_series(
     axs1[3].plot(times, speed_refs, label=r"$U_{d}$", color="r", linestyle="--")
     axs1[3].plot(times, speeds, label=r"$U$", color="b")
     axs1[3].set_ylabel("Speed [m/s]")
+    axs1[3].set_xlabel("Time [s]")
 
     axs1[0].legend()
     axs1[1].legend()
@@ -552,12 +572,15 @@ def plot_episode_data_series(
         fig3.savefig(save_path / (name + "_rewards.pdf"), bbox_inches="tight", dpi=100)
 
 
-def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
+def plot_training_results(
+    base_dir: Path, experiment_names: List[str], abbreviations: Optional[List[str]] = None
+) -> None:
     """Plots results from training.
 
     Args:
         base_dir (Path): Base path to the experiment directories
         experiment_names (List[str]): List of experiment names (experiment folder names).
+        abbreviations (Optional[List[str]], optional): List of abbreviations for the model names.
     """
     env_data_list = []
     training_stats_list = []
@@ -593,27 +616,33 @@ def plot_training_results(base_dir: Path, experiment_names: List[str]) -> None:
                 save_path=base_dir / experiment_name / "figures",
             )
 
+    model_names = experiment_names
+    if abbreviations is not None:
+        model_names = abbreviations
     plot_multiple_model_reward_curves(
         model_data=reward_data_list,
-        model_names=experiment_names,
+        model_names=model_names,
         save_fig=True,
         save_path=base_dir / "figures",
     )
     plot_multiple_model_training_stats(
         model_data=training_stats_list,
-        model_names=experiment_names,
+        model_names=model_names,
         save_fig=True,
         save_path=base_dir / "figures",
     )
 
 
-def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None:
+def plot_evaluation_results(
+    base_dir: Path, experiment_names: List[str], abbreviations: Optional[List[str]] = None
+) -> None:
     """Plots results from training, more specifically the environment data logged by the COLAVENvironment gym logger, and
     the .npz files from each evaluation (stored using stable-baselines3 evaluation callback).
 
     Args:
         base_dir (Path): Base path to the experiment directories
         experiment_names (List[str]): List of experiment names (experiment folder names).
+        abbreviations (Optional[List[str]], optional): List of abbreviations for the model names.
     """
     wb_env_data_list = []
     eval_data_list = []
@@ -718,17 +747,21 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
                 save_path=base_dir / experiment_name / "figures",
             )
 
+    model_names = experiment_names
+    if abbreviations is not None:
+        model_names = abbreviations
+
     if plot_evaluation_curves:
         plot_multiple_model_eval_results(
             eval_data_list=eval_data_list,
-            model_names=experiment_names,
+            model_names=model_names,
             save_fig=True,
             save_path=base_dir / "figures",
         )
     if plot_worst_and_best_episode_data:
         plot_multiple_model_worst_and_best_episode_data(
             wb_env_data_list=wb_env_data_list,
-            model_names=experiment_names,
+            model_names=model_names,
             save_fig=True,
             save_path=base_dir / "figures",
         )
@@ -737,7 +770,8 @@ def plot_evaluation_results(base_dir: Path, experiment_names: List[str]) -> None
 if __name__ == "__main__":
     matplotlib.use("TkAgg")
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["snmpc_gr_200te_8ee_seed0_jid20257839"]
-    plot_training_results(base_dir=base_dir, experiment_names=experiment_names)
-    plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names)
+    experiment_names = ["snmpc_db_high1_200te_8ee_16cpus"]
+    model_names = ["SAC-NMPC1"]
+    plot_training_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
+    plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
     print("Done plotting")

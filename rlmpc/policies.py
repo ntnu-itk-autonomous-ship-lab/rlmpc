@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import colav_simulator.core.stochasticity as stochasticity
 import colav_simulator.gym.environment as csenv
+import functorch
 import numpy as np
 import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.helper_functions as hf
@@ -318,8 +319,8 @@ class MPCParameterDNN(th.nn.Module):
             x_in, self.param_list, self.out_parameter_ranges, self.out_parameter_lengths, self.out_parameter_indices
         )
 
-    def parameter_jacobian(self, x: th.Tensor) -> th.Tensor:
-        """Compute the Jacobian of the DNN output wrt its parameters.
+    def parameter_jacobian_deprecated(self, x: th.Tensor) -> th.Tensor:
+        """(DEPRECATED!) Compute the Jacobian of the DNN output wrt its parameters.
 
         Args:
             x (th.Tensor): The input tensor
@@ -350,6 +351,21 @@ class MPCParameterDNN(th.nn.Module):
         # no we can use vmap to calculate the gradients for all samples at once
         dnn_jacobians = th.vmap(compute_sample_jacobian)(x).float()
         return dnn_jacobians
+
+    def parameter_jacobian(self, x: th.Tensor) -> th.Tensor:
+        """Compute the Jacobian of the DNN output wrt its parameters, newer version.
+
+        Args:
+            x (th.Tensor): Input tensor of shape (batch_size, input_dim)
+
+        Returns:
+            th.Tensor: The Jacobian of the DNN output wrt its parameters, dim (batch_size, num_params)
+        """
+        assert x.ndim == 2, f"Expected input tensor to have 2 dimensions, but got {x.ndim}"
+        params = dict(self.named_parameters())
+        jacobians_dict = th.func.jacrev(th.func.functional_call, argnums=1)(self, params, (x,))
+        jacobians = th.cat([v.flatten(start_dim=2, end_dim=-1) for v in jacobians_dict.values()], -1)
+        return jacobians
 
 
 class SACMPCParameterProviderActor(BasePolicy):

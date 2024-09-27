@@ -48,7 +48,6 @@ class TrackingEncoder(nn.Module):
         self.num_heads = num_heads
 
         self.enable_rnn = False
-        self.fc0 = nn.Linear(self.input_dim, self.input_dim if self.enable_rnn else self.embedding_dim)
 
         if self.enable_rnn:
             self.rnn_hidden_dim = embedding_dim // 2
@@ -60,15 +59,26 @@ class TrackingEncoder(nn.Module):
                 bidirectional=True,
             )
 
-        self.multihead_attention = nn.MultiheadAttention(embed_dim=embedding_dim, num_heads=num_heads, batch_first=True)
-        self.layer_norm = nn.LayerNorm(embedding_dim)
-        self.fc1 = nn.Linear(embedding_dim, 2 * self.latent_dim)
+        self.fc1 = nn.Linear(self.input_dim, self.input_dim if self.enable_rnn else self.embedding_dim)
+        self.multihead_attention1 = nn.MultiheadAttention(
+            embed_dim=embedding_dim, num_heads=num_heads, batch_first=True
+        )
+        self.layer_norm1 = nn.LayerNorm(embedding_dim)
+        self.fc2 = nn.Linear(embedding_dim, embedding_dim)
+        self.multihead_attention2 = nn.MultiheadAttention(
+            embed_dim=embedding_dim, num_heads=num_heads, batch_first=True
+        )
+        self.fc3 = nn.Linear(embedding_dim, embedding_dim)
         self.elu = nn.ELU()
+        self.layer_norm2 = nn.LayerNorm(embedding_dim)
+        self.fc4 = nn.Linear(embedding_dim, 2 * latent_dim)
 
         self.padding_token = nn.Parameter(th.zeros(embedding_dim))
 
-        self.init_weights(self.fc0)
         self.init_weights(self.fc1)
+        self.init_weights(self.fc2)
+        self.init_weights(self.fc3)
+        self.init_weights(self.fc4)
 
     def encode(self, x: th.Tensor, seq_lengths: th.Tensor) -> th.Tensor:
         """Encodes the input into the VAE mean and logvar
@@ -80,7 +90,7 @@ class TrackingEncoder(nn.Module):
         Returns:
             th.Tensor: Encoder output of shape (batch_size, 2 * latent_dim)
         """
-        x = self.fc0(x)  # (batch_size, seq_len, embedding_dim)
+        x = self.fc1(x)  # (batch_size, seq_len, embedding_dim)
 
         # Create an attention mask
         seq_len = x.size(1)
@@ -96,7 +106,7 @@ class TrackingEncoder(nn.Module):
         x_nonnan = x[idx_nonnan]
 
         attn_input = x_nonnan
-        attn_output = th.zeros_like(x)
+        attn_output1 = th.zeros_like(x)
         if self.enable_rnn:
             attn_input = th.zeros_like(x_nonnan)
             packed_seq = rnn_utils.pack_padded_sequence(
@@ -109,26 +119,38 @@ class TrackingEncoder(nn.Module):
             attn_output = th.zeros(x.shape[0], max_seq_len, self.embedding_dim).to(x.device)
 
         mask = mask.to(x.device)
-        attn_output_sub, _ = self.multihead_attention(
+        attn_output_sub1, _ = self.multihead_attention1(
             attn_input, attn_input, attn_input, key_padding_mask=mask[idx_nonnan]
         )
-        attn_output[idx_nonnan] = attn_output_sub
-        attn_output[idx_nan] = self.padding_token
+        attn_output1[idx_nonnan] = attn_output_sub1 + x_nonnan
+        attn_output1[idx_nan] = self.padding_token
 
-        # attn_output = attn_output + x
-        # attn_output = self.layer_norm(attn_output)
+        attn_output1 = self.layer_norm1(attn_output1)
+        attn_output1 = self.fc2(attn_output1)
+
+        attn_output_sub2, _ = self.multihead_attention2(
+            attn_output1[idx_nonnan],
+            attn_output1[idx_nonnan],
+            attn_output1[idx_nonnan],
+            key_padding_mask=mask[idx_nonnan],
+        )
+        attn_output2 = th.zeros_like(x)
+        attn_output2[idx_nonnan] = attn_output_sub2 + attn_output1[idx_nonnan]
+        attn_output2[idx_nan] = self.padding_token
+        # attn_output2 = self.layer_norm2(attn_output2)
 
         # Mean pooling over the valid tokens (ignoring padding)
         valid_seq_lengths = seq_lengths.clamp(min=1).unsqueeze(1).to(x.device)  # (batch_size, 1)
 
         # Max pooling over the valid tokens (ignoring padding)
-        # pooled_output = attn_output.max(dim=1).values  # (batch_size, embedding_dim)
+        # pooled_output = attn_output2.max(dim=1).values  # (batch_size, embedding_dim)
 
         # Average pooling over the valid tokens (ignoring padding)
-        pooled_output = attn_output.sum(dim=1) / valid_seq_lengths.float()  # (batch_size, embedding_dim)
-        z_enc = pooled_output
-        z_enc = self.fc1(pooled_output)
-        # z_enc = self.elu(z_enc)
+        pooled_output = attn_output2.sum(dim=1) / valid_seq_lengths.float()  # (batch_size, embedding_dim)
+
+        attn_output2 = self.fc3(attn_output2)
+        attn_output2 = self.elu(attn_output2)
+        z_enc = self.fc4(pooled_output)
         return z_enc
 
     def forward(self, x: th.Tensor, seq_lengths: th.Tensor) -> th.Tensor:
@@ -147,7 +169,7 @@ class TrackingEncoder(nn.Module):
 
 if __name__ == "__main__":
     latent_dimension = 10
-    encoder = TrackingEncoder(input_dim=6, embedding_dim=6, num_heads=10, latent_dim=latent_dimension)
+    encoder = TrackingEncoder(input_dim=6, embedding_dim=12, num_heads=6, latent_dim=latent_dimension)
 
     x = th.rand(2, 6, 6)
     seq_lengths = th.tensor([6, 5])
