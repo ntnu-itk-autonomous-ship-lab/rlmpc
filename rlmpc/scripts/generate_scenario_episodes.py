@@ -17,7 +17,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 def main():
     scenario_names = [
         "rlmpc_scenario_ms_channel",
-        # "rlmpc_scenario_random_many_vessels",
+        "rlmpc_scenario_random_many_vessels",
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss"]
     training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
     test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
@@ -27,37 +27,37 @@ def main():
         scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
         for idx, name in enumerate(scenario_names):
 
-            # if idx == 0:
-            #     continue
+            if idx == 0:
+                continue
 
             if idx > 0:
                 scenario_generator.behavior_generator.set_ownship_method(
                     method=cs_bg.BehaviorGenerationMethod.ConstantSpeedRandomWaypoints
                 )
 
-            # scenario_generator.seed(idx + 0)
-            # _ = scenario_generator.generate(
-            #     config_file=rl_dp.scenarios / (name + ".yaml"),
-            #     new_load_of_map_data=False,
-            #     save_scenario=True,
-            #     save_scenario_folder=rl_dp.scenarios / "training_data" / name,
-            #     show_plots=True,
-            #     episode_idx_save_offset=0,
-            #     n_episodes=400,
-            #     delete_existing_files=True,
-            # )
-
-            scenario_generator.seed(idx + 102)
+            scenario_generator.seed(idx + 0)
             _ = scenario_generator.generate(
                 config_file=rl_dp.scenarios / (name + ".yaml"),
                 new_load_of_map_data=False,
                 save_scenario=True,
-                save_scenario_folder=rl_dp.scenarios / "test_data" / name,
+                save_scenario_folder=rl_dp.scenarios / "training_data" / name,
                 show_plots=True,
                 episode_idx_save_offset=0,
                 n_episodes=100,
                 delete_existing_files=True,
             )
+
+            # scenario_generator.seed(idx + 102)
+            # _ = scenario_generator.generate(
+            #     config_file=rl_dp.scenarios / (name + ".yaml"),
+            #     new_load_of_map_data=False,
+            #     save_scenario=True,
+            #     save_scenario_folder=rl_dp.scenarios / "test_data" / name,
+            #     show_plots=True,
+            #     episode_idx_save_offset=0,
+            #     n_episodes=100,
+            #     delete_existing_files=True,
+            # )
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]

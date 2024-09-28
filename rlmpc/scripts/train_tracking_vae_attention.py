@@ -3,9 +3,10 @@ import argparse
 import inspect
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
+import optuna
 import pytorch_warmup as warmup
 import rlmpc.common.datasets as rl_ds
 import rlmpc.networks.loss_functions as loss_functions
@@ -39,6 +40,7 @@ def train_vae(
     early_stopping_patience: int = 10,
     save_intermittent_models: bool = False,
     verbose: bool = True,
+    optuna_trial: Optional[optuna.Trial] = None,
 ) -> Tuple[VAE, float, int, List[List[float]], List[List[float]]]:
     """Trains the variation autoencoder model.
 
@@ -74,9 +76,9 @@ def train_vae(
     best_train_loss = 1e20
     best_epoch = 0
 
-    input_dim = 7
-    max_seq_length = 10
-    beta = 1.0 * model.latent_dim / (input_dim * max_seq_length)
+    input_dim = model.input_dim
+    max_seq_length = model.max_seq_len
+    beta = 0.8 * model.latent_dim / (input_dim * max_seq_length)
     training_losses = []
     testing_losses = []
 
@@ -85,7 +87,7 @@ def train_vae(
 
     experiment_name = experiment_path.name
 
-    threshold_dist = 0.0
+    threshold_dist = -0.125  # 300m
     for epoch in range(n_epochs):
         epoch_start_time = time.time()
 
@@ -99,6 +101,7 @@ def train_vae(
             optimizer.zero_grad()
 
             batch_obs = batch_obs.to(device)
+            batch_obs = batch_obs[:, :, :input_dim]
 
             # extract length of valid obstacle observations
             seq_lengths = (
@@ -196,6 +199,12 @@ def train_vae(
             print(f"diff weights = {weights[0]}")
             # Print the statistics
         print("Test Loss:", loss_meter.average_loss)
+
+        if optuna_trial is not None:
+            optuna_trial.report(loss_meter.average_loss, epoch)
+            if optuna_trial.should_prune():
+                raise optuna.TrialPruned()
+
         if loss_meter.average_loss < best_test_loss:
             best_test_loss = loss_meter.average_loss
             best_epoch = epoch
@@ -214,6 +223,7 @@ def train_vae(
             if verbose:
                 print(f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training.")
             break
+        loss_meter.reset()
 
     training_losses = np.array(training_losses)
     testing_losses = np.array(testing_losses)
@@ -232,7 +242,7 @@ if __name__ == "__main__":
     rnn_hidden_dims = [32, 64, 128, 256]
     num_heads = 8
     embedding_dims = [32, 64, 128, 256, 512]
-    input_dim = 7
+    input_dim = 4
 
     load_model = False
     save_interval = 20

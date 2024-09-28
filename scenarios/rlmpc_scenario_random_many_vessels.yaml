@@ -11,7 +11,7 @@ map_tolerance: 1
 map_buffer: 0
 new_load_of_map_data: False
 type: MS
-n_random_ships_range: [3, 10]
+n_random_ships_range: [5, 10]
 episode_generation:
   n_episodes: 100
   n_constant_os_state_episodes: 1
@@ -56,7 +56,7 @@ ship_list:
     random_generated: False
     tracker:
       kf:
-        P_0: [49.1, 49.1, 0.11, 0.11]
+        P_0: [49.1, 49.1, 0.5, 0.5]
         q: 0.3
       # god_tracker: ""
     sensors:
@@ -80,10 +80,10 @@ ship_list:
         cross_track_error_int_threshold: 30.0
     controller:
       flsc:
-        K_p_u: 3.0
+        K_p_u: 2.8
         K_i_u: 0.3
-        K_p_chi: 2.5
-        K_d_chi: 3.0
+        K_p_chi: 1.8
+        K_d_chi: 3.6
         K_i_chi: 0.1
         max_speed_error_int: 4.0
         speed_error_int_threshold: 0.5

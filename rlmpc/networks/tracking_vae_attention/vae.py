@@ -107,6 +107,7 @@ class VAE(nn.Module):
         Returns:
             Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]: The reconstructed observation, mean, log variance, and possibly sampled latent vector.
         """
+        x = x[:, :, : self.input_dim]
         z = self.encoder(x, seq_lengths)
         z_sampled, mean, logvars = self.sample(z)
 

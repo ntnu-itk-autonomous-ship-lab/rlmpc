@@ -24,7 +24,7 @@ def objective(trial: optuna.Trial) -> float:
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     latent_dim = trial.suggest_categorical("latent_dim", [6, 8, 10, 12, 16, 18, 20, 24])
-    rnn_hidden_dim = trial.suggest_categorical("rnn_hidden_dim", [128, 256, 512, 1024, 2048])
+    rnn_hidden_dim = trial.suggest_categorical("rnn_hidden_dim", [128, 256, 512, 1024, 1500, 2048])
     num_rnn_layers_decoder = trial.suggest_categorical("num_rnn_layers_decoder", [1, 2, 3])
     num_heads = trial.suggest_categorical("num_heads", [2, 3, 4, 6, 8, 10, 12])
     n_iter = 50000
@@ -44,7 +44,7 @@ def objective(trial: optuna.Trial) -> float:
     # num_heads = 8
     # embedding_dims = [32, 64, 128, 256, 512]
 
-    input_dim = 7
+    input_dim = 4
     save_interval = 20
     batch_size = 128
     num_epochs = 28
@@ -107,22 +107,27 @@ def objective(trial: optuna.Trial) -> float:
     if not experiment_path.exists():
         experiment_path.mkdir(parents=True)
 
-    model, opt_loss, opt_train_loss, opt_epoch = train_vae(
-        model=vae,
-        training_dataloader=train_dataloader,
-        test_dataloader=test_dataloader,
-        writer=writer,
-        n_epochs=num_epochs,
-        batch_size=batch_size,
-        optimizer=optimizer,
-        lr_schedule=lr_schedule,
-        save_interval=save_interval,
-        device=device,
-        early_stopping_patience=6,  # num_epochs,
-        experiment_path=experiment_path,
-        verbose=False,
-        save_intermittent_models=False,
-    )
+    try:
+        model, opt_loss, opt_train_loss, opt_epoch = train_vae(
+            model=vae,
+            training_dataloader=train_dataloader,
+            test_dataloader=test_dataloader,
+            writer=writer,
+            n_epochs=num_epochs,
+            batch_size=batch_size,
+            optimizer=optimizer,
+            lr_schedule=lr_schedule,
+            save_interval=save_interval,
+            device=device,
+            early_stopping_patience=6,  # num_epochs,
+            experiment_path=experiment_path,
+            verbose=False,
+            save_intermittent_models=False,
+            optuna_trial=trial,
+        )
+    except Exception as e:
+        print(f"Exception caught: {e}")
+        opt_loss = 1000.0
     return opt_loss
 
 
