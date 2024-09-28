@@ -40,7 +40,7 @@ class TestRLMPC(unittest.TestCase):
             terminate_on_collision_or_grounding=True,
             save_results=True,
         )
-        print(output)
+        print("done")
 
 
 if __name__ == "__main__":

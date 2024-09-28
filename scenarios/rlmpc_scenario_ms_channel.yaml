@@ -75,11 +75,11 @@ ship_list:
           measurement_rate: 0.5
           R: [30.0, 30.0]
           R_true: [25.0, 25.0]
-      - ais:
-          max_range: 5000.0
-          ais_class: A
-          R: [26.3, 26.3, 0.1, 0.1]
-          R_true: [26.3, 26.3, 0.1, 0.1]
+      # - ais:
+      #     max_range: 5000.0
+      #     ais_class: A
+      #     R: [26.3, 26.3, 0.1, 0.1]
+      #     R_true: [26.3, 26.3, 0.1, 0.1]
     guidance:
       los:
         pass_angle_threshold: 80.0
@@ -109,18 +109,18 @@ ship_list:
     tracker:
       kf:
         P_0: [49.1, 49.1, 0.11, 0.11]
-        q: 0.15
+        q: 0.20
     sensors:
       - radar:
           max_range: 5000.0
           measurement_rate: 0.5
-          R: [25.0, 25.0]
+          R: [26.0, 26.0]
           R_true: [25.0, 25.0]
-      - ais:
-          max_range: 5000.0
-          ais_class: A
-          R: [26.3, 26.3, 0.1, 0.1]
-          R_true: [26.3, 26.3, 0.1, 0.1]
+      # - ais:
+      #     max_range: 5000.0
+      #     ais_class: A
+      #     R: [26.3, 26.3, 0.1, 0.1]
+      #     R_true: [26.3, 26.3, 0.1, 0.1]
   - waypoints: [[6574820.0, 6574750.0, 6574730.0, 6574560.0, 6574560.0], [-30584.0, -30904.0, -31104.0, -31404.0, -31804.0]]
     speed_plan: [3.0, 3.0, 3.0, 3.0, 3.0]
     csog_state: [6574820.0, -30584.0, 4.0, -110.0]
@@ -128,19 +128,19 @@ ship_list:
     mmsi: 102
     tracker:
       kf:
-        P_0: [49.1, 49.1, 0.11, 0.11]
-        q: 0.3
+        P_0: [49.1, 49.1, 0.5, 0.5]
+        q: 0.2
     sensors:
       - radar:
           max_range: 5000.0
           measurement_rate: 0.5
-          R: [25.0, 25.0]
+          R: [26.0, 26.0]
           R_true: [25.0, 25.0]
-      - ais:
-          max_range: 5000.0
-          ais_class: A
-          R: [26.3, 26.3, 0.1, 0.1]
-          R_true: [26.3, 26.3, 0.1, 0.1]
+      # - ais:
+      #     max_range: 5000.0
+      #     ais_class: A
+      #     R: [26.3, 26.3, 0.1, 0.1]
+      #     R_true: [26.3, 26.3, 0.1, 0.1]
   - waypoints: [[6574680.0, 6574580.0, 6574560.0], [-31104.0, -31404.0, -31804.0]]
     speed_plan: [5.0, 5.0, 5.0]
     csog_state: [6574680.0, -31104.0, 4.0, -110.0]
@@ -156,11 +156,11 @@ ship_list:
           measurement_rate: 0.5
           R: [25.0, 25.0]
           R_true: [25.0, 25.0]
-      - ais:
-          max_range: 5000.0
-          ais_class: A
-          R: [26.3, 26.3, 0.1, 0.1]
-          R_true: [26.3, 26.3, 0.1, 0.1]
+      # - ais:
+      #     max_range: 5000.0
+      #     ais_class: A
+      #     R: [26.3, 26.3, 0.1, 0.1]
+      #     R_true: [26.3, 26.3, 0.1, 0.1]
   - csog_state: [6574850.0, -30584, 5.0, -110.0]
     waypoints: [[6574850.0, 6574720.0, 6574700.0], [-30584.0, -30904.0, -31294.0]]
     speed_plan: [5.0, 7.0, 5.0]
@@ -177,11 +177,11 @@ ship_list:
           measurement_rate: 0.5
           R: [25.0, 25.0]
           R_true: [25.0, 25.0]
-      - ais:
-          max_range: 5000.0
-          ais_class: A
-          R: [26.3, 26.3, 0.1, 0.1]
-          R_true: [26.3, 26.3, 0.1, 0.1]
+      # - ais:
+      #     max_range: 5000.0
+      #     ais_class: A
+      #     R: [26.3, 26.3, 0.1, 0.1]
+      #     R_true: [26.3, 26.3, 0.1, 0.1]
     guidance:
       los:
         pass_angle_threshold: 80.0

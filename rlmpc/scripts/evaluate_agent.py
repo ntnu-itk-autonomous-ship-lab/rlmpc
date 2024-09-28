@@ -85,8 +85,8 @@ def main(args):
     parser.add_argument(
         "--model_class", type=str, default="sac_rlmpc_param_provider_policy"
     )  # either "sac_rlmpc_policy", "sac_rlmpc_param_provider_policy" or "sb3_sac"
-    parser.add_argument("--n_eval_episodes", type=int, default=50)
-    parser.add_argument("--n_cpus", type=int, default=2)
+    parser.add_argument("--n_eval_episodes", type=int, default=16)
+    parser.add_argument("--n_cpus", type=int, default=4)
     parser.add_argument("--record", type=bool, default=True)
     parser.add_argument("--model_kwargs", type=dict, default={})
     parser.add_argument("--seed", type=int, default=0)
@@ -179,7 +179,11 @@ def main(args):
             model.inplace_load(path=model_dir / (args.experiment_name + "_2000"))
 
     elif args.model_class == "sac_rlmpc_param_provider_policy":
-        mpc_config_path = rl_dp.config / "rlmpc.yaml"
+        mpc_config_path = (
+            rl_dp.config / "rlmpc.yaml"
+            if not args.disable_rlmpc_parameter_provider
+            else rl_dp.config / "rlmpc_baseline.yaml"
+        )
         mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
         n_mpc_params = 3 + 1 + 1 + 3 + 1
         action_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
