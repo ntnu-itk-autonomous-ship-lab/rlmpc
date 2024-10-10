@@ -40,6 +40,7 @@ def train_vae(
     early_stopping_patience: int = 10,
     save_intermittent_models: bool = False,
     verbose: bool = True,
+    beta: float = 0.8,
     optuna_trial: Optional[optuna.Trial] = None,
 ) -> Tuple[VAE, float, int, List[List[float]], List[List[float]]]:
     """Trains the variation autoencoder model.
@@ -58,6 +59,8 @@ def train_vae(
         early_stopping_patience (int, optional): The number of epochs to wait before stopping training if the loss does not decrease. Defaults to 10.
         save_intermittent_models (bool, optional): Whether to save the model at each epoch.
         verbose (bool, optional): Whether to print the training progress.
+        beta (float, optional): The beta value for the KL divergence loss. Defaults to 0.8.
+        optuna_trial (Optional[optuna.Trial], optional): The optuna trial object. Defaults to None.
 
     Returns:
         Tuple[VAE, float, int, List[List[float]], List[List[float]]]: The trained model, the best test loss, the epoch at which the best test loss occurred, the training losses, and the testing losses.
@@ -78,7 +81,6 @@ def train_vae(
 
     input_dim = model.input_dim
     max_seq_length = model.max_seq_len
-    beta = 0.8 * model.latent_dim / (input_dim * max_seq_length)
     training_losses = []
     testing_losses = []
 
@@ -87,7 +89,7 @@ def train_vae(
 
     experiment_name = experiment_path.name
 
-    threshold_dist = -0.125  # 300m
+    threshold_dist = -0.25  #
     for epoch in range(n_epochs):
         epoch_start_time = time.time()
 
@@ -101,7 +103,7 @@ def train_vae(
             optimizer.zero_grad()
 
             batch_obs = batch_obs.to(device)
-            batch_obs = batch_obs[:, :, :input_dim]
+            batch_obs = batch_obs[:, :input_dim, :]
 
             # extract length of valid obstacle observations
             seq_lengths = (
@@ -163,6 +165,8 @@ def train_vae(
         for batch_idx, batch_obs in enumerate(test_dataloader):
 
             batch_obs = batch_obs.to(device)
+            batch_obs = batch_obs[:, :input_dim, :]
+
             # extract length of valid obstacle observations
             seq_lengths = (
                 torch.sum(batch_obs[:, 0, :] < threshold_dist, dim=1).to("cpu").type(torch.int64)

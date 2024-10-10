@@ -23,57 +23,44 @@ def objective(trial: optuna.Trial) -> float:
     BASE_PATH: Path = Path.home() / "Desktop/machine_learning/tracking_vae/"
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    latent_dim = trial.suggest_categorical("latent_dim", [6, 8, 10, 12, 16, 18, 20, 24])
-    rnn_hidden_dim = trial.suggest_categorical("rnn_hidden_dim", [128, 256, 512, 1024, 1500, 2048])
-    num_rnn_layers_decoder = trial.suggest_categorical("num_rnn_layers_decoder", [1, 2, 3])
-    num_heads = trial.suggest_categorical("num_heads", [2, 3, 4, 6, 8, 10, 12])
+    latent_dim = trial.suggest_categorical("latent_dim", [8, 10, 12])
+    rnn_hidden_dim = trial.suggest_categorical("rnn_hidden_dim", [8, 16, 32, 64, 128, 256])
+    num_rnn_layers_decoder = trial.suggest_categorical("num_rnn_layers_decoder", [1, 2])
+    num_heads = trial.suggest_categorical("num_heads", [4, 8])
+    beta = 0.01  # trial.suggest_float("beta", 0.05, 1.0, step=0.1)
     n_iter = 50000
     for i in range(n_iter):
-        embedding_dim = trial.suggest_categorical("embedding_dim", [5, 10, 16, 20, 24, 32, 40, 48, 64])
-        embedding_dim *= num_heads
+        # embedding_dim = trial.suggest_categorical("embedding_dim", [5, 10, 16, 20, 24, 32, 40, 48, 64])
+        # embedding_dim *= num_heads
+        embedding_dim = trial.suggest_categorical("embedding_dim", [8, 16, 32, 64, 128, 256, 512])
         if embedding_dim % num_heads == 0:
             break
-    if embedding_dim < 30:
-        embedding_dim *= num_heads
+    # if embedding_dim < 30:
+    #     embedding_dim *= num_heads
     print(f"Embedding dim: {embedding_dim}")
     learning_rate = 0.0002
 
-    # latent_dims = [8, 10, 12, 15]  # , 10, 15, 20]
-    # num_rnn_layers_decoder = 1
-    # rnn_hidden_dims = [32, 64, 128, 256]
-    # num_heads = 8
-    # embedding_dims = [32, 64, 128, 256, 512]
-
     input_dim = 4
     save_interval = 20
-    batch_size = 128
-    num_epochs = 28
+    batch_size = 256
+    num_epochs = 20
 
     data_dir = Path.home() / "Desktop/machine_learning/tracking_vae/data"
-    training_data_filename_list = []
-    for i in range(1, 46):
-        training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
-        training_data_filename_list.append(training_data_filename)
+    data_filename_list = []
+    for i in range(1, 199):
+        training_data_filename = f"tracking_vae_training_data_rogaland_new{i}.npy"
+        data_filename_list.append(training_data_filename)
 
-    for i in range(2, 35):
-        training_data_filename_list.append(f"tracking_vae_test_data_rogaland{i}.npy")
+    for i in range(199):
+        data_filename_list.append(f"tracking_vae_test_data_rogaland_new{i}.npy")
 
-    test_data_filename_list = []
-    for i in range(35, 45):
-        test_data_filename_list.append(f"tracking_vae_test_data_rogaland{i}.npy")
-
-    training_dataset = torch.utils.data.ConcatDataset(
-        [
-            rl_ds.TrackingObservationDataset(training_data_file, data_dir)
-            for training_data_file in training_data_filename_list
-        ]
+    full_dataset = torch.utils.data.ConcatDataset(
+        [rl_ds.TrackingObservationDataset(data_file, data_dir) for data_file in data_filename_list]
     )
 
-    test_dataset = torch.utils.data.ConcatDataset(
-        [rl_ds.TrackingObservationDataset(test_data_file, data_dir) for test_data_file in test_data_filename_list]
+    training_dataset, test_dataset = torch.utils.data.random_split(
+        full_dataset, [int(0.85 * len(full_dataset)), int(0.15 * len(full_dataset))]
     )
-    # test_dataset = torch.utils.data.ConcatDataset([test_dataset1, test_dataset2])
-
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
@@ -94,13 +81,13 @@ def objective(trial: optuna.Trial) -> float:
     ).to(device)
 
     print(f"Model size: {sum(p.numel() for p in vae.parameters() if p.requires_grad)}")
-    name = f"tracking_avae{trial.number}_NL_{num_rnn_layers_decoder}_nonbi_HD_{rnn_hidden_dim}_LD_{latent_dim}_NH_{num_heads}_ED_{embedding_dim}"
+    name = f"tracking_avae_mdnew_beta001_{trial.number}_NL_{num_rnn_layers_decoder}_nonbi_HD_{rnn_hidden_dim}_LD_{latent_dim}_NH_{num_heads}_ED_{embedding_dim}"
     experiment_path = BASE_PATH / name
 
     writer = SummaryWriter(log_dir=log_dir / name)
     optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
     # T_max = len(train_dataloader) * num_epochs
-    # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
+    # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=3e-5)
     lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
     # lr_schedule = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
@@ -119,10 +106,11 @@ def objective(trial: optuna.Trial) -> float:
             lr_schedule=lr_schedule,
             save_interval=save_interval,
             device=device,
-            early_stopping_patience=6,  # num_epochs,
+            early_stopping_patience=10,  # num_epochs,
             experiment_path=experiment_path,
             verbose=False,
             save_intermittent_models=False,
+            beta=beta,
             optuna_trial=trial,
         )
     except Exception as e:
@@ -132,7 +120,7 @@ def objective(trial: optuna.Trial) -> float:
 
 
 def main(args):
-    study_name = "tracking_vae_hpo6"
+    study_name = "tracking_vae_hpo_moredata4"
     storage_name = "sqlite:///{}.db".format(study_name)
     study = optuna.create_study(
         direction="minimize",

@@ -106,8 +106,8 @@ def main(args):
             "path_relative_navigation_observation",
             "perception_image_observation",
             "relative_tracking_observation",
-            "navigation_3dof_state_observation",
-            "tracking_observation",
+            # "navigation_3dof_state_observation",
+            # "tracking_observation",
             "time_observation",
         ]
     }
@@ -127,7 +127,7 @@ def main(args):
     eval_env_config = {
         "scenario_file_folder": test_scenario_folders,
         "scenario_generator_config": scen_gen_config,
-        "max_number_of_episodes": args.n_eval_episodes,
+        "max_number_of_episodes": 40,
         "simulator_config": eval_sim_config,
         "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "render_update_rate": 0.5,

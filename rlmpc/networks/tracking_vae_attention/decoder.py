@@ -104,7 +104,17 @@ class TrackingDecoder(nn.Module):
 
 if __name__ == "__main__":
     latent_dimension = 10
-    decoder = TrackingDecoder(latent_dim=latent_dimension, output_dim=6, num_layers=1, rnn_type=nn.LSTM).to("cuda")
+    decoder = TrackingDecoder(
+        latent_dim=latent_dimension,
+        output_dim=4,
+        num_layers=2,
+        rnn_type=nn.GRU,
+        rnn_hidden_dim=128,
+        bidirectional=False,
+        embedding_dim=128,
+        num_heads=2,
+    ).to("cuda")
     x = th.rand(2, latent_dimension).to("cuda")
     out = decoder(x, max_seq_len=10)
     print(f"In: {x.shape}, Out: {out.shape}")
+    print(f"Decoder number of parameters: {sum(p.numel() for p in decoder.parameters() if p.requires_grad)}")

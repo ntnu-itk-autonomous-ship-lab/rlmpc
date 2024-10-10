@@ -169,9 +169,10 @@ class TrackingEncoder(nn.Module):
 
 if __name__ == "__main__":
     latent_dimension = 10
-    encoder = TrackingEncoder(input_dim=6, embedding_dim=12, num_heads=6, latent_dim=latent_dimension)
+    encoder = TrackingEncoder(input_dim=4, embedding_dim=12, num_heads=6, latent_dim=latent_dimension)
 
-    x = th.rand(2, 6, 6)
+    x = th.rand(2, 6, 4)
     seq_lengths = th.tensor([6, 5])
     out = encoder(x, seq_lengths)
     print(f"In: {x.shape}, Out: {out.shape}")
+    print(f"Encoder number of parameters: {sum(p.numel() for p in encoder.parameters() if p.requires_grad)}")

@@ -131,6 +131,7 @@ class TrackingObservationDataset(Dataset):
         self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.float32)
         # self.data = self.data[:1, :1]
         self.n_samples, self.n_envs, self.max_num_do, self.do_info_dim = self.data.shape
+        self.do_info_dim = min(4, self.do_info_dim)
 
     def get_datainfo(self) -> Tuple[int, int, int, int, int]:
         """Returns the data information."""
@@ -147,6 +148,7 @@ class TrackingObservationDataset(Dataset):
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
         sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :].copy().astype(np.float32))
+        sample = sample[: self.do_info_dim, :]
         # sort sample after entry 0 (distance)
         if self.transform:
             sample = self.transform(sample)

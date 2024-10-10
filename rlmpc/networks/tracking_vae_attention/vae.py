@@ -78,7 +78,7 @@ class VAE(nn.Module):
             num_heads=num_heads,
         )
 
-        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.3 * th.eye(self.latent_dim))
+        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 1.0 * th.eye(self.latent_dim))
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters

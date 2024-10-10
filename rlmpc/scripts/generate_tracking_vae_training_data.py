@@ -95,8 +95,8 @@ if __name__ == "__main__":
     TRACKING_VAE_TRAINING_DATA_SAVE_FILE = "tracking_vae_training_data_rogaland_new"
     TRACKING_VAE_TEST_DATA_SAVE_FILE = "tracking_vae_test_data_rogaland_new"
 
-    n_files = 100
-    for f in range(8, n_files):
+    n_files = 200
+    for f in range(100, n_files):
         training_filename = TRACKING_VAE_TRAINING_DATA_SAVE_FILE + str(f) + ".npy"
         test_filename = TRACKING_VAE_TEST_DATA_SAVE_FILE + str(f) + ".npy"
         use_vec_env = True
