@@ -84,14 +84,15 @@ class VAE(nn.Module):
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
 
         num_params = sum(p.numel() for p in self.parameters())
-        # print(f"Initialized tracking RNN Attention-VAE with {num_params} parameters")
+        # print(f"Initialized tracking RNN attention-VAE with {num_params} parameters")
 
     def preprocess_obs(self, observations: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
         if observations.ndim < 3:
             observations = observations.unsqueeze(0)
         # extract length of valid obstacle observations
+        threshold_dist = -0.25
         seq_lengths = (
-            th.sum(observations[:, 0, :] < 0.99, dim=1).to("cpu").type(th.int64)
+            th.sum(observations[:, 0, :] < threshold_dist, dim=1).to("cpu").type(th.int64)
         )  # idx 0 is normalized distance, where vals = 1.0 is max dist and most often far far away => not valid
         observations = observations.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
