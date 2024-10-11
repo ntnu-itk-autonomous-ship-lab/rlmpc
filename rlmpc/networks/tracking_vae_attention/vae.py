@@ -74,23 +74,26 @@ class VAE(nn.Module):
             rnn_type=rnn_type,
             rnn_hidden_dim=rnn_hidden_dim,
             bidirectional=bidirectional,
+            embedding_dim=embedding_dim,
+            num_heads=num_heads,
         )
 
-        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.6 * th.eye(self.latent_dim))
+        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 1.0 * th.eye(self.latent_dim))
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
 
         num_params = sum(p.numel() for p in self.parameters())
-        # print(f"Initialized tracking RNN Attention-VAE with {num_params} parameters")
+        # print(f"Initialized tracking RNN attention-VAE with {num_params} parameters")
 
     def preprocess_obs(self, observations: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
         if observations.ndim < 3:
             observations = observations.unsqueeze(0)
         # extract length of valid obstacle observations
+        threshold_dist = -0.25
         seq_lengths = (
-            th.sum(observations[:, 0, :] < 0.99, dim=1).to("cpu").type(th.int64)
-        )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
+            th.sum(observations[:, 0, :] < threshold_dist, dim=1).to("cpu").type(th.int64)
+        )  # idx 0 is normalized distance, where vals = 1.0 is max dist and most often far far away => not valid
         observations = observations.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
 
         return observations, seq_lengths
@@ -105,6 +108,7 @@ class VAE(nn.Module):
         Returns:
             Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]: The reconstructed observation, mean, log variance, and possibly sampled latent vector.
         """
+        x = x[:, :, : self.input_dim]
         z = self.encoder(x, seq_lengths)
         z_sampled, mean, logvars = self.sample(z)
 

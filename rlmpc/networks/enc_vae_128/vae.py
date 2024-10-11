@@ -68,6 +68,8 @@ class VAE(nn.Module):
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
         self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
+        num_params = sum(p.numel() for p in self.parameters())
+        # print(f"Initialized ENC-VAE with {num_params} parameters")
 
     def forward(self, img: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a reconstructed image based on the input image.

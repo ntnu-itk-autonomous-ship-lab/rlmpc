@@ -476,7 +476,7 @@ class SAC(opa.OffPolicyAlgorithm):
         min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
         dnn_input = self.extract_mpc_param_provider_inputs(replay_data)
-        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input).to(self.device)
+        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian2(dnn_input).to(self.device)
 
         alpha = 1.0  # amplification factor for the mpc_param_provider gradients
         actor_loss = 0.0

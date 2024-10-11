@@ -102,7 +102,9 @@ class RLMPC(ci.ICOLAV):
         acados_code_gen_path (str): Path to the acados code generation folder.
     """
 
-    def __init__(self, config: RLMPCParams | Path = dp.rlmpc_config, identifier: str = "", acados_code_gen_path: str = None) -> None:
+    def __init__(
+        self, config: RLMPCParams | Path = dp.rlmpc_config, identifier: str = "rlmpc", acados_code_gen_path: str = None
+    ) -> None:
         if isinstance(config, RLMPCParams):
             self._config: RLMPCParams = config
         elif isinstance(config, Path):
@@ -111,7 +113,9 @@ class RLMPC(ci.ICOLAV):
 
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
-        self._mpc = mlmpc.MidlevelMPC(self._config.mpc, identifier=identifier, acados_code_gen_path=acados_code_gen_path)
+        self._mpc = mlmpc.MidlevelMPC(
+            self._config.mpc, identifier=identifier, acados_code_gen_path=acados_code_gen_path
+        )
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
         self._dt_sim: float = 0.5  # get from scenario config, typically always 0.5
         self._rrtstar = None
@@ -134,7 +138,14 @@ class RLMPC(ci.ICOLAV):
         self._mpc_traj_handle = None
         self._do_plt_handles: list = []
 
-        self._action_indices: list = []
+        n_samples = self._mpc.params.T / self._mpc.params.dt
+        nx, nu, ns, _, _ = self._mpc.dims()
+        self._action_indices: list = [
+            int(nu * n_samples + (3 * nx) + 2),  # chi 2
+            int(nu * n_samples + (2 * nx) + 3),  # speed 2
+            # int(nu * n_samples + (2 * nx) + 2),  # chi 3
+            # int(nu * n_samples + (2 * nx) + 3),  # speed 3
+        ]
         self._goal_state: np.ndarray = np.array([])
         self._waypoints: np.ndarray = np.array([])
         self._speed_plan: np.ndarray = np.array([])
@@ -173,7 +184,14 @@ class RLMPC(ci.ICOLAV):
         self._initialized = False
         self._geometry_tree = strtree.STRtree([])
         self._disturbance_handles = []
-        self._action_indices = []
+        n_samples = self._mpc.params.T / self._mpc.params.dt
+        nx, nu, ns, _, _ = self._mpc.dims()
+        self._action_indices: list = [
+            int(nu * n_samples + (3 * nx) + 2),  # chi 2
+            int(nu * n_samples + (2 * nx) + 3),  # speed 2
+            # int(nu * n_samples + (2 * nx) + 2),  # chi 3
+            # int(nu * n_samples + (2 * nx) + 3),  # speed 3
+        ]
         self._rrt_traj_handle = None
         self._mpc_traj_handle = None
         self._goal_state = np.array([])
@@ -823,9 +841,13 @@ class RLMPC(ci.ICOLAV):
 
         warm_start = {}
         if prev_soln:
-            prev_abs_action = prev_soln["abs_action"] if "abs_action" in prev_soln else None
             U, X, Sigma = prev_soln["inputs"], prev_soln["trajectory"], prev_soln["slacks"]
             X -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
+            prev_abs_action = (
+                prev_soln["abs_action"]
+                if "abs_action" in prev_soln
+                else prev_soln["soln"]["x"].flatten()[self._action_indices]
+            )
             warm_start.update({"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"]})
             X_comb = np.concatenate((X, rrt_trajectory[:, 1:]), axis=1)
             U_comb = np.concatenate((U, rrt_inputs[:, 1:]), axis=1)
@@ -959,7 +981,6 @@ class RLMPC(ci.ICOLAV):
                 "mpc_soln": self._mpc_soln,
                 "mpc_trajectory": self._mpc_trajectory,
                 "mpc_inputs": self._mpc_inputs,
-                "params": self._config,
                 "t": self._t_prev,
             }
         return output

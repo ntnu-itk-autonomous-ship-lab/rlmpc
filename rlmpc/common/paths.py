@@ -23,7 +23,7 @@ schemas = package / "schemas"
 rlmpc_schema = schemas / "rlmpc.yaml"
 ttmpc_schema = schemas / "ttmpc.yaml"
 
-rlmpc_config = config / "rlmpc.yaml"
+rlmpc_config = config / "rlmpc_baseline.yaml"
 ttmpc_config = config / "ttmpc.yaml"
 
 rrt_solution = data / "rrt_solution.yaml"

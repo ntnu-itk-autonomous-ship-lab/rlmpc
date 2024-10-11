@@ -11,6 +11,7 @@ import pathlib
 from typing import Tuple
 
 import numpy as np
+import rlmpc.common.paths as rl_dp
 import rlmpc.networks.enc_vae_128.vae as enc_vae
 import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 import torch as th
@@ -18,8 +19,10 @@ import torch.nn as nn
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
-VAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/enc_vae/"
-TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/tracking_vae/"
+# ENCVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/enc_vae/"
+# TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/tracking_vae/chosen"
+ENCVAE_DATADIR: pathlib.Path = rl_dp.root / "rlmpc/networks/models"
+TRACKINGVAE_DATADIR: pathlib.Path = rl_dp.root / "rlmpc/networks/models"
 
 
 class ENCVAE(BaseFeaturesExtractor):
@@ -38,8 +41,8 @@ class ENCVAE(BaseFeaturesExtractor):
         self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
 
         if model_file is None:
-            # model_file = VAE_DATADIR / "enc_vae_LD_64_128x128_best.pth"
-            model_file = VAE_DATADIR / "LD_40_128x128/model_LD_40_best.pth"
+            # model_file = ENCVAE_DATADIR / "LD_40_128x128/model_LD_40_best.pth"
+            model_file = ENCVAE_DATADIR / "enc_vae.pth"
         self.vae: enc_vae.VAE = enc_vae.VAE(
             latent_dim=latent_dim,
             input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
@@ -157,17 +160,15 @@ class TrackingVAE(BaseFeaturesExtractor):
         self.max_seq_len = observation_space.shape[1]
 
         if model_file is None:
-            model_file = (
-                TRACKINGVAE_DATADIR
-                / "tracking_avae51_NL_1_nonbi_HD_128_LD_12_NH_8_ED_128"
-                / "tracking_avae51_NL_1_nonbi_HD_128_LD_12_NH_8_ED_128_best.pth"
-            )
+            # model_name = "tracking_avae_mdd21_NL_2_nonbi_HD_64_LD_10_NH_4_ED_16"
+            # model_file = TRACKINGVAE_DATADIR / model_name / f"{model_name}_best.pth"
+            model_file = TRACKINGVAE_DATADIR / "tracking_avae.pth"
 
         self.vae: tracking_vae.VAE = tracking_vae.VAE(
             input_dim=self.input_dim,
-            embedding_dim=128,
+            embedding_dim=16,
             num_heads=8,
-            rnn_hidden_dim=128,
+            rnn_hidden_dim=64,
             latent_dim=12,
             num_layers=1,
             rnn_type=th.nn.GRU,
@@ -185,7 +186,7 @@ class TrackingVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
-        self.scaling_factor = 25.0
+        self.scaling_factor = 10.0
 
     def set_inference_mode(self, inference_mode: bool) -> None:
         self.vae.set_inference_mode(inference_mode)
