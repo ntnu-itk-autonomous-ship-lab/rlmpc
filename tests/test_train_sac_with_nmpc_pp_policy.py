@@ -88,7 +88,7 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.0001, 0.0001])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.0003, 0.0003])  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.5 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
@@ -118,7 +118,7 @@ def main(args):
         "shuffle_loaded_scenario_data": False,
         "identifier": "training_env_" + args.experiment_name,
         "seed": args.seed,
-        "verbose": False,
+        "verbose": True,
     }
 
     eval_env_config = copy.deepcopy(training_env_config)

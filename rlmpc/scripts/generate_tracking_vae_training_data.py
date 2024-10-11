@@ -100,10 +100,7 @@ if __name__ == "__main__":
             "path_relative_navigation_observation",
             # "perception_image_observation",
             "relative_tracking_observation",
-            "navigation_3dof_state_observation",
             "tracking_observation",
-            "ground_truth_tracking_observation",
-            "disturbance_observation",
             "time_observation",
         ]
     }
@@ -117,7 +114,7 @@ if __name__ == "__main__":
         "merge_loaded_scenario_episodes": True,
         "max_number_of_episodes": 10000,
         "simulator_config": training_sim_config,
-        "action_sample_time": 1.0 / 0.4,  # from rlmpc.yaml config file
+        "action_sample_time": 1.0 / 0.5,  # from rlmpc.yaml config file
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "test_mode": False,
@@ -135,8 +132,8 @@ if __name__ == "__main__":
     TRACKING_VAE_TEST_DATA_SAVE_FILE = "tracking_vae_test_data_rogaland"
     use_vec_env = True
 
-    n_files = 60
-    for f in range(28, n_files):
+    n_files = 120
+    for f in range(60, n_files):
         training_filename = TRACKING_VAE_TRAINING_DATA_SAVE_FILE + str(f) + ".npy"
         test_filename = TRACKING_VAE_TEST_DATA_SAVE_FILE + str(f) + ".npy"
         if use_vec_env:

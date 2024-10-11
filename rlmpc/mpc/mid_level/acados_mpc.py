@@ -444,7 +444,7 @@ class AcadosMPC:
 
         if status != 0 and t == 0.0:
             self.check_warm_start(xs_unwrapped, correct_warm_start=False, print_info=True)
-            self._acados_ocp_solver.print_statistics()
+            # self._acados_ocp_solver.print_statistics()
 
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
