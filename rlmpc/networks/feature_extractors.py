@@ -231,7 +231,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = TrackingVAE(subspace, features_dim=12, num_layers=1)
+                extractors[key] = TrackingVAE(subspace, features_dim=12)
                 total_concat_size += extractors[key].latent_dim
             elif key == "MPCParameterObservation":
                 extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])

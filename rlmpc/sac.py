@@ -194,7 +194,7 @@ class SAC(opa.OffPolicyAlgorithm):
         # of https://arxiv.org/abs/1812.05905
         if isinstance(self.ent_coef, str) and self.ent_coef.startswith("auto"):
             # Default initial value of ent_coef when learned
-            init_value = 0.005
+            init_value = 0.001
             if "_" in self.ent_coef:
                 init_value = float(self.ent_coef.split("_")[1])
                 assert init_value > 0.0, "The initial value of ent_coef must be greater than 0"
@@ -476,7 +476,7 @@ class SAC(opa.OffPolicyAlgorithm):
         min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
         dnn_input = self.extract_mpc_param_provider_inputs(replay_data)
-        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian2(dnn_input).to(self.device)
+        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input).to(self.device)
 
         alpha = 1.0  # amplification factor for the mpc_param_provider gradients
         actor_loss = 0.0

@@ -48,7 +48,7 @@ def main(args):
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=4)
     parser.add_argument("--load_model_name", type=str, default="")
-    parser.add_argument("--load_critics", default=True, action="store_true")
+    parser.add_argument("--load_critics", default=False, action="store_true")
     parser.add_argument("--reset_num_timesteps", default=True, action="store_true")
     parser.add_argument("--seed", default=0, type=int)
 
@@ -88,7 +88,7 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.0003, 0.0003])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.00015, 0.00015])  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.5 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
@@ -140,7 +140,7 @@ def main(args):
     model_path = str(base_dir.parents[0]) + f"/{load_model_name}/models/{load_model_name}_71888_steps"
     load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer.pkl"
 
-    load_critic = args.load_critics
+    load_critic = False # args.load_critics
     load_critic_path = (
         str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_495_498_ReLU/models/best_model"
     )
@@ -218,8 +218,8 @@ def main(args):
             timesteps_completed=timesteps_completed,
             episodes_completed=episodes_completed,
         )
-        timesteps_completed = timesteps_completed + model.num_timesteps
-        episodes_completed = episodes_completed + model.num_episodes
+        timesteps_completed = model.num_timesteps
+        episodes_completed = model.num_episodes
         model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
         model.save(model_path)
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")

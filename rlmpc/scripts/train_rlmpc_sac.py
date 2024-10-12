@@ -128,7 +128,6 @@ def train_rlmpc_sac(
             train_freq=model_kwargs["train_freq"],
             replay_buffer_kwargs=model_kwargs["replay_buffer_kwargs"],
             tensorboard_log=base_dir / "logs",
-            num_episodes=episodes_completed,
             verbose=1,
         )
         print(
