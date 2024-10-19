@@ -612,8 +612,10 @@ def evaluate_policy(
         for env_idx in range(n_envs):
             env_data_logger.reset_data_structures(env_idx=env_idx)
 
-    is_mpc_policy = isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC) or isinstance(
-        model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider
+    is_mpc_policy = (
+        isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC)
+        or isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider)
+        or isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard)
     )
     frames = []
     states = None
@@ -655,7 +657,9 @@ def evaluate_policy(
                 info.update({"actor_info": actor_info})
                 if actor_info["qp_failure"]:
                     dones[idx] = True
-            elif isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider):
+            elif isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider) or isinstance(
+                rlmpc_policies.SACPolicyWithMPCParameterProviderStandard
+            ):
                 info["actor_info"] = info["actor_info"] | actor_info
 
         if env_data_logger is not None:

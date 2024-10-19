@@ -201,19 +201,25 @@ def unnormalize_mpc_param_increment_tensor(
     Returns:
         np.ndarray: The unnormalized output as a numpy array
     """
+    if x.ndim == 1:
+        x = x.unsqueeze(0).detach().numpy()
     x_unnorm = np.zeros_like(x, dtype=np.float32)
-    for param_name in param_list:
-        param_incr_range = parameter_incr_ranges[param_name]
-        param_length = parameter_lengths[param_name]
-        pindx = parameter_indices[param_name]
-        x_param = x[pindx : pindx + param_length]
 
-        for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
-            if param_name == "Q_p":
-                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range[j]))
-            else:
-                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range))
-        x_unnorm[pindx : pindx + param_length] = x_param
+    for i in range(x.shape[0]):
+        for param_name in param_list:
+            param_incr_range = parameter_incr_ranges[param_name]
+            param_length = parameter_lengths[param_name]
+            pindx = parameter_indices[param_name]
+            x_param = x[i, pindx : pindx + param_length].copy()
+
+            for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
+                if param_name == "Q_p":
+                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range[j]))
+                else:
+                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range))
+            x_unnorm[i, pindx : pindx + param_length] = x_param
+    if x_unnorm.shape[0] == 1:
+        x_unnorm = x_unnorm.squeeze(0)
     return x_unnorm
 
 

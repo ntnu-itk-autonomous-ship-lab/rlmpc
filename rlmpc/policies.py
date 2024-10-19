@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import colav_simulator.core.stochasticity as stochasticity
 import colav_simulator.gym.environment as csenv
-import functorch
 import numpy as np
 import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.helper_functions as hf
@@ -24,10 +23,14 @@ import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.rlmpc_cas as rlmpc_cas
 import torch as th
 from gymnasium import spaces
-from stable_baselines3.common.distributions import DiagGaussianDistribution
-from stable_baselines3.common.policies import BaseModel, ContinuousCritic
+from stable_baselines3.common.distributions import (
+    DiagGaussianDistribution,
+    SquashedDiagGaussianDistribution,
+    StateDependentNoiseDistribution,
+)
+from stable_baselines3.common.policies import ContinuousCritic
 from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
-from stable_baselines3.common.type_aliases import Schedule
+from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
 # CAP the standard deviation of the actor
@@ -36,142 +39,10 @@ LOG_STD_MIN = -20
 LOG_PROB_MIN = -15.0
 
 
-class CustomContinuousCritic(BaseModel):
-    """
-    CUSTOMIZED CRITIC NETWORK FOR SAC
-
-    It represents the action-state value function (Q-value function).
-    Compared to A2C/PPO critics, this one represents the Q-value
-    and takes the continuous action as input. It is concatenated with the state
-    and then fed to the network which outputs a single value: Q(s, a).
-    For more recent algorithms like SAC/TD3, multiple networks
-    are created to give different estimates.
-
-    By default, it creates two critic networks used to reduce overestimation
-    thanks to clipped Q-learning (cf TD3 paper).
-
-    :param observation_space: Obervation space
-    :param action_space: Action space
-    :param net_arch: Network architecture
-    :param features_extractor: Network to extract features
-        (a CNN when using images, a nn.Flatten() layer otherwise)
-    :param features_dim: Number of features
-    :param activation_fn: Activation function
-    :param normalize_images: Whether to normalize images or not,
-         dividing by 255.0 (True by default)
-    :param n_critics: Number of critic networks to create.
-    :param share_features_extractor: Whether the features extractor is shared or not
-        between the actor and the critic (this saves computation time)
-    """
-
-    features_extractor: rlmpc_fe.CombinedExtractor
-
-    def __init__(
-        self,
-        observation_space: spaces.Space,
-        action_space: spaces.Box,
-        net_arch: List[int],
-        features_extractor: rlmpc_fe.CombinedExtractor,
-        features_dim: int,
-        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        normalize_images: bool = True,
-        n_critics: int = 2,
-        share_features_extractor: bool = True,
-    ):
-        super().__init__(
-            observation_space,
-            action_space,
-            features_extractor=features_extractor,
-            normalize_images=normalize_images,
-        )
-
-        action_dim = get_action_dim(self.action_space)
-        self.share_features_extractor = share_features_extractor
-        self.n_critics = n_critics
-        self.q_networks: List[th.nn.Module] = []
-        for idx in range(n_critics):
-            q_net_list = self.create_mlp(
-                input_dim=features_dim + action_dim, output_dim=1, net_arch=net_arch, activation_fn=activation_fn
-            )
-            q_net = th.nn.Sequential(*q_net_list)
-            self.add_module(f"qf{idx}", q_net)
-            self.q_networks.append(q_net)
-
-        self.initialize_parameters()
-
-    def initialize_parameters(self) -> None:
-        for q_net in self.q_networks:
-            q_net.apply(self.weights_init)
-
-    def weights_init(self, m):
-        if isinstance(m, th.nn.Conv2d):
-            th.nn.init.xavier_uniform_(m.weight, gain=th.nn.init.calculate_gain("linear"))
-            th.nn.init.zeros_(m.bias)
-        elif isinstance(m, th.nn.Linear):
-            th.nn.init.xavier_uniform_(m.weight, gain=th.nn.init.calculate_gain("linear"))
-            th.nn.init.zeros_(m.bias)
-
-    def create_mlp(
-        self,
-        input_dim: int,
-        output_dim: int,
-        net_arch: List[int],
-        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
-        squash_output: bool = False,
-        with_bias: bool = True,
-    ) -> List[th.nn.Module]:
-        """
-        Create a multi layer perceptron (MLP), which is
-        a collection of fully-connected layers with intermittent activation functions
-        each followed by an end activation function.
-
-        Args:
-            - input_dim (int): Dimension of the input vector
-            - output_dim (int): Dimension of the output vector
-            - net_arch (List[int]): Architecture of the neural net
-                It represents the number of units per layer.
-                The length of this list is the number of layers.
-            - activation_fn (Type[th.nn.Module]): The activation function to use in between layers.
-            - squash_output (bool): Whether to squash the output or not
-            - with_bias (bool): Whether to use bias in the layers or not
-
-        Returns:
-            - List[th.nn.Module]: The layers of the MLP
-        """
-        modules = []
-        feature_dim = input_dim
-        for arch in net_arch:
-            modules.append(th.nn.Linear(feature_dim, arch, bias=with_bias))
-            modules.append(activation_fn())
-            feature_dim = arch
-        modules.append(th.nn.Linear(feature_dim, output_dim, bias=with_bias))
-        if squash_output:
-            modules.append(th.nn.Tanh())
-        return modules
-
-    def forward(self, obs: th.Tensor, actions: th.Tensor) -> Tuple[th.Tensor, ...]:
-        # Learn the features extractor using the policy loss only
-        # when the features_extractor is shared with the actor
-        with th.set_grad_enabled(not self.share_features_extractor):
-            features = self.extract_features(obs, self.features_extractor)
-        qvalue_input = th.cat([features, actions], dim=1)
-        return tuple(q_net(qvalue_input) for q_net in self.q_networks)
-
-    def q1_forward(self, obs: th.Tensor, actions: th.Tensor) -> th.Tensor:
-        """
-        Only predict the Q-value using the first network.
-        This allows to reduce computation when all the estimates are not needed
-        (e.g. when updating the policy in TD3).
-        """
-        with th.no_grad():
-            features = self.extract_features(obs, self.features_extractor)
-        return self.q_networks[0](th.cat([features, actions], dim=1))
-
-
 class MPCParameterDNN(th.nn.Module):
     """The DNN for predicting the MPC parameter increments, based on the
     current situation, parameters and action. The DNN outputs are normalized to [-1, 1] and then mapped to the
-    actual parameter ranges. 64+12+5 = 81 features (64 latent enc, 12 latent tracking obs, 5 path rel obs)
+    actual parameter ranges.
     """
 
     def __init__(
@@ -179,8 +50,10 @@ class MPCParameterDNN(th.nn.Module):
         param_list: List[str],
         hidden_sizes: List[int] = [128, 64],
         activation_fn: Type[th.nn.Module] = th.nn.ELU,
-        features_dim: int = 57,
+        features_dim: int = 66,
         model_file: Optional[pathlib.Path] = None,
+        squash_output: bool = False,
+        latent_output: bool = False,
     ):
         super().__init__()
         self.out_parameter_ranges, self.out_parameter_incr_ranges, self.out_parameter_lengths = (
@@ -198,13 +71,16 @@ class MPCParameterDNN(th.nn.Module):
         self.activation_fn = activation_fn()
         self.layers = th.nn.ModuleList()
 
-        self.input_dim = features_dim + offset  # Add the number of parameters to the input features
+        self.input_dim = features_dim
         prev_size = self.input_dim
         for size in hidden_sizes:
             self.layers.append(th.nn.Linear(prev_size, size))
             prev_size = size
-        self.layers.append(th.nn.Linear(prev_size, self.num_output_params))
+        self.latent_output = latent_output  # whether to output the latent representation or the actual parameters
+        if not latent_output:
+            self.layers.append(th.nn.Linear(prev_size, self.num_output_params))
         self.tanh = th.nn.Tanh()
+        self.squash_output = squash_output
 
         # The DNN parameters
         self.parameter_lengths = [p.numel() for p in self.parameters()]
@@ -228,8 +104,10 @@ class MPCParameterDNN(th.nn.Module):
         for layer in self.layers[:-1]:
             x = layer(x)
             x = self.activation_fn(x)
-        x = self.layers[-1](x)
-        x = self.tanh(x)
+        if not self.latent_output:
+            x = self.layers[-1](x)
+        if self.squash_output:
+            x = self.tanh(x)
         return x
 
     def set_gradients(self, grads: th.Tensor) -> None:
@@ -366,6 +244,254 @@ class MPCParameterDNN(th.nn.Module):
         jacobians_dict = th.func.jacrev(th.func.functional_call, argnums=1)(self, params, (x,))
         jacobians = th.cat([v.flatten(start_dim=2, end_dim=-1) for v in jacobians_dict.values()], -1)
         return jacobians
+
+
+class SACMPCParameterProviderActorStandard(BasePolicy):
+    """
+    MPC-Actor (policy) for SAC, which uses the MPC parameter provider DNN to predict the MPC parameter increments for use with the standard black box SAC.
+
+    Args:
+        - observation_space (spaces.Space): Observation space
+        - action_space (spaces.Box): Action space
+        - features_extractor (BaseFeaturesExtractor): Features extractor to use
+        - features_dim (int): Number of features
+        - mpc_param_provider_kwargs (Dict[str, Any]): Keyword arguments for the MPC parameter provider DNN
+        - full_std (bool, optional): Whether to use the full standard deviation or not. Defaults to True.
+        - use_expln (bool, optional): Use ``expln()`` function instead of ``exp()`` to ensure
+            a positive standard deviation (cf paper). It allows to keep variance
+            above zero and prevent it from growing too fast. In practice, ``exp()`` is usually enough.
+        - clip_mean (float, optional): The maximum mean value. Defaults to 2.0.
+        - std_init (Union[float, np.ndarray], optional): Initial value for the log standard deviation. Defaults to -3.
+        - use_sde (bool, optional): Whether to use State Dependent Exploration or not. Defaults to True.
+    """
+
+    action_space: spaces.Box
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        features_extractor: rlmpc_fe.CombinedExtractor,
+        features_dim: int,
+        mpc_param_provider_kwargs: Dict[str, Any],
+        full_std: bool = True,
+        use_expln: bool = False,
+        clip_mean: float = 2.0,
+        std_init: Union[float, np.ndarray] = -3.0,
+        use_sde: bool = True,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            features_extractor=0,
+            normalize_images=False,
+            squash_output=True,
+        )
+        self.features_extractor = features_extractor
+        mpc_param_provider_kwargs["features_dim"] = features_dim
+        mpc_param_provider_kwargs["squash_output"] = False
+        mpc_param_provider_kwargs["latent_output"] = True
+        self.mpc_param_provider = MPCParameterDNN(**mpc_param_provider_kwargs)
+        if isinstance(std_init, float):
+            std_init = np.array([std_init] * self.action_space.shape[0])
+        log_std_init = th.log(th.from_numpy(std_init)).to(th.float32)
+        self.log_std = log_std_init
+        self.log_std_init = log_std_init
+
+        self.use_sde = use_sde
+        self.sde_features_extractor = None
+        self.use_expln = use_expln
+        self.full_std = full_std
+        self.clip_mean = clip_mean
+
+        action_dim = get_action_dim(self.action_space)
+        last_layer_dim = mpc_param_provider_kwargs["hidden_sizes"][-1]
+
+        if self.use_sde:
+            self.action_dist = StateDependentNoiseDistribution(
+                action_dim, full_std=full_std, use_expln=use_expln, learn_features=True, squash_output=True
+            )
+            self.mu, self.log_std = self.action_dist.proba_distribution_net(
+                latent_dim=last_layer_dim, latent_sde_dim=last_layer_dim, log_std_init=log_std_init
+            )
+            # Avoid numerical issues by limiting the mean of the Gaussian
+            # to be in [-clip_mean, clip_mean]
+            if clip_mean > 0.0:
+                self.mu = th.nn.Sequential(self.mu, th.nn.Hardtanh(min_val=-clip_mean, max_val=clip_mean))
+        else:
+            self.action_dist = SquashedDiagGaussianDistribution(action_dim)  # type: ignore[assignment]
+            self.mu = th.nn.Linear(last_layer_dim, action_dim)
+            self.log_std = th.nn.Linear(last_layer_dim, action_dim)  # type: ignore[assignment]
+
+    def _get_constructor_parameters(self) -> Dict[str, Any]:
+        data = super()._get_constructor_parameters()
+        data.update(
+            dict(
+                features_extractor=self.features_extractor,
+            )
+        )
+        return data
+
+    def action_log_prob(
+        self,
+        obs: rlmpc_buffers.TensorDict,
+    ) -> Tuple[th.Tensor, th.Tensor]:
+        """Samples actions from the current action distribution and computes the corresponding log probabilities
+
+        Args:
+            obs (th.Tensor): Observations
+            actions (th.Tensor): (MPC) Actions to evaluate the log probability for
+
+        Returns:
+            th.Tensor: The log probability of the policy distribution for the given observation
+        """
+        if isinstance(obs["TimeObservation"], th.Tensor):
+            obs = self._convert_obs_tensor_to_numpy(obs)
+        mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
+        return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
+
+    def _convert_obs_tensor_to_numpy(self, obs: Dict[str, th.Tensor]) -> Dict[str, np.ndarray]:
+        return {k: v.cpu().numpy() for k, v in obs.items()}
+
+    def _convert_obs_numpy_to_tensor(self, obs: Dict[str, np.ndarray]) -> Dict[str, th.Tensor]:
+        return {k: th.from_numpy(v) for k, v in obs.items()}
+
+    def _predict(self, observation: th.Tensor, deterministic: bool = False) -> th.Tensor:
+        obs = self._convert_obs_tensor_to_numpy(observation)
+        return self.custom_predict(obs, deterministic)
+
+    def custom_predict(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: List[Dict[str, Any]] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+        """
+        Get the policy action from an observation (and optional actor state).
+
+        Args:
+            - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
+            - state (List[Dict[str, Any]]): The MPC internal state (current solution info, etc.)
+            - deterministic (bool): Whether or not to return deterministic actions.
+
+        Returns:
+            - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the unnormalized action, normalized action and the MPC internal state
+        """
+        mean_actions, log_std, kwargs = self.get_action_dist_params(observation)
+        norm_actions = (
+            self.action_dist.actions_from_params(mean_actions, log_std, deterministic=deterministic, **kwargs)
+            .detach()
+            .numpy()
+        )
+        unnorm_actions = self.mpc_param_provider.unnormalize_increment(norm_actions.copy())
+        return unnorm_actions, norm_actions, [{}] * len(unnorm_actions)
+
+    def get_std(self) -> th.Tensor:
+        """
+        Retrieve the standard deviation of the action distribution.
+        Only useful when using gSDE.
+        It corresponds to ``th.exp(log_std)`` in the normal case,
+        but is slightly different when using ``expln`` function
+        (cf StateDependentNoiseDistribution doc).
+
+        Returns:
+            th.Tensor: The standard deviation of the action distribution
+        """
+        msg = "get_std() is only available when using gSDE"
+        assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
+        return self.action_dist.get_std(self.log_std)
+
+    def reset_noise(self, batch_size: int = 1) -> None:
+        """
+        Sample new weights for the exploration matrix, when using gSDE.
+
+        Args:
+            batch_size (int): The number of samples to generate
+        """
+        msg = "reset_noise() is only available when using gSDE"
+        assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
+        self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
+
+    def sample_action(self, obs: PyTorchObs) -> Tuple[th.Tensor, th.Tensor]:
+        """Sample an action from the policy distribution as in the standard SAC policy.
+
+        Args:
+            obs (PyTorchObs): Observation batch
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor]: The sampled action
+        """
+        mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
+        return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
+
+    def get_action_dist_params(self, obs: PyTorchObs) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
+        """
+        Get the parameters for the action distribution.
+
+        Args:
+            obs (PyTorchObs): Observation batch
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]: Mean, standard deviation and optional keyword arguments.
+        """
+        obs_tensor = self._convert_obs_numpy_to_tensor(obs)
+        preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
+        features = self.features_extractor(preprocessed_obs)
+
+        latent_pi = self.mpc_param_provider(features)  # unnormalized param increments
+        mean_actions = self.mu(
+            latent_pi
+        )  # unnormalized parameter increments processed through a possibly state dependent exploration distribution net
+
+        if self.use_sde:
+            return mean_actions, self.log_std, dict(latent_sde=latent_pi)
+        # Unstructured exploration (Original implementation)
+        log_std = self.log_std(latent_pi)  # type: ignore[operator]
+        # Original Implementation to cap the standard deviation
+        log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        return mean_actions, log_std, {}
+
+    def preprocess_obs_for_dnn(
+        self,
+        obs: Union[th.Tensor, Dict[str, th.Tensor]],
+        observation_space: spaces.Space,
+        normalize_images: bool = True,
+    ) -> Union[th.Tensor, Dict[str, th.Tensor]]:
+        """
+        Preprocess observation to be to a neural network.
+        For images, it normalizes the values by dividing them by 255 (to have values in [0, 1])
+        For discrete observations, it create a one hot vector.
+
+        Args:
+            obs (Union[th.Tensor, Dict[str, th.Tensor]]): Observation
+            observation_space (spaces.Space):
+            normalize_images (bool): Whether to normalize images or not (True by default)
+
+        Returns:
+            Union[th.Tensor, Dict[str, th.Tensor]]: The preprocessed observation
+        """
+        if isinstance(observation_space, spaces.Dict):
+            # Do not modify by reference the original observation
+            assert isinstance(obs, Dict), f"Expected dict, got {type(obs)}"
+            preprocessed_obs = {}
+            for key, _obs in obs.items():
+                preprocessed_obs[key] = self.preprocess_obs_for_dnn(
+                    _obs, observation_space[key], normalize_images=normalize_images
+                )
+                # print(
+                #     f"Preprocessed observation: {key} shape: {preprocessed_obs[key].shape} | (min, max): ({preprocessed_obs[key].min()}, {preprocessed_obs[key].max()})"
+                # )
+            return preprocessed_obs  # type: ignore[return-value]
+
+        assert isinstance(obs, th.Tensor), f"Expecting a torch Tensor, but got {type(obs)}"
+
+        if isinstance(observation_space, spaces.Box):
+            if normalize_images and is_image_space(observation_space):
+                return obs.float() / 255.0
+            return obs.float()
+
+        else:
+            raise NotImplementedError(f"Preprocessing not implemented for {observation_space}")
 
 
 class SACMPCParameterProviderActor(BasePolicy):
@@ -511,7 +637,6 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             th.Tensor: The log probability of the policy distribution for the given observation
         """
-
         batch_size = obs["MPCParameterObservation"].shape[0]
         # obs = self._convert_obs_numpy_to_tensor(obs)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs, self.observation_space)
@@ -519,9 +644,7 @@ class SACMPCParameterProviderActor(BasePolicy):
 
         log_prob = th.zeros(batch_size)
         for idx in range(batch_size):
-            norm_current_mpc_params = obs["MPCParameterObservation"][idx]
-            norm_current_mpc_params = th.from_numpy(norm_current_mpc_params).float()
-            dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
+            dnn_input = features[idx]
             mpc_param_increment = self.mpc_param_provider(dnn_input).detach().clone()
             self.action_dist = self.action_dist.proba_distribution(
                 mean_actions=mpc_param_increment, log_std=self.log_std
@@ -582,7 +705,6 @@ class SACMPCParameterProviderActor(BasePolicy):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
         """
-
         n_envs = observation["TimeObservation"].shape[0]
         normalized_actions = np.zeros((n_envs, self.action_space.shape[0]), dtype=np.float32)
         unnormalized_actions = np.zeros((n_envs, self.action_space.shape[0]), dtype=np.float32)
@@ -592,13 +714,13 @@ class SACMPCParameterProviderActor(BasePolicy):
         obs_tensor = self._convert_obs_numpy_to_tensor(observation)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
+        dnn_input = features
 
         for idx in range(n_envs):
             norm_current_mpc_params = obs_tensor["MPCParameterObservation"][idx]
-            dnn_input = th.cat([features[idx], norm_current_mpc_params], dim=-1)
             mpc_param_increment = np.zeros(self.action_space.shape[0])
             if not self.disable_parameter_provider:
-                mpc_param_increment = self.mpc_param_provider(dnn_input).detach().clone().numpy()
+                mpc_param_increment = self.mpc_param_provider(dnn_input[idx]).detach().clone().numpy()
 
             t = observation["TimeObservation"][idx][0]
             if False:  # not deterministic:
@@ -656,6 +778,64 @@ class SACMPCParameterProviderActor(BasePolicy):
         norm_actions = self.action_dist.get_actions()
         norm_actions = th.clamp(norm_actions, -1.0, 1.0)
         return norm_actions.detach().clone().numpy()
+
+    def get_std_standard(self) -> th.Tensor:
+        """
+        Retrieve the standard deviation of the action distribution.
+        Only useful when using gSDE.
+        It corresponds to ``th.exp(log_std)`` in the normal case,
+        but is slightly different when using ``expln`` function
+        (cf StateDependentNoiseDistribution doc).
+
+        :return:
+        """
+        msg = "get_std() is only available when using gSDE"
+        assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
+        return self.action_dist.get_std(self.log_std)
+
+    def reset_noise_standard(self, batch_size: int = 1) -> None:
+        """
+        Sample new weights for the exploration matrix, when using gSDE.
+
+        :param batch_size:
+        """
+        msg = "reset_noise() is only available when using gSDE"
+        assert isinstance(self.action_dist, StateDependentNoiseDistribution), msg
+        self.action_dist.sample_weights(self.log_std, batch_size=batch_size)
+
+    def sample_action_standard(self, obs: PyTorchObs) -> th.Tensor:
+        """Sample an action from the policy distribution as in the standard SAC policy.
+
+        Args:
+            obs (PyTorchObs): Observation batch
+
+        Returns:
+            th.Tensor: The sampled action
+        """
+        mean_actions, log_std, kwargs = self.get_action_dist_params_standard(obs)
+        return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
+
+    def get_action_dist_params_standard(self, obs: PyTorchObs) -> Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]:
+        """
+        Get the parameters for the action distribution.
+
+        Args:
+            obs (PyTorchObs): Observation batch
+
+        Returns:
+            Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]: Mean, standard deviation and optional keyword arguments.
+        """
+        features = self.extract_features(obs, self.features_extractor)
+        latent_pi = self.latent_pi(features)
+        mean_actions = self.mu(latent_pi)
+
+        if self.use_sde:
+            return mean_actions, self.log_std, dict(latent_sde=latent_pi)
+        # Unstructured exploration (Original implementation)
+        log_std = self.log_std(latent_pi)  # type: ignore[operator]
+        # Original Implementation to cap the standard deviation
+        log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        return mean_actions, log_std, {}
 
     def preprocess_obs_for_dnn(
         self,
@@ -1536,6 +1716,201 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         critic_kwargs.update(
             {"action_space": spaces.Box(low=-1.0, high=1.0, shape=(self.mpc_action_dim,), dtype=np.float32)}
         )
+        return ContinuousCritic(**critic_kwargs).to(device)
+
+    def _predict(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: List[Dict[str, Any]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> th.Tensor:
+        return self.actor.custom_predict(observation, state, deterministic=deterministic)
+
+    def custom_predict(
+        self,
+        observation: Union[np.ndarray, Dict[str, np.ndarray]],
+        state: List[Dict[str, Any]] = None,
+        episode_start: Optional[np.ndarray] = None,
+        deterministic: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
+        """
+        Get the policy action from an observation (and optional actor state).
+
+        Args:
+            - observation (Union[np.ndarray, Dict[str, np.ndarray]]): the input observation
+            - state (List[Dict[str, Any]]): The MPC internal state (current solution info, etc.)
+            - episode_start (Optional[np.ndarray]): The last masks (can be None, used in recurrent policies)
+                this correspond to beginning of episodes,
+                where the hidden states of the RNN must be reset.
+            - deterministic (bool): Whether or not to return deterministic actions.
+
+        Returns:
+            - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal state
+        """
+        return self.actor.custom_predict(observation, state, deterministic=deterministic)
+
+    def set_training_mode(self, mode: bool) -> None:
+        """
+        Put the policy in either training or evaluation mode.
+
+        This affects certain modules, such as batch normalisation and dropout.
+
+        :param mode: if true, set to training mode, else set to evaluation mode
+        """
+        self.actor.set_training_mode(mode)
+        self.critic.set_training_mode(mode)
+        self.training = mode
+
+
+class SACPolicyWithMPCParameterProviderStandard(BasePolicy):
+    """
+    Policy class (with both actor and critic) for standard SAC with MPC parameter provider.
+
+    Args:
+        - observation_space (spaces.Space): Observation space
+        - action_space (spaces.Box): Action space
+        - learning_rate: Union[float, Schedule] = 3e-4,
+        - critic_arch (Optional[List[int]], optional): Architecture of the critic network. Defaults to [256, 256].
+        - mpc_config (rlmpc.RLMPCParams | pathlib.Path): MPC configuration
+        - activation_fn (Type[nn.Module], optional): Activation function. Defaults to nn.ReLU.
+        - std_init (float, optional): Initial value for the parameter action standard deviation
+        - mpc_std_init (np.ndarray | float, optional): Initial value for the MPC action standard deviation
+        - features_extractor_class (Type[rlmpc_fe.CombinedExtractor], optional): Features extractor to use. Defaults to FlattenExtractor.
+        - features_extractor_kwargs (Optional[Dict[str, Any]], optional): Keyword arguments
+            to pass to the features extractor.
+        - disable_parameter_provider (bool, optional): Whether to disable the parameter provider or not.
+        - normalize_images (bool, optional): Whether to normalize images or not,
+            dividing by 255.0 (True by default).
+        - optimizer_class (Type[th.optim.Optimizer], optional): The optimizer to use,
+            ``th.optim.Adam`` by default. Defaults to th.optim.Adam.
+        - optimizer_kwargs (Optional[Dict[str, Any]], optional): Additional keyword arguments,
+            excluding the learning rate, to pass to the optimizer.
+        - n_critics (int, optional): Number of critic networks to create. Defaults to 2.
+    """
+
+    actor: SACMPCParameterProviderActorStandard
+    critic: ContinuousCritic
+    critic_target: ContinuousCritic
+
+    def __init__(
+        self,
+        observation_space: spaces.Space,
+        action_space: spaces.Box,
+        lr_schedule: Schedule,
+        critic_arch: Optional[List[int]] = [256, 256],
+        mpc_param_provider_kwargs: Dict[str, Any] = {},
+        activation_fn: Type[th.nn.Module] = th.nn.ReLU,
+        std_init: np.ndarray | float = 0.0002,
+        use_sde: bool = True,
+        full_std: bool = True,
+        use_expln: bool = False,
+        clip_mean: float = 2.0,
+        features_extractor_class: Type[rlmpc_fe.CombinedExtractor] = rlmpc_fe.CombinedExtractor,
+        features_extractor_kwargs: Optional[Dict[str, Any]] = None,
+        normalize_images: bool = True,
+        optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        device: Union[th.device, str] = "auto",
+        n_critics: int = 2,
+    ):
+        super().__init__(
+            observation_space,
+            action_space,
+            features_extractor_class,
+            features_extractor_kwargs,
+            optimizer_class=optimizer_class,
+            optimizer_kwargs=optimizer_kwargs,
+            squash_output=True,
+            normalize_images=normalize_images,
+        )
+
+        self.activation_fn = activation_fn
+        self.critic_kwargs = {
+            "observation_space": self.observation_space,
+            "action_space": self.action_space,
+            "net_arch": critic_arch,
+            "activation_fn": self.activation_fn,
+            "normalize_images": normalize_images,
+            "n_critics": n_critics,
+            "share_features_extractor": False,
+        }
+        self.actor_kwargs = {
+            "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
+            "observation_space": self.observation_space,
+            "action_space": self.action_space,
+            "std_init": std_init,
+            "use_sde": use_sde,
+            "use_expln": use_expln,
+            "full_std": full_std,
+            "clip_mean": clip_mean,
+        }
+
+        self.lr_schedule = lr_schedule
+        self._build_critic(lr_schedule, device)
+
+        self.mpc_param_provider_kwargs = mpc_param_provider_kwargs
+        self._build_actor(lr_schedule)
+
+    def _build_critic(self, lr_schedule: Schedule, device: Union[th.device, str]) -> None:
+        # Create a separate features extractor for the critic
+        # this requires more memory and computation
+        self.critic = self.make_critic(features_extractor=None, device=device)
+        critic_parameters = list(self.critic.parameters())
+
+        # Critic target should not share the features extractor with critic
+        self.critic_target = self.make_critic(features_extractor=None, device=device)
+        self.critic_target.load_state_dict(self.critic.state_dict())
+
+        self.critic.optimizer = self.optimizer_class(
+            critic_parameters,
+            lr=lr_schedule(1),  # type: ignore[call-arg]
+            **self.optimizer_kwargs,
+        )
+
+        # Target networks should always be in eval mode
+        self.critic_target.set_training_mode(False)
+
+    def _build_actor(
+        self, lr_schedule: Schedule, feature_extractor: Optional[rlmpc_fe.CombinedExtractor] = None
+    ) -> None:
+        self.actor_kwargs = self._update_features_extractor(self.actor_kwargs, features_extractor=feature_extractor)
+        self.actor = SACMPCParameterProviderActorStandard(**self.actor_kwargs)
+        self.actor.optimizer = self.optimizer_class(self.actor.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)
+
+    def rebuild_critic_and_actor(self, critic_arch: List[int]) -> None:
+        """In case the critic and actor need to be rebuilt, this method can be called to rebuild them.
+
+        Args:
+            critic_arch (List[int]): The critic architecture
+
+        """
+        self.critic_kwargs["net_arch"] = critic_arch
+        self._build_critic(self.lr_schedule, device=self.device)
+        self._build_actor(self.lr_schedule)
+
+    def _get_constructor_parameters(self) -> Dict[str, Any]:
+        data = super()._get_constructor_parameters()
+        data.update(
+            dict(
+                net_arch=self.critic_kwargs["net_arch"],
+                activation_fn=self.critic_kwargs["activation_fn"],
+                log_std_init=self.actor_kwargs["log_std_init"],
+                n_critics=self.critic_kwargs["n_critics"],
+                lr_schedule=self._dummy_schedule,  # dummy lr schedule, not needed for loading policy alone
+                optimizer_class=self.optimizer_class,
+                optimizer_kwargs=self.optimizer_kwargs,
+                features_extractor_class=self.features_extractor_class,
+                features_extractor_kwargs=self.features_extractor_kwargs,
+            )
+        )
+        return data
+
+    def make_critic(
+        self, features_extractor: Optional[rlmpc_fe.CombinedExtractor] = None, device: Union[th.device, str] = "cpu"
+    ) -> ContinuousCritic:
+        critic_kwargs = self._update_features_extractor(self.critic_kwargs, features_extractor)
+        critic_kwargs["features_extractor"] = critic_kwargs["features_extractor"].to(device)
         return ContinuousCritic(**critic_kwargs).to(device)
 
     def _predict(

@@ -406,10 +406,14 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         num_collected_steps, num_collected_episodes = 0, 0
         self.vecenv_failed = False
-
+        deterministic = True
         assert isinstance(env, VecEnv), "You must pass a VecEnv. "
         if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
             assert env.num_envs == 1, "Only one environment is supported for SACPolicyWithMPC."
+        elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider):
+            deterministic = True  # exploration is done in the MPC action type class
+        elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard):
+            deterministic = False  # exploration is done in the parameter provider network
 
         assert self.train_freq.frequency > 0, "Should at least collect one step or episode."
 
@@ -436,7 +440,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     if env.envs[env_idx].unwrapped.time < 0.0001:
                         self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
-            deterministic = True
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
                 learning_starts,
@@ -478,10 +481,13 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 for idx, info in enumerate(self._last_infos):
                     if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
                         info.update({"next_actor_info": actor_infos[idx]})
-                    else:
+                    elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider):
                         info["next_actor_info"] = {}
                         info["next_actor_info"]["expl_action"] = infos[idx]["actor_info"]["expl_action"]
                         info["next_actor_info"]["norm_mpc_action"] = infos[idx]["actor_info"]["norm_mpc_action"]
+                    elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard):
+                        info["next_actor_info"] = {}
+
                     # Only store the actor info in the replay buffer unless you want OOM errors.
                     rb_info[idx]["actor_info"] = info["actor_info"]
                     rb_info[idx]["next_actor_info"] = info["next_actor_info"]

@@ -46,6 +46,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         std_init: np.ndarray | float = np.array([2.0, 2.0]),
         recompile_on_reset: bool = False,
         deterministic: bool = True,
+        disable_mpc_info_storage: bool = False,
         acados_code_gen_path: str = None,
         debug: bool = False,
     ) -> None:
@@ -66,6 +67,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.mpc_action_dim = 2
         self.mpc_sensitivities = None
         self.recompile_on_reset = recompile_on_reset
+        self.disable_mpc_info_storage = disable_mpc_info_storage
 
         nx, nu = self.mpc.get_mpc_model_dims()
         n_samples = int(self.mpc_params.T / self.mpc_params.dt)
@@ -382,19 +384,25 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         self.apply_mpc_action(mpc_action)
 
         out_mpc_info = {
-            "optimal": mpc_info["optimal"],  # 1 byte
             "qp_failure": mpc_info["qp_failure"],  # 1 byte
             "runtime": mpc_info["runtime"],  # 8 bytes
-            "da_dp_mpc": (
-                self.compute_mpc_sensitivities(mpc_info) if self.build_sensitivities else None
-            ),  # 2 x 9 x 4 = 72 bytes
             "non_optimal_solutions_per_episode": float(self.non_optimal_solutions)
             / float(self.env.episodes),  # 4 bytes
-            "norm_mpc_action": norm_mpc_action.astype(np.float32),  # 8 bytes
             "applied_refs": self.applied_refs,  # 8 bytes
-            "expl_action": expl_action,  # 8 bytes
             "new_mpc_params": mpc_info["new_mpc_params"],  # 36 bytes
         }
+
+        if not self.disable_mpc_info_storage:
+            out_mpc_info.update(
+                {
+                    "optimal": mpc_info["optimal"],  # 1 byte
+                    "da_dp_mpc": (
+                        self.compute_mpc_sensitivities(mpc_info) if self.build_sensitivities else None
+                    ),  # 2 x 9 x 4 = 72 bytes
+                    "norm_mpc_action": norm_mpc_action.astype(np.float32),  # 8 bytes
+                    "expl_action": expl_action,  # 8 bytes
+                }
+            )
 
         self.action_result = csgym_action.ActionResult(success=success, info=out_mpc_info)
         return self.action_result

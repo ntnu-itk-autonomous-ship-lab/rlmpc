@@ -483,7 +483,7 @@ def plot_episode_data_series(
         save_figs (bool, optional): Whether to save the figures.
         save_path (Path, optional): Path to save the figure.
     """
-    mpc_params = np.array([data.actor_infos[i]["old_mpc_params"] for i in range(len(data.actor_infos))])
+    mpc_params = np.array([data.actor_infos[i]["new_mpc_params"] for i in range(len(data.actor_infos))])
     r_safe_so = 5.0
 
     fig1, axs1 = plt.subplots(4, 1, figsize=(10, 15), num=name + "_d2fail_actions")

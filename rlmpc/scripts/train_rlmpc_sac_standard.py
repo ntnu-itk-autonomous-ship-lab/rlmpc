@@ -2,7 +2,7 @@
     train_sac.py
 
     Summary:
-        This script trains the RL agent using the SAC algorithm.
+        This script trains the RL agent using the standard SAC algorithm.
 
     Author: Trym Tengesdal
 """
@@ -12,16 +12,15 @@ from typing import Any, Dict, Tuple
 
 import gymnasium as gym
 import rlmpc.common.helper_functions as hf
-import rlmpc.sac as rlmpc_sac
+import rlmpc.standard_sac as rlmpc_ssac
 from colav_simulator.gym.environment import COLAVEnvironment
 from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
 from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, StopTrainingOnNoModelImprovement
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 
-def train_rlmpc_sac(
+def train_rlmpc_sac_standard(
     model_kwargs: Dict[str, Any],
     n_timesteps: int,
     env_id: str,
@@ -42,8 +41,8 @@ def train_rlmpc_sac(
     seed: int = 0,
     iteration: int = 0,
     reset_num_timesteps: int = False,
-) -> Tuple[rlmpc_sac.SAC, bool]:
-    """Train the RL agent using the SAC algorithm.
+) -> Tuple[rlmpc_ssac.SAC, bool]:
+    """Train the RL agent using the standard SAC algorithm.
 
     Args:
         model_kwargs (Dict[str, Any]): The RL agent model keyword arguments.
@@ -112,7 +111,7 @@ def train_rlmpc_sac(
     )
 
     if load_model:
-        model = rlmpc_sac.SAC.load(
+        model = rlmpc_ssac.SAC.load(
             load_model_path,
             env=training_env,
             learning_rate=model_kwargs["learning_rate"],
@@ -134,7 +133,7 @@ def train_rlmpc_sac(
         print(f"Loading replay buffer at {load_rb_path}")
         model.set_env(training_env)
     else:
-        model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
+        model = rlmpc_ssac.SAC(env=training_env, **model_kwargs)
 
     if load_critics:
         print(f"Loading critic at {load_critics_path}")
