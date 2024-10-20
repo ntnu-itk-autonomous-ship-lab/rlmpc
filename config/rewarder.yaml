@@ -6,7 +6,7 @@ trajectory_tracking:
   rho_speed_dev: 50.0
   rho_course_dev: 0.0
   rho_turn_rate: 10.0
-  rho_goal: 8000.0
+  rho_goal: 10000.0
   goal_radius: 50.0
 colreg:
   alpha_cr: [0.02, 0.001]
@@ -36,16 +36,16 @@ readily_apparent_maneuvering:
   r_max: 8.0
   a_max: 0.3
 collision_avoidance:
-  rho_colav: 5000.0
+  rho_colav: 10000.0
   r_safe: 15.0
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
-  rho_anti_grounding: 5000.0
+  rho_anti_grounding: 10000.0
   r_safe: 5.0
 dnn_parameter_provider:
   disable: False
   rho_solver_time: 0.0
-  rho_qp_failure: 5000.0
+  rho_qp_failure: 10000.0
   rho_high_app_params: 0.0
   rho_safety_param: 5.0
   rho_diff_colreg_weights: 0.0

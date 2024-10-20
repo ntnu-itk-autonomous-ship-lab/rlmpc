@@ -658,7 +658,7 @@ def evaluate_policy(
                 if actor_info["qp_failure"]:
                     dones[idx] = True
             elif isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider) or isinstance(
-                rlmpc_policies.SACPolicyWithMPCParameterProviderStandard
+                model.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard
             ):
                 info["actor_info"] = info["actor_info"] | actor_info
 

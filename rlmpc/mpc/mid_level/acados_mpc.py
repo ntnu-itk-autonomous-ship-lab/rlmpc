@@ -441,9 +441,9 @@ class AcadosMPC:
         #         filename=str(self._acados_code_gen_path) + "/last_qp_success.json", overwrite=True
         #     )
 
-        if status != 0 and t == 0.0:
-            self.check_warm_start(xs_unwrapped, correct_warm_start=False, print_info=True)
-            # self._acados_ocp_solver.print_statistics()
+        # if status != 0 and t == 0.0:
+        #     self.check_warm_start(xs_unwrapped, correct_warm_start=False, print_info=True)
+        #     # self._acados_ocp_solver.print_statistics()
 
         t_solve = self._acados_ocp_solver.get_stats("time_tot")
         cost_val = self._acados_ocp_solver.get_cost()
@@ -466,7 +466,7 @@ class AcadosMPC:
         # so_constr_vals, do_constr_vals = self._get_obstacle_constraint_values(trajectory)
         # self._x_warm_start = trajectory.copy()
         # self._u_warm_start = inputs.copy()
-        if verbose or (qp_failure and t < 2.0):
+        if verbose:  # or (qp_failure and t < 2.0):
             self._acados_ocp_solver.store_iterate(
                 filename=str(self._acados_code_gen_path / "initial_iterate_fail.json"), overwrite=True, verbose=False
             )

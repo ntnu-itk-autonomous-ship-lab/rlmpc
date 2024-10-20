@@ -411,7 +411,8 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
 
         # Add extra cost if the ship collides with a dynamic obstacle
         # The above cost only gives a penalty if a dynamic obstacle is inside the set own-ship safety zone
-        if self.env.simulator.determine_ship_collision(ship_idx=0):
+        collided, do_idx = self.env.simulator.determine_ship_collision(ship_idx=0)
+        if collided:
             colav_cost = self._config.rho_colav
 
         self.last_reward = -colav_cost
@@ -781,9 +782,9 @@ class MPCRewarder(cs_reward.IReward):
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
+        self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         self.r_collision_avoidance = self.collision_avoidance_rewarder(state, action, **kwargs)
         self.r_colreg = self.colreg_rewarder(state, action, **kwargs)
-        self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
         self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
         self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
         self.r_dnn_parameters = self.dnn_parameter_provider_rewarder(state, action, **kwargs)

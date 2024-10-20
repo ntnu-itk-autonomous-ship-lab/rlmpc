@@ -328,7 +328,7 @@ class SAC(opa.OffPolicyAlgorithm):
             actor_grad_norms.append(0.0)
             mpc_param_grad_norms.append(0.0)
 
-        mean_actor_loss = np.mean(actor_losses)
+        mean_actor_loss = th.mean(th.tensor(actor_losses)).item()
         mean_actor_grad_norm = np.mean(actor_grad_norms)
         mean_mpc_param_grad_norm = np.mean(mpc_param_grad_norms)
 
@@ -467,7 +467,7 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_loss = (ent_coef * sampled_log_prob - min_qf_pi_sampled).mean()
 
         self.actor.optimizer.zero_grad()
-        actor_loss.backward()
+        actor_loss.backward(retain_graph=True)
         self.actor.optimizer.step()
 
         return actor_loss
