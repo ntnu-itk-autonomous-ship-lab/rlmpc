@@ -423,7 +423,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # add entropy term
             # low action probability gives very high negative entropy (log_prob) -> dominates the Q value
             # leads to insanely high critic loss
-            next_log_prob = th.clamp(next_log_prob, min=-15.0, max=1e12)
+            next_log_prob = th.clamp(next_log_prob, min=-20.0, max=1e12)
             next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
 
             # td error + entropy term

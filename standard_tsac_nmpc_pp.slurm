@@ -14,7 +14,7 @@
 
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=128
-LEARNING_RATE=0.00004
+LEARNING_RATE=0.00001
 NCPUS=16 # Equal to number of training environments
 N_EVAL_ENVS=4
 TRAIN_FREQ=8

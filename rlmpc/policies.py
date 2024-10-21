@@ -732,9 +732,13 @@ class SACMPCParameterProviderActor(BasePolicy):
                 else:
                     mpc_param_increment = self.prev_noise_action[idx]
 
-            unnorm_action = self.mpc_param_provider.unnormalize_increment(mpc_param_increment.copy())
+            unnorm_action = self.mpc_param_provider.unnormalize_increment(th.from_numpy(mpc_param_increment.copy()))
             info = {
-                "dnn_input_features": dnn_input.detach().cpu().numpy().astype(np.float32),  # 75 * 4 bytes = 300 bytes
+                "dnn_input_features": dnn_input[idx]
+                .detach()
+                .cpu()
+                .numpy()
+                .astype(np.float32),  # 75 * 4 bytes = 300 bytes
                 # "norm_mpc_param_increment": mpc_param_increment.astype(np.float32),  # 9 * 4 = 36 bytes
                 "old_mpc_params": self.mpc_param_provider.unnormalize(
                     norm_current_mpc_params.detach().clone()
