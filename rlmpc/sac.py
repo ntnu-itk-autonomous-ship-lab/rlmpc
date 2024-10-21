@@ -298,6 +298,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 observations=replay_data.observations, mpc_actions=norm_mpc_actions, infos=replay_data.infos
             )
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
+            sampled_log_prob = th.clamp(sampled_log_prob, min=-20.0, max=1e12)
 
             ent_coef_loss = None
             if self.ent_coef_optimizer is not None and self.log_ent_coef is not None:

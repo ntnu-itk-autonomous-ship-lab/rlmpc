@@ -60,7 +60,7 @@ class ENCVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
-        self.scaling_factor = 50.0
+        self.scaling_factor = 40.0
         self.training = False
 
     def set_inference_mode(self, inference_mode: bool) -> None:
