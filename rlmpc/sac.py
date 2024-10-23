@@ -298,7 +298,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 observations=replay_data.observations, mpc_actions=norm_mpc_actions, infos=replay_data.infos
             )
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
-            sampled_log_prob = th.clamp(sampled_log_prob, min=-20.0, max=1e12)
+            sampled_log_prob = th.clamp(sampled_log_prob, min=-30.0, max=1e12)
 
             ent_coef_loss = None
             if self.ent_coef_optimizer is not None and self.log_ent_coef is not None:
@@ -424,7 +424,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # add entropy term
             # low action probability gives very high negative entropy (log_prob) -> dominates the Q value
             # leads to insanely high critic loss
-            next_log_prob = th.clamp(next_log_prob, min=-20.0, max=1e12)
+            next_log_prob = th.clamp(next_log_prob, min=-30.0, max=1e12)
             next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
 
             # td error + entropy term
