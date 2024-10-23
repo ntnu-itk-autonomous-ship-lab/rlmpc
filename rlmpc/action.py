@@ -168,6 +168,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         Args:
             build_sensitivities (bool, optional): Whether to build the sensitivities.
         """
+        print(f"mpc params before reset: {self.mpc.get_adjustable_mpc_params()}")
         self.t_prev = 0.0
         self.action_result = csgym_action.ActionResult(success=True, info={})
         # self.non_optimal_solutions = 0
