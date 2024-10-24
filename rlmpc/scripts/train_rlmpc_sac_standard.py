@@ -87,7 +87,7 @@ def train_rlmpc_sac_standard(
         save_stats_freq=500,
         save_agent_model_freq=10000,
         log_freq=n_training_envs,
-        max_num_env_episodes=2000,
+        max_num_env_episodes=1000,
         max_num_training_stats_entries=40000,
         minimal_logging=True,
         verbose=1,
@@ -142,7 +142,7 @@ def train_rlmpc_sac_standard(
     model.set_random_seed(seed)
     model.learn(
         total_timesteps=n_timesteps,
-        log_interval=1,
+        log_interval=3,
         tb_log_name=experiment_name + f"_{iteration}",
         reset_num_timesteps=reset_num_timesteps,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),

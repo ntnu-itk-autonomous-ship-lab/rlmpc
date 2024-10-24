@@ -28,6 +28,7 @@ def train_critics(
     verbose: bool = False,
     save_intermittent_models: bool = False,
     early_stopping_patience: int = 6,
+    ent_coef: float = 0.001,
 ) -> Tuple[rlmpc_sac.SAC, float, int]:
     """Trains the input list of critics for a set of epochs (NOTE: Without cross-validation.)
 
@@ -40,6 +41,7 @@ def train_critics(
         verbose (bool, optional): Whether to print verbose output.
         save_intermittent_models (bool, optional): Whether to save the model at each epoch.
         early_stopping_patience (int, optional): The number of epochs to wait before early stopping.
+        ent_coef (int, optional): Temperature coefficient
 
     Returns:
         Tuple[List[ContinuousCritic], float, int]: The trained model, the best training loss and corresponding epoch.
@@ -65,7 +67,7 @@ def train_critics(
         for batch_idx in range(n_batches):
             batch_start_time = time.time()
             replay_data = model.replay_buffer.sample(batch_size=batch_size)
-            loss = model.train_critics(replay_data=replay_data, gradient_step=batch_idx, ent_coef=1.0)
+            loss = model.train_critics(replay_data=replay_data, gradient_step=batch_idx, ent_coef=ent_coef)
             training_batch_losses.append(loss.item())
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)

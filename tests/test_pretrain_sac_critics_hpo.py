@@ -72,7 +72,7 @@ def objective(trial: optuna.Trial) -> float:
         "seed": 0,
     }
 
-    n_cpus_used = 4
+    n_cpus_used = 16
     if n_cpus_used == 1:
         env = Monitor(gym.make(id=env_id, **env_config))
     else:
