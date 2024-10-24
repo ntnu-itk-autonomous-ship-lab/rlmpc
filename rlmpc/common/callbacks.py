@@ -241,7 +241,7 @@ class CollectStatisticsCallback(BaseCallback):
 
         if (self.num_timesteps - self._num_timesteps_prev_save_stats) > self.save_stats_freq:
             self._num_timesteps_prev_save_stats = self.num_timesteps
-            # print("Saving training data after", self.num_timesteps, "timesteps")
+            print("Saving training data after", self.num_timesteps, "timesteps")
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
 
