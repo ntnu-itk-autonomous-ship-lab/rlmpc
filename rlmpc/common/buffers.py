@@ -308,9 +308,10 @@ class ReplayBuffer(BaseBuffer):
         self.infos[self.pos] = infos
 
         if self.handle_timeout_termination:
-            self.timeouts[self.pos] = np.array([info.get("TimeLimit.truncated", False) for info in infos])
-            if np.array([info.get("TimeLimit.truncated", False) for info in infos]).any():
-                print(f"Timeouts: {np.array([info.get("TimeLimit.truncated", False) for info in infos])}")
+            sample_timeouts = np.array([info.get("TimeLimit.truncated", False) for info in infos])
+            self.timeouts[self.pos] = sample_timeouts
+            if sample_timeouts.any():
+                print(f"Timeouts: {sample_timeouts}")
 
         self.pos += 1
         if self.pos == self.buffer_size:

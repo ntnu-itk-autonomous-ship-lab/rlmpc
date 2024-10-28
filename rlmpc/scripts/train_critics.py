@@ -9,17 +9,19 @@
 
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
+import optuna
 import rlmpc.sac as rlmpc_sac
+import rlmpc.standard_sac as rlmpc_ssac
 import torch
 from rlmpc.common.running_loss import RunningLoss
 from torch.utils.tensorboard import SummaryWriter
 
 
 def train_critics(
-    model: rlmpc_sac.SAC,
+    model: rlmpc_sac.SAC | rlmpc_ssac.SAC,
     writer: SummaryWriter,
     n_epochs: int,
     batch_size: int,
@@ -29,6 +31,7 @@ def train_critics(
     save_intermittent_models: bool = False,
     early_stopping_patience: int = 6,
     ent_coef: float = 0.001,
+    optuna_trial: Optional[optuna.Trial] = None,
 ) -> Tuple[rlmpc_sac.SAC, float, int]:
     """Trains the input list of critics for a set of epochs (NOTE: Without cross-validation.)
 
@@ -42,6 +45,7 @@ def train_critics(
         save_intermittent_models (bool, optional): Whether to save the model at each epoch.
         early_stopping_patience (int, optional): The number of epochs to wait before early stopping.
         ent_coef (int, optional): Temperature coefficient
+        optuna_trial (Optional[optuna.Trial], optional): The optuna trial object.
 
     Returns:
         Tuple[List[ContinuousCritic], float, int]: The trained model, the best training loss and corresponding epoch.
@@ -93,6 +97,11 @@ def train_critics(
         #  else:
         #     print(f"Train loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
         #     num_nondecreasing_loss_iters += 1
+
+        if optuna_trial is not None:
+            optuna_trial.report(loss_meter.average_loss, epoch)
+            if optuna_trial.should_prune():
+                raise optuna.TrialPruned()
 
         loss_meter.reset()
         training_losses.append(np.array(training_batch_losses).mean())

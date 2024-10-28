@@ -10,8 +10,8 @@ import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
 import torch as th
 from rlmpc.networks.feature_extractors import CombinedExtractor
-from rlmpc.sac import SAC
 from rlmpc.scripts.train_critics import train_critics
+from rlmpc.standard_sac import SAC
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from torch.utils.tensorboard import SummaryWriter
@@ -26,7 +26,7 @@ def objective(trial: optuna.Trial) -> float:
     Returns:
         float: The loss value to minimize
     """
-    base_dir = Path.home() / "Desktop/machine_learning/rlmpc/sac_critics"
+    base_dir = Path.home() / "Desktop/machine_learning/rlmpc/standard_sac_critics"
     log_dir = base_dir / "logs"
 
     if not log_dir.exists():
@@ -125,7 +125,7 @@ def objective(trial: optuna.Trial) -> float:
         "tensorboard_log": str(log_dir),
     }
 
-    experiment_name = "snmpc_200te_32ee_seed1_jid20752769"
+    experiment_name = "standard_snmpc_200te_32ee_seed1_jid20752769"
     data_path = (
         Path.home()
         / "Desktop"
@@ -142,7 +142,7 @@ def objective(trial: optuna.Trial) -> float:
     print(f"Replay buffer size: {model.replay_buffer.size()}")
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
-    name = "pretrained_sac_critics_HD_" + hidden_dims_str + f"_{actfn_str}" + f"_ent_coef{ent_coef}"
+    name = "pretrained_ssac_critics_HD_" + hidden_dims_str + f"_{actfn_str}" + f"_ent_coef{ent_coef}"
     experiment_path = base_dir / name
     if not experiment_path.exists():
         experiment_path.mkdir(parents=True)
@@ -166,7 +166,7 @@ def objective(trial: optuna.Trial) -> float:
 
 
 def main(args):
-    study_name = "sac_critics_hpo"
+    study_name = "sac_critics_hpo1"
     storage_name = "sqlite:///{}.db".format(study_name)
     study = optuna.create_study(
         direction="minimize",
