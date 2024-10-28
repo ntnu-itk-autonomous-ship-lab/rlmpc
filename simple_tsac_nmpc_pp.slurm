@@ -30,7 +30,7 @@ N_TIMESTEPS_PER_LEARN=10000
 LOAD_MODEL_NAME="" #"snmpc_nd_200te_32ee_seed1_jid20743023/models/snmpc_nd_200te_32ee_seed1_jid20743023_71680_steps"
 SEED=1
 
-EXPERIMENT_NAME="snmpc1_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_seed${SEED}_jid${SLURM_JOB_ID}"
+EXPERIMENT_NAME="simple_snmpc_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_seed${SEED}_jid${SLURM_JOB_ID}"
 
 # show available resources
 sinfo -o "%10P %5D %34N  %5c  %7m  %47f  %23G"
@@ -101,7 +101,7 @@ scontrol show jobid -dd $SLURM_JOB_ID
 # scancel <-t PENDING> -u <username>
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_train_sac_nmpc_pp.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE --n_training_envs=$NCPUS --max_num_loaded_train_scen_episodes=$MAX_NUM_TRAIN_EPS --max_num_loaded_eval_scen_episodes=$MAX_NUM_EVAL_EPS --n_eval_envs=$N_EVAL_ENVS --n_eval_episodes=$N_EVAL_EPS --n_timesteps_per_learn=$N_TIMESTEPS_PER_LEARN --eval_freq=$EVAL_FREQ --load_model_name=$LOAD_MODEL_NAME --device=$DEVICE --reset_num_timesteps --seed=$SEED
+srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_train_sac_nmpc_pp_simple_extractor.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE --n_training_envs=$NCPUS --max_num_loaded_train_scen_episodes=$MAX_NUM_TRAIN_EPS --max_num_loaded_eval_scen_episodes=$MAX_NUM_EVAL_EPS --n_eval_envs=$N_EVAL_ENVS --n_eval_episodes=$N_EVAL_EPS --n_timesteps_per_learn=$N_TIMESTEPS_PER_LEARN --eval_freq=$EVAL_FREQ --load_model_name=$LOAD_MODEL_NAME --device=$DEVICE --reset_num_timesteps --seed=$SEED
 
 
 # fetching the job information

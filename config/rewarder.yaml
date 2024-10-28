@@ -52,4 +52,4 @@ dnn_parameter_provider:
   rho_hitting_bounds: 5.0
   rho_low_Q_p: 0.0
 action_chatter:
-  rho_chatter: [0.01, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
+  rho_chatter: [0.5, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.5]

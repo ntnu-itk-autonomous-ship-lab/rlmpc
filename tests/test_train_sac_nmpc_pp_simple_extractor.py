@@ -18,7 +18,7 @@ import torch as th
 import yaml
 from memory_profiler import profile
 from rlmpc.common.callbacks import evaluate_policy
-from rlmpc.networks.feature_extractors import CombinedExtractor
+from rlmpc.networks.feature_extractors import SimpleCombinedExtractor
 from rlmpc.scripts.train_rlmpc_sac import train_rlmpc_sac
 from stable_baselines3.common.monitor import Monitor
 
@@ -75,7 +75,7 @@ def main(args):
             "perception_image_observation",
             "relative_tracking_observation",
             "time_observation",
-            "mpc_parameter_observation",
+            # "mpc_parameter_observation",
         ]
     }
     env_id = "COLAVEnvironment-v0"
@@ -154,7 +154,7 @@ def main(args):
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     }
     policy_kwargs = {
-        "features_extractor_class": CombinedExtractor,
+        "features_extractor_class": SimpleCombinedExtractor,
         "critic_arch": [495, 498],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,

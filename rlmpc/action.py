@@ -229,21 +229,21 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
     def normalize(self, action: Action) -> Action:
         action_norm = hf.normalize_mpc_param_increment_tensor(
-            th.from_numpy(action).detach().clone(),
-            self.mpc_param_list,
-            self.mpc_parameter_incr_ranges,
-            self.mpc_parameter_lengths,
-            self.mpc_parameter_indices,
+            x=th.from_numpy(action).detach().clone(),
+            param_list=self.mpc_param_list,
+            parameter_incr_ranges=self.mpc_parameter_incr_ranges,
+            parameter_lengths=self.mpc_parameter_lengths,
+            parameter_indices=self.mpc_parameter_indices,
         )
         return action_norm
 
     def unnormalize(self, action: Action) -> Action:
         action_unnorm = hf.unnormalize_mpc_param_increment_tensor(
-            th.from_numpy(action).detach().clone(),
-            self.mpc_param_list,
-            self.mpc_parameter_incr_ranges,
-            self.mpc_parameter_lengths,
-            self.mpc_parameter_indices,
+            x=th.from_numpy(action).detach().clone(),
+            param_list=self.mpc_param_list,
+            parameter_incr_ranges=self.mpc_parameter_incr_ranges,
+            parameter_lengths=self.mpc_parameter_lengths,
+            parameter_indices=self.mpc_parameter_indices,
         )
         return action_unnorm
 

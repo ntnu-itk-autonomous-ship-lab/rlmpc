@@ -24,12 +24,11 @@ import rlmpc.rlmpc_cas as rlmpc_cas
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import (
-    DiagGaussianDistribution,
-    SquashedDiagGaussianDistribution,
-    StateDependentNoiseDistribution,
-)
+    DiagGaussianDistribution, SquashedDiagGaussianDistribution,
+    StateDependentNoiseDistribution)
 from stable_baselines3.common.policies import ContinuousCritic
-from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
+from stable_baselines3.common.preprocessing import (get_action_dim,
+                                                    is_image_space)
 from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -717,7 +716,6 @@ class SACMPCParameterProviderActor(BasePolicy):
         dnn_input = features
 
         for idx in range(n_envs):
-            norm_current_mpc_params = obs_tensor["MPCParameterObservation"][idx]
             mpc_param_increment = np.zeros(self.action_space.shape[0])
             if not self.disable_parameter_provider:
                 mpc_param_increment = self.mpc_param_provider(dnn_input[idx]).detach().clone().numpy()
@@ -738,11 +736,8 @@ class SACMPCParameterProviderActor(BasePolicy):
                 .detach()
                 .cpu()
                 .numpy()
-                .astype(np.float32),  # 75 * 4 bytes = 300 bytes
-                # "norm_mpc_param_increment": mpc_param_increment.astype(np.float32),  # 9 * 4 = 36 bytes
-                "old_mpc_params": self.mpc_param_provider.unnormalize(
-                    norm_current_mpc_params.detach().clone()
-                ),  # 9 * 4 = 36 bytes
+                .astype(np.float32),
+                # "norm_mpc_param_increment": mpc_param_increment.astype(np.float32),
             }
             # rough size estimate: 300 + 36 * 3  = 408 bytes
 

@@ -60,6 +60,7 @@ class ENCVAE(BaseFeaturesExtractor):
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
+        self._features_dim = self.latent_dim
         self.scaling_factor = 50.0
         self.training = False
 
@@ -144,6 +145,38 @@ class MPCParameterFeedforward(BaseFeaturesExtractor):
         return self.passthrough(observations)
 
 
+class SimpleTrackingFeatureExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 12):
+        """Feature extractor for the three closest DOs. This is a simple passthrough layer.
+
+        Args:
+            observation_space (gym.spaces.Box): Relative tracking observation space.
+        """
+        super(SimpleTrackingFeatureExtractor, self).__init__(observation_space, features_dim=features_dim)
+        self.num_considered_dos = 3
+        self.input_dim = observation_space.shape[0]
+        self._features_dim = self.num_considered_dos * self.input_dim
+
+    def forward(self, observations: th.Tensor) -> th.Tensor:
+        closest_dos = observations[:, :, -self.num_considered_dos :].permute(0, 2, 1)
+        closest_dos = closest_dos.reshape(-1, self.num_considered_dos * self.input_dim)
+        return closest_dos
+
+
+class SimpleENCFeatureExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 1):
+        """Feature extractor for ENC data, feedforward of a simple computation of the distance to the closest hazard.
+
+        Args:
+            observation_space (gym.spaces.Box): ENC image observation space.
+        """
+        super(SimpleENCFeatureExtractor, self).__init__(observation_space, features_dim=features_dim)
+        self.passthrough = nn.Identity()
+
+    def forward(self, observations: th.Tensor) -> th.Tensor:
+        return self.passthrough(observations)
+
+
 class TrackingVAE(BaseFeaturesExtractor):
     """Feature extractor for the tracking state."""
 
@@ -181,11 +214,13 @@ class TrackingVAE(BaseFeaturesExtractor):
             th.load(
                 str(model_file),
                 map_location=th.device("cpu"),
+                weights_only=True,
             )
         )
         self.vae.eval()
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
+        self._features_dim = self.latent_dim
         self.scaling_factor = 10.0
 
     def set_inference_mode(self, inference_mode: bool) -> None:
@@ -213,7 +248,7 @@ class TrackingVAE(BaseFeaturesExtractor):
 class CombinedExtractor(BaseFeaturesExtractor):
     """Feature extractor that combines multiple feature extractors into one."""
 
-    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256, batch_size: int = 1):
+    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256, batch_size: int = 1) -> None:
         # We do not know features-dim here before going over all the items,
         # so put something dummy for now. PyTorch requires calling
         # nn.Module.__init__ before adding modules
@@ -233,9 +268,52 @@ class CombinedExtractor(BaseFeaturesExtractor):
             elif key == "RelativeTrackingObservation":
                 extractors[key] = TrackingVAE(subspace, features_dim=12)
                 total_concat_size += extractors[key].latent_dim
-            elif key == "MPCParameterObservation":
-                extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])
+            # elif key == "MPCParameterObservation":
+            #     extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])
+            #     total_concat_size += subspace.shape[-1]
+
+        self.extractors = nn.ModuleDict(extractors)
+        self._features_dim = total_concat_size
+
+    def forward(self, observations: th.Tensor) -> th.Tensor:
+        encoded_tensor_list = []
+        for key, extractor in self.extractors.items():
+            extracted_tensor = extractor(observations[key])
+            if extracted_tensor.max() > 1.0:
+                print(f"WARNING: {key} extracted_tensor max value > 1.0")
+            elif extracted_tensor.min() < -1.0:
+                print(f"WARNING: {key} extracted_tensor min value < -1.0")
+            encoded_tensor_list.append(extracted_tensor)
+
+        return th.cat(encoded_tensor_list, dim=1)
+
+
+class SimpleCombinedExtractor(BaseFeaturesExtractor):
+    """Simple feature extractor that combines multiple feature extractors into one."""
+
+    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256, batch_size: int = 1) -> None:
+        # We do not know features-dim here before going over all the items,
+        # so put something dummy for now. PyTorch requires calling
+        # nn.Module.__init__ before adding modules
+        super(SimpleCombinedExtractor, self).__init__(observation_space, features_dim)
+        extractors = {}
+
+        total_concat_size = 0
+        # We need to know size of the output of this extractor,
+        # so go over all the spaces and compute output feature sizes
+        for key, subspace in observation_space.spaces.items():
+            if key == "PerceptionImageObservation":
+                extractors[key] = ENCVAE(subspace)
+                total_concat_size += extractors[key].latent_dim
+            elif key == "PathRelativeNavigationObservation":
+                extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
+            elif key == "RelativeTrackingObservation":
+                extractors[key] = SimpleTrackingFeatureExtractor(subspace, features_dim=12)
+                total_concat_size += extractors[key].features_dim
+            # elif key == "MPCParameterObservation":
+            #     extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])
+            #     total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)
         self._features_dim = total_concat_size
