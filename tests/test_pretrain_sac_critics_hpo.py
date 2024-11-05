@@ -125,7 +125,7 @@ def objective(trial: optuna.Trial) -> float:
         "tensorboard_log": str(log_dir),
     }
 
-    experiment_name = "snmpc_200te_32ee_seed1_jid20752769"
+    experiment_name = "standard_snmpc_1te_4ee_seed1_jid20787312"
     data_path = (
         Path.home()
         / "Desktop"

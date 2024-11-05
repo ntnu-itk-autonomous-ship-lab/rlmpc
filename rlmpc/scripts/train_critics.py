@@ -85,7 +85,9 @@ def train_critics(
                     )
 
         if verbose:
-            print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
+            print(
+                f"Epoch: {epoch} | Avg loss: {loss_meter.average_loss:4f} | Time: {time.time() - epoch_start_time:.4f}"
+            )
 
         if loss_meter.average_loss < best_train_loss:
             best_train_loss = loss_meter.average_loss

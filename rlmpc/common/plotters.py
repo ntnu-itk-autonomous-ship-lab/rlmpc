@@ -770,7 +770,7 @@ def plot_evaluation_results(
 if __name__ == "__main__":
     matplotlib.use("TkAgg")
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["snmpc_db_high1_200te_8ee_16cpus"]
+    experiment_names = ["standard_snmpc_1te_4ee_seed1_jid20787312"]
     model_names = ["SAC-NMPC1"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
     plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)

@@ -24,11 +24,12 @@ import rlmpc.rlmpc_cas as rlmpc_cas
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import (
-    DiagGaussianDistribution, SquashedDiagGaussianDistribution,
-    StateDependentNoiseDistribution)
+    DiagGaussianDistribution,
+    SquashedDiagGaussianDistribution,
+    StateDependentNoiseDistribution,
+)
 from stable_baselines3.common.policies import ContinuousCritic
-from stable_baselines3.common.preprocessing import (get_action_dim,
-                                                    is_image_space)
+from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from stable_baselines3.sac.policies import BasePolicy
 
@@ -433,7 +434,9 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
         Returns:
             Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]: Mean, standard deviation and optional keyword arguments.
         """
-        obs_tensor = self._convert_obs_numpy_to_tensor(obs)
+        obs_tensor = obs
+        if isinstance(obs["MPCParameterObservation"], np.ndarray):
+            obs_tensor = self._convert_obs_numpy_to_tensor(obs)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
 
@@ -732,11 +735,7 @@ class SACMPCParameterProviderActor(BasePolicy):
 
             unnorm_action = self.mpc_param_provider.unnormalize_increment(th.from_numpy(mpc_param_increment.copy()))
             info = {
-                "dnn_input_features": dnn_input[idx]
-                .detach()
-                .cpu()
-                .numpy()
-                .astype(np.float32),
+                "dnn_input_features": dnn_input[idx].detach().cpu().numpy().astype(np.float32),
                 # "norm_mpc_param_increment": mpc_param_increment.astype(np.float32),
             }
             # rough size estimate: 300 + 36 * 3  = 408 bytes

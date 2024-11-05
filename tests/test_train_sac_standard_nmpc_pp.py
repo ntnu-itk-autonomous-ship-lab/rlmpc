@@ -219,8 +219,8 @@ def main(args):
             iteration=i + 1,
             reset_num_timesteps=reset_num_timesteps,
         )
-        timesteps_completed = timesteps_completed + model.num_timesteps
-        episodes_completed = episodes_completed + model.num_episodes
+        timesteps_completed = model.num_timesteps
+        episodes_completed = model.num_episodes
         model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
         model.save(model_path)
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
