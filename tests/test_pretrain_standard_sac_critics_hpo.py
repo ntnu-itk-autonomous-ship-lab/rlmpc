@@ -53,6 +53,9 @@ def objective(trial: optuna.Trial) -> float:
         "mpc_param_list": mpc_param_list,
         "std_init": action_noise_std_dev,
         "deterministic": True,
+        "recompile_on_reset": False,
+        "disable_mpc_info_storage": True,
+        "acados_code_gen_path": str(base_dir.parents[0]) + "/acados_code_gen",
     }
     scenario_names = ["rlmpc_scenario_ms_channel"]
     scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
@@ -76,13 +79,12 @@ def objective(trial: optuna.Trial) -> float:
     else:
         env = SubprocVecEnv([hf.make_env(env_id, env_config, i + 1) for i in range(n_cpus_used)])
 
-    save_interval = 5
-    batch_size = 64  # trial.suggest_int("batch_size", 1, 64)
-    buffer_size = 40000
-    tau = 0.005
-    learning_rate = 0.0001
-    num_epochs = 20  # trial.suggest_int("num_epochs", 10, 100)
-    actfn = th.nn.ReLU
+    save_interval = 20
+    batch_size = 32  # trial.suggest_int("batch_size", 1, 64)
+    buffer_size = 150000
+    tau = 0.008
+    learning_rate = 0.0002
+    num_epochs = 15  # trial.suggest_int("num_epochs", 10, 100)
     actfn_str = "ReLU"
 
     n_layers = trial.suggest_int("n_layers", 2, 3)
@@ -95,38 +97,50 @@ def objective(trial: optuna.Trial) -> float:
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [400, 300],
+        "hidden_sizes": [256, 256],  # [458, 242, 141],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
-        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1315_1579_ReLU/best_model.pth",
+        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
         "critic_arch": hidden_dims,
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
-        "activation_fn": actfn,
+        "activation_fn": th.nn.ReLU,
         "std_init": param_action_noise_std_dev,
-        "mpc_std_init": action_noise_std_dev,
-        "disable_parameter_provider": False,
+        "use_sde": True,
+        "full_std": True,
+        "use_expln": False,
+        "clip_mean": False,
     }
     model_kwargs = {
-        "policy": rlmpc_policies.SACPolicyWithMPCParameterProvider,
+        "policy": rlmpc_policies.SACPolicyWithMPCParameterProviderStandard,
         "policy_kwargs": policy_kwargs,
         "learning_rate": learning_rate,
         "buffer_size": buffer_size,
         "batch_size": batch_size,
-        "gradient_steps": 1,
-        "train_freq": (2, "step"),
+        "gradient_steps": 2,
+        "train_freq": (8, "step"),
         "learning_starts": 0,
         "tau": tau,
         "device": "cpu",
         "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
+        "replay_buffer_kwargs": {"handle_timeout_termination": True, "disable_action_storage": False},
     }
 
-    experiment_name = "standard_snmpc_200te_32ee_seed1_jid20752769"
-    data_path = (
+    experiment_name = "standard_snmpc_1te_4ee_seed1_jid20787312"
+    model_path = (
+        Path.home()
+        / "Desktop"
+        / "machine_learning"
+        / "rlmpc"
+        / experiment_name
+        / "models"
+        / "standard_snmpc_1te_4ee_seed1_jid20787312_63987120_steps.zip"
+    )
+    rb_data_path = (
         Path.home()
         / "Desktop"
         / "machine_learning"
@@ -137,12 +151,12 @@ def objective(trial: optuna.Trial) -> float:
     )
 
     model = SAC(env=env, **model_kwargs)
-    model.load_replay_buffer(path=data_path)
+    model.load_replay_buffer(path=rb_data_path)
 
     print(f"Replay buffer size: {model.replay_buffer.size()}")
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
-    name = "pretrained_ssac_critics_HD_" + hidden_dims_str + f"_{actfn_str}" + f"_ent_coef{ent_coef}"
+    name = "pretrained_ssac_critics_HD_" + hidden_dims_str + f"_{actfn_str}" + f"_ent_coef{ent_coef:5f}"
     experiment_path = base_dir / name
     if not experiment_path.exists():
         experiment_path.mkdir(parents=True)
@@ -166,7 +180,7 @@ def objective(trial: optuna.Trial) -> float:
 
 
 def main(args):
-    study_name = "sac_critics_hpo1"
+    study_name = "sac_critics_hpo2"
     storage_name = "sqlite:///{}.db".format(study_name)
     study = optuna.create_study(
         direction="minimize",

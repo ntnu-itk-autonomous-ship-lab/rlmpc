@@ -13,7 +13,6 @@ import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
-import colav_simulator.gym.environment as csgym_env
 import numpy as np
 import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.off_policy_algorithm as opa
@@ -410,17 +409,17 @@ class SAC(opa.OffPolicyAlgorithm):
             th.Tensor: The resulting critic loss
         """
         with th.no_grad():
-            next_log_prob = self.actor.action_dist.log_prob(replay_data.next_actions)
+            next_sampled_actions, next_sampled_log_prob = self.actor.action_log_prob(replay_data.observations)
 
             # Compute the next Q values: min over all critics targets
-            next_q_values = th.cat(self.critic_target(replay_data.next_observations, replay_data.next_actions), dim=1)
+            next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_sampled_actions), dim=1)
             next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
 
             # add entropy term
             # low action probability gives very high negative entropy (log_prob) -> dominates the Q value
             # leads to insanely high critic loss
-            next_log_prob = th.clamp(next_log_prob, min=-30.0, max=1e12)
-            next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
+            next_sampled_log_prob = th.clamp(next_sampled_log_prob, min=-30.0, max=1e12)
+            next_q_values = next_q_values - ent_coef * next_sampled_log_prob.reshape(-1, 1)
 
             # td error + entropy term
             target_q_values = replay_data.rewards + (1.0 - replay_data.dones) * self.gamma * next_q_values
