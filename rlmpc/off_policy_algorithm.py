@@ -525,7 +525,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             for idx, done in enumerate(dones):
                 if done:
-                    print(f"Rollout collection for episode {self.num_episodes} finished")
+                    # print(f"Rollout collection for episode {self.num_episodes} finished")
                     self.non_optimal_solutions_per_episode[idx] = self._last_infos[idx]["actor_info"][
                         "non_optimal_solutions_per_episode"
                     ]

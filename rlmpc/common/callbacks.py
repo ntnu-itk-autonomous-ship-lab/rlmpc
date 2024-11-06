@@ -232,7 +232,7 @@ class CollectStatisticsCallback(BaseCallback):
                 self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
         if (self.num_timesteps - self._num_timesteps_prev_agent_save) > self.save_agent_freq:
-            print("Saving agent after", self.num_timesteps, "timesteps")
+            # print("Saving agent after", self.num_timesteps, "timesteps")
             self._num_timesteps_prev_agent_save = self.num_timesteps
             # NMPC SAC model must have a custom_save method
             self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
@@ -241,7 +241,7 @@ class CollectStatisticsCallback(BaseCallback):
 
         if (self.num_timesteps - self._num_timesteps_prev_save_stats) > self.save_stats_freq:
             self._num_timesteps_prev_save_stats = self.num_timesteps
-            print("Saving training data after", self.num_timesteps, "timesteps")
+            # print("Saving training data after", self.num_timesteps, "timesteps")
             self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
 
@@ -448,13 +448,6 @@ class EvalCallback(EventCallback):
             mean_ep_length, std_ep_length = np.mean(episode_lengths), np.std(episode_lengths)
             self.last_mean_reward = mean_reward
 
-            if self.verbose >= 1:
-                print(
-                    f"Eval num_timesteps={self.num_timesteps}, "
-                    f"episode_reward={mean_reward:.2f} +/- {std_reward:.2f}"
-                )
-                print(f"Episode length: {mean_ep_length:.2f} +/- {std_ep_length:.2f}")
-            # Add to current Logger
             self.logger.record("eval/mean_reward", float(mean_reward))
             self.logger.record("eval/mean_ep_length", mean_ep_length)
 
@@ -469,8 +462,6 @@ class EvalCallback(EventCallback):
             self.logger.dump(self.num_timesteps)
 
             if mean_reward > self.best_mean_reward:
-                if self.verbose >= 1:
-                    print("New best mean reward!")
                 if self.best_model_save_path is not None:
                     # if hasattr(self.model, "custom_save"):
                     #     self.model.custom_save(Path(self.best_model_save_path / "best_model_eval"))
@@ -490,7 +481,7 @@ class EvalCallback(EventCallback):
             if self.callback is not None:
                 continue_training = continue_training and self._on_event()
 
-            print(f"Done evaluating policy. | mean_reward: {mean_reward:.2f} +/- {std_reward:.2f}")
+            print(f"Done evaluating policy: \n\t- mean_reward: {mean_reward:.2f} +/- {std_reward:.2f} \n\t- Episode length: {mean_ep_length:.2f} +/- {std_ep_length:.2f} \n\t- eval at num_timesteps={self.num_timesteps}")
 
         return continue_training
 
