@@ -258,7 +258,6 @@ def plot_single_model_reward_curves(
     )
     axs[3, 1].set_title("Parameters")
     axs[3, 1].set_xlabel("Episode")
-
     plt.show(block=False)
 
 
@@ -284,7 +283,7 @@ def plot_single_model_training_stats(
     model_name: str,
     color: str = None,
 ) -> None:
-
+    plt.show(block=False)
     sns.lineplot(x=range(len(data.critic_loss)), y=data.critic_loss, ax=axs[0, 0], label=model_name, color=color)
     axs[0, 0].fill_between(
         range(len(data.critic_loss)),
@@ -369,8 +368,6 @@ def plot_single_model_training_stats(
     )
     axs[1, 2].set_title("Non-optimal solution percentage")
     axs[1, 2].set_xlabel("Training step")
-
-    plt.show(block=False)
 
 
 def plot_multiple_model_eval_results(
@@ -677,6 +674,8 @@ def plot_evaluation_results(
         truncating_rate = []
         actor_failed_rate = []
         for idx, npzf in enumerate(npz_file_list):
+            if idx > len(env_data_pkl_file_list) - 1:
+                continue
             with np.load(npzf) as data:
                 timesteps = data["timesteps"][-1]
                 mean_ep_length = data["ep_lengths"][-1]

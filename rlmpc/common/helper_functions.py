@@ -470,7 +470,7 @@ def compute_smooted_mean_and_std(data: List[float], window_size: int = 10) -> Tu
 
 
 def extract_reward_data(
-    data: List[colav_logger.EpisodeData], ma_window_size: int = 5, scale_reward_components: bool = False
+    data: List[colav_logger.EpisodeData], ma_window_size: int = 10, scale_reward_components: bool = False
 ) -> Dict[str, Any]:
     """Extracts reward metrics from the environment data.
 
@@ -493,6 +493,8 @@ def extract_reward_data(
     ep_lengths = []
     r_scale = 1.0
     for env_idx, env_data in enumerate(data):
+        if not (env_idx % 5 == 0):
+            continue
         return_colreg_ep = np.sum([r["r_colreg"] for r in env_data.reward_components]) / r_scale
         return_colav_ep = np.sum([r["r_collision_avoidance"] for r in env_data.reward_components]) / r_scale
         return_antigrounding_ep = np.sum([r["r_antigrounding"] for r in env_data.reward_components]) / r_scale
