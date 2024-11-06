@@ -314,7 +314,6 @@ class MPCParameterSettingAction(csgym_action.ActionType):
     def sample_mpc_action(self, mpc_actions: np.ndarray | th.Tensor) -> np.ndarray:
         """Sample an action from the policy distribution with mean from the input MPC action
 
-
         Args:
             mpc_actions (np.ndarray | th.Tensor): The input MPC action (normalized)
 
@@ -373,16 +372,16 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             self.non_optimal_solutions += 1
 
         norm_mpc_action = self.normalize_mpc_action(mpc_action)
-        expl_action = norm_mpc_action
+        expl_action = mpc_action
         if not self.deterministic:
-            expl_action = norm_mpc_action + self.action_noise()
-            expl_action = np.clip(expl_action, -1.0, 1.0)
-            # expl_action = self.sample_mpc_action(
-            #     mpc_actions=norm_mpc_action.copy()
-            # )
+            # norm_expl_action = norm_mpc_action + self.action_noise()
+            # norm_expl_action = np.clip(norm_expl_action, -1.0, 1.0)
+            norm_expl_action = self.sample_mpc_action(mpc_actions=norm_mpc_action.copy())
+            expl_action = self.unnormalize_mpc_action(norm_expl_action.copy())
+
             # expl_action = self.get_exploratory_action(norm_mpc_action, t, ownship_state, do_list)
 
-        self.apply_mpc_action(mpc_action)
+        self.apply_mpc_action(expl_action)
 
         out_mpc_info = {
             "qp_failure": mpc_info["qp_failure"],  # 1 byte
@@ -401,7 +400,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
                         self.compute_mpc_sensitivities(mpc_info) if self.build_sensitivities else None
                     ),  # 2 x 9 x 4 = 72 bytes
                     "norm_mpc_action": norm_mpc_action.astype(np.float32),  # 8 bytes
-                    "expl_action": expl_action,  # 8 bytes
+                    "expl_action": norm_expl_action,  # 8 bytes
                 }
             )
 

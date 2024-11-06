@@ -293,7 +293,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # reparameterization trick
             sampled_actions, sampled_log_prob = self.actor.action_log_prob(replay_data.observations)
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
-            sampled_log_prob = th.clamp(sampled_log_prob, min=-30.0, max=1e12)
+            sampled_log_prob = th.clamp(sampled_log_prob, min=-20.0, max=1e12)
 
             ent_coef_loss = None
             if self.ent_coef_optimizer is not None and self.log_ent_coef is not None:

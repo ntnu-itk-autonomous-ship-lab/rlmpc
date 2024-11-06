@@ -92,8 +92,8 @@ class SAC(opa.OffPolicyAlgorithm):
         - _init_setup_model (bool): Whether or not to build the network at the creation of the instance
     """
 
-    policy: rlmpc_policies.SACPolicyWithMPC
-    actor: rlmpc_policies.SACMPCActor
+    policy: rlmpc_policies.SACPolicyWithMPCParameterProvider
+    actor: rlmpc_policies.SACMPCParameterProviderActor
     critic: ContinuousCritic
     critic_target: ContinuousCritic
 
@@ -194,7 +194,7 @@ class SAC(opa.OffPolicyAlgorithm):
         # of https://arxiv.org/abs/1812.05905
         if isinstance(self.ent_coef, str) and self.ent_coef.startswith("auto"):
             # Default initial value of ent_coef when learned
-            init_value = 0.001
+            init_value = 0.1
             if "_" in self.ent_coef:
                 init_value = float(self.ent_coef.split("_")[1])
                 assert init_value > 0.0, "The initial value of ent_coef must be greater than 0"
@@ -298,7 +298,7 @@ class SAC(opa.OffPolicyAlgorithm):
                 observations=replay_data.observations, mpc_actions=norm_mpc_actions, infos=replay_data.infos
             )
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
-            sampled_log_prob = th.clamp(sampled_log_prob, min=-30.0, max=1e12)
+            sampled_log_prob = th.clamp(sampled_log_prob, min=-20.0, max=1e12)
 
             ent_coef_loss = None
             if self.ent_coef_optimizer is not None and self.log_ent_coef is not None:
@@ -415,16 +415,23 @@ class SAC(opa.OffPolicyAlgorithm):
             th.Tensor: The resulting critic loss
         """
         with th.no_grad():
-            actions, next_actions, next_log_prob = self.extract_action_info_from_sarsa_buffer(replay_data)
+            actions, next_actions = self.extract_action_info_from_sarsa_buffer(
+                replay_data
+            )  # extract expl mpc action and next mean mpc action
+            next_sampled_actions = self.actor.sample_mpc_action(next_actions, device=self.device)
+            self.actor.mpc_action_dist = self.actor.mpc_action_dist.proba_distribution(
+                mean_actions=next_actions, log_std=self.actor.mpc_log_std
+            )
+            next_sampled_log_prob = self.actor.mpc_action_dist.log_prob(next_sampled_actions)
 
             # Compute the next Q values: min over all critics targets
-            next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_actions), dim=1)
+            next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_sampled_actions), dim=1)
             next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
 
             # add entropy term
             # low action probability gives very high negative entropy (log_prob) -> dominates the Q value
             # leads to insanely high critic loss
-            next_log_prob = th.clamp(next_log_prob, min=-30.0, max=1e12)
+            next_log_prob = th.clamp(next_sampled_log_prob, min=-20.0, max=1e12)
             next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
 
             # td error + entropy term
@@ -557,36 +564,23 @@ class SAC(opa.OffPolicyAlgorithm):
 
     def extract_action_info_from_sarsa_buffer(
         self, replay_data: rlmpc_buffers.DictReplayBufferSamples
-    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor]:
+    ) -> Tuple[th.Tensor, th.Tensor]:
         """Extracts the actions, next actions and next log probabilities from the replay buffer, depending on the actor type.
 
         Args:
             replay_data (rlmpc_buffers.DictReplayBufferSamples): DictReplayBufferSamples object.
 
         Returns:
-            Tuple[th.Tensor, th.Tensor, th.Tensor]: The actions, next actions and next log probabilities.
+            Tuple[th.Tensor, th.Tensor]: The actions, next actions and next log probabilities.
         """
         if isinstance(self.actor, rlmpc_policies.SACMPCActor):
             next_actions = replay_data.next_actions
             actions = replay_data.actions
-            next_log_prob = self.actor.action_log_prob(
-                replay_data.next_observations,
-                actions=next_actions,
-                infos=replay_data.infos,
-                is_next_action=True,
-            )
         elif isinstance(self.actor, rlmpc_policies.SACMPCParameterProviderActor):
             next_actions = th.from_numpy(
-                np.array([info["next_actor_info"]["expl_action"] for info in replay_data.infos], dtype=np.float32)
+                np.array([info["next_actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32)
             ).to(self.device)
             actions = th.from_numpy(
                 np.array([info["actor_info"]["expl_action"] for info in replay_data.infos], dtype=np.float32)
             ).to(self.device)
-            next_log_prob = self.actor.mpc_action_log_prob(
-                replay_data.next_observations,
-                actions=next_actions,
-                infos=replay_data.infos,
-                is_next_action=True,
-                device=self.device,
-            )
-        return actions, next_actions, next_log_prob
+        return actions, next_actions
