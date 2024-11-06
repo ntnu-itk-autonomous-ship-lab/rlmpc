@@ -1,29 +1,26 @@
 #!/bin/sh
-
-
-
 #SBATCH --job-name=train_snmpc
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
 #SBATCH --time=10-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=180G
+#SBATCH --cpus-per-task=20
+#SBATCH --mem=160G
 #SBATCH --output=idun/R-%x.%j.out
 
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=128
 LEARNING_RATE=0.00002
-NCPUS=16 # Equal to number of training environments
+NCPUS=20 # Equal to number of training environments
 N_EVAL_ENVS=4
 TRAIN_FREQ=8
 EVAL_FREQ=10000
 GRADIENT_STEPS=4
 BUFFER_SIZE=120000
 DEVICE="cpu"
-MAX_NUM_TRAIN_EPS=300 # Maximum number of loaded training episodes
-MAX_NUM_EVAL_EPS=32 # Maximum number of loaded evaluation episodes
+MAX_NUM_TRAIN_EPS=200 # Maximum number of loaded training episodes
+MAX_NUM_EVAL_EPS=16 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=4
 TIMESTEPS=10_000_000
 N_TIMESTEPS_PER_LEARN=10000

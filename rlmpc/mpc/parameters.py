@@ -321,13 +321,13 @@ class MidlevelMPCParams(IParams):
             "r_safe_do": [5.0, 50.0],
         }
         parameter_incr_ranges = {
-            "Q_p": [[-0.2, 0.2], [-4.0, 4.0], [-4.0, 4.0]],
-            "K_prev_sol_dev": [-8.0, 8.0],
-            "K_app_course": [-8.0, 8.0],
-            "K_app_speed": [-8.0, 8.0],
+            "Q_p": [[-0.2, 0.2], [-1.0, 1.0], [-1.0, 1.0]],
+            "K_prev_sol_dev": [-2.0, 2.0],
+            "K_app_course": [-2.0, 2.0],
+            "K_app_speed": [-2.0, 2.0],
             "d_attenuation": [-50.0, 50.0],
-            "w_colregs": [-8.0, 8.0],
-            "r_safe_do": [-8.0, 8.0],
+            "w_colregs": [-2.0, 2.0],
+            "r_safe_do": [-2.0, 2.0],
         }
         parameter_lengths = {
             "Q_p": 3,
