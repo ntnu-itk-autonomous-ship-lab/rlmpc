@@ -1,18 +1,18 @@
 #!/bin/sh
-#SBATCH --job-name=train_snmpc
+#SBATCH --job-name=simple_tsac_nmpc_pp
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
 #SBATCH --time=10-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=160G
 #SBATCH --output=idun/R-%x.%j.out
 
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=128
 LEARNING_RATE=0.00002
-NCPUS=20 # Equal to number of training environments
+NCPUS=16 # Equal to number of training environments
 N_EVAL_ENVS=4
 TRAIN_FREQ=8
 EVAL_FREQ=10000

@@ -2,7 +2,7 @@
 
 
 
-#SBATCH --job-name=train_snmpc
+#SBATCH --job-name=standard_tsac_nmpc_pp
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
 #SBATCH --time=10-12:00:00
@@ -20,17 +20,17 @@ N_EVAL_ENVS=4
 TRAIN_FREQ=8
 EVAL_FREQ=10000
 GRADIENT_STEPS=4
-BUFFER_SIZE=150000
+BUFFER_SIZE=200000
 DEVICE="cpu"
 MAX_NUM_TRAIN_EPS=200 # Maximum number of loaded training episodes
-MAX_NUM_EVAL_EPS=16 # Maximum number of loaded evaluation episodes
+MAX_NUM_EVAL_EPS=32 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=4
 TIMESTEPS=10_000_000
 N_TIMESTEPS_PER_LEARN=10000
 LOAD_MODEL_NAME="" #"snmpc_nd_200te_32ee_seed1_jid20743023/models/snmpc_nd_200te_32ee_seed1_jid20743023_71680_steps"
 SEED=1
 
-EXPERIMENT_NAME="standard_snmpc_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_seed${SEED}_jid${SLURM_JOB_ID}"
+EXPERIMENT_NAME="standard3_snmpc_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_seed${SEED}_jid${SLURM_JOB_ID}"
 
 # show available resources
 sinfo -o "%10P %5D %34N  %5c  %7m  %47f  %23G"
