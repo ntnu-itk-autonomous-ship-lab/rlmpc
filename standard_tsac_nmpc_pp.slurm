@@ -9,12 +9,12 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=256G
+#SBATCH --mem=180G
 #SBATCH --output=idun/R-%x.%j.out
 
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=128
-LEARNING_RATE=0.00002
+LEARNING_RATE=0.00008
 NCPUS=20 # Equal to number of training environments
 N_EVAL_ENVS=4
 TRAIN_FREQ=8
@@ -24,13 +24,13 @@ BUFFER_SIZE=200000
 DEVICE="cpu"
 MAX_NUM_TRAIN_EPS=200 # Maximum number of loaded training episodes
 MAX_NUM_EVAL_EPS=32 # Maximum number of loaded evaluation episodes
-N_EVAL_EPS=4
+N_EVAL_EPS=8
 TIMESTEPS=10_000_000
 N_TIMESTEPS_PER_LEARN=10000
 LOAD_MODEL_NAME="" #"snmpc_nd_200te_32ee_seed1_jid20743023/models/snmpc_nd_200te_32ee_seed1_jid20743023_71680_steps"
-SEED=1
+SEED=2
 
-EXPERIMENT_NAME="standard3_snmpc_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_seed${SEED}_jid${SLURM_JOB_ID}"
+EXPERIMENT_NAME="standard_ng2_snmpc_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_seed${SEED}_jid${SLURM_JOB_ID}"
 
 # show available resources
 sinfo -o "%10P %5D %34N  %5c  %7m  %47f  %23G"
