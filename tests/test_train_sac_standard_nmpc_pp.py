@@ -123,8 +123,12 @@ def main(args):
     }
 
     eval_env_config = copy.deepcopy(training_env_config)
+    action_kwargs.update({
+        "disable_mpc_info_storage": False,
+    })
     eval_env_config.update(
         {
+            "action_kwargs": action_kwargs,
             "reload_map": False,
             "max_number_of_episodes": args.max_num_loaded_eval_scen_episodes,
             "scenario_file_folder": test_scenario_folders,

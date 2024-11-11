@@ -194,7 +194,7 @@ class SAC(opa.OffPolicyAlgorithm):
         # of https://arxiv.org/abs/1812.05905
         if isinstance(self.ent_coef, str) and self.ent_coef.startswith("auto"):
             # Default initial value of ent_coef when learned
-            init_value = 0.1
+            init_value = 0.01
             if "_" in self.ent_coef:
                 init_value = float(self.ent_coef.split("_")[1])
                 assert init_value > 0.0, "The initial value of ent_coef must be greater than 0"
