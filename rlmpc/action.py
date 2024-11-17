@@ -14,13 +14,17 @@ import colav_simulator.core.stochasticity as stochasticity
 import colav_simulator.gym.action as csgym_action
 import gymnasium as gym
 import numpy as np
+import torch as th
+from stable_baselines3.common.distributions import (
+    DiagGaussianDistribution,
+    SquashedDiagGaussianDistribution,
+)
+from stable_baselines3.common.noise import OrnsteinUhlenbeckActionNoise
+
 import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rlmpc_cas as rlmpc_cas
-import torch as th
-from stable_baselines3.common.distributions import DiagGaussianDistribution, SquashedDiagGaussianDistribution
-from stable_baselines3.common.noise import OrnsteinUhlenbeckActionNoise
 
 Action = Union[list, np.ndarray]
 import colav_simulator.common.math_functions as mf
@@ -168,7 +172,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         Args:
             build_sensitivities (bool, optional): Whether to build the sensitivities.
         """
-        print(f"mpc params before reset: {self.mpc.get_adjustable_mpc_params()}")
+        # print(f"mpc params before reset: {self.mpc.get_adjustable_mpc_params()}")
         self.t_prev = 0.0
         self.action_result = csgym_action.ActionResult(success=True, info={})
         # self.non_optimal_solutions = 0
