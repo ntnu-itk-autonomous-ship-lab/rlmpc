@@ -20,12 +20,13 @@ import colav_simulator.gym.observation as csgym_obs
 import colav_simulator.gym.reward as cs_reward
 import matplotlib.pyplot as plt
 import numpy as np
+import yaml
+
 import rlmpc.action as mpc_action
 import rlmpc.colregs_handler as ch
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.map_functions as rl_mapf
 import rlmpc.mpc.common as mpc_common
-import yaml
 
 if TYPE_CHECKING:
     from colav_simulator.gym.environment import COLAVEnvironment
@@ -115,7 +116,7 @@ class COLREGRewarderParams:
 
 
 @dataclass
-class TrajectoryTrackingRewarderParams:
+class NegativeTrajectoryTrackingRewarderParams:
     rho_d2path: float = 1.0  # path deviation reward weight
     rho_speed_dev: float = 10.0  # speed deviation reward weight
     rho_d2goal: float = 0.1  # final path deviation reward weight
@@ -123,6 +124,21 @@ class TrajectoryTrackingRewarderParams:
     rho_turn_rate: float = 0.0  # turn rate reward weight
     rho_goal: float = 100.0  # penalty for not reaching the goal
     goal_radius: float = 30.0  # radius around the goal point where the goal is considered reached
+
+    @classmethod
+    def from_dict(cls, config_dict: dict):
+        params = cls(**config_dict)
+        return params
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class PositiveTrajectoryTrackingRewarderParams:
+    rho_progress: float = 0.5
+    rho_speed: float = 1.0
+    speed_reward_threshold: float = 0.5
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -190,25 +206,24 @@ class DNNParameterRewarderParams:
 
 @dataclass
 class ActionChatterRewarderParams:
-    rho_chatter: np.ndarray = field(default_factory=lambda: np.diag([0.0] * 9))
+    rho_chatter: np.ndarray = 0.5
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         cfg = cls(**config_dict)
-        cfg.rho_chatter = np.diag(cfg.rho_chatter)
+        cfg.rho_chatter = cfg.rho_chatter
         return cfg
 
     def to_dict(self) -> dict:
         out = asdict(self)
-        out["rho_chatter"] = self.rho_chatter.diagonal().tolist()
         return out
 
 
 @dataclass
 class Config:
 
-    trajectory_tracking: TrajectoryTrackingRewarderParams = field(
-        default_factory=lambda: TrajectoryTrackingRewarderParams()
+    trajectory_tracking: PositiveTrajectoryTrackingRewarderParams = field(
+        default_factory=lambda: PositiveTrajectoryTrackingRewarderParams()
     )
     anti_grounding: AntiGroundingRewarderParams = field(default_factory=lambda: AntiGroundingRewarderParams())
     collision_avoidance: CollisionAvoidanceRewarderParams = field(
@@ -224,7 +239,7 @@ class Config:
     @classmethod
     def from_dict(cls, config_dict: dict):
         cfg = Config()
-        cfg.trajectory_tracking = TrajectoryTrackingRewarderParams.from_dict(config_dict["trajectory_tracking"])
+        cfg.trajectory_tracking = PositiveTrajectoryTrackingRewarderParams.from_dict(config_dict["trajectory_tracking"])
         cfg.anti_grounding = AntiGroundingRewarderParams.from_dict(config_dict["anti_grounding"])
         cfg.collision_avoidance = CollisionAvoidanceRewarderParams.from_dict(config_dict["collision_avoidance"])
         cfg.colreg = COLREGRewarderParams.from_dict(config_dict["colreg"])
@@ -562,9 +577,9 @@ class COLREGRewarder(cs_reward.IReward):
         return {"r_colregs": self.last_reward}
 
 
-class TrajectoryTrackingRewarder(cs_reward.IReward):
+class NegativeTrajectoryTrackingRewarder(cs_reward.IReward):
 
-    def __init__(self, env: "COLAVEnvironment", config: TrajectoryTrackingRewarderParams) -> None:
+    def __init__(self, env: "COLAVEnvironment", config: NegativeTrajectoryTrackingRewarderParams) -> None:
         super().__init__(env)
         self.last_reward = 0.0
         self._config = config
@@ -595,9 +610,9 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
 
         unnormalized_obs = self.env.observation_type.unnormalize(state)
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]
+        unwrapped_course_error = mf.unwrap_angle(self._last_course_error, path_obs[2])
         huber_loss_d2path = mpc_common.huber_loss(path_obs[0] ** 2, 1.0)
         huber_loss_d2goal = mpc_common.huber_loss(path_obs[1] ** 2, 1.0)
-        unwrapped_course_error = mf.unwrap_angle(self._last_course_error, path_obs[2])
         self._last_course_error = path_obs[2]
         tt_cost = (
             self._config.rho_d2path * huber_loss_d2path
@@ -607,6 +622,42 @@ class TrajectoryTrackingRewarder(cs_reward.IReward):
             + self._config.rho_turn_rate * path_obs[4] ** 2
         )
         self.last_reward = -tt_cost
+        return self.last_reward
+
+    def get_last_rewards_as_dict(self) -> dict:
+        return {"r_trajectory_tracking": self.last_reward}
+
+
+class PositiveTrajectoryTrackingRewarder(cs_reward.IReward):
+
+    def __init__(self, env: "COLAVEnvironment", config: PositiveTrajectoryTrackingRewarderParams) -> None:
+        super().__init__(env)
+        self.last_reward = 0.0
+        self._config = config
+        self.prev_arc_length_left = 0.0
+
+    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+        unnormalized_obs = self.env.observation_type.unnormalize(state)
+        path_obs = unnormalized_obs["PathRelativeNavigationObservation"]
+        arc_length_left = float(path_obs[0])
+        speed_dev = float(path_obs[4])
+        if self.env.time <= 0.0001:
+            self.prev_arc_length_left = float(arc_length_left)
+            return 0.0
+
+        # speed = path_obs[1]
+        # course = path_obs[2]
+        # turn_rate = path_obs[3]
+
+        rew = 0.0
+
+        progress = self.prev_arc_length_left - arc_length_left
+        rew += self._config.rho_progress * progress
+        if abs(speed_dev) <= self._config.speed_reward_threshold:
+            rew += self._config.rho_speed
+
+        self.last_reward = rew
+        self.prev_arc_length_left = arc_length_left
         return self.last_reward
 
     def get_last_rewards_as_dict(self) -> dict:
@@ -628,7 +679,7 @@ class DNNParameterRewarder(cs_reward.IReward):
         # t = self.env.time
         # tspan = self.env.simulator.t_end - self.env.simulator.t_start
         colav_info = self.env.ownship.get_colav_data()
-        if colav_info is None:
+        if not colav_info:
             return 0.0
 
         r_param_dnn = 0.0
@@ -736,15 +787,18 @@ class ActionChatterRewarder(cs_reward.IReward):
         super().__init__(env)
         self._config = config
         self.last_reward = 0.0
+        self.prev_action = np.zeros(self.env.action_space.shape[0])
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
-        if action is None:
-            return 0.0
         unnorm_action = self.env.action_type.unnormalize(action)
-        chatter_cost = unnorm_action.T @ self._config.rho_chatter @ unnorm_action
+        if self.env.time < 0.0001:
+            self.prev_action = unnorm_action
+            return 0.0
 
-        # mpc_param_obs = state["MPCParameterObservation"]
+        action_diff = unnorm_action - self.prev_action
+        chatter_cost = self._config.rho_chatter * action_diff.T @ action_diff
 
+        self.prev_action = unnorm_action
         self.last_reward = -chatter_cost
         return self.last_reward
 
@@ -759,13 +813,13 @@ class MPCRewarder(cs_reward.IReward):
 
     def __init__(self, env: "COLAVEnvironment", config: Config = Config()) -> None:
         super().__init__(env)
-        self.reward_scale: float = 100.0
+        self.reward_scale: float = 1.0
         self.last_reward: float = 0.0
         self._config = config
         self.anti_grounding_rewarder = AntiGroundingRewarder(env, config.anti_grounding)
         self.collision_avoidance_rewarder = CollisionAvoidanceRewarder(env, config.collision_avoidance)
         self.colreg_rewarder = COLREGRewarder(env, config.colreg)
-        self.trajectory_tracking_rewarder = TrajectoryTrackingRewarder(env, config.trajectory_tracking)
+        self.trajectory_tracking_rewarder = PositiveTrajectoryTrackingRewarder(env, config.trajectory_tracking)
         self.readily_apparent_maneuvering_rewarder = ReadilyApparentManeuveringRewarder(
             env, config.readily_apparent_maneuvering
         )

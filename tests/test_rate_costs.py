@@ -51,9 +51,9 @@ if __name__ == "__main__":
     r = np.linspace(-r_max, r_max, n)
 
     # alpha_app = [112.5, 0.00006, 8.0, 0.001]
-    alpha_app = [40.0, 0.001, 15.0, 0.001]
+    alpha_app = [40.0, 0.0008, 15.0, 0.001]
     # alpha_app = [40.0, 0.003, 40.0, 0.005]
-    K_app = [60.0, 30.0]
+    K_app = [3.0, 2.0]
 
     r_costs = np.zeros(n)
     a_costs = np.zeros(n)
@@ -84,4 +84,5 @@ if __name__ == "__main__":
 
     fig.tight_layout()
     plt.show(block=False)
+    plt.savefig("test_rate_costs")
     print("done")

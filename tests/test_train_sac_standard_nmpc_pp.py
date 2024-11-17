@@ -35,11 +35,11 @@ def main(args):
     parser.add_argument("--n_training_envs", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.00001)
     parser.add_argument("--buffer_size", type=int, default=10000)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--gradient_steps", type=int, default=2)
-    parser.add_argument("--train_freq", type=int, default=4)
+    parser.add_argument("--train_freq", type=int, default=2)
     parser.add_argument("--n_eval_episodes", type=int, default=1)
-    parser.add_argument("--eval_freq", type=int, default=2)
+    parser.add_argument("--eval_freq", type=int, default=20000)
     parser.add_argument("--n_eval_envs", type=int, default=1)
     parser.add_argument("--timesteps", type=int, default=100000)
     parser.add_argument("--device", type=str, default="cpu")
@@ -123,9 +123,11 @@ def main(args):
     }
 
     eval_env_config = copy.deepcopy(training_env_config)
-    action_kwargs.update({
-        "disable_mpc_info_storage": False,
-    })
+    action_kwargs.update(
+        {
+            "disable_mpc_info_storage": False,
+        }
+    )
     eval_env_config.update(
         {
             "action_kwargs": action_kwargs,
