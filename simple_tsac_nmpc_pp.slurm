@@ -20,12 +20,12 @@ GRADIENT_STEPS=4
 BUFFER_SIZE=120000
 DEVICE="cpu"
 MAX_NUM_TRAIN_EPS=200 # Maximum number of loaded training episodes
-MAX_NUM_EVAL_EPS=16 # Maximum number of loaded evaluation episodes
+MAX_NUM_EVAL_EPS=32 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=4
 TIMESTEPS=10_000_000
 N_TIMESTEPS_PER_LEARN=10000
 LOAD_MODEL_NAME="" #"snmpc_nd_200te_32ee_seed1_jid20743023/models/snmpc_nd_200te_32ee_seed1_jid20743023_71680_steps"
-SEED=1
+SEED=2
 
 EXPERIMENT_NAME="simple_snmpc_${MAX_NUM_TRAIN_EPS}te_${MAX_NUM_EVAL_EPS}ee_seed${SEED}_jid${SLURM_JOB_ID}"
 

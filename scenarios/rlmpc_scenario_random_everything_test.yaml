@@ -1,7 +1,7 @@
 name: "rlmpc_scenario_random_everything_test"
 save_scenario: False
 t_start: 0.0
-t_end: 400.0
+t_end: 800.0
 dt_sim: 0.5
 utm_zone: 33
 map_size: [2600.0, 2700.0]

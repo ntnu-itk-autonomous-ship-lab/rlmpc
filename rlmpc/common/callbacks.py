@@ -220,16 +220,16 @@ class CollectStatisticsCallback(BaseCallback):
                 if hasattr(self.model, "just_trained"):
                     self.model.just_trained = False
 
-            current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
-            if "PerceptionImageObservation" in current_obs:
-                pimg = th.from_numpy(current_obs["PerceptionImageObservation"])
-                pimg = self.img_transform(pimg)
-                pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
-                recon_frame = pvae.reconstruct(pimg)
-                # pvae.display_image(self.display_transform(pimg))
-                # pvae.display_image(self.display_transform(recon_frame))
-                self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
-                self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
+            # current_obs = self.model._current_obs if hasattr(self.model, "_current_obs") else self.model._last_obs
+            # if "PerceptionImageObservation" in current_obs:
+            #     pimg = th.from_numpy(current_obs["PerceptionImageObservation"])
+            #     pimg = self.img_transform(pimg)
+            #     pvae = self.model.critic.features_extractor.extractors["PerceptionImageObservation"]
+            #     recon_frame = pvae.reconstruct(pimg)
+            #     # pvae.display_image(self.display_transform(pimg))
+            #     # pvae.display_image(self.display_transform(recon_frame))
+            #     self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
+            #     self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
         if (self.num_timesteps - self._num_timesteps_prev_agent_save) > self.save_agent_freq:
             # print("Saving agent after", self.num_timesteps, "timesteps")
