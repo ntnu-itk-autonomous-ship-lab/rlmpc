@@ -373,6 +373,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
 
         norm_mpc_action = self.normalize_mpc_action(mpc_action)
         expl_action = mpc_action
+        norm_expl_action = norm_mpc_action
         if not self.deterministic:
             # norm_expl_action = norm_mpc_action + self.action_noise()
             # norm_expl_action = np.clip(norm_expl_action, -1.0, 1.0)

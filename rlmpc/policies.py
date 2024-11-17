@@ -445,13 +445,14 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
             latent_pi
         )  # unnormalized parameter increments processed through a possibly state dependent exploration distribution net
 
+        info = [{"dnn_input_features": features[idx].detach().cpu().numpy().astype(np.float32)} for idx in range(features.shape[0])]
         if self.use_sde:
             return mean_actions, self.log_std, dict(latent_sde=latent_pi)
         # Unstructured exploration (Original implementation)
         log_std = self.log_std(latent_pi)  # type: ignore[operator]
         # Original Implementation to cap the standard deviation
         log_std = th.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
-        return mean_actions, log_std, {}
+        return mean_actions, log_std, info
 
     def preprocess_obs_for_dnn(
         self,
