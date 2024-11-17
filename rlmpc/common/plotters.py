@@ -264,7 +264,7 @@ def plot_single_model_reward_curves(
 def plot_multiple_model_training_stats(
     model_data: List[rl_logger.RLData], model_names: List[str], save_fig: bool = False, save_path: Path = None
 ) -> None:
-    fig, axs = plt.subplots(2, 3, figsize=(15, 10), num="training_stats")
+    fig, axs = plt.subplots(3, 2, figsize=(15, 15), num="training_stats")
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     colors = sns.color_palette("tab10", n_colors=len(model_data))
     for name, data in zip(model_names, model_data):
@@ -293,7 +293,7 @@ def plot_single_model_training_stats(
         color=color,
     )
     axs[0, 0].set_ylabel("Loss")
-    axs[0, 0].set_xlabel("Training step")
+    # axs[0, 0].set_xlabel("Training step")
     axs[0, 0].set_title("Critic loss")
 
     sns.lineplot(x=range(len(data.actor_loss)), y=data.actor_loss, ax=axs[0, 1], label=model_name, color=color)
@@ -305,69 +305,69 @@ def plot_single_model_training_stats(
         color=color,
     )
     axs[0, 1].set_title("Actor loss")
-    axs[0, 1].set_xlabel("Training step")
+    # axs[0, 1].set_xlabel("Training step")
 
     sns.lineplot(
         x=range(len(data.ent_coeff_loss)),
         y=data.ent_coeff_loss,
-        ax=axs[0, 2],
+        ax=axs[1, 0],
         label=model_name,
         color=color,
     )
-    axs[0, 2].fill_between(
+    axs[1, 0].fill_between(
         range(len(data.ent_coeff_loss)),
         data.ent_coeff_loss - data.std_ent_coeff_loss,
         data.ent_coeff_loss + data.std_ent_coeff_loss,
         alpha=0.2,
         color=color,
     )
-    axs[0, 2].set_title("Entropy coeff. loss")
-    axs[0, 2].set_xlabel("Training step")
+    axs[1, 0].set_title("Entropy coeff. loss")
+    # axs[1, 0].set_xlabel("Training step")
 
     sns.lineplot(
         x=range(len(data.mean_actor_grad_norm)),
         y=data.mean_actor_grad_norm,
-        ax=axs[1, 0],
+        ax=axs[1, 1],
         label=model_name,
         color=color,
     )
-    axs[1, 0].fill_between(
+    axs[1, 1].fill_between(
         range(len(data.mean_actor_grad_norm)),
         data.mean_actor_grad_norm - data.std_mean_actor_grad_norm,
         data.mean_actor_grad_norm + data.std_mean_actor_grad_norm,
         alpha=0.2,
         color=color,
     )
-    axs[1, 0].set_title("Mean actor grad. norm")
-    axs[1, 0].set_xlabel("Training step")
+    axs[1, 1].set_title("Mean actor grad. norm")
+    # axs[1, 1].set_xlabel("Training step")
 
-    sns.lineplot(x=range(len(data.ent_coeff)), y=data.ent_coeff, ax=axs[1, 1], label=model_name, color=color)
-    axs[1, 1].fill_between(
+    sns.lineplot(x=range(len(data.ent_coeff)), y=data.ent_coeff, ax=axs[2, 0], label=model_name, color=color)
+    axs[2, 0].fill_between(
         range(len(data.ent_coeff)),
         data.ent_coeff - data.std_ent_coeff,
         data.ent_coeff + data.std_ent_coeff,
         alpha=0.2,
         color=color,
     )
-    axs[1, 1].set_title("Entropy coeff.")
-    axs[1, 1].set_xlabel("Training step")
+    axs[2, 0].set_title("Entropy coeff.")
+    axs[2, 0].set_xlabel("Training step")
 
     sns.lineplot(
         x=range(len(data.non_optimal_solution_rate)),
         y=data.non_optimal_solution_rate,
-        ax=axs[1, 2],
+        ax=axs[2, 1],
         label=model_name,
         color=color,
     )
-    axs[1, 2].fill_between(
+    axs[2, 1].fill_between(
         range(len(data.non_optimal_solution_rate)),
         data.non_optimal_solution_rate - data.std_non_optimal_solution_rate,
         data.non_optimal_solution_rate + data.std_non_optimal_solution_rate,
         alpha=0.2,
         color=color,
     )
-    axs[1, 2].set_title("Non-optimal solution percentage")
-    axs[1, 2].set_xlabel("Training step")
+    axs[2, 1].set_title("Non-optimal solution percentage")
+    axs[2, 1].set_xlabel("Training step")
 
 
 def plot_multiple_model_eval_results(
@@ -769,7 +769,7 @@ def plot_evaluation_results(
 if __name__ == "__main__":
     matplotlib.use("TkAgg")
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["standard_snmpc_1te_4ee_seed1_jid20787312"]
+    experiment_names = ["standard2_snmpc_200te_32ee_seed1_jid20867861"]
     model_names = ["SAC-NMPC1"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
     plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
