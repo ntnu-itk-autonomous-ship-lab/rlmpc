@@ -353,6 +353,8 @@ class AntiGroundingRewarder(cs_reward.IReward):
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self.create_so_surfaces()
+            return 0.0
+
         p_os = (self.env.ownship.state[:2] - self._map_origin).reshape(1, 2)
         g_so = np.zeros(len(self._so_surfaces))
         for j, surface in enumerate(self._so_surfaces):
@@ -360,7 +362,7 @@ class AntiGroundingRewarder(cs_reward.IReward):
             g_so[j] = np.clip(surf_val, 0.0, 1.0)
             if g_so[j] > 0.0:
                 d2so = np.linalg.norm(
-                    mapf.compute_distance_vectors_to_grounding(self.env.ownship.state, self._min_depth, self.env.enc)
+                    mapf.compute_distance_vectors_to_grounding(self.env.ownship.state.reshape(-1, 1), self._min_depth, self.env.enc)
                 )
                 print(
                     f"[{self.env.env_id.upper()}] Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]} | d2so={d2so}."
@@ -410,6 +412,9 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
         return np.log(1.0 + epsilon) - np.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+        if self.env.time < 0.0001:
+            return 0.0
+
         true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
         do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0)
         g_do = np.zeros(len(do_list))
@@ -452,6 +457,8 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         if self.env.time < 0.0001:
             self._prev_speed = self.env.ownship.speed
+            return 0.0
+
         turn_rate = self.env.ownship.state[5]
         speed = self.env.ownship.speed
 
@@ -506,6 +513,7 @@ class COLREGRewarder(cs_reward.IReward):
                 self._min_depth, self.env.enc, buffer=self._r_safe, show_plots=False
             )
             self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+            return 0.0
 
         do_list, _ = self.env.ownship.get_do_track_information()
         ownship_state = self.env.ownship.state
@@ -673,7 +681,7 @@ class DNNParameterRewarder(cs_reward.IReward):
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
 
-        if self._config.disable:
+        if self._config.disable or self.env.time < 0.001:
             return 0.0
 
         # t = self.env.time
