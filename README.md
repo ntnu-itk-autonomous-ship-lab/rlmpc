@@ -32,9 +32,9 @@ If you are using code from this repository in your work, please use the followin
 
 ```bibtex
 @Article{Tengesdal2024sacn,
-  author  = {Tengesdal, T and Gros, S. and Johansen, T. A.},
+  author  = {Tengesdal, T and Menges, D. and Gros, S. and Johansen, T. A.},
   journal = {IEEE Access},
-  title   = {Soft Actor Critic with a Nonlinear Model Predictive Control Actor for Adaptable Collision-free Ship Trajectory Planning},
+  title   = {Soft Actor Critic Reinforcement Learning for Adaptable Collision-free Ship Trajectory Planning},
   year={2024},
   volume={},
   number={},
