@@ -9,6 +9,7 @@
 #SBATCH --mem=160G
 #SBATCH --output=idun/R-%x.%j.out
 
+CURRENT_DATE_TIME="`date +%H%M_%d%m%y`"
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=128
 LEARNING_RATE=0.00005

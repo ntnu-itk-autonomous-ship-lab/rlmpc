@@ -91,7 +91,7 @@ class MPCParameterSettingAction(csgym_action.ActionType):
             th.zeros(self.mpc_action_dim), log_std=self.log_std
         )
         self.action_noise = OrnsteinUhlenbeckActionNoise(
-            mean=np.zeros(self.mpc_action_dim), sigma=std_init, theta=0.15, dt=self.env.dt_action
+            mean=np.zeros(self.mpc_action_dim), sigma=std_init, theta=0.3, dt=self.env.dt_action
         )
 
         self.mpc_parameter_ranges, self.mpc_parameter_incr_ranges, self.mpc_parameter_lengths = (

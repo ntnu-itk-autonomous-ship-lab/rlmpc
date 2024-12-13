@@ -114,6 +114,9 @@ class SAC(opa.OffPolicyAlgorithm):
         ent_coef: Union[str, float] = "auto",
         target_update_interval: int = 1,
         target_entropy: Union[str, float] = "auto",
+        use_sde: bool = True,
+        sde_sample_freq: int = -1,
+        use_sde_at_warmup: bool = False,
         stats_window_size: int = 100,
         tensorboard_log: Optional[str] = None,
         data_path: Optional[str] = None,
@@ -154,6 +157,9 @@ class SAC(opa.OffPolicyAlgorithm):
             policy_kwargs=policy_kwargs,
             stats_window_size=stats_window_size,
             tensorboard_log=tensorboard_log,
+            use_sde=use_sde,
+            sde_sample_freq=sde_sample_freq,
+            use_sde_at_warmup=use_sde_at_warmup,
             data_path=data_path,
             verbose=verbose,
             device=device,
@@ -288,6 +294,9 @@ class SAC(opa.OffPolicyAlgorithm):
         mean_mpc_param_grad_norm = 0.0
         for gradient_step in range(gradient_steps):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
+
+            if self.use_sde:
+                self.actor.reset_noise()
 
             # Action by the current actor for the sampled state
             # reparameterization trick

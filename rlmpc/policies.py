@@ -1851,6 +1851,12 @@ class SACPolicyWithMPCParameterProviderStandard(BasePolicy):
         self.mpc_param_provider_kwargs = mpc_param_provider_kwargs
         self._build_actor(lr_schedule)
 
+    def reset_noise(self, batch_size: int = 1) -> None:
+        """
+        Sample new weights for the exploration matrix, when using gSDE.
+        """
+        self.actor.reset_noise(batch_size=batch_size)
+
     def _build_critic(self, lr_schedule: Schedule, device: Union[th.device, str]) -> None:
         # Create a separate features extractor for the critic
         # this requires more memory and computation

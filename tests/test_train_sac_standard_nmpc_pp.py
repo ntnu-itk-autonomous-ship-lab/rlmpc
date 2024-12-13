@@ -88,7 +88,7 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.0005, 0.0005])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
@@ -155,14 +155,14 @@ def main(args):
 
     mpc_param_provider_kwargs = {
         "param_list": mpc_param_list,
-        "hidden_sizes": [500, 500],  # [458, 242, 141],
+        "hidden_sizes": [256, 256],  # [458, 242, 141],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,
-        "critic_arch": [500, 500],
+        "critic_arch": [256, 256],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,
         "std_init": param_action_noise_std_dev,
@@ -178,9 +178,10 @@ def main(args):
         "buffer_size": args.buffer_size,
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
+        "sde_sample_freq": 16,
         "train_freq": (args.train_freq, "step"),
-        "learning_starts": 100 if not load_model else 0,
-        "tau": 0.005,
+        "learning_starts": 1000 if not load_model else 0,
+        "tau": 0.01,
         "device": args.device,
         "ent_coef": "auto",
         "verbose": 1,

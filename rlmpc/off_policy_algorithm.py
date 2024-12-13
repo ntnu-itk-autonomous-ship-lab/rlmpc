@@ -90,6 +90,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         support_multi_env: bool = False,
         monitor_wrapper: bool = True,
         seed: Optional[int] = None,
+        use_sde: bool = False,
+        sde_sample_freq: int = -1,
+        use_sde_at_warmup: bool = False,
+        sde_support: bool = True,
         supported_action_spaces: Optional[Tuple[Type[spaces.Space], ...]] = None,
     ) -> None:
         super().__init__(
@@ -104,8 +108,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             support_multi_env=support_multi_env,
             monitor_wrapper=monitor_wrapper,
             seed=seed,
-            use_sde=False,  # Not applicable for RLMPC
-            sde_sample_freq=1.0,  # Not applicable for RLMPC
+            use_sde=use_sde,
+            sde_sample_freq=sde_sample_freq,
             supported_action_spaces=supported_action_spaces,
         )
 
@@ -128,6 +132,13 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.replay_buffer_class = replay_buffer_class
         self.replay_buffer_kwargs = replay_buffer_kwargs or {}
         self.train_freq: sb3_types.TrainFreq = train_freq
+
+        # Update policy keyword arguments
+        if sde_support:
+            self.policy_kwargs["use_sde"] = self.use_sde
+        # For gSDE only
+        self.use_sde_at_warmup = use_sde_at_warmup
+
         self.num_episodes: int = 0
         self._convert_train_freq()
         self.num_timesteps: int = 0
@@ -417,13 +428,8 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
         assert self.train_freq.frequency > 0, "Should at least collect one step or episode."
 
-        # Vectorize action noise if needed
-        if (
-            action_noise is not None
-            and env.num_envs > 1
-            and not isinstance(action_noise, sb3_noise.VectorizedActionNoise)
-        ):
-            action_noise = sb3_noise.VectorizedActionNoise(action_noise, env.num_envs)
+        if self.use_sde:
+            self.policy.actor.reset_noise(env.num_envs)
 
         callback.on_rollout_start()
         continue_training = True
@@ -439,6 +445,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 for env_idx in range(env.num_envs):
                     if env.envs[env_idx].unwrapped.time < 0.0001:
                         self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
+
+            if self.use_sde and self.sde_sample_freq > 0 and num_collected_steps % self.sde_sample_freq == 0:
+                # Sample a new noise matrix
+                self.policy.actor.reset_noise(env.num_envs)
 
             t_action_start = time.time()
             actions, _, actor_infos = self._sample_action(
@@ -538,10 +548,6 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                         if not self.env.envs[idx].unwrapped.time < 0.0001:  # only reset if not already reset
                             self.env.envs[idx].unwrapped.reset()
                         self.env.envs[idx].unwrapped.terminal_info = infos[idx]
-
-                    if action_noise is not None:
-                        kwargs = dict(indices=[idx]) if env.num_envs > 1 else {}
-                        action_noise.reset(**kwargs)
 
                     if log_interval is not None and num_collected_episodes % log_interval == 0:
                         self._dump_logs()
@@ -707,6 +713,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.logger.record("time/fps", fps)
         self.logger.record("time/time_elapsed", int(time_elapsed))
         self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
+
+        if self.use_sde:
+            self.logger.record("train/std", (self.actor.get_std()).mean().item())
 
         success_rate = 0.0
         if len(self.ep_success_buffer) > 0:
