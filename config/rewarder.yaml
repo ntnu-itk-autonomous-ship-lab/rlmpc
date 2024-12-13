@@ -27,8 +27,8 @@ colreg:
 readily_apparent_maneuvering:
   alpha_app_course: [40.0, 0.0008]
   alpha_app_speed: [15.0, 0.001]
-  K_app_course: 1.1
-  K_app_speed: 0.85
+  K_app_course: 1.0
+  K_app_speed: 0.75
   r_max: 8.0
   a_max: 0.3
 collision_avoidance:
