@@ -445,7 +445,10 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
             latent_pi
         )  # unnormalized parameter increments processed through a possibly state dependent exploration distribution net
 
-        info = [{"dnn_input_features": features[idx].detach().cpu().numpy().astype(np.float32)} for idx in range(features.shape[0])]
+        info = [
+            {"dnn_input_features": features[idx].detach().cpu().numpy().astype(np.float32)}
+            for idx in range(features.shape[0])
+        ]
         if self.use_sde:
             return mean_actions, self.log_std, dict(latent_sde=latent_pi)
         # Unstructured exploration (Original implementation)
@@ -1612,6 +1615,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         device: Union[th.device, str] = "auto",
+        use_sde: bool = False,
         n_critics: int = 2,
     ):
         super().__init__(
@@ -1960,4 +1964,6 @@ class SACPolicyWithMPCParameterProviderStandard(BasePolicy):
         """
         self.actor.set_training_mode(mode)
         self.critic.set_training_mode(mode)
+        self.training = mode
+        self.training = mode
         self.training = mode

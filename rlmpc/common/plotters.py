@@ -18,8 +18,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import rlmpc.common.helper_functions as hf
-import rlmpc.common.logger as rlmpc_logger
 import rlmpc.common.logger as rl_logger
+import rlmpc.common.logger as rlmpc_logger
 import seaborn as sns
 from matplotlib import gridspec
 
@@ -398,12 +398,12 @@ def plot_multiple_model_eval_results(
 
         color = colors.pop()
         axs[0].plot(
-            data[0]["timesteps"], data[0]["mean_ep_length"], label=name, color=color, marker=".", linestyle="--"
+            return_data["timesteps"], return_data["mean_ep_length"], label=name, color=color, marker=".", linestyle="--"
         )
         axs[0].fill_between(
-            data[0]["timesteps"],
-            np.array(data[0]["mean_ep_length"]) - np.array(data[0]["std_ep_length"]),
-            np.array(data[0]["mean_ep_length"]) + np.array(data[0]["std_ep_length"]),
+            return_data["timesteps"],
+            np.array(return_data["mean_ep_length"]) - np.array(return_data["std_ep_length"]),
+            np.array(return_data["mean_ep_length"]) + np.array(return_data["std_ep_length"]),
             alpha=0.2,
             color=color,
         )
@@ -631,7 +631,7 @@ def plot_training_results(
 
 
 def plot_evaluation_results(
-    base_dir: Path, experiment_names: List[str], abbreviations: Optional[List[str]] = None
+    base_dir: Path, experiment_names: List[str], abbreviations: Optional[List[str]] = None, is_final: bool = False
 ) -> None:
     """Plots results from training, more specifically the environment data logged by the COLAVENvironment gym logger, and
     the .npz files from each evaluation (stored using stable-baselines3 evaluation callback).
@@ -639,7 +639,8 @@ def plot_evaluation_results(
     Args:
         base_dir (Path): Base path to the experiment directories
         experiment_names (List[str]): List of experiment names (experiment folder names).
-        abbreviations (Optional[List[str]], optional): List of abbreviations for the model names.
+        abbreviations (Optional[List[str]]): List of abbreviations for the model names.
+        is_final (bool, optional): Whether there is one final eval dataset incoming.
     """
     wb_env_data_list = []
     eval_data_list = []
@@ -653,7 +654,8 @@ def plot_evaluation_results(
         env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
         env_data_pkl_file_list = [file for file in eval_data_dir.iterdir()]
         env_data_pkl_file_list = [eval_data_dir / file.stem for file in env_data_pkl_file_list if file.suffix == ".pkl"]
-        env_data_pkl_file_list.sort(key=lambda x: int(x.stem.split("_")[-3]))
+        if not is_final:
+            env_data_pkl_file_list.sort(key=lambda x: int(x.stem.split("_")[-3]))
 
         eval_return_data = {}
         eval_return_data["timesteps"] = []
@@ -664,7 +666,7 @@ def plot_evaluation_results(
         npz_file_list = [file for file in eval_data_dir.iterdir()]
         npz_file_list = [file for file in npz_file_list if file.suffix == ".npz"]
         npz_file_list.sort(key=lambda x: int(x.stem.split("_")[-1]))
-        if not npz_file_list:
+        if not is_final and not npz_file_list:
             continue
 
         indices_with_above_100_ep_lengths = []
@@ -677,9 +679,14 @@ def plot_evaluation_results(
             if idx > len(env_data_pkl_file_list) - 1:
                 continue
             with np.load(npzf) as data:
-                timesteps = data["timesteps"][-1]
-                mean_ep_length = data["ep_lengths"][-1]
-                mean_rew = data["results"][-1]
+                if not is_final:
+                    timesteps = data["timesteps"][-1]
+                    mean_ep_length = data["ep_lengths"][-1]
+                    mean_rew = data["results"][-1]
+                else:
+                    timesteps = data["timesteps"][0]
+                    mean_ep_length = data["ep_lengths"]
+                    mean_rew = data["results"]
                 if mean_ep_length.size > 1:
                     mean_ep_length = mean_ep_length.mean()
                     mean_rew = mean_rew.mean()
@@ -729,6 +736,14 @@ def plot_evaluation_results(
                 actor_failed_rate,
             )
         )
+        if len(eval_return_data["mean_ep_rew"]) == 1:
+            mr = eval_return_data["mean_ep_rew"][0]
+            stdr = eval_return_data["std_ep_rew"][0]
+            mel = eval_return_data["mean_ep_length"][0]
+            stdel = eval_return_data["std_ep_length"][0]
+            print(
+                f"Eval results {experiment_name}: \n\t- mean_reward: {mr:.2f} +/- {stdr:.2f} \n\t- Episode length: {mel:.2f} +/- {stdel:.2f}\n"
+            )
         argmin_reward = int(np.argmin(eval_return_data["mean_ep_rew"]))
         argmax_reward = int(np.argmax([eval_return_data["mean_ep_rew"][i] for i in indices_with_above_100_ep_lengths]))
         env_logger.load_from_pickle(str(env_data_pkl_file_list[argmin_reward]))
@@ -769,8 +784,10 @@ def plot_evaluation_results(
 if __name__ == "__main__":
     matplotlib.use("TkAgg")
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["standard2_snmpc_200te_32ee_seed1_jid20867861"]
-    model_names = ["SAC-NMPC1"]
+    experiment_names = ["ssac_gsde_22t_131224_3e_5lr_s2_jid21003695"]
+    model_names = ["SSAC-gSDE1"]
     plot_training_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
-    plot_evaluation_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
+    plot_evaluation_results(
+        base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names, is_final=True
+    )
     print("Done plotting")

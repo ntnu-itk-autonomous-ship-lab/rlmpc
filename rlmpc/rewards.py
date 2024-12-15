@@ -20,13 +20,12 @@ import colav_simulator.gym.observation as csgym_obs
 import colav_simulator.gym.reward as cs_reward
 import matplotlib.pyplot as plt
 import numpy as np
-import yaml
-
 import rlmpc.action as mpc_action
 import rlmpc.colregs_handler as ch
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.map_functions as rl_mapf
 import rlmpc.mpc.common as mpc_common
+import yaml
 
 if TYPE_CHECKING:
     from colav_simulator.gym.environment import COLAVEnvironment
@@ -299,11 +298,11 @@ class AntiGroundingRewarder(cs_reward.IReward):
         self._rel_polygons = []
         self._min_depth = mapf.find_minimum_depth(self.env.ownship.draft, self.env.enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
-            self._min_depth, self.env.enc, buffer=self._config.r_safe, show_plots=False
+            self._min_depth, self.env.enc, buffer=self._config.r_safe + self.env.ownship.length / 2.0, show_plots=False
         )
         self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
 
-        nominal_trajectory = self._ktp.compute_reference_trajectory(dt=5.0)
+        nominal_trajectory = self._ktp.compute_reference_trajectory(dt=2.0)
         nominal_trajectory = nominal_trajectory + np.array(
             [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         ).reshape(9, 1)
@@ -362,7 +361,13 @@ class AntiGroundingRewarder(cs_reward.IReward):
             g_so[j] = np.clip(surf_val, 0.0, 1.0)
             if g_so[j] > 0.0:
                 d2so = np.linalg.norm(
-                    mapf.compute_distance_vectors_to_grounding(self.env.ownship.state.reshape(-1, 1), self._min_depth, self.env.enc)
+                    mapf.compute_distance_vectors_to_grounding(
+                        vessel_trajectory=np.array([self.env.ownship.state[1], self.env.ownship.state[0]]).reshape(
+                            -1, 1
+                        ),
+                        min_vessel_depth=self._min_depth,
+                        enc=self.env.enc,
+                    )
                 )
                 print(
                     f"[{self.env.env_id.upper()}] Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]} | d2so={d2so}."
@@ -840,7 +845,7 @@ class MPCRewarder(cs_reward.IReward):
         self.r_readily_apparent_maneuvering: float = 0.0
         self.r_action_chatter: float = 0.0
         self.r_dnn_parameters: float = 0.0
-        self.verbose: bool = True
+        self.verbose: bool = False
 
     def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)

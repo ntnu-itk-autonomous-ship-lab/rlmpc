@@ -38,6 +38,8 @@ class SmoothedRLData(NamedTuple):
     std_mean_episode_length: List[float]
     success_rate: List[float] = []
     std_success_rate: List[float] = []
+    actor_expl_std: List[float] = []
+    std_actor_expl_std: List[float] = []
 
 
 class RLData(NamedTuple):
@@ -55,6 +57,7 @@ class RLData(NamedTuple):
     mean_episode_reward: np.ndarray
     mean_episode_length: np.ndarray
     success_rate: np.ndarray
+    actor_expl_std: np.ndarray
 
 
 class Logger:
@@ -93,6 +96,7 @@ class Logger:
         self.mean_episode_rewards: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
         self.mean_episode_lengths: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
         self.success_rates: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
+        self.actor_expl_std: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
 
     def _save_as_pickle(self, name: Optional[str] = None) -> None:
         """Saves the data to a pickle file.
@@ -152,6 +156,7 @@ class Logger:
                 mean_episode_reward=np.concatenate([rl_data.mean_episode_reward for rl_data in self.rl_data_list]),
                 mean_episode_length=np.concatenate([rl_data.mean_episode_length for rl_data in self.rl_data_list]),
                 success_rate=np.concatenate([rl_data.success_rate for rl_data in self.rl_data_list]),
+                actor_expl_std=np.concatenate([rl_data.actor_expl_std for rl_data in self.rl_data_list]),
             )
             print(
                 f"Merged {len(self.rl_data_list)} RL data objects into one object with {self.rl_data.n_updates} updates."
@@ -172,6 +177,7 @@ class Logger:
         self.mean_episode_rewards[self.rollout_pos] = rollout_info["mean_episode_reward"]
         self.mean_episode_lengths[self.rollout_pos] = rollout_info["mean_episode_length"]
         self.success_rates[self.rollout_pos] = rollout_info["success_rate"]
+        self.actor_expl_std[self.rollout_pos] = rollout_info["actor_expl_std"]
         self.rollout_pos += 1
 
     def update_training_metrics(self, training_info: dict) -> None:
@@ -216,6 +222,7 @@ class Logger:
             mean_episode_reward=self.mean_episode_rewards[self.prev_rollout_pos : self.rollout_pos],
             mean_episode_length=self.mean_episode_lengths[self.prev_rollout_pos : self.rollout_pos],
             success_rate=self.success_rates[self.prev_rollout_pos : self.rollout_pos],
+            actor_expl_std=self.actor_expl_std[self.prev_rollout_pos : self.rollout_pos],
         )
         self.prev_train_pos = self.train_pos
         self.prev_rollout_pos = self.rollout_pos

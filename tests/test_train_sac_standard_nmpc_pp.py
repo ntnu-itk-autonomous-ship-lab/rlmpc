@@ -89,7 +89,7 @@ def main(args):
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.1 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -116,7 +116,7 @@ def main(args):
         "reload_map": False,
         "show_loaded_scenario_data": False,
         "merge_loaded_scenario_episodes": True,
-        "shuffle_loaded_scenario_data": False,
+        "shuffle_loaded_scenario_data": True,
         "identifier": "training_env_" + args.experiment_name,
         "seed": args.seed,
         "verbose": False,
@@ -136,6 +136,7 @@ def main(args):
             "scenario_file_folder": test_scenario_folders,
             "seed": args.seed + 1,
             "simulator_config": eval_sim_config,
+            "shuffle_loaded_scenario_data": True,
             "identifier": "eval_env_" + args.experiment_name,
         }
     )
@@ -178,7 +179,7 @@ def main(args):
         "buffer_size": args.buffer_size,
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
-        "sde_sample_freq": 16,
+        "sde_sample_freq": 30,
         "train_freq": (args.train_freq, "step"),
         "learning_starts": 1000 if not load_model else 0,
         "tau": 0.01,

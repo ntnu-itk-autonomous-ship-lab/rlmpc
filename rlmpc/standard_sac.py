@@ -296,11 +296,11 @@ class SAC(opa.OffPolicyAlgorithm):
             replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
 
             if self.use_sde:
-                self.actor.reset_noise()
+                self.policy.actor.reset_noise()
 
             # Action by the current actor for the sampled state
             # reparameterization trick
-            sampled_actions, sampled_log_prob = self.actor.action_log_prob(replay_data.observations)
+            sampled_actions, sampled_log_prob = self.policy.actor.action_log_prob(replay_data.observations)
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
             sampled_log_prob = th.clamp(sampled_log_prob, min=-20.0, max=1e12)
 
@@ -492,6 +492,12 @@ class SAC(opa.OffPolicyAlgorithm):
         Returns:
             Tuple[th.Tensor, th.Tensor, th.Tensor]: The actions, next actions and next log probabilities.
         """
+        next_actions = replay_data.next_actions
+        actions = replay_data.actions
+        _, next_log_prob = self.actor.action_log_prob(
+            replay_data.next_observations,
+        )
+        return actions, next_actions, next_log_prob
         next_actions = replay_data.next_actions
         actions = replay_data.actions
         _, next_log_prob = self.actor.action_log_prob(
