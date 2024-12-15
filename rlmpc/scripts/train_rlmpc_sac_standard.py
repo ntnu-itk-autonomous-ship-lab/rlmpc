@@ -142,7 +142,7 @@ def train_rlmpc_sac_standard(
     model.set_random_seed(seed)
     model.learn(
         total_timesteps=n_timesteps,
-        log_interval=10,
+        log_interval=4,
         tb_log_name=experiment_name + f"_{iteration}",
         reset_num_timesteps=reset_num_timesteps,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),
