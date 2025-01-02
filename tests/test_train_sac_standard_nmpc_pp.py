@@ -47,13 +47,16 @@ def main(args):
     parser.add_argument("--disable_parameter_provider", type=bool, default=False)
     parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
-    parser.add_argument("--load_model_name", type=str, default="")
+    parser.add_argument(
+        "--load_model_path",
+        type=str,
+        default="",  # "/Users/trtengesdal/Desktop/machine_learning/rlmpc/snmpc_pp2/models/snmpc_pp2_0_steps.zip",
+    )
     parser.add_argument("--load_critics", default=False, action="store_true")
     parser.add_argument("--reset_num_timesteps", default=True, action="store_true")
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--sde_sample_freq", type=int, default=30)
     parser.add_argument("--tau", type=float, default=0.01)
-
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -88,7 +91,7 @@ def main(args):
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "r_safe_do"]
-    n_mpc_params = 3 + 1 + 1 + 3 + 1
+    n_mpc_params = 3 + 1 + 1 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
@@ -144,12 +147,15 @@ def main(args):
         }
     )
 
-    load_model = True if not args.load_model_name == "" else False
-
-    load_model_name = args.load_model_name if not args.load_model_name else "snmpc_db_200te_5ee_16cpus"
-    rb_load_name = args.load_model_name if not args.load_model_name else "snmpc_db_200te_5ee_16cpus"
-    model_path = str(base_dir.parents[0]) + f"/{load_model_name}/models/{load_model_name}_71888_steps"
-    load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer.pkl"
+    load_model_path = args.load_model_path if args.load_model_path else ""
+    load_rb_path = ""
+    if load_model_path:
+        if not Path(load_model_path).exists():
+            raise ValueError(f"The model path {load_model_path} does not exist!")
+        load_model_path = Path(load_model_path)
+        rb_load_name = "_".join(load_model_path.name.split("_")[:-2]) + "_replay_buffer.pkl"
+        load_rb_path = str(load_model_path.parent / rb_load_name)
+        load_model_path = str(load_model_path)
 
     load_critic = args.load_critics
     load_critic_path = (
@@ -185,7 +191,7 @@ def main(args):
         "sde_sample_freq": args.sde_sample_freq,
         "train_freq": (args.train_freq, "step"),
         "gamma": 0.999,
-        "learning_starts": 1000 if not load_model else 0,
+        "learning_starts": 1000 if not load_model_path else 0,
         "tau": args.tau,
         "device": args.device,
         "ent_coef": "auto",
@@ -204,7 +210,6 @@ def main(args):
     for i in range(n_learn_iterations):
         if i > 0:
             load_critic = False
-            load_model = True
             load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer.pkl"
             model_kwargs["learning_starts"] = 0
             reset_num_timesteps = False
@@ -224,8 +229,7 @@ def main(args):
             experiment_name=args.experiment_name,
             load_critics=load_critic,
             load_critics_path=load_critic_path,
-            load_model=load_model,
-            load_model_path=model_path,
+            load_model_path=load_model_path,
             load_rb_path=load_rb_path,
             seed=args.seed,
             iteration=i + 1,
@@ -233,8 +237,8 @@ def main(args):
         )
         timesteps_completed = model.num_timesteps
         episodes_completed = model.num_episodes
-        model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
-        model.save(model_path)
+        load_model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
+        model.save(load_model_path)
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
         print(
             f"[SAC RLMPC] Replay buffer size: {model.replay_buffer.size()} | Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}"

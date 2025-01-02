@@ -35,7 +35,6 @@ def train_rlmpc_sac_standard(
     experiment_name: str,
     load_critics: bool = False,
     load_critics_path: str = "sac_drl1_critic",
-    load_model: bool = True,
     load_model_path: str = "sac_drl1_0_steps",
     load_rb_path: str = "sac_drl1_replay_buffer",
     seed: int = 0,
@@ -59,7 +58,6 @@ def train_rlmpc_sac_standard(
         experiment_name (str): The experiment name.
         load_critics (bool, optional): Whether to load the critics.
         load_critics_path (str, optional): The critics path for loading.
-        load_model (bool, optional): Whether to load the model with SAC classmethod
         load_model_path (str, optional): The model path for loading.
         load_rb_path (str, optional): The replay buffer path
         seed (int, optional): The seed used for the enviroment, action spaces etc.
@@ -110,7 +108,7 @@ def train_rlmpc_sac_standard(
         verbose=1,
     )
 
-    if load_model:
+    if load_model_path:
         model = rlmpc_ssac.SAC.load(
             load_model_path,
             env=training_env,
@@ -142,7 +140,7 @@ def train_rlmpc_sac_standard(
     model.set_random_seed(seed)
     model.learn(
         total_timesteps=n_timesteps,
-        log_interval=4,
+        log_interval=3,
         tb_log_name=experiment_name + f"_{iteration}",
         reset_num_timesteps=reset_num_timesteps,
         callback=CallbackList(callbacks=[eval_callback, stats_callback]),
