@@ -448,6 +448,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             if self.use_sde and self.sde_sample_freq > 0 and num_collected_steps % self.sde_sample_freq == 0:
                 # Sample a new noise matrix
+                print("Resetting actor noise...")
                 self.policy.actor.reset_noise(env.num_envs)
 
             t_action_start = time.time()
@@ -714,8 +715,10 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.logger.record("time/time_elapsed", int(time_elapsed))
         self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
 
+        actor_expl_std = 0.0
         if self.use_sde:
-            self.logger.record("train/std", (self.actor.get_std()).mean().item())
+            self.logger.record("train/std", (self.policy.actor.get_std()).mean().item())
+            actor_expl_std = (self.policy.actor.get_std()).mean().item()
 
         success_rate = 0.0
         if len(self.ep_success_buffer) > 0:
@@ -733,6 +736,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "mean_episode_length": ep_len_mean,
                 "episodes": self.num_episodes,
                 "success_rate": success_rate,
+                "actor_expl_std": actor_expl_std,
                 "non_optimal_solution_rate": 100.0 * self.non_optimal_solutions_per_episode.mean(),
             }
         )

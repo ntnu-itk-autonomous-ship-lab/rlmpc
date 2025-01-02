@@ -61,7 +61,7 @@ class ENCVAE(BaseFeaturesExtractor):
         self.vae.set_inference_mode(True)
         self.latent_dim = self.vae.latent_dim
         self._features_dim = self.latent_dim
-        self.scaling_factor = 50.0
+        self.scaling_factor = 55.0
         self.training = False
 
     def set_inference_mode(self, inference_mode: bool) -> None:
@@ -90,13 +90,12 @@ class ENCVAE(BaseFeaturesExtractor):
     def forward(self, observations: th.Tensor) -> th.Tensor:
         assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
         # self.display_image(observations[0])
-        with th.no_grad():
-            z_e, _, _ = self.vae.encode(observations)
-            # print(f"z_e shape: {z_e.shape}")
-            z_e = z_e / self.scaling_factor
-            if z_e.max() > 1.0 or z_e.min() < -1.0:
-                print("WARNING: z_e max value > 1.0 or min value < -1.0")
-            return z_e
+        z_e, _, _ = self.vae.encode(observations)
+        # print(f"z_e shape: {z_e.shape}")
+        z_e = z_e / self.scaling_factor
+        if z_e.max() > 1.0 or z_e.min() < -1.0:
+            print("WARNING: z_e max value > 1.0 or min value < -1.0")
+        return z_e
 
 
 class PathRelativeNavigationNN(BaseFeaturesExtractor):
@@ -236,13 +235,12 @@ class TrackingVAE(BaseFeaturesExtractor):
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
         assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
-        with th.no_grad():
-            observations, seq_lengths = self.preprocess_obs(observations)
-            z_e, _, _ = self.vae.encode(observations, seq_lengths)
-            z_e = z_e / self.scaling_factor
-            if z_e.max() > 1.0 or z_e.min() < -1.0:
-                print("WARNING: z_e max value > 1.0 or min value < -1.0")
-            return z_e
+        observations, seq_lengths = self.preprocess_obs(observations)
+        z_e, _, _ = self.vae.encode(observations, seq_lengths)
+        z_e = z_e / self.scaling_factor
+        if z_e.max() > 1.0 or z_e.min() < -1.0:
+            print("WARNING: z_e max value > 1.0 or min value < -1.0")
+        return z_e
 
 
 class CombinedExtractor(BaseFeaturesExtractor):
@@ -276,16 +274,17 @@ class CombinedExtractor(BaseFeaturesExtractor):
         self._features_dim = total_concat_size
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        encoded_tensor_list = []
-        for key, extractor in self.extractors.items():
-            extracted_tensor = extractor(observations[key])
-            if extracted_tensor.max() > 1.0:
-                print(f"WARNING: {key} extracted_tensor max value > 1.0")
-            elif extracted_tensor.min() < -1.0:
-                print(f"WARNING: {key} extracted_tensor min value < -1.0")
-            encoded_tensor_list.append(extracted_tensor)
+        with th.no_grad():
+            encoded_tensor_list = []
+            for key, extractor in self.extractors.items():
+                extracted_tensor = extractor(observations[key])
+                if extracted_tensor.max() > 1.0:
+                    print(f"WARNING: {key} extracted_tensor max value > 1.0")
+                elif extracted_tensor.min() < -1.0:
+                    print(f"WARNING: {key} extracted_tensor min value < -1.0")
+                encoded_tensor_list.append(extracted_tensor)
 
-        return th.cat(encoded_tensor_list, dim=1)
+            return th.cat(encoded_tensor_list, dim=1)
 
 
 class SimpleCombinedExtractor(BaseFeaturesExtractor):

@@ -428,6 +428,7 @@ def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5)
         data.mean_episode_length, window_size=ma_window_size
     )
     success_rate, std_success_rate = compute_smooted_mean_and_std(data.success_rate, window_size=ma_window_size)
+    actor_expl_std, std_actor_expl_std = compute_smooted_mean_and_std(data.actor_expl_std, window_size=ma_window_size)
 
     smoothed_data = rlmpc_logger.SmoothedRLData(
         n_updates=data.n_updates,
@@ -451,6 +452,8 @@ def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5)
         std_mean_episode_length=std_mean_episode_length,
         success_rate=success_rate,
         std_success_rate=std_success_rate,
+        actor_expl_std=actor_expl_std,
+        std_actor_expl_std=std_actor_expl_std,
     )
     return smoothed_data
 

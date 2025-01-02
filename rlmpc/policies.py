@@ -276,7 +276,7 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
         mpc_param_provider_kwargs: Dict[str, Any],
         full_std: bool = True,
         use_expln: bool = False,
-        clip_mean: float = 2.0,
+        clip_mean: float = 1.0,
         std_init: Union[float, np.ndarray] = -3.0,
         use_sde: bool = True,
     ):
@@ -335,6 +335,7 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
     def action_log_prob(
         self,
         obs: rlmpc_buffers.TensorDict,
+        deterministic: bool = False
     ) -> Tuple[th.Tensor, th.Tensor]:
         """Samples actions from the current action distribution and computes the corresponding log probabilities
 
@@ -345,8 +346,6 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
         Returns:
             th.Tensor: The log probability of the policy distribution for the given observation
         """
-        if isinstance(obs["TimeObservation"], th.Tensor):
-            obs = self._convert_obs_tensor_to_numpy(obs)
         mean_actions, log_std, kwargs = self.get_action_dist_params(obs)
         return self.action_dist.log_prob_from_params(mean_actions, log_std, **kwargs)
 
@@ -445,7 +444,10 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
             latent_pi
         )  # unnormalized parameter increments processed through a possibly state dependent exploration distribution net
 
-        info = [{"dnn_input_features": features[idx].detach().cpu().numpy().astype(np.float32)} for idx in range(features.shape[0])]
+        info = [
+            {"dnn_input_features": features[idx].detach().cpu().numpy().astype(np.float32)}
+            for idx in range(features.shape[0])
+        ]
         if self.use_sde:
             return mean_actions, self.log_std, dict(latent_sde=latent_pi)
         # Unstructured exploration (Original implementation)
@@ -1612,6 +1614,7 @@ class SACPolicyWithMPCParameterProvider(BasePolicy):
         optimizer_class: Type[th.optim.Optimizer] = th.optim.Adam,
         optimizer_kwargs: Optional[Dict[str, Any]] = None,
         device: Union[th.device, str] = "auto",
+        use_sde: bool = False,
         n_critics: int = 2,
     ):
         super().__init__(
@@ -1960,4 +1963,6 @@ class SACPolicyWithMPCParameterProviderStandard(BasePolicy):
         """
         self.actor.set_training_mode(mode)
         self.critic.set_training_mode(mode)
+        self.training = mode
+        self.training = mode
         self.training = mode

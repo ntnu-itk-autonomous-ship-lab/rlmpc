@@ -27,6 +27,7 @@ import rlmpc.networks.feature_extractors as rlmpc_fe
 import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rlmpc_rewards
 import rlmpc.sac as rlmpc_sac
+import rlmpc.standard_sac as rlmpc_ssac
 import stable_baselines3.sac as sb3_sac
 import torch as th
 from stable_baselines3.common.env_checker import check_env
@@ -59,7 +60,7 @@ def evaluate(
     num_envs = 1 if isinstance(env, Monitor) else env.num_envs
     env_data_logger = csenv_logger.Logger(
         log_dir=log_dir,
-        experiment_name=experiment_name,
+        experiment_name=experiment_name + "_env_data",
         n_envs=num_envs,
         max_num_logged_episodes=500,
     )
@@ -68,13 +69,21 @@ def evaluate(
         env,
         n_eval_episodes=n_eval_episodes,
         record=record,
-        record_path=log_dir / "videos",
-        record_name=experiment_name + "_final_eval",
+        record_path=log_dir / "eval_videos",
+        record_name="eval_" + experiment_name,
         return_episode_rewards=True,
         env_data_logger=env_data_logger,
     )
+    mean_reward, std_reward = np.mean(ep_rewards), np.std(ep_rewards)
+    mean_ep_length, std_ep_length = np.mean(ep_lengths), np.std(ep_lengths)
+    np.savez(
+        log_dir / f"eval_{experiment_name}_1.npz",
+        timesteps=[0],
+        results=[ep_rewards],
+        ep_lengths=[ep_lengths],
+    )
     print(
-        f"{experiment_name} evaluation results | mean_reward: {np.mean(ep_rewards)}, std_reward: {np.std(ep_rewards)}"
+        f"Done evaluating policy: \n\t- mean_reward: {mean_reward:.2f} +/- {std_reward:.2f} \n\t- Episode length: {mean_ep_length:.2f} +/- {std_ep_length:.2f}\n"
     )
     return np.mean(ep_rewards), np.std(ep_rewards), ep_rewards
 
@@ -85,7 +94,7 @@ def main(args):
     parser.add_argument(
         "--model_class", type=str, default="sac_rlmpc_param_provider_policy"
     )  # either "sac_rlmpc_policy", "sac_rlmpc_param_provider_policy" or "sb3_sac"
-    parser.add_argument("--n_eval_episodes", type=int, default=16)
+    parser.add_argument("--n_eval_episodes", type=int, default=3)
     parser.add_argument("--n_cpus", type=int, default=4)
     parser.add_argument("--record", type=bool, default=True)
     parser.add_argument("--model_kwargs", type=dict, default={})
@@ -236,6 +245,74 @@ def main(args):
         if not args.disable_rlmpc_parameter_provider:
             model.inplace_load(path=model_dir / (args.experiment_name + "_2000"))
 
+    elif args.model_class == "sac_rlmpc_param_provider_policy_standard":
+        mpc_config_path = (
+            rl_dp.config / "rlmpc.yaml"
+            if not args.disable_rlmpc_parameter_provider
+            else rl_dp.config / "rlmpc_baseline.yaml"
+        )
+        mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
+        n_mpc_params = 3 + 1 + 1 + 3 + 1
+        action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
+        param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
+        action_kwargs = {
+            "mpc_config_path": mpc_config_path,
+            "debug": False,
+            "mpc_param_list": mpc_param_list,
+            "std_init": action_noise_std_dev,
+            "deterministic": True,
+            "recompile_on_reset": False,
+            "disable_mpc_info_storage": False,
+            "acados_code_gen_path": str(base_dir.parents[0]) + f"/{args.experiment_name}/acados_code_gen",
+        }
+        mpc_param_provider_kwargs = {
+            "param_list": mpc_param_list,
+            "hidden_sizes": [256, 256],  # [458, 242, 141],
+            "activation_fn": th.nn.ReLU,
+            # "model_file": Path.home()
+            # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
+        }
+        policy_kwargs = {
+            "features_extractor_class": rlmpc_fe.CombinedExtractor,
+            "critic_arch": [256, 256],
+            "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
+            "activation_fn": th.nn.ReLU,
+            "std_init": param_action_noise_std_dev,
+            "use_sde": True,
+            "full_std": True,
+            "use_expln": False,
+            "clip_mean": False,
+        }
+        model_kwargs = {
+            "policy": rlmpc_policies.SACPolicyWithMPCParameterProviderStandard,
+            "policy_kwargs": policy_kwargs,
+            "sde_sample_freq": 16,
+            "tau": 0.01,
+            "device": args.device,
+            "ent_coef": "auto",
+            "verbose": 1,
+            "tensorboard_log": str(log_dir),
+            "replay_buffer_kwargs": {"handle_timeout_termination": True, "disable_action_storage": False},
+        }
+        with (base_dir / "eval_model_kwargs.pkl").open(mode="wb") as fp:
+            pickle.dump(model_kwargs, fp)
+
+        eval_env_config.update(
+            {
+                "action_kwargs": action_kwargs,
+                "action_type_class": rlmpc_actions.MPCParameterSettingAction,
+                "action_type": None,
+            }
+        )
+
+        if args.n_cpus > 1:
+            env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(args.n_cpus)])
+        else:
+            env = Monitor(gym.make(id=env_id, **eval_env_config))
+        model = rlmpc_ssac.SAC(env=env, **model_kwargs)
+        if not args.disable_rlmpc_parameter_provider:
+            model.inplace_load(path=model_dir / (args.experiment_name + "_2000"))
+
     else:
         model_kwargs = {
             "policy": "MultiInputPolicy",
@@ -263,7 +340,7 @@ def main(args):
     mean_reward, std_reward, rewards = evaluate(
         model=model,
         env=env,
-        log_dir=base_dir / "final_eval",
+        log_dir=base_dir / "eval_data",
         experiment_name=args.experiment_name,
         n_eval_episodes=args.n_eval_episodes,
         record=True,

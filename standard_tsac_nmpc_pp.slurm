@@ -5,34 +5,36 @@
 #SBATCH --job-name=standard_tsac_nmpc_pp
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
-#SBATCH --time=15-12:00:00
+#SBATCH --time=20-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=220G
+#SBATCH --mem=225G
 #SBATCH --output=idun/R-%x.%j.out
 
 
-CURRENT_DATE_TIME="`date +%Ht_%d%m%y`"
+CURRENT_DATE_TIME="`date +%d%m%y`"
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=256
-LEARNING_RATE=1e-5 #0.00002
+LEARNING_RATE=5e-5 #0.00002
+TAU=0.001
+SDE_SAMPLE_FREQ=60
 NCPUS=20 # Equal to number of training environments
 N_EVAL_ENVS=4
-TRAIN_FREQ=8
+TRAIN_FREQ=2
 EVAL_FREQ=10000
-GRADIENT_STEPS=2
-BUFFER_SIZE=250000
+GRADIENT_STEPS=1
+BUFFER_SIZE=200000
 DEVICE="cpu"
 MAX_NUM_TRAIN_EPS=200 # Maximum number of loaded training episodes
-MAX_NUM_EVAL_EPS=16 # Maximum number of loaded evaluation episodes
-N_EVAL_EPS=8
+MAX_NUM_EVAL_EPS=10 # Maximum number of loaded evaluation episodes
+N_EVAL_EPS=10
 TIMESTEPS=10_000_000
 N_TIMESTEPS_PER_LEARN=10000
 LOAD_MODEL_NAME="" #"snmpc_nd_200te_32ee_seed1_jid20743023/models/snmpc_nd_200te_32ee_seed1_jid20743023_71680_steps"
 SEED=1
 
-EXPERIMENT_NAME="ssac_gsde_${CURRENT_DATE_TIME}_1e_5lr_s${SEED}_jid${SLURM_JOB_ID}"
+EXPERIMENT_NAME="sac_gsde40_rd_${CURRENT_DATE_TIME}_1e_5lr_0001tau_s${SEED}_jid${SLURM_JOB_ID}"
 
 # show available resources
 sinfo -o "%10P %5D %34N  %5c  %7m  %47f  %23G"
@@ -103,7 +105,7 @@ scontrol show jobid -dd $SLURM_JOB_ID
 # scancel <-t PENDING> -u <username>
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_train_sac_standard_nmpc_pp.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE --n_training_envs=$NCPUS --max_num_loaded_train_scen_episodes=$MAX_NUM_TRAIN_EPS --max_num_loaded_eval_scen_episodes=$MAX_NUM_EVAL_EPS --n_eval_envs=$N_EVAL_ENVS --n_eval_episodes=$N_EVAL_EPS --n_timesteps_per_learn=$N_TIMESTEPS_PER_LEARN --eval_freq=$EVAL_FREQ --load_model_name=$LOAD_MODEL_NAME --device=$DEVICE --reset_num_timesteps --seed=$SEED
+srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_train_sac_standard_nmpc_pp.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE --n_training_envs=$NCPUS --max_num_loaded_train_scen_episodes=$MAX_NUM_TRAIN_EPS --max_num_loaded_eval_scen_episodes=$MAX_NUM_EVAL_EPS --n_eval_envs=$N_EVAL_ENVS --n_eval_episodes=$N_EVAL_EPS --n_timesteps_per_learn=$N_TIMESTEPS_PER_LEARN --eval_freq=$EVAL_FREQ --load_model_name=$LOAD_MODEL_NAME --device=$DEVICE --reset_num_timesteps --seed=$SEED --tau=$TAU --sde_sample_freq=$SDE_SAMPLE_FREQ
 
 
 # fetching the job information

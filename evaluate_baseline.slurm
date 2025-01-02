@@ -8,18 +8,18 @@
 #SBATCH --time=15-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=100G
 #SBATCH --output=idun/R-%x.%j.out
 
 
 CURRENT_DATE_TIME="`date +%H%M_%d%m%y`"
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
-NCPUS=1 # Equal to number of training environments
+NCPUS=4 # Equal to number of training environments
 MAX_NUM_EVAL_EPS=16 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=16
 LOAD_MODEL_NAME="" #"snmpc_nd_200te_32ee_seed1_jid20743023/models/snmpc_nd_200te_32ee_seed1_jid20743023_71680_steps"
-SEED=2
+SEED=1
 
 EXPERIMENT_NAME="baseline_snmpc_eval_${CURRENT_DATE_TIME}_${MAX_NUM_EVAL_EPS}te_s${SEED}_jid${SLURM_JOB_ID}"
 

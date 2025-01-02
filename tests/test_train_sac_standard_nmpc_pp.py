@@ -51,6 +51,9 @@ def main(args):
     parser.add_argument("--load_critics", default=False, action="store_true")
     parser.add_argument("--reset_num_timesteps", default=True, action="store_true")
     parser.add_argument("--seed", default=0, type=int)
+    parser.add_argument("--sde_sample_freq", type=int, default=30)
+    parser.add_argument("--tau", type=float, default=0.01)
+
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
@@ -84,12 +87,12 @@ def main(args):
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
-    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "r_safe_do"]
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.3 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.02 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -116,7 +119,7 @@ def main(args):
         "reload_map": False,
         "show_loaded_scenario_data": False,
         "merge_loaded_scenario_episodes": True,
-        "shuffle_loaded_scenario_data": False,
+        "shuffle_loaded_scenario_data": True,
         "identifier": "training_env_" + args.experiment_name,
         "seed": args.seed,
         "verbose": False,
@@ -136,6 +139,7 @@ def main(args):
             "scenario_file_folder": test_scenario_folders,
             "seed": args.seed + 1,
             "simulator_config": eval_sim_config,
+            "shuffle_loaded_scenario_data": True,
             "identifier": "eval_env_" + args.experiment_name,
         }
     )
@@ -178,10 +182,11 @@ def main(args):
         "buffer_size": args.buffer_size,
         "batch_size": args.batch_size,
         "gradient_steps": args.gradient_steps,
-        "sde_sample_freq": 16,
+        "sde_sample_freq": args.sde_sample_freq,
         "train_freq": (args.train_freq, "step"),
+        "gamma": 0.999,
         "learning_starts": 1000 if not load_model else 0,
-        "tau": 0.01,
+        "tau": args.tau,
         "device": args.device,
         "ent_coef": "auto",
         "verbose": 1,
