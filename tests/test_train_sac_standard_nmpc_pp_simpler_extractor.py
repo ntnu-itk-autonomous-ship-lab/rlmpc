@@ -18,7 +18,7 @@ import torch as th
 import yaml
 from memory_profiler import profile
 from rlmpc.common.callbacks import evaluate_policy
-from rlmpc.networks.feature_extractors import CombinedExtractor
+from rlmpc.networks.feature_extractors import SimpleCombinedExtractor
 from rlmpc.scripts.train_rlmpc_sac_standard import train_rlmpc_sac_standard
 from stable_baselines3.common.monitor import Monitor
 
@@ -62,6 +62,7 @@ def main(args):
     args.base_dir = Path(args.base_dir)
     print("Provided args to training SAC with NMPC parameter provider DNN:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
+    print(f"seed = {args.seed}")
 
     base_dir, log_dir, model_dir = hf.create_data_dirs(
         base_dir=args.base_dir, experiment_name=args.experiment_name, remove_log_files=False
@@ -78,7 +79,7 @@ def main(args):
     observation_type = {
         "dict_observation": [
             "path_relative_navigation_observation",
-            "perception_image_observation",
+            "closest_enc_hazard_observation",
             "relative_tracking_observation",
             "time_observation",
             "mpc_parameter_observation",
@@ -90,12 +91,12 @@ def main(args):
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
-    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
-    n_mpc_params = 3 + 1 + 1 + 3 + 1
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "r_safe_do"]
+    n_mpc_params = 3 + 1 + 1 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.06 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.02 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,

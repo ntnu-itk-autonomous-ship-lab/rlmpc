@@ -730,6 +730,10 @@ class DNNParameterRewarder(cs_reward.IReward):
         ):
             r_param_dnn += -self._config.rho_safety_param
 
+        if len(colav_info["new_mpc_params"] <= 6):
+            self.last_reward = r_param_dnn
+            return self.last_reward
+
         w_CR = colav_info["new_mpc_params"][5]
         w_HO = colav_info["new_mpc_params"][6]
         w_OT = colav_info["new_mpc_params"][7]

@@ -162,14 +162,14 @@ class SimpleTrackingFeatureExtractor(BaseFeaturesExtractor):
         return closest_dos
 
 
-class SimpleENCFeatureExtractor(BaseFeaturesExtractor):
+class ClosestENCHazardFeedForward(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box, features_dim: int = 1):
         """Feature extractor for ENC data, feedforward of a simple computation of the distance to the closest hazard.
 
         Args:
             observation_space (gym.spaces.Box): ENC image observation space.
         """
-        super(SimpleENCFeatureExtractor, self).__init__(observation_space, features_dim=features_dim)
+        super(ClosestENCHazardFeedForward, self).__init__(observation_space, features_dim=features_dim)
         self.passthrough = nn.Identity()
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
@@ -301,18 +301,18 @@ class SimpleCombinedExtractor(BaseFeaturesExtractor):
         # We need to know size of the output of this extractor,
         # so go over all the spaces and compute output feature sizes
         for key, subspace in observation_space.spaces.items():
-            if key == "PerceptionImageObservation":
-                extractors[key] = ENCVAE(subspace)
+            if key == "ClosestENCHazardObservation":
+                extractors[key] = ClosestENCHazardFeedForward(subspace)
                 total_concat_size += extractors[key].latent_dim
             elif key == "PathRelativeNavigationObservation":
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
-                extractors[key] = SimpleTrackingFeatureExtractor(subspace, features_dim=12)
-                total_concat_size += extractors[key].features_dim
-            # elif key == "MPCParameterObservation":
-            #     extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])
-            #     total_concat_size += subspace.shape[-1]
+                extractors[key] = TrackingVAE(subspace, features_dim=12)
+                total_concat_size += extractors[key].latent_dim
+            elif key == "MPCParameterObservation":
+                extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])
+                total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)
         self._features_dim = total_concat_size

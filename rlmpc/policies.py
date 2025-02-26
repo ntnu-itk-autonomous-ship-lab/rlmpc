@@ -1486,7 +1486,7 @@ class SACPolicyWithMPC(BasePolicy):
         self.actor = SACMPCActor(**self.actor_kwargs)
         self.actor.features_extractor = self.critic.features_extractor  # share features extractor with critic
         self.actor.optimizer = self.optimizer_class(
-            self.actor.mpc_param_provider.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs
+            self.actor.mpc_param_provider.parameters(), lr=15.0 * lr_schedule(1), **self.optimizer_kwargs
         )
 
     def initialize_actor(
