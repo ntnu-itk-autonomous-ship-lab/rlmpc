@@ -17,9 +17,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
-import rlmpc.common.buffers as rlmpc_buffers
-import rlmpc.common.paths as rl_dp
-import rlmpc.policies as rlmpc_policies
 import stable_baselines3.common.callbacks as sb3_callbacks
 import stable_baselines3.common.logger as sb3_logger
 import stable_baselines3.common.noise as sb3_noise
@@ -30,6 +27,10 @@ import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.vec_env import VecEnv
+
+import rlmpc.common.buffers as rlmpc_buffers
+import rlmpc.common.paths as rl_dp
+import rlmpc.policies as rlmpc_policies
 
 SelfOffPolicyAlgorithm = TypeVar("SelfOffPolicyAlgorithm", bound="OffPolicyAlgorithm")
 
@@ -446,7 +447,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                     if env.envs[env_idx].unwrapped.time < 0.0001:
                         self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
-            if self.use_sde and self.sde_sample_freq > 0 and num_collected_steps % self.sde_sample_freq == 0:
+            if self.use_sde and self.sde_sample_freq > 0 and self.num_timesteps % self.sde_sample_freq == 0:
                 # Sample a new noise matrix
                 print("Resetting actor noise...")
                 self.policy.actor.reset_noise(env.num_envs)

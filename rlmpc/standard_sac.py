@@ -199,7 +199,7 @@ class SAC(opa.OffPolicyAlgorithm):
         # of https://arxiv.org/abs/1812.05905
         if isinstance(self.ent_coef, str) and self.ent_coef.startswith("auto"):
             # Default initial value of ent_coef when learned
-            init_value = 0.01
+            init_value = 0.1
             if "_" in self.ent_coef:
                 init_value = float(self.ent_coef.split("_")[1])
                 assert init_value > 0.0, "The initial value of ent_coef must be greater than 0"
@@ -207,7 +207,7 @@ class SAC(opa.OffPolicyAlgorithm):
             # Note: we optimize the log of the entropy coeff which is slightly different from the paper
             # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
             self.log_ent_coef = th.log(th.ones(1, device=self.device) * init_value).requires_grad_(True)
-            self.ent_coef_optimizer = th.optim.Adam([self.log_ent_coef], lr=self.lr_schedule(1))
+            self.ent_coef_optimizer = th.optim.Adam([self.log_ent_coef], lr=10 * self.lr_schedule(1))
         else:
             # Force conversion to float
             # this will throw an error if a malformed string (different from 'auto')

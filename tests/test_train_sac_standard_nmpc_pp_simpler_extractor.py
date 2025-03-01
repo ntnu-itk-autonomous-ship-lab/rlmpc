@@ -18,7 +18,7 @@ import torch as th
 import yaml
 from memory_profiler import profile
 from rlmpc.common.callbacks import evaluate_policy
-from rlmpc.networks.feature_extractors import CombinedExtractor
+from rlmpc.networks.feature_extractors import SimpleCombinedExtractor
 from rlmpc.scripts.train_rlmpc_sac_standard import train_rlmpc_sac_standard
 from stable_baselines3.common.monitor import Monitor
 
@@ -39,7 +39,7 @@ def main(args):
     parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=2)
     parser.add_argument("--n_eval_episodes", type=int, default=1)
-    parser.add_argument("--eval_freq", type=int, default=20000)
+    parser.add_argument("--eval_freq", type=int, default=10)
     parser.add_argument("--n_eval_envs", type=int, default=1)
     parser.add_argument("--timesteps", type=int, default=100000)
     parser.add_argument("--device", type=str, default="cpu")
@@ -78,7 +78,7 @@ def main(args):
     observation_type = {
         "dict_observation": [
             "path_relative_navigation_observation",
-            "perception_image_observation",
+            "closest_enc_hazard_observation",
             "relative_tracking_observation",
             "time_observation",
             "mpc_parameter_observation",
@@ -90,12 +90,12 @@ def main(args):
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
-    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
-    n_mpc_params = 3 + 1 + 1 + 3 + 1
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "r_safe_do", "w_colregs"]
+    n_mpc_params = 3 + 1 + 1 + 1 + 3
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.06 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.02 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -117,7 +117,7 @@ def main(args):
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "render_update_rate": 0.5,
-        "render_mode": "rgb_array",
+        "render_mode": "none",
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
@@ -136,6 +136,7 @@ def main(args):
     )
     eval_env_config.update(
         {
+            "render_mode": "rgb_array",
             "action_kwargs": action_kwargs,
             "reload_map": False,
             "max_number_of_episodes": args.max_num_loaded_eval_scen_episodes,
@@ -171,7 +172,7 @@ def main(args):
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     }
     policy_kwargs = {
-        "features_extractor_class": CombinedExtractor,
+        "features_extractor_class": SimpleCombinedExtractor,
         "critic_arch": [128, 128],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,
