@@ -2,7 +2,7 @@
     train_sac.py
 
     Summary:
-        This script trains the RL agent using the SAC algorithm.
+        This script trains the RL agent using the standard SAC algorithm.
 
     Author: Trym Tengesdal
 """
@@ -11,18 +11,17 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import gymnasium as gym
+import stable_baselines3.ppo as ppo
 from colav_simulator.gym.environment import COLAVEnvironment
 from stable_baselines3.common.callbacks import (
     CallbackList,
     CheckpointCallback,
     StopTrainingOnNoModelImprovement,
 )
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 import rlmpc.common.helper_functions as hf
-import rlmpc.sac as rlmpc_sac
 from rlmpc.common.callbacks import (
     CollectStatisticsCallback,
     EvalCallback,
@@ -30,7 +29,7 @@ from rlmpc.common.callbacks import (
 )
 
 
-def train_rlmpc_sac(
+def train_rlmpc_ppo_standard(
     model_kwargs: Dict[str, Any],
     n_timesteps: int,
     env_id: str,
@@ -43,16 +42,12 @@ def train_rlmpc_sac(
     base_dir: Path,
     model_dir: Path,
     experiment_name: str,
-    load_critics: bool = False,
-    load_critics_path: str = "sac_drl1_critic",
-    load_model: bool = True,
-    load_model_path: str = "sac_drl1_0_steps",
-    load_rb_path: str = "sac_drl1_replay_buffer",
+    load_model_path: str = "ppo_drl1_0_steps",
     seed: int = 0,
     iteration: int = 0,
     reset_num_timesteps: int = False,
-) -> Tuple[rlmpc_sac.SAC, bool]:
-    """Train the RL agent using the SAC algorithm.
+) -> Tuple[ppo.PPO, bool]:
+    """Train the RL agent using the standard PPO algorithm.
 
     Args:
         model_kwargs (Dict[str, Any]): The RL agent model keyword arguments.
@@ -67,11 +62,7 @@ def train_rlmpc_sac(
         base_dir (Path): The base directory.
         model_dir (Path): The model directory.
         experiment_name (str): The experiment name.
-        load_critics (bool, optional): Whether to load the critics.
-        load_critics_path (str, optional): The critics path for loading.
-        load_model (bool, optional): Whether to load the model with SAC classmethod
         load_model_path (str, optional): The model path for loading.
-        load_rb_path (str, optional): The replay buffer path
         seed (int, optional): The seed used for the enviroment, action spaces etc.
         iteration (int, optional): The iteration used for TB logging naming.
         reset_num_timesteps (bool, optional): Whether to reset model num timesteps before learning.
@@ -94,10 +85,10 @@ def train_rlmpc_sac(
         log_dir=base_dir,
         model_dir=model_dir,
         experiment_name=experiment_name,
-        save_stats_freq=500,
-        save_agent_model_freq=10000,
+        save_stats_freq=2000,
+        save_agent_model_freq=40000,
         log_freq=n_training_envs,
-        max_num_env_episodes=2000,
+        max_num_env_episodes=1000,
         max_num_training_stats_entries=40000,
         minimal_logging=True,
         verbose=1,
@@ -120,34 +111,26 @@ def train_rlmpc_sac(
         verbose=1,
     )
 
-    if load_model:
-        model = rlmpc_sac.SAC.load(
+    if load_model_path:
+        model = ppo.PPO.load(
             load_model_path,
             env=training_env,
             learning_rate=model_kwargs["learning_rate"],
             device=model_kwargs["device"],
             tau=model_kwargs["tau"],
-            buffer_size=model_kwargs["buffer_size"],
             batch_size=model_kwargs["batch_size"],
-            gradient_steps=model_kwargs["gradient_steps"],
-            train_freq=model_kwargs["train_freq"],
-            replay_buffer_kwargs=model_kwargs["replay_buffer_kwargs"],
+            n_epochs=model_kwargs["n_epochs"],
+            gamma=model_kwargs["gamma"],
+            gae_lambda=model_kwargs["gae_lambda"],
+            n_steps=model_kwargs["n_steps"],
             tensorboard_log=base_dir / "logs",
             verbose=1,
         )
-        print(
-            f"Before learn: | Number of timesteps completed: {model.num_timesteps} | Number of episodes completed: {model.num_episodes}"
-        )
+        print(f"Before learn: | Number of timesteps completed: {model.num_timesteps}")
         print(f"Loading model at {load_model_path}")
-        model.load_replay_buffer(path=load_rb_path)
-        print(f"Loading replay buffer at {load_rb_path}")
         model.set_env(training_env)
     else:
-        model = rlmpc_sac.SAC(env=training_env, **model_kwargs)
-
-    if load_critics:
-        print(f"Loading critic at {load_critics_path}")
-        model.load_critics(path=load_critics_path, critic_arch=model_kwargs["policy_kwargs"]["critic_arch"])
+        model = ppo.PPO(env=training_env, **model_kwargs)
 
     model.set_random_seed(seed)
     model.learn(
@@ -159,9 +142,4 @@ def train_rlmpc_sac(
         progress_bar=False,
     )
 
-    if not model.vecenv_failed:
-        training_env.close()
-        eval_env.close()
-    del training_env
-    del eval_env
-    return model, model.vecenv_failed
+    return model, False

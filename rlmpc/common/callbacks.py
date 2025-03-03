@@ -400,7 +400,7 @@ class EvalCallback(EventCallback):
             # Reset success rate buffer
             self._is_success_buffer = []
 
-            if hasattr(self.model.actor, "mpc"):
+            if hasattr(self.model, "actor") and hasattr(self.model.actor, "mpc"):
                 self.model.actor.mpc.close_enc_display()
 
             self.model.policy.set_training_mode(False)
@@ -481,7 +481,9 @@ class EvalCallback(EventCallback):
             if self.callback is not None:
                 continue_training = continue_training and self._on_event()
 
-            print(f"Done evaluating policy: \n\t- mean_reward: {mean_reward:.2f} +/- {std_reward:.2f} \n\t- Episode length: {mean_ep_length:.2f} +/- {std_ep_length:.2f} \n\t- eval at num_timesteps={self.num_timesteps}")
+            print(
+                f"Done evaluating policy: \n\t- mean_reward: {mean_reward:.2f} +/- {std_reward:.2f} \n\t- Episode length: {mean_ep_length:.2f} +/- {std_ep_length:.2f} \n\t- eval at num_timesteps={self.num_timesteps}"
+            )
 
         return continue_training
 
