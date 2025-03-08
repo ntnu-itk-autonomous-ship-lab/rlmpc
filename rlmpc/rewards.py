@@ -1,10 +1,10 @@
 """
-    rewards.py
+rewards.py
 
-    Summary:
-        Reward functions for the RL agent.
+Summary:
+    Reward functions for the RL agent.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from dataclasses import asdict, dataclass, field
@@ -77,12 +77,16 @@ class COLREGRewarderParams:
     )  # Overtaking potential function parameters
     x_0_ot: float = 200.0  # Overtaking potential function parameters
     y_0_ot: float = 100.0  # Overtaking potential function parameters
-    d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
+    d_attenuation: float = (
+        400.0  # attenuation distance for the COLREGS potential functions
+    )
     w_colregs: np.ndarray = field(
         default_factory=lambda: np.array([1.0, 1.0, 1.0])
     )  # Weights for the COLREGS potential functions
 
-    colregs_handler: ch.COLREGSHandlerParams = field(default_factory=lambda: ch.COLREGSHandlerParams())
+    colregs_handler: ch.COLREGSHandlerParams = field(
+        default_factory=lambda: ch.COLREGSHandlerParams()
+    )
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -96,7 +100,9 @@ class COLREGRewarderParams:
         params.y_0_ot = config_dict["y_0_ot"]
         params.d_attenuation = config_dict["d_attenuation"]
         params.w_colregs = np.array(config_dict["w_colregs"])
-        params.colregs_handler = ch.COLREGSHandlerParams.from_dict(config_dict["colregs_handler"])
+        params.colregs_handler = ch.COLREGSHandlerParams.from_dict(
+            config_dict["colregs_handler"]
+        )
         return params
 
     def to_dict(self) -> dict:
@@ -122,7 +128,9 @@ class NegativeTrajectoryTrackingRewarderParams:
     rho_course_dev: float = 0.0  # course deviation reward weight
     rho_turn_rate: float = 0.0  # turn rate reward weight
     rho_goal: float = 100.0  # penalty for not reaching the goal
-    goal_radius: float = 30.0  # radius around the goal point where the goal is considered reached
+    goal_radius: float = (
+        30.0  # radius around the goal point where the goal is considered reached
+    )
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -220,11 +228,12 @@ class ActionChatterRewarderParams:
 
 @dataclass
 class Config:
-
     trajectory_tracking: PositiveTrajectoryTrackingRewarderParams = field(
         default_factory=lambda: PositiveTrajectoryTrackingRewarderParams()
     )
-    anti_grounding: AntiGroundingRewarderParams = field(default_factory=lambda: AntiGroundingRewarderParams())
+    anti_grounding: AntiGroundingRewarderParams = field(
+        default_factory=lambda: AntiGroundingRewarderParams()
+    )
     collision_avoidance: CollisionAvoidanceRewarderParams = field(
         default_factory=lambda: CollisionAvoidanceRewarderParams()
     )
@@ -232,21 +241,37 @@ class Config:
     readily_apparent_maneuvering: ReadilyApparentManeuveringRewarderParams = field(
         default_factory=lambda: ReadilyApparentManeuveringRewarderParams()
     )
-    dnn_parameter_provider: DNNParameterRewarderParams = field(default_factory=lambda: DNNParameterRewarderParams())
-    action_chatter: ActionChatterRewarderParams = field(default_factory=lambda: ActionChatterRewarderParams())
+    dnn_parameter_provider: DNNParameterRewarderParams = field(
+        default_factory=lambda: DNNParameterRewarderParams()
+    )
+    action_chatter: ActionChatterRewarderParams = field(
+        default_factory=lambda: ActionChatterRewarderParams()
+    )
 
     @classmethod
     def from_dict(cls, config_dict: dict):
         cfg = Config()
-        cfg.trajectory_tracking = PositiveTrajectoryTrackingRewarderParams.from_dict(config_dict["trajectory_tracking"])
-        cfg.anti_grounding = AntiGroundingRewarderParams.from_dict(config_dict["anti_grounding"])
-        cfg.collision_avoidance = CollisionAvoidanceRewarderParams.from_dict(config_dict["collision_avoidance"])
-        cfg.colreg = COLREGRewarderParams.from_dict(config_dict["colreg"])
-        cfg.readily_apparent_maneuvering = ReadilyApparentManeuveringRewarderParams.from_dict(
-            config_dict["readily_apparent_maneuvering"]
+        cfg.trajectory_tracking = PositiveTrajectoryTrackingRewarderParams.from_dict(
+            config_dict["trajectory_tracking"]
         )
-        cfg.dnn_parameter_provider = DNNParameterRewarderParams.from_dict(config_dict["dnn_parameter_provider"])
-        cfg.action_chatter = ActionChatterRewarderParams.from_dict(config_dict["action_chatter"])
+        cfg.anti_grounding = AntiGroundingRewarderParams.from_dict(
+            config_dict["anti_grounding"]
+        )
+        cfg.collision_avoidance = CollisionAvoidanceRewarderParams.from_dict(
+            config_dict["collision_avoidance"]
+        )
+        cfg.colreg = COLREGRewarderParams.from_dict(config_dict["colreg"])
+        cfg.readily_apparent_maneuvering = (
+            ReadilyApparentManeuveringRewarderParams.from_dict(
+                config_dict["readily_apparent_maneuvering"]
+            )
+        )
+        cfg.dnn_parameter_provider = DNNParameterRewarderParams.from_dict(
+            config_dict["dnn_parameter_provider"]
+        )
+        cfg.action_chatter = ActionChatterRewarderParams.from_dict(
+            config_dict["action_chatter"]
+        )
         return cfg
 
     @classmethod
@@ -257,11 +282,14 @@ class Config:
 
 
 class AntiGroundingRewarder(cs_reward.IReward):
-
-    def __init__(self, env: "COLAVEnvironment", config: AntiGroundingRewarderParams) -> None:
+    def __init__(
+        self, env: "COLAVEnvironment", config: AntiGroundingRewarderParams
+    ) -> None:
         super().__init__(env)
         self._config: AntiGroundingRewarderParams = config
-        self._ktp: guidances.KinematicTrajectoryPlanner = guidances.KinematicTrajectoryPlanner()
+        self._ktp: guidances.KinematicTrajectoryPlanner = (
+            guidances.KinematicTrajectoryPlanner()
+        )
         self._polygons: list = []
         self._rel_polygons: list = []
         self._min_depth: int = 0
@@ -276,7 +304,8 @@ class AntiGroundingRewarder(cs_reward.IReward):
     def create_so_surfaces(self):
         self._map_origin = self.env.ownship.state[:2]
         self._nominal_path = self._ktp.compute_splines(
-            waypoints=self.env.ownship.waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
+            waypoints=self.env.ownship.waypoints
+            - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
             speed_plan=self.env.ownship.speed_plan,
             arc_length_parameterization=True,
         )
@@ -298,13 +327,28 @@ class AntiGroundingRewarder(cs_reward.IReward):
         self._rel_polygons = []
         self._min_depth = mapf.find_minimum_depth(self.env.ownship.draft, self.env.enc)
         relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
-            self._min_depth, self.env.enc, buffer=self._config.r_safe + self.env.ownship.length / 2.0, show_plots=False
+            self._min_depth,
+            self.env.enc,
+            buffer=self._config.r_safe + self.env.ownship.length / 2.0,
+            show_plots=False,
         )
-        self._geometry_tree, _ = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+        self._geometry_tree, _ = mapf.fill_rtree_with_geometries(
+            relevant_grounding_hazards
+        )
 
         nominal_trajectory = self._ktp.compute_reference_trajectory(dt=2.0)
         nominal_trajectory = nominal_trajectory + np.array(
-            [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            [
+                self._map_origin[0],
+                self._map_origin[1],
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ]
         ).reshape(9, 1)
         poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
             nominal_trajectory,
@@ -320,8 +364,12 @@ class AntiGroundingRewarder(cs_reward.IReward):
         for polygons, original_polygon in poly_tuple_list:
             translated_poly_tuple_list.append(
                 (
-                    hf.translate_polygons(polygons, self._map_origin[1], self._map_origin[0]),
-                    hf.translate_polygons([original_polygon], self._map_origin[1], self._map_origin[0])[0],
+                    hf.translate_polygons(
+                        polygons, self._map_origin[1], self._map_origin[0]
+                    ),
+                    hf.translate_polygons(
+                        [original_polygon], self._map_origin[1], self._map_origin[0]
+                    )[0],
                 )
             )
         self._rel_polygons = translated_poly_tuple_list
@@ -330,7 +378,9 @@ class AntiGroundingRewarder(cs_reward.IReward):
         """Plot surface interpolations of the static obstacles."""
         ownship_state = self.env.ownship.state
         fig, ax = plt.subplots()
-        center = ownship_state[:2] - np.array([self._map_origin[0], self._map_origin[1]])
+        center = ownship_state[:2] - np.array(
+            [self._map_origin[0], self._map_origin[1]]
+        )
         npx = npoints
         npy = npoints
         x = np.linspace(center[0] - 150, center[0] + 150, npx)
@@ -339,7 +389,10 @@ class AntiGroundingRewarder(cs_reward.IReward):
         for idy, y_val in enumerate(y):
             for idx, x_val in enumerate(x):
                 for surface in self._so_surfaces:
-                    surfval = min(1.0, surface(np.array([x_val, y_val]).reshape(1, 2)).full()[0][0])
+                    surfval = min(
+                        1.0,
+                        surface(np.array([x_val, y_val]).reshape(1, 2)).full()[0][0],
+                    )
                     z[idy, idx] += max(0.0, surfval)
         pc = ax.pcolormesh(x, y, z, shading="gouraud", rasterized=True)
         ax.scatter(center[1], center[0], color="red", s=30, marker="x")
@@ -349,7 +402,12 @@ class AntiGroundingRewarder(cs_reward.IReward):
         ax.set_ylabel("East [m]")
         plt.show(block=False)
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         if self.env.time < 0.0001:
             self.create_so_surfaces()
             return 0.0
@@ -359,16 +417,22 @@ class AntiGroundingRewarder(cs_reward.IReward):
         for j, surface in enumerate(self._so_surfaces):
             surf_val = surface(p_os).full()[0][0]
             g_so[j] = np.clip(surf_val, 0.0, 1.0)
-            if g_so[j] > 0.0:
-                d2so = np.linalg.norm(
-                    mapf.compute_distance_vectors_to_grounding(
-                        vessel_trajectory=np.array([self.env.ownship.state[1], self.env.ownship.state[0]]).reshape(
-                            -1, 1
-                        ),
-                        min_vessel_depth=self._min_depth,
-                        enc=self.env.enc,
-                    )
+            d2so = np.linalg.norm(
+                mapf.compute_distance_vectors_to_grounding(
+                    vessel_trajectory=np.array(
+                        [self.env.ownship.state[1], self.env.ownship.state[0]]
+                    ).reshape(-1, 1),
+                    min_vessel_depth=self._min_depth,
+                    enc=self.env.enc,
                 )
+            )
+            if g_so[j] > 0.0 and d2so > self._config.r_safe:
+                g_so[j] = 0.0
+                print(
+                    f"[{self.env.env_id.upper()}] Erroneous static obstacle surface {j} g_so[i]={g_so[j]} | d2so={d2so}."
+                )
+            elif d2so <= self._config.r_safe:
+                g_so[j] = 1.0
                 print(
                     f"[{self.env.env_id.upper()}] Static obstacle {j} is too close to the ownship! g_so[i]={g_so[j]} | d2so={d2so}."
                 )
@@ -386,14 +450,17 @@ class AntiGroundingRewarder(cs_reward.IReward):
 
 
 class CollisionAvoidanceRewarder(cs_reward.IReward):
-
-    def __init__(self, env: "COLAVEnvironment", config: CollisionAvoidanceRewarderParams) -> None:
+    def __init__(
+        self, env: "COLAVEnvironment", config: CollisionAvoidanceRewarderParams
+    ) -> None:
         super().__init__(env)
         self._config = config
         self.last_reward = 0.0
         self.verbose = False
 
-    def compute_dynamic_obstacle_constraint(self, do_tuple: Tuple[int, np.ndarray, np.ndarray, float, float]) -> float:
+    def compute_dynamic_obstacle_constraint(
+        self, do_tuple: Tuple[int, np.ndarray, np.ndarray, float, float]
+    ) -> float:
         """Compute the dynamic obstacle constraint for the given dynamic obstacle.
 
         Args:
@@ -414,13 +481,22 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
             ],
         )
         epsilon = 1e-5
-        return np.log(1.0 + epsilon) - np.log(p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon)
+        return np.log(1.0 + epsilon) - np.log(
+            p_diff_do_frame.T @ weights @ p_diff_do_frame + epsilon
+        )
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         if self.env.time < 0.0001:
             return 0.0
 
-        true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
+        true_ship_states = cs_mhm.extract_do_states_from_ship_list(
+            self.env.time, self.env.ship_list
+        )
         do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0)
         g_do = np.zeros(len(do_list))
         for i, do_tup in enumerate(do_list):
@@ -448,18 +524,26 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
 
 
 class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
-
-    def __init__(self, env: "COLAVEnvironment", config: ReadilyApparentManeuveringRewarderParams) -> None:
+    def __init__(
+        self, env: "COLAVEnvironment", config: ReadilyApparentManeuveringRewarderParams
+    ) -> None:
         super().__init__(env)
         self._config = config
         self.last_reward = 0.0
         self._config.r_max = self.env.ownship.max_turn_rate
         self.K_app = np.array([self._config.K_app_course, self._config.K_app_speed])
-        self.alpha_app = np.concatenate([self._config.alpha_app_course, self._config.alpha_app_speed])
+        self.alpha_app = np.concatenate(
+            [self._config.alpha_app_course, self._config.alpha_app_speed]
+        )
         self._prev_speed = self.env.ownship.speed
         self._distance_threshold = 500.0
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         if self.env.time < 0.0001:
             self._prev_speed = self.env.ownship.speed
             return 0.0
@@ -467,8 +551,12 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
         turn_rate = self.env.ownship.state[5]
         speed = self.env.ownship.speed
 
-        true_ship_states = cs_mhm.extract_do_states_from_ship_list(self.env.time, self.env.ship_list)
-        do_list = cs_mhm.get_relevant_do_states(true_ship_states, idx=0, add_empty_cov=True)
+        true_ship_states = cs_mhm.extract_do_states_from_ship_list(
+            self.env.time, self.env.ship_list
+        )
+        do_list = cs_mhm.get_relevant_do_states(
+            true_ship_states, idx=0, add_empty_cov=True
+        )
         distances_to_obstacles = hf.compute_distances_to_dynamic_obstacles(
             ownship_state=self.env.ownship.state, do_list=do_list
         )
@@ -495,13 +583,14 @@ class ReadilyApparentManeuveringRewarder(cs_reward.IReward):
 
 
 class COLREGRewarder(cs_reward.IReward):
-
     def __init__(self, env: "COLAVEnvironment", config: COLREGRewarderParams) -> None:
         super().__init__(env)
         self._config = config
         self._debug: bool = False
         self._map_origin: np.ndarray = np.zeros(2)
-        self._colregs_handler: ch.COLREGSHandler = ch.COLREGSHandler(config.colregs_handler)
+        self._colregs_handler: ch.COLREGSHandler = ch.COLREGSHandler(
+            config.colregs_handler
+        )
         self._nx_do: int = 6
         self._all_polygons: list = []
         self._r_safe: float = 5.0
@@ -509,15 +598,26 @@ class COLREGRewarder(cs_reward.IReward):
         self._geometry_tree: Any = None
         self.last_reward = 0.0
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         if self.env.time < 0.0001:
             self._colregs_handler.reset()
             self._map_origin = self.env.ownship.csog_state[:2]
-            self._min_depth = mapf.find_minimum_depth(self.env.ownship.draft, self.env.enc)
-            relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
-                self._min_depth, self.env.enc, buffer=self._r_safe, show_plots=False
+            self._min_depth = mapf.find_minimum_depth(
+                self.env.ownship.draft, self.env.enc
             )
-            self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+            relevant_grounding_hazards = (
+                mapf.extract_relevant_grounding_hazards_as_union(
+                    self._min_depth, self.env.enc, buffer=self._r_safe, show_plots=False
+                )
+            )
+            self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(
+                relevant_grounding_hazards
+            )
             return 0.0
 
         do_list, _ = self.env.ownship.get_do_track_information()
@@ -532,16 +632,20 @@ class COLREGRewarder(cs_reward.IReward):
                 # print(f"Dynamic obstacle {i} is on land, i.e. not relevant")
                 on_land_indices.append(i)
         translated_do_list = [
-            translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
+            translated_do_list[i]
+            for i in range(len(do_list))
+            if do_list[i][0] not in on_land_indices
         ]
 
-        csog_state_rel = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state) - np.array(
-            [self._map_origin[0], self._map_origin[1], 0.0, 0.0]
-        )
+        csog_state_rel = cs_mhm.convert_3dof_state_to_sog_cog_state(
+            ownship_state
+        ) - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0])
         csog_state_rel_cpy = csog_state_rel.copy()
         csog_state_rel[2] = csog_state_rel_cpy[3]
         csog_state_rel[3] = csog_state_rel_cpy[2]
-        do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(csog_state_rel, translated_do_list)
+        do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
+            csog_state_rel, translated_do_list
+        )
 
         n_do_cr = len(do_cr_list)
         n_do_ho = len(do_ho_list)
@@ -556,15 +660,36 @@ class COLREGRewarder(cs_reward.IReward):
         X_do_ot = np.vstack([x_do_inactive for _ in range(max_n_do)]).T.reshape(-1)
         for i, (_, do_state, _, do_length, do_width) in enumerate(do_cr_list):
             X_do_cr[i * self._nx_do : (i + 1) * self._nx_do] = np.array(
-                [do_state[0], do_state[1], do_state[2], do_state[3], do_length, do_width]
+                [
+                    do_state[0],
+                    do_state[1],
+                    do_state[2],
+                    do_state[3],
+                    do_length,
+                    do_width,
+                ]
             )
         for i, (_, do_state, _, do_length, do_width) in enumerate(do_ho_list):
             X_do_ho[i * self._nx_do : (i + 1) * self._nx_do] = np.array(
-                [do_state[0], do_state[1], do_state[2], do_state[3], do_length, do_width]
+                [
+                    do_state[0],
+                    do_state[1],
+                    do_state[2],
+                    do_state[3],
+                    do_length,
+                    do_width,
+                ]
             )
         for i, (_, do_state, _, do_length, do_width) in enumerate(do_ot_list):
             X_do_ot[i * self._nx_do : (i + 1) * self._nx_do] = np.array(
-                [do_state[0], do_state[1], do_state[2], do_state[3], do_length, do_width]
+                [
+                    do_state[0],
+                    do_state[1],
+                    do_state[2],
+                    do_state[3],
+                    do_length,
+                    do_width,
+                ]
             )
 
         colreg_cost, _, _, _ = mpc_common.colregs_cost(
@@ -591,23 +716,33 @@ class COLREGRewarder(cs_reward.IReward):
 
 
 class NegativeTrajectoryTrackingRewarder(cs_reward.IReward):
-
-    def __init__(self, env: "COLAVEnvironment", config: NegativeTrajectoryTrackingRewarderParams) -> None:
+    def __init__(
+        self, env: "COLAVEnvironment", config: NegativeTrajectoryTrackingRewarderParams
+    ) -> None:
         super().__init__(env)
         self.last_reward = 0.0
         self._config = config
         self._last_course_error = 0.0
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         if self.env.time < 0.0001:
             self._last_course_error = 0.0
         goal_reached = self.env.simulator.determine_ship_goal_reached(ship_idx=0)
         if goal_reached:
             self.last_reward = self._config.rho_goal
-            print(f"[{self.env.env_id.upper()}] Goal reached! Rewarding +{self._config.rho_goal}.")
+            print(
+                f"[{self.env.env_id.upper()}] Goal reached! Rewarding +{self._config.rho_goal}."
+            )
             return self.last_reward
 
-        d2goal = np.linalg.norm(self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1])
+        d2goal = np.linalg.norm(
+            self.env.ownship.state[:2] - self.env.ownship.waypoints[:, -1]
+        )
         ownship_state = self.env.ownship.state
         do_list, _ = self.env.ownship.get_do_track_information()
 
@@ -618,7 +753,9 @@ class NegativeTrajectoryTrackingRewarder(cs_reward.IReward):
         truncated = kwargs.get("truncated", False)
         if truncated and not goal_reached and no_dos_in_the_way:
             self.last_reward = -0.002 * self._config.rho_goal * d2goal
-            print(f"[{self.env.env_id.upper()}] Goal not reached! Rewarding {self.last_reward}.")
+            print(
+                f"[{self.env.env_id.upper()}] Goal not reached! Rewarding {self.last_reward}."
+            )
             return self.last_reward
 
         unnormalized_obs = self.env.observation_type.unnormalize(state)
@@ -642,14 +779,20 @@ class NegativeTrajectoryTrackingRewarder(cs_reward.IReward):
 
 
 class PositiveTrajectoryTrackingRewarder(cs_reward.IReward):
-
-    def __init__(self, env: "COLAVEnvironment", config: PositiveTrajectoryTrackingRewarderParams) -> None:
+    def __init__(
+        self, env: "COLAVEnvironment", config: PositiveTrajectoryTrackingRewarderParams
+    ) -> None:
         super().__init__(env)
         self.last_reward = 0.0
         self._config = config
         self.prev_arc_length_left = 0.0
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         unnormalized_obs = self.env.observation_type.unnormalize(state)
         path_obs = unnormalized_obs["PathRelativeNavigationObservation"]
         arc_length_left = float(path_obs[0])
@@ -678,14 +821,19 @@ class PositiveTrajectoryTrackingRewarder(cs_reward.IReward):
 
 
 class DNNParameterRewarder(cs_reward.IReward):
-
-    def __init__(self, env: "COLAVEnvironment", config: DNNParameterRewarderParams) -> None:
+    def __init__(
+        self, env: "COLAVEnvironment", config: DNNParameterRewarderParams
+    ) -> None:
         super().__init__(env)
         self.last_reward = 0.0
         self._config = config
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
-
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         if self._config.disable or self.env.time < 0.001:
             return 0.0
 
@@ -700,7 +848,9 @@ class DNNParameterRewarder(cs_reward.IReward):
         mpc_sampling_time = 1.0 / colav_info["mpc_rate"]
         mpc_solve_time = colav_info["t_solve"]
         if mpc_solve_time > mpc_sampling_time:
-            r_param_dnn += -self._config.rho_solver_time * (mpc_solve_time - mpc_sampling_time)
+            r_param_dnn += -self._config.rho_solver_time * (
+                mpc_solve_time - mpc_sampling_time
+            )
 
         if colav_info["qp_failure"]:
             r_param_dnn += -self._config.rho_qp_failure
@@ -746,7 +896,9 @@ class DNNParameterRewarder(cs_reward.IReward):
             r_param_dnn += -self._config.rho_diff_colreg_weights
 
         incr_threshold = 0.33
-        active_param_lb, active_param_ub = self.check_active_parameter_constraints(colav_info["new_mpc_params"])
+        active_param_lb, active_param_ub = self.check_active_parameter_constraints(
+            colav_info["new_mpc_params"]
+        )
         for idx, param_incr in enumerate(action.tolist()):
             if (active_param_lb[idx] and param_incr <= -incr_threshold) or (
                 active_param_ub[idx] and param_incr >= incr_threshold
@@ -757,7 +909,9 @@ class DNNParameterRewarder(cs_reward.IReward):
         self.last_reward = r_param_dnn
         return self.last_reward
 
-    def check_active_parameter_constraints(self, param_vals: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def check_active_parameter_constraints(
+        self, param_vals: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Find the active parameter constraints for the given parameter values.
 
         Args:
@@ -800,13 +954,20 @@ class DNNParameterRewarder(cs_reward.IReward):
 class ActionChatterRewarder(cs_reward.IReward):
     """Used to penalize chattering actions for a relative course+speed action."""
 
-    def __init__(self, env: "COLAVEnvironment", config: ActionChatterRewarderParams) -> None:
+    def __init__(
+        self, env: "COLAVEnvironment", config: ActionChatterRewarderParams
+    ) -> None:
         super().__init__(env)
         self._config = config
         self.last_reward = 0.0
         self.prev_action = np.zeros(self.env.action_space.shape[0])
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         unnorm_action = self.env.action_type.unnormalize(action)
         if self.env.time < 0.0001:
             self.prev_action = unnorm_action
@@ -834,14 +995,20 @@ class MPCRewarder(cs_reward.IReward):
         self.last_reward: float = 0.0
         self._config = config
         self.anti_grounding_rewarder = AntiGroundingRewarder(env, config.anti_grounding)
-        self.collision_avoidance_rewarder = CollisionAvoidanceRewarder(env, config.collision_avoidance)
+        self.collision_avoidance_rewarder = CollisionAvoidanceRewarder(
+            env, config.collision_avoidance
+        )
         self.colreg_rewarder = COLREGRewarder(env, config.colreg)
-        self.trajectory_tracking_rewarder = PositiveTrajectoryTrackingRewarder(env, config.trajectory_tracking)
+        self.trajectory_tracking_rewarder = PositiveTrajectoryTrackingRewarder(
+            env, config.trajectory_tracking
+        )
         self.readily_apparent_maneuvering_rewarder = ReadilyApparentManeuveringRewarder(
             env, config.readily_apparent_maneuvering
         )
         self.action_chatter_rewarder = ActionChatterRewarder(env, config.action_chatter)
-        self.dnn_parameter_provider_rewarder = DNNParameterRewarder(env, config.dnn_parameter_provider)
+        self.dnn_parameter_provider_rewarder = DNNParameterRewarder(
+            env, config.dnn_parameter_provider
+        )
         self.r_antigrounding: float = 0.0
         self.r_collision_avoidance: float = 0.0
         self.r_colreg: float = 0.0
@@ -851,14 +1018,27 @@ class MPCRewarder(cs_reward.IReward):
         self.r_dnn_parameters: float = 0.0
         self.verbose: bool = False
 
-    def __call__(self, state: csgym_obs.Observation, action: Optional[csgym_action.Action] = None, **kwargs) -> float:
+    def __call__(
+        self,
+        state: csgym_obs.Observation,
+        action: Optional[csgym_action.Action] = None,
+        **kwargs,
+    ) -> float:
         self.r_antigrounding = self.anti_grounding_rewarder(state, action, **kwargs)
-        self.r_trajectory_tracking = self.trajectory_tracking_rewarder(state, action, **kwargs)
-        self.r_collision_avoidance = self.collision_avoidance_rewarder(state, action, **kwargs)
+        self.r_trajectory_tracking = self.trajectory_tracking_rewarder(
+            state, action, **kwargs
+        )
+        self.r_collision_avoidance = self.collision_avoidance_rewarder(
+            state, action, **kwargs
+        )
         self.r_colreg = self.colreg_rewarder(state, action, **kwargs)
-        self.r_readily_apparent_maneuvering = self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
+        self.r_readily_apparent_maneuvering = (
+            self.readily_apparent_maneuvering_rewarder(state, action, **kwargs)
+        )
         self.r_action_chatter = self.action_chatter_rewarder(state, action, **kwargs)
-        self.r_dnn_parameters = self.dnn_parameter_provider_rewarder(state, action, **kwargs)
+        self.r_dnn_parameters = self.dnn_parameter_provider_rewarder(
+            state, action, **kwargs
+        )
         reward = (
             self.r_antigrounding
             + self.r_collision_avoidance
@@ -883,7 +1063,8 @@ class MPCRewarder(cs_reward.IReward):
             "r_collision_avoidance": self.r_collision_avoidance / self.reward_scale,
             "r_colreg": self.r_colreg / self.reward_scale,
             "r_trajectory_tracking": self.r_trajectory_tracking / self.reward_scale,
-            "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering / self.reward_scale,
+            "r_readily_apparent_maneuvering": self.r_readily_apparent_maneuvering
+            / self.reward_scale,
             "r_action_chatter": self.r_action_chatter / self.reward_scale,
             "r_dnn_parameters": self.r_dnn_parameters / self.reward_scale,
         }

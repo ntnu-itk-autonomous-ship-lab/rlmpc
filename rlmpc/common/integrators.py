@@ -1,12 +1,13 @@
 """
-    integrators.py
+integrators.py
 
-    Summary:
-        Contains integrator functionality to be used with casadi.
-        Inspired by Casadi example code and milliampere MPC code.
+Summary:
+    Contains integrator functionality to be used with casadi.
+    Inspired by Casadi example code and milliampere MPC code.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
+
 from abc import ABC, abstractmethod
 
 import casadi as csd

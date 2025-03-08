@@ -14,7 +14,12 @@ import torchvision.transforms.v2 as transforms_v2
 import yaml
 from rlmpc.common.running_loss import RunningLoss
 from rlmpc.networks.tracking_vae.vae import VAE
-from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    CosineAnnealingWarmRestarts,
+    MultiStepLR,
+    ReduceLROnPlateau,
+)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -103,11 +108,15 @@ def train_vae(
             seq_lengths[seq_lengths == 0] = 1
             max_seq_length = seq_lengths.max().item()
             batch_obs = batch_obs[:, :, -max_seq_length:]
-            batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
+            batch_obs = batch_obs.permute(
+                0, 2, 1
+            )  # permute to (batch, max_seq_len, input_dim)
 
             # Forward pass
             reconstructed_obs, means, log_vars, _ = model(batch_obs, seq_lengths)
-            mse_loss = loss_functions.reconstruction_rnn(reconstructed_obs, batch_obs, seq_lengths)
+            mse_loss = loss_functions.reconstruction_rnn(
+                reconstructed_obs, batch_obs, seq_lengths
+            )
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
             beta_norm = beta * model.latent_dim / (max_seq_length * 6)
             loss = mse_loss + beta_norm * kld_loss
@@ -125,14 +134,22 @@ def train_vae(
                 #     lr = warmup_scheduler.lrs[-1]
                 # else:
                 lr = lr_schedule.get_last_lr()[0]
-                writer.add_scalar("Training/Learning Rate", lr, epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/Loss", loss.item(), epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/KLD Loss", kld_loss.item(), epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/MSE Loss", mse_loss.item(), epoch * n_batches + batch_idx)
+                writer.add_scalar(
+                    "Training/Learning Rate", lr, epoch * n_batches + batch_idx
+                )
+                writer.add_scalar(
+                    "Training/Loss", loss.item(), epoch * n_batches + batch_idx
+                )
+                writer.add_scalar(
+                    "Training/KLD Loss", kld_loss.item(), epoch * n_batches + batch_idx
+                )
+                writer.add_scalar(
+                    "Training/MSE Loss", mse_loss.item(), epoch * n_batches + batch_idx
+                )
                 # writer.add_scalar("Training/Sigma Opt", log_sigma_opt.exp() / batch_size, epoch * n_batches + batch_idx)
                 print(
                     f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Train Loss: {loss.item():.4f} | KL Div. Loss: {kld_loss.item():.4f} | "
-                    f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
+                    f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1):.2f}s"
                 )
                 # writer
 
@@ -140,7 +157,9 @@ def train_vae(
             #     if warmup_scheduler.last_step + 1 >= warmup_period:
         lr_schedule.step()
 
-        print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
+        print(
+            f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}"
+        )
         loss_meter.reset()
         print("Saving model...")
         save_path = f"{str(model_path)}/{experiment_name}_epoch_{epoch}.pth"
@@ -156,7 +175,6 @@ def train_vae(
         model.set_inference_mode(True)
         test_batch_losses = []
         for batch_idx, batch_obs in enumerate(test_dataloader):
-
             batch_obs = batch_obs.to(device)
             # extract length of valid obstacle observations
             seq_lengths = (
@@ -165,11 +183,15 @@ def train_vae(
             seq_lengths[seq_lengths == 0] = 1
             max_seq_length = seq_lengths.max().item()
             batch_obs = batch_obs[:, :, -max_seq_length:]
-            batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
+            batch_obs = batch_obs.permute(
+                0, 2, 1
+            )  # permute to (batch, max_seq_len, input_dim)
 
             # Forward pass
             reconstructed_obs, means, log_vars, _ = model(batch_obs, seq_lengths)
-            mse_loss = loss_functions.reconstruction_rnn(reconstructed_obs, batch_obs, seq_lengths)
+            mse_loss = loss_functions.reconstruction_rnn(
+                reconstructed_obs, batch_obs, seq_lengths
+            )
             kld_loss = loss_functions.kullback_leibler_divergence(means, log_vars)
             beta_norm = beta * model.latent_dim / (max_seq_length * 6)
             loss = mse_loss + beta_norm * kld_loss
@@ -179,12 +201,20 @@ def train_vae(
 
             if batch_idx % save_interval == 0:
                 print(
-                    f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Test Loss: {loss.item():.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
+                    f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Test Loss: {loss.item():.4f} | KL Div Loss.: {kld_loss.item() / batch_size:.4f}"
                 )
                 # Update the tensorboard
-                writer.add_scalar("Test/Loss", loss.item(), epoch * n_test_batches + batch_idx)
-                writer.add_scalar("Test/MSE Loss", mse_loss.item(), epoch * n_test_batches + batch_idx)
-                writer.add_scalar("Test/KL Div Loss", kld_loss.item(), epoch * n_test_batches + batch_idx)
+                writer.add_scalar(
+                    "Test/Loss", loss.item(), epoch * n_test_batches + batch_idx
+                )
+                writer.add_scalar(
+                    "Test/MSE Loss", mse_loss.item(), epoch * n_test_batches + batch_idx
+                )
+                writer.add_scalar(
+                    "Test/KL Div Loss",
+                    kld_loss.item(),
+                    epoch * n_test_batches + batch_idx,
+                )
 
         testing_losses.append(test_batch_losses)
         weights = torch.ones_like(batch_obs)
@@ -198,16 +228,22 @@ def train_vae(
             best_test_loss = loss_meter.average_loss
             best_epoch = epoch
             num_nondecreasing_loss_iters = 0
-            print(f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}")
+            print(
+                f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}"
+            )
             best_model_path = f"{experiment_path}/{experiment_name}_best.pth"
             torch.save(model.state_dict(), best_model_path)
 
         else:
-            print(f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
+            print(
+                f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations."
+            )
             num_nondecreasing_loss_iters += 1
 
         if num_nondecreasing_loss_iters > early_stopping_patience:
-            print(f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training.")
+            print(
+                f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training."
+            )
             break
 
     training_losses = np.array(training_losses)
@@ -259,18 +295,36 @@ if __name__ == "__main__":
     #     ]
     # )
 
-    training_dataset1 = rl_ds.TrackingObservationDataset(training_data_npy_filename, data_dir)
+    training_dataset1 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename, data_dir
+    )
     test_dataset1 = rl_ds.TrackingObservationDataset(test_data_npy_filename, data_dir)
-    training_dataset2 = rl_ds.TrackingObservationDataset(training_data_npy_filename2, data_dir)
+    training_dataset2 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename2, data_dir
+    )
     test_dataset2 = rl_ds.TrackingObservationDataset(test_data_npy_filename2, data_dir)
 
-    training_dataset3 = rl_ds.TrackingObservationDataset(training_data_npy_filename3, data_dir)
-    training_dataset4 = rl_ds.TrackingObservationDataset(training_data_npy_filename4, data_dir)
-    training_dataset5 = rl_ds.TrackingObservationDataset(training_data_npy_filename5, data_dir)
-    training_dataset6 = rl_ds.TrackingObservationDataset(training_data_npy_filename6, data_dir)
-    training_dataset7 = rl_ds.TrackingObservationDataset(training_data_npy_filename7, data_dir)
-    training_dataset8 = rl_ds.TrackingObservationDataset(training_data_npy_filename8, data_dir)
-    training_dataset9 = rl_ds.TrackingObservationDataset(training_data_npy_filename9, data_dir)
+    training_dataset3 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename3, data_dir
+    )
+    training_dataset4 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename4, data_dir
+    )
+    training_dataset5 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename5, data_dir
+    )
+    training_dataset6 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename6, data_dir
+    )
+    training_dataset7 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename7, data_dir
+    )
+    training_dataset8 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename8, data_dir
+    )
+    training_dataset9 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename9, data_dir
+    )
 
     training_dataset = torch.utils.data.ConcatDataset(
         [
@@ -291,8 +345,12 @@ if __name__ == "__main__":
 
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-    print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
-    print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
+    print(
+        f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}"
+    )
+    print(
+        f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}"
+    )
 
     # SAVE_MODEL_FILE: Path = BASE_PATH / "models"  # "_epochxx.pth" appended in training
     # LOAD_MODEL_FILE: Path = BASE_PATH / "models" / "first.pth"  # "_epochxx.pth" appended in training
@@ -319,13 +377,15 @@ if __name__ == "__main__":
                 bidirectional=True,
             ).to(device)
 
-            name = f"tracking_vae{exp_counter+1}_NL_{num_rnn_layers}_LD_{latent_dim}_{rnn_type_str}"
+            name = f"tracking_vae{exp_counter + 1}_NL_{num_rnn_layers}_LD_{latent_dim}_{rnn_type_str}"
             experiment_path = BASE_PATH / name
 
             writer = SummaryWriter(log_dir=log_dir / name)
             optimizer = torch.optim.Adam(vae.parameters(), lr=learning_rate)
             # T_max = len(train_dataloader) * num_epochs
-            lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
+            lr_schedule = CosineAnnealingWarmRestarts(
+                optimizer, T_0=7, T_mult=2, eta_min=1e-5
+            )
             # lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
             # lr_schedule = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
@@ -345,7 +405,9 @@ if __name__ == "__main__":
                 "save_interval": save_interval,
                 "load_model": load_model,
             }
-            with Path(experiment_path / "config.yaml").open(mode="w", encoding="utf-8") as fp:
+            with Path(experiment_path / "config.yaml").open(
+                mode="w", encoding="utf-8"
+            ) as fp:
                 yaml.dump(training_config, fp)
 
             model, opt_loss, opt_train_loss, opt_epoch = train_vae(
@@ -380,7 +442,9 @@ if __name__ == "__main__":
             seq_lengths[seq_lengths == 0] = 1
             max_seq_length = seq_lengths.max().item()
             batch_obs = batch_obs[:, :, -max_seq_length:]
-            batch_obs = batch_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
+            batch_obs = batch_obs.permute(
+                0, 2, 1
+            )  # permute to (batch, max_seq_len, input_dim)
             recon_obs, _, _, _ = model(batch_obs, seq_lengths)
             weights = torch.ones_like(batch_obs)
             weights[torch.where(batch_obs[:, :, 0] > 0.98)] = 0.0

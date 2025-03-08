@@ -1,10 +1,10 @@
 """
-    helper_functions.py
+helper_functions.py
 
-    Summary:
-        Contains miscellaneous helper functions for the RL-RRT-MPC COLAV system.
+Summary:
+    Contains miscellaneous helper functions for the RL-RRT-MPC COLAV system.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import linecache
@@ -103,9 +103,13 @@ def normalize_mpc_param_tensor(
 
         for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
             if param_name == "Q_p":
-                x_param[j] = csmf.linear_map(x_param[j], tuple(param_range[j]), (-1.0, 1.0))
+                x_param[j] = csmf.linear_map(
+                    x_param[j], tuple(param_range[j]), (-1.0, 1.0)
+                )
             else:
-                x_param[j] = csmf.linear_map(x_param[j], tuple(param_range), (-1.0, 1.0))
+                x_param[j] = csmf.linear_map(
+                    x_param[j], tuple(param_range), (-1.0, 1.0)
+                )
         x_norm[pindx : pindx + param_length] = x_param
     return x_norm
 
@@ -140,9 +144,13 @@ def unnormalize_mpc_param_tensor(
 
         for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
             if param_name == "Q_p":
-                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range[j]))
+                x_param[j] = csmf.linear_map(
+                    x_param[j], (-1.0, 1.0), tuple(param_range[j])
+                )
             else:
-                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+                x_param[j] = csmf.linear_map(
+                    x_param[j], (-1.0, 1.0), tuple(param_range)
+                )
         x_unnorm[pindx : pindx + param_length] = x_param
     return x_unnorm
 
@@ -175,9 +183,13 @@ def normalize_mpc_param_increment_tensor(
 
         for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
             if param_name == "Q_p":
-                x_param[j] = csmf.linear_map(x_param[j], tuple(param_incr_range[j]), (-1.0, 1.0))
+                x_param[j] = csmf.linear_map(
+                    x_param[j], tuple(param_incr_range[j]), (-1.0, 1.0)
+                )
             else:
-                x_param[j] = csmf.linear_map(x_param[j], tuple(param_incr_range), (-1.0, 1.0))
+                x_param[j] = csmf.linear_map(
+                    x_param[j], tuple(param_incr_range), (-1.0, 1.0)
+                )
         x_norm[pindx : pindx + param_length] = x_param
     return x_norm
 
@@ -214,9 +226,13 @@ def unnormalize_mpc_param_increment_tensor(
 
             for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
                 if param_name == "Q_p":
-                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range[j]))
+                    x_param[j] = csmf.linear_map(
+                        x_param[j], (-1.0, 1.0), tuple(param_incr_range[j])
+                    )
                 else:
-                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_incr_range))
+                    x_param[j] = csmf.linear_map(
+                        x_param[j], (-1.0, 1.0), tuple(param_incr_range)
+                    )
             x_unnorm[i, pindx : pindx + param_length] = x_param
     if x_unnorm.shape[0] == 1:
         x_unnorm = x_unnorm.squeeze(0)
@@ -258,15 +274,21 @@ def map_mpc_param_incr_array_to_parameter_dict(
         x_param_incr = x_np[pindx : pindx + param_length].copy()
         for j in range(len(x_param_incr)):  # pylint: disable=consider-using-enumerate
             if param_name == "Q_p":
-                x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range[j]))
+                x_param_incr[j] = csmf.linear_map(
+                    x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range[j])
+                )
             else:
-                x_param_incr[j] = csmf.linear_map(x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range))
+                x_param_incr[j] = csmf.linear_map(
+                    x_param_incr[j], (-1.0, 1.0), tuple(param_incr_range)
+                )
 
         x_param_current = current_params_np[pindx : pindx + param_length]
         x_param_new = x_param_current + x_param_incr
         if param_name == "Q_p":
             for j in range(3):
-                x_param_new[j] = np.clip(x_param_new[j], param_range[j][0], param_range[j][1])
+                x_param_new[j] = np.clip(
+                    x_param_new[j], param_range[j][0], param_range[j][1]
+                )
         else:
             x_param_new = np.clip(x_param_new, param_range[0], param_range[1])
         params[param_name] = x_param_new.astype(np.float32)
@@ -289,7 +311,9 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     """
 
     def _init():
-        env_config.update({"identifier": env_config["identifier"] + str(rank), "seed": seed + rank})
+        env_config.update(
+            {"identifier": env_config["identifier"] + str(rank), "seed": seed + rank}
+        )
         env = Monitor(gym.make(env_id, **env_config))
         return env
 
@@ -297,7 +321,9 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     return _init
 
 
-def create_data_dirs(base_dir: Path, experiment_name: str, remove_log_files: bool = True) -> Tuple[Path, Path, Path]:
+def create_data_dirs(
+    base_dir: Path, experiment_name: str, remove_log_files: bool = True
+) -> Tuple[Path, Path, Path]:
     base_dir = base_dir / experiment_name
     log_dir = base_dir / "logs"
     model_dir = base_dir / "models"
@@ -333,7 +359,6 @@ def set_memory_limit(n_bytes: int = 20_000_000_000) -> None:
     soft, hard = resource.getrlimit(resource.RLIMIT_DATA)
 
     if n_bytes < soft * 1024:
-
         resource.setrlimit(resource.RLIMIT_DATA, (n_bytes, hard))
 
 
@@ -349,7 +374,10 @@ def display_top(snapshot, key_type="lineno", limit=10):
     print("Top %s lines" % limit)
     for index, stat in enumerate(top_stats[:limit], 1):
         frame = stat.traceback[0]
-        print("#%s: %s:%s: %.1f KiB" % (index, frame.filename, frame.lineno, stat.size / 1024))
+        print(
+            "#%s: %s:%s: %.1f KiB"
+            % (index, frame.filename, frame.lineno, stat.size / 1024)
+        )
         line = linecache.getline(frame.filename, frame.lineno).strip()
         if line:
             print("    %s" % line)
@@ -382,14 +410,18 @@ def extract_do_list_from_tracking_observation(
     return do_list
 
 
-def compute_distances_to_dynamic_obstacles(ownship_state: np.ndarray, do_list: List) -> List[Tuple[int, float]]:
+def compute_distances_to_dynamic_obstacles(
+    ownship_state: np.ndarray, do_list: List
+) -> List[Tuple[int, float]]:
     os_pos = ownship_state[0:2]
     os_speed = np.linalg.norm(ownship_state[3:5])
     os_course = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
     distances2do = []
     for idx, (_, do_state, _, _, _) in enumerate(do_list):
         d2do = np.linalg.norm(do_state[0:2] - os_pos)
-        bearing_do = np.arctan2(do_state[1] - os_pos[1], do_state[0] - os_pos[0]) - os_course
+        bearing_do = (
+            np.arctan2(do_state[1] - os_pos[1], do_state[0] - os_pos[0]) - os_course
+        )
         if bearing_do > np.pi:
             distances2do.append((idx, 1e10))
         else:
@@ -398,7 +430,9 @@ def compute_distances_to_dynamic_obstacles(ownship_state: np.ndarray, do_list: L
     return distances2do
 
 
-def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5) -> rlmpc_logger.RLData:
+def process_rl_training_data(
+    data: rlmpc_logger.RLData, ma_window_size: int = 5
+) -> rlmpc_logger.RLData:
     """Smooths out training data from the RL process, given the chosen window size.
 
     Args:
@@ -408,27 +442,45 @@ def process_rl_training_data(data: rlmpc_logger.RLData, ma_window_size: int = 5)
     Returns:
         rlmpc_logger.RLData: Smoothed RLData structure.
     """
-    smoothed_critic_loss, std_critic_loss = compute_smooted_mean_and_std(data.critic_loss, window_size=ma_window_size)
-    smoothed_actor_loss, std_actor_loss = compute_smooted_mean_and_std(data.actor_loss, window_size=ma_window_size)
-    smoothed_mean_actor_grad_norm, std_mean_actor_grad_norm = compute_smooted_mean_and_std(
-        data.mean_actor_grad_norm, window_size=ma_window_size
+    smoothed_critic_loss, std_critic_loss = compute_smooted_mean_and_std(
+        data.critic_loss, window_size=ma_window_size
+    )
+    smoothed_actor_loss, std_actor_loss = compute_smooted_mean_and_std(
+        data.actor_loss, window_size=ma_window_size
+    )
+    smoothed_mean_actor_grad_norm, std_mean_actor_grad_norm = (
+        compute_smooted_mean_and_std(
+            data.mean_actor_grad_norm, window_size=ma_window_size
+        )
     )
     smoothed_ent_coeff_loss, std_ent_coeff_loss = compute_smooted_mean_and_std(
         data.ent_coeff_loss, window_size=ma_window_size
     )
-    smoothed_ent_coeff, std_ent_coeff = compute_smooted_mean_and_std(data.ent_coeff, window_size=ma_window_size)
+    smoothed_ent_coeff, std_ent_coeff = compute_smooted_mean_and_std(
+        data.ent_coeff, window_size=ma_window_size
+    )
 
-    smoothed_non_optimal_solution_rate, std_non_optimal_solution_rate = compute_smooted_mean_and_std(
-        data.non_optimal_solution_rate, window_size=ma_window_size
+    smoothed_non_optimal_solution_rate, std_non_optimal_solution_rate = (
+        compute_smooted_mean_and_std(
+            data.non_optimal_solution_rate, window_size=ma_window_size
+        )
     )
-    smoothed_mean_episode_reward, std_mean_episode_reward = compute_smooted_mean_and_std(
-        data.mean_episode_reward, window_size=ma_window_size
+    smoothed_mean_episode_reward, std_mean_episode_reward = (
+        compute_smooted_mean_and_std(
+            data.mean_episode_reward, window_size=ma_window_size
+        )
     )
-    smoothed_mean_episode_length, std_mean_episode_length = compute_smooted_mean_and_std(
-        data.mean_episode_length, window_size=ma_window_size
+    smoothed_mean_episode_length, std_mean_episode_length = (
+        compute_smooted_mean_and_std(
+            data.mean_episode_length, window_size=ma_window_size
+        )
     )
-    success_rate, std_success_rate = compute_smooted_mean_and_std(data.success_rate, window_size=ma_window_size)
-    actor_expl_std, std_actor_expl_std = compute_smooted_mean_and_std(data.actor_expl_std, window_size=ma_window_size)
+    success_rate, std_success_rate = compute_smooted_mean_and_std(
+        data.success_rate, window_size=ma_window_size
+    )
+    actor_expl_std, std_actor_expl_std = compute_smooted_mean_and_std(
+        data.actor_expl_std, window_size=ma_window_size
+    )
 
     smoothed_data = rlmpc_logger.SmoothedRLData(
         n_updates=data.n_updates,
@@ -465,7 +517,9 @@ def exponential_moving_average(data: List[float], alpha: float = 0.9) -> List[fl
     return ema
 
 
-def compute_smooted_mean_and_std(data: List[float], window_size: int = 10) -> Tuple[List[float], List[float]]:
+def compute_smooted_mean_and_std(
+    data: List[float], window_size: int = 10
+) -> Tuple[List[float], List[float]]:
     mean = np.convolve(data, np.ones((window_size,)) / window_size, mode="valid")
     std = [np.std(mean[max(0, i - window_size + 1) : i + 1]) for i in range(len(mean))]
 
@@ -473,7 +527,9 @@ def compute_smooted_mean_and_std(data: List[float], window_size: int = 10) -> Tu
 
 
 def extract_reward_data(
-    data: List[colav_logger.EpisodeData], ma_window_size: int = 10, scale_reward_components: bool = False
+    data: List[colav_logger.EpisodeData],
+    ma_window_size: int = 10,
+    scale_reward_components: bool = False,
 ) -> Dict[str, Any]:
     """Extracts reward metrics from the environment data.
 
@@ -498,17 +554,37 @@ def extract_reward_data(
     for env_idx, env_data in enumerate(data):
         if not (env_idx % 5 == 0):
             continue
-        return_colreg_ep = np.sum([r["r_colreg"] for r in env_data.reward_components]) / r_scale
-        return_colav_ep = np.sum([r["r_collision_avoidance"] for r in env_data.reward_components]) / r_scale
-        return_antigrounding_ep = np.sum([r["r_antigrounding"] for r in env_data.reward_components]) / r_scale
+        return_colreg_ep = (
+            np.sum([r["r_colreg"] for r in env_data.reward_components]) / r_scale
+        )
+        return_colav_ep = (
+            np.sum([r["r_collision_avoidance"] for r in env_data.reward_components])
+            / r_scale
+        )
+        return_antigrounding_ep = (
+            np.sum([r["r_antigrounding"] for r in env_data.reward_components]) / r_scale
+        )
         return_trajectory_tracking_ep = (
-            np.sum([r["r_trajectory_tracking"] for r in env_data.reward_components]) / r_scale
+            np.sum([r["r_trajectory_tracking"] for r in env_data.reward_components])
+            / r_scale
         )
         return_readily_apparent_maneuvering_ep = (
-            np.sum([r["r_readily_apparent_maneuvering"] for r in env_data.reward_components]) / r_scale
+            np.sum(
+                [
+                    r["r_readily_apparent_maneuvering"]
+                    for r in env_data.reward_components
+                ]
+            )
+            / r_scale
         )
-        return_action_chatter = np.sum([r["r_action_chatter"] for r in env_data.reward_components]) / r_scale
-        return_dnn_pp = np.sum([r["r_dnn_parameters"] for r in env_data.reward_components]) / r_scale
+        return_action_chatter = (
+            np.sum([r["r_action_chatter"] for r in env_data.reward_components])
+            / r_scale
+        )
+        return_dnn_pp = (
+            np.sum([r["r_dnn_parameters"] for r in env_data.reward_components])
+            / r_scale
+        )
 
         r_colreg.append(return_colreg_ep)
         r_colav.append(return_colav_ep)
@@ -520,18 +596,28 @@ def extract_reward_data(
         ep_lengths.append(env_data.timesteps)
         rewards.append(env_data.cumulative_reward)
 
-    rewards_smoothed, std_rewards_smoothed = compute_smooted_mean_and_std(rewards, ma_window_size)
+    rewards_smoothed, std_rewards_smoothed = compute_smooted_mean_and_std(
+        rewards, ma_window_size
+    )
     r_colreg, std_r_colreg = compute_smooted_mean_and_std(r_colreg, ma_window_size)
     r_colav, std_r_colav = compute_smooted_mean_and_std(r_colav, ma_window_size)
-    r_antigrounding, std_r_antigrounding = compute_smooted_mean_and_std(r_antigrounding, ma_window_size)
+    r_antigrounding, std_r_antigrounding = compute_smooted_mean_and_std(
+        r_antigrounding, ma_window_size
+    )
     r_trajectory_tracking, std_r_trajectory_tracking = compute_smooted_mean_and_std(
         r_trajectory_tracking, ma_window_size
     )
-    r_ra_maneuvering, std_r_ra_maneuvering = compute_smooted_mean_and_std(r_ra_maneuvering, ma_window_size)
-    r_action_chatter, std_r_action_chatter = compute_smooted_mean_and_std(r_action_chatter, ma_window_size)
+    r_ra_maneuvering, std_r_ra_maneuvering = compute_smooted_mean_and_std(
+        r_ra_maneuvering, ma_window_size
+    )
+    r_action_chatter, std_r_action_chatter = compute_smooted_mean_and_std(
+        r_action_chatter, ma_window_size
+    )
     r_dnn_pp, std_r_dnn_pp = compute_smooted_mean_and_std(r_dnn_pp, ma_window_size)
 
-    ep_lengths_smoothed, std_ep_lengths_smoothed = compute_smooted_mean_and_std(ep_lengths, ma_window_size)
+    ep_lengths_smoothed, std_ep_lengths_smoothed = compute_smooted_mean_and_std(
+        ep_lengths, ma_window_size
+    )
 
     out = {
         "rewards": rewards,
@@ -558,7 +644,9 @@ def extract_reward_data(
     return out
 
 
-def make_grid_for_tensorboard(batch_images, reconstructed_images, semantic_masks, n_rows: int = 2) -> torch.Tensor:
+def make_grid_for_tensorboard(
+    batch_images, reconstructed_images, semantic_masks, n_rows: int = 2
+) -> torch.Tensor:
     """Create grid of images to show in tensorboard.
 
     Args:
@@ -618,7 +706,9 @@ def create_los_based_trajectory(
         u = controller.compute_inputs(references, xs_k, dt)
         inputs.append(u)
         w = None
-        xs_k = sim_integrators.erk4_integration_step(model.dynamics, model.bounds, xs_k, u, w, dt)
+        xs_k = sim_integrators.erk4_integration_step(
+            model.dynamics, model.bounds, xs_k, u, w, dt
+        )
 
         dist2goal = np.linalg.norm(xs_k[0:2] - waypoints[:, -1])
         t += dt
@@ -633,7 +723,12 @@ def create_los_based_trajectory(
 
 
 def interpolate_solution(
-    trajectory: np.ndarray, inputs: np.ndarray, slacks: Optional[np.ndarray], dt_sim: float, T_mpc: float, dt_mpc: float
+    trajectory: np.ndarray,
+    inputs: np.ndarray,
+    slacks: Optional[np.ndarray],
+    dt_sim: float,
+    T_mpc: float,
+    dt_mpc: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Interpolates the solution from the MPC to the time step in the simulation.
 
@@ -660,18 +755,21 @@ def interpolate_solution(
         intp_trajectory = np.zeros((nx, n_samples))
         intp_inputs = np.zeros((nu, n_samples - 1))
         for dim in range(nx):
-            intp_trajectory[dim, :] = interp1d(mpc_times, trajectory[dim, :], kind="linear", fill_value="extrapolate")(
-                sim_times
-            )
+            intp_trajectory[dim, :] = interp1d(
+                mpc_times, trajectory[dim, :], kind="linear", fill_value="extrapolate"
+            )(sim_times)
         for dim in range(nu):
-            intp_inputs[dim, :] = interp1d(mpc_times[:-1], inputs[dim, :], kind="linear", fill_value="extrapolate")(
-                sim_times[:-1]
-            )
+            intp_inputs[dim, :] = interp1d(
+                mpc_times[:-1], inputs[dim, :], kind="linear", fill_value="extrapolate"
+            )(sim_times[:-1])
     return intp_trajectory, intp_inputs, intp_slacks
 
 
 def shift_nominal_plan(
-    nominal_trajectory: np.ndarray, nominal_inputs: np.ndarray, ownship_state: np.ndarray, N: int
+    nominal_trajectory: np.ndarray,
+    nominal_inputs: np.ndarray,
+    ownship_state: np.ndarray,
+    N: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Updates the nominal trajectory and inputs to the MPC based on the current ownship state. This is done by
     find closest point on nominal trajectory to the current state and then shifting the nominal trajectory to this point
@@ -690,7 +788,9 @@ def shift_nominal_plan(
     closest_idx = int(
         np.argmin(
             np.linalg.norm(
-                nominal_trajectory[:2, :] - np.tile(ownship_state[:2], (len(nominal_trajectory[0, :]), 1)).T, axis=0
+                nominal_trajectory[:2, :]
+                - np.tile(ownship_state[:2], (len(nominal_trajectory[0, :]), 1)).T,
+                axis=0,
             )
         )
     )
@@ -699,17 +799,24 @@ def shift_nominal_plan(
     n_samples = shifted_nominal_trajectory.shape[1]
     if n_samples == 0:  # Done with following nominal trajectory, stop
         shifted_nominal_trajectory = np.tile(
-            np.array([ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]), (N + 1, 1)
+            np.array(
+                [ownship_state[0], ownship_state[1], ownship_state[2], 0.0, 0.0, 0.0]
+            ),
+            (N + 1, 1),
         ).T
         shifted_nominal_inputs = np.zeros((nu, N))
     elif n_samples < N + 1:
         shifted_nominal_trajectory = np.zeros((nx, N + 1))
-        shifted_nominal_trajectory[:, :n_samples] = nominal_trajectory[:, closest_idx : closest_idx + n_samples]
+        shifted_nominal_trajectory[:, :n_samples] = nominal_trajectory[
+            :, closest_idx : closest_idx + n_samples
+        ]
         shifted_nominal_trajectory[:, n_samples:] = np.tile(
             nominal_trajectory[:, closest_idx + n_samples - 1], (N + 1 - n_samples, 1)
         ).T
         shifted_nominal_inputs = np.zeros((nu, N))
-        shifted_nominal_inputs[:, : n_samples - 1] = nominal_inputs[:, closest_idx : closest_idx + n_samples - 1]
+        shifted_nominal_inputs[:, : n_samples - 1] = nominal_inputs[
+            :, closest_idx : closest_idx + n_samples - 1
+        ]
         shifted_nominal_inputs[:, n_samples - 1 :] = np.tile(
             nominal_inputs[:, closest_idx + n_samples - 2], (N - n_samples + 1, 1)
         ).T
@@ -741,7 +848,9 @@ def decision_trajectories_from_solution(
         if k < N:
             U[:, k] = soln[k * nu : (k + 1) * nu].ravel()
         X[:, k] = soln[N * nu + k * nx : N * nu + (k + 1) * nx].ravel()
-        Sigma[:, k] = soln[N * nu + (N + 1) * nx + k * ns : N * nu + (N + 1) * nx + (k + 1) * ns].ravel()
+        Sigma[:, k] = soln[
+            N * nu + (N + 1) * nx + k * ns : N * nu + (N + 1) * nx + (k + 1) * ns
+        ].ravel()
     return U, X, Sigma
 
 
@@ -766,7 +875,9 @@ def ndarray_to_linestring(array: np.ndarray) -> geometry.LineString:
     Returns:
         LineString: Any LineString object
     """
-    assert array.shape[0] == 2 and array.shape[1] > 1, "Array must be 2 x n_samples with n_samples > 1"
+    assert array.shape[0] == 2 and array.shape[1] > 1, (
+        "Array must be 2 x n_samples with n_samples > 1"
+    )
     return geometry.LineString(list(zip(array[0, :], array[1, :])))
 
 
@@ -838,13 +949,17 @@ def load_rrt_solution(save_file: pathlib.Path = dp.rrt_solution) -> dict:
     return fu.read_yaml_into_dict(save_file)
 
 
-def save_rrt_solution(rrt_solution: dict, save_file: pathlib.Path = dp.rrt_solution) -> None:
+def save_rrt_solution(
+    rrt_solution: dict, save_file: pathlib.Path = dp.rrt_solution
+) -> None:
     save_file.touch(exist_ok=True)
     with save_file.open(mode="w") as file:
         yaml.dump(rrt_solution, file)
 
 
-def translate_dynamic_obstacle_coordinates(dynamic_obstacles: list, x_shift: float, y_shift: float) -> list:
+def translate_dynamic_obstacle_coordinates(
+    dynamic_obstacles: list, x_shift: float, y_shift: float
+) -> list:
     """Translates the coordinates of a list of dynamic obstacles by (-y_shift, -x_shift)
 
     Args:
@@ -949,7 +1064,9 @@ def create_ellipse(
     return ellipse_xy[0, :].tolist(), ellipse_xy[1, :].tolist()
 
 
-def create_probability_ellipse(P: np.ndarray, probability: float = 0.99) -> Tuple[list, list]:
+def create_probability_ellipse(
+    P: np.ndarray, probability: float = 0.99
+) -> Tuple[list, list]:
     """Creates a probability ellipse for a covariance matrix P and a given
     confidence level (default 0.99).
 
@@ -1062,7 +1179,9 @@ def plot_surface_approximation_stuff(
 
     if polygon_index == 8:
         polygon_diff = ops.split(
-            relevant_coastline_safety.buffer(10.0, cap_style=cap_style, join_style=join_style),
+            relevant_coastline_safety.buffer(
+                10.0, cap_style=cap_style, join_style=join_style
+            ),
             geometry.LineString(original_polygon.exterior.coords),
         )
         geom = polygon_diff.geoms[1]
@@ -1080,8 +1199,12 @@ def plot_surface_approximation_stuff(
         buffer = 5.0
         npy = int((poly_max_east + 2 * buffer - poly_min_east) / grid_resolution_y)
         npx = int((poly_max_north + 2 * buffer - poly_min_north) / grid_resolution_x)
-        north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=npx)
-        east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=npy)
+        north_coords = np.linspace(
+            start=poly_min_north - buffer, stop=poly_max_north + buffer, num=npx
+        )
+        east_coords = np.linspace(
+            start=poly_min_east - buffer, stop=poly_max_east + buffer, num=npy
+        )
 
         Y, X = np.meshgrid(east_coords, north_coords, indexing="ij")
         map_coords = np.hstack((Y.reshape(-1, 1), X.reshape(-1, 1)))
@@ -1116,7 +1239,9 @@ def plot_surface_approximation_stuff(
                 ):
                     continue
 
-                if polygon_index == 8 and not geometry.Point(east_coord, north_coord).within(geom):
+                if polygon_index == 8 and not geometry.Point(
+                    east_coord, north_coord
+                ).within(geom):
                     continue
 
                 if polygon_index == 8 and north_coord < 215.0 and east_coord < 324.8:
@@ -1127,25 +1252,40 @@ def plot_surface_approximation_stuff(
 
                 if (
                     mask[i, ii] > 0.0
-                    and radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) <= 0.0 + epsilon
+                    and radial_basis_function(
+                        np.array([north_coord, east_coord]).reshape((1, 2))
+                    )
+                    <= 0.0 + epsilon
                 ) or (
                     mask[i, ii] <= 0.0
-                    and radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0 + epsilon
+                    and radial_basis_function(
+                        np.array([north_coord, east_coord]).reshape((1, 2))
+                    )
+                    > 0.0 + epsilon
                 ):
                     # if mask[i, ii] - radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))) > 0.0:
                     #    print("Error: ", mask[i, ii] - radial_basis_function(np.array([north_coord, east_coord]).reshape((1, 2))))
-                    d2poly = polygon_safety.distance(geometry.Point(east_coord, north_coord))
+                    d2poly = polygon_safety.distance(
+                        geometry.Point(east_coord, north_coord)
+                    )
                     dist_surface_points[i, ii] = d2poly
                     diff_surface_points[i, ii] = radial_basis_function(
                         np.array([north_coord, east_coord]).reshape((1, 2))
                     )
-        print("polygon_index = {polygon_index} |Max distance of error: ", np.max(dist_surface_points))
+        print(
+            "polygon_index = {polygon_index} |Max distance of error: ",
+            np.max(dist_surface_points),
+        )
 
         n_points = len(x_surface)
         actual_dataset_error = np.zeros(n_points)
         for i, (north_coord, east_coord) in enumerate(zip(x_surface, y_surface)):
-            point = np.array([north_coord + 0.000001, east_coord + 0.000001]).reshape(1, 2)
-            actual_dataset_error[i] = surface_data_point_mask[i] - radial_basis_function(point).full()
+            point = np.array([north_coord + 0.000001, east_coord + 0.000001]).reshape(
+                1, 2
+            )
+            actual_dataset_error[i] = (
+                surface_data_point_mask[i] - radial_basis_function(point).full()
+            )
         mean_error = np.mean(dist_surface_points)
         max_error = np.max(dist_surface_points)
         idx_max_error = np.argmax(actual_dataset_error)
@@ -1157,7 +1297,9 @@ def plot_surface_approximation_stuff(
             f"Dataset: Mean 0point crossing error: {mean_error}, Max, idx max error: ({max_error}, {idx_max_error}), Std error: {std_error}"
         )
 
-        Y, X = np.meshgrid(east_coords + map_origin[1], north_coords + map_origin[0], indexing="ij")
+        Y, X = np.meshgrid(
+            east_coords + map_origin[1], north_coords + map_origin[0], indexing="ij"
+        )
         # Y, X = np.meshgrid(east_coords, north_coords, indexing="ij")
         # ax5.plot_surface(Y, X, dist_surface_points, rcount=100, ccount=100, cmap=cm.coolwarm)
         # # ax5.contourf(Y, X, mask.T, zdir="z", offset=50.0, cmap=cm.coolwarm)
@@ -1167,7 +1309,9 @@ def plot_surface_approximation_stuff(
 
         y_surface_orig, x_surface_orig = surface_data_points_before_buffering
         fig6, ax6 = plt.subplots()
-        pc6 = ax6.pcolormesh(Y, X, dist_surface_points, shading="gouraud", rasterized=True)
+        pc6 = ax6.pcolormesh(
+            Y, X, dist_surface_points, shading="gouraud", rasterized=True
+        )
         ax6.plot(y_surface_orig + map_origin[1], x_surface_orig + map_origin[0], "k")
         # ax6.plot(y_surface_orig, x_surface_orig, "k")
         cbar6 = fig6.colorbar(pc6)
@@ -1177,8 +1321,12 @@ def plot_surface_approximation_stuff(
 
     buffer = 200.0
     n_points = 100
-    extra_north_coords = np.linspace(start=poly_min_north - buffer, stop=poly_max_north + buffer, num=n_points)
-    extra_east_coords = np.linspace(start=poly_min_east - buffer, stop=poly_max_east + buffer, num=n_points)
+    extra_north_coords = np.linspace(
+        start=poly_min_north - buffer, stop=poly_max_north + buffer, num=n_points
+    )
+    extra_east_coords = np.linspace(
+        start=poly_min_east - buffer, stop=poly_max_east + buffer, num=n_points
+    )
 
     surface_points = np.zeros((n_points, n_points))
     surface_grad_points = np.zeros((n_points, n_points, 2))
@@ -1186,8 +1334,14 @@ def plot_surface_approximation_stuff(
         for ii, north_coord in enumerate(extra_north_coords):
             point = np.array([north_coord, east_coord]).reshape(1, 2)
             surface_points[i, ii] = radial_basis_function(point).full()
-            surface_grad_points[i, ii, :] = radial_basis_function_gradient(point).full().flatten()
-    yY, xX = np.meshgrid(extra_east_coords + map_origin[1], extra_north_coords + map_origin[0], indexing="ij")
+            surface_grad_points[i, ii, :] = (
+                radial_basis_function_gradient(point).full().flatten()
+            )
+    yY, xX = np.meshgrid(
+        extra_east_coords + map_origin[1],
+        extra_north_coords + map_origin[0],
+        indexing="ij",
+    )
 
     print(f"Number of gradient NaNs: {np.count_nonzero(np.isnan(surface_grad_points))}")
 
@@ -1200,7 +1354,12 @@ def plot_surface_approximation_stuff(
 
     fig2, ax2 = plt.subplots()
     ax2.pcolormesh(yY, xX, surface_points, shading="gouraud")
-    p = ax2.scatter(y_surface + map_origin[1], x_surface + map_origin[0], c=np.array(surface_data_point_mask), ec="k")
+    p = ax2.scatter(
+        y_surface + map_origin[1],
+        x_surface + map_origin[0],
+        c=np.array(surface_data_point_mask),
+        ec="k",
+    )
     cbar4 = fig2.colorbar(p)
     # cbar4.set_label(r"$h_j(\bm{\zeta})$")
     ax2.set_xlabel("East [m]")

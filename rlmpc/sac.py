@@ -1,11 +1,11 @@
 """
-    sac.py
+sac.py
 
-    Summary:
-        Soft Actor-Critic (SAC) implementation for the mid-level MPC.
+Summary:
+    Soft Actor-Critic (SAC) implementation for the mid-level MPC.
 
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import pathlib
@@ -22,7 +22,12 @@ import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
-from stable_baselines3.common.utils import get_parameters_by_name, polyak_update, set_random_seed, update_learning_rate
+from stable_baselines3.common.utils import (
+    get_parameters_by_name,
+    polyak_update,
+    set_random_seed,
+    update_learning_rate,
+)
 from stable_baselines3.sac.policies import ContinuousCritic
 from torch.nn import functional as F
 
@@ -99,7 +104,10 @@ class SAC(opa.OffPolicyAlgorithm):
 
     def __init__(
         self,
-        policy: Type[rlmpc_policies.SACPolicyWithMPC | rlmpc_policies.SACMPCParameterProviderActor],
+        policy: Type[
+            rlmpc_policies.SACPolicyWithMPC
+            | rlmpc_policies.SACMPCParameterProviderActor
+        ],
         env: Union[GymEnv, str],
         learning_rate: Union[float, Schedule] = 3e-4,
         buffer_size: int = 1_000,  # 1e6
@@ -127,7 +135,9 @@ class SAC(opa.OffPolicyAlgorithm):
         if policy_kwargs is None:
             policy_kwargs = {"features_extractor_kwargs": {"batch_size": batch_size}}
         else:
-            policy_kwargs.update({"features_extractor_kwargs": {"batch_size": batch_size}})
+            policy_kwargs.update(
+                {"features_extractor_kwargs": {"batch_size": batch_size}}
+            )
 
         if isinstance(policy, rlmpc_policies.SACPolicyWithMPC):
             observation_type = env.unwrapped.observation_type
@@ -179,11 +189,15 @@ class SAC(opa.OffPolicyAlgorithm):
         self._create_aliases()
         # Running mean and running var
         self.batch_norm_stats = get_parameters_by_name(self.critic, ["running_"])
-        self.batch_norm_stats_target = get_parameters_by_name(self.critic_target, ["running_"])
+        self.batch_norm_stats_target = get_parameters_by_name(
+            self.critic_target, ["running_"]
+        )
         # Target entropy is used when learning the entropy coefficient
         if self.target_entropy == "auto":
             # automatically set target entropy if needed
-            self.target_entropy = float(-np.prod(self.env.action_space.shape).astype(np.float32))  # type: ignore
+            self.target_entropy = float(
+                -np.prod(self.env.action_space.shape).astype(np.float32)
+            )  # type: ignore
         else:
             # Force conversion
             # this will also throw an error for unexpected string
@@ -197,19 +211,27 @@ class SAC(opa.OffPolicyAlgorithm):
             init_value = 0.01
             if "_" in self.ent_coef:
                 init_value = float(self.ent_coef.split("_")[1])
-                assert init_value > 0.0, "The initial value of ent_coef must be greater than 0"
+                assert init_value > 0.0, (
+                    "The initial value of ent_coef must be greater than 0"
+                )
 
             # Note: we optimize the log of the entropy coeff which is slightly different from the paper
             # as discussed in https://github.com/rail-berkeley/softlearning/issues/37
-            self.log_ent_coef = th.log(th.ones(1, device=self.device) * init_value).requires_grad_(True)
-            self.ent_coef_optimizer = th.optim.Adam([self.log_ent_coef], lr=self.lr_schedule(1))
+            self.log_ent_coef = th.log(
+                th.ones(1, device=self.device) * init_value
+            ).requires_grad_(True)
+            self.ent_coef_optimizer = th.optim.Adam(
+                [self.log_ent_coef], lr=self.lr_schedule(1)
+            )
         else:
             # Force conversion to float
             # this will throw an error if a malformed string (different from 'auto')
             # is passed
             self.ent_coef_tensor = th.tensor(float(self.ent_coef), device=self.device)
 
-    def load_critics(self, path: pathlib.Path, critic_arch: Optional[List[int]] = None) -> None:
+    def load_critics(
+        self, path: pathlib.Path, critic_arch: Optional[List[int]] = None
+    ) -> None:
         """Loads the model critics.
 
         Args:
@@ -222,7 +244,9 @@ class SAC(opa.OffPolicyAlgorithm):
             self._create_aliases()
 
         self.critic.load_state_dict(th.load(pathlib.Path(str(path) + "_critic.pth")))
-        self.critic_target.load_state_dict(th.load(pathlib.Path(str(path) + "_critic_target.pth")))
+        self.critic_target.load_state_dict(
+            th.load(pathlib.Path(str(path) + "_critic_target.pth"))
+        )
         self.critic.to(self.device)
         self.critic_target.to(self.device)
 
@@ -233,7 +257,10 @@ class SAC(opa.OffPolicyAlgorithm):
             path (pathlib.Path): The path to save the critics (2 files), includes the base model name.
         """
         th.save(self.critic.state_dict(), pathlib.Path(str(path) + "_critic.pth"))
-        th.save(self.critic_target.state_dict(), pathlib.Path(str(path) + "_critic_target.pth"))
+        th.save(
+            self.critic_target.state_dict(),
+            pathlib.Path(str(path) + "_critic_target.pth"),
+        )
 
     def custom_save(self, path: pathlib.Path) -> None:
         """Saves the model parameters (NN critic and MPC actor)
@@ -244,7 +271,10 @@ class SAC(opa.OffPolicyAlgorithm):
         self.save_critics(path=path)
         th.save(self.log_ent_coef, pathlib.Path(str(path) + "_log_ent_coef.pth"))
         # self.actor.mpc.save_params(pathlib.Path(str(path) + "_actor.yaml"))
-        th.save(self.actor.mpc_param_provider.state_dict(), pathlib.Path(str(path) + "_mpc_param_provider.pth"))
+        th.save(
+            self.actor.mpc_param_provider.state_dict(),
+            pathlib.Path(str(path) + "_mpc_param_provider.pth"),
+        )
 
     def inplace_load(self, path: pathlib.Path) -> None:
         """Loads the model parameters (NN critic and MPC actor)
@@ -262,14 +292,24 @@ class SAC(opa.OffPolicyAlgorithm):
         self.critic = self.policy.critic
         self.critic_target = self.policy.critic_target
 
-    def extract_mpc_param_provider_inputs(self, replay_data: rlmpc_buffers.ReplayBufferSamples) -> th.Tensor:
+    def extract_mpc_param_provider_inputs(
+        self, replay_data: rlmpc_buffers.ReplayBufferSamples
+    ) -> th.Tensor:
         actor_dnn_feature_inputs = th.from_numpy(
-            np.array([info["actor_info"]["dnn_input_features"] for info in replay_data.infos], dtype=np.float32)
+            np.array(
+                [
+                    info["actor_info"]["dnn_input_features"]
+                    for info in replay_data.infos
+                ],
+                dtype=np.float32,
+            )
         )
         dnn_input = actor_dnn_feature_inputs
         return dnn_input
 
-    def train(self, gradient_steps: int, batch_size: int = 64, disable_log: bool = False) -> None:
+    def train(
+        self, gradient_steps: int, batch_size: int = 64, disable_log: bool = False
+    ) -> None:
         # Switch to train mode (this affects batch norm / dropout)
         batch_start_time = time.time()
 
@@ -287,15 +327,25 @@ class SAC(opa.OffPolicyAlgorithm):
         mean_actor_grad_norm = 0.0
         mean_mpc_param_grad_norm = 0.0
         for gradient_step in range(gradient_steps):
-            replay_data = self.replay_buffer.sample(batch_size, env=self._vec_normalize_env)  # type: ignore[union-attr]
+            replay_data = self.replay_buffer.sample(
+                batch_size, env=self._vec_normalize_env
+            )  # type: ignore[union-attr]
 
             # Action by the current actor for the sampled state
             # reparameterization trick
             norm_mpc_actions = th.from_numpy(
-                np.array([info["actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32)
+                np.array(
+                    [
+                        info["actor_info"]["norm_mpc_action"]
+                        for info in replay_data.infos
+                    ],
+                    dtype=np.float32,
+                )
             ).to(self.device)
             sampled_actions, sampled_log_prob = self.sample_actions(
-                observations=replay_data.observations, mpc_actions=norm_mpc_actions, infos=replay_data.infos
+                observations=replay_data.observations,
+                mpc_actions=norm_mpc_actions,
+                infos=replay_data.infos,
             )
             sampled_log_prob = sampled_log_prob.reshape(-1, 1)
             sampled_log_prob = th.clamp(sampled_log_prob, min=-20.0, max=1e12)
@@ -306,7 +356,10 @@ class SAC(opa.OffPolicyAlgorithm):
                 # so we don't change it with other losses
                 # see https://github.com/rail-berkeley/softlearning/issues/60
                 ent_coef = th.exp(self.log_ent_coef.detach())
-                ent_coef_loss = -(self.log_ent_coef * (sampled_log_prob + self.target_entropy).detach()).mean()
+                ent_coef_loss = -(
+                    self.log_ent_coef
+                    * (sampled_log_prob + self.target_entropy).detach()
+                ).mean()
                 ent_coef_losses.append(ent_coef_loss.item())
             else:
                 ent_coef = self.ent_coef_tensor
@@ -320,7 +373,9 @@ class SAC(opa.OffPolicyAlgorithm):
                 ent_coef_loss.backward()
                 self.ent_coef_optimizer.step()
 
-            critic_loss = self.train_critics(replay_data=replay_data, gradient_step=gradient_step, ent_coef=ent_coef)
+            critic_loss = self.train_critics(
+                replay_data=replay_data, gradient_step=gradient_step, ent_coef=ent_coef
+            )
             critic_losses.append(critic_loss.item())  # type: ignore[union-attr]
 
             actor_loss, actor_grad, mpc_param_grad_norm = self.train_actor(
@@ -352,23 +407,30 @@ class SAC(opa.OffPolicyAlgorithm):
                 "ent_coef_loss": np.mean(ent_coef_losses),
                 "ent_coef": np.mean(ent_coefs),
                 "batch_processing_time": time.time() - batch_start_time,
-                "time_elapsed": max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
+                "time_elapsed": max(
+                    (time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon
+                ),
                 "n_updates": self._n_updates,
                 "non_optimal_solution_rate": self.non_optimal_solutions_per_episode.mean(),
             }
         )
 
         if not disable_log:
-            self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+            self.logger.record(
+                "train/n_updates", self._n_updates, exclude="tensorboard"
+            )
             self.logger.record("train/ent_coef", np.mean(ent_coefs))
             self.logger.record("train/actor_loss", mean_actor_loss)
             self.logger.record("train/actor_grad_norm", mean_actor_grad_norm)
             self.logger.record("train/mpc_param_grad_norm", mean_mpc_param_grad_norm)
             self.logger.record("train/critic_loss", np.mean(critic_losses))
             self.logger.record("train/ent_coef_loss", np.mean(ent_coef_losses))
-            self.logger.record("train/batch_processing_time", time.time() - batch_start_time)
             self.logger.record(
-                "train/time_elapsed", max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
+                "train/batch_processing_time", time.time() - batch_start_time
+            )
+            self.logger.record(
+                "train/time_elapsed",
+                max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon),
             )
 
     def learn(
@@ -402,7 +464,10 @@ class SAC(opa.OffPolicyAlgorithm):
         return state_dicts, saved_pytorch_variables
 
     def train_critics(
-        self, replay_data: rlmpc_buffers.DictReplayBufferSamples, gradient_step: int, ent_coef: th.Tensor = th.ones(1)
+        self,
+        replay_data: rlmpc_buffers.DictReplayBufferSamples,
+        gradient_step: int,
+        ent_coef: th.Tensor = th.ones(1),
     ) -> th.Tensor:
         """Single-step trains the SAC critics using the input data.
 
@@ -418,14 +483,21 @@ class SAC(opa.OffPolicyAlgorithm):
             actions, next_actions = self.extract_action_info_from_sarsa_buffer(
                 replay_data
             )  # extract expl mpc action and next mean mpc action
-            next_sampled_actions = self.actor.sample_mpc_action(next_actions, device=self.device)
+            next_sampled_actions = self.actor.sample_mpc_action(
+                next_actions, device=self.device
+            )
             self.actor.mpc_action_dist = self.actor.mpc_action_dist.proba_distribution(
                 mean_actions=next_actions, log_std=self.actor.mpc_log_std
             )
-            next_sampled_log_prob = self.actor.mpc_action_dist.log_prob(next_sampled_actions)
+            next_sampled_log_prob = self.actor.mpc_action_dist.log_prob(
+                next_sampled_actions
+            )
 
             # Compute the next Q values: min over all critics targets
-            next_q_values = th.cat(self.critic_target(replay_data.next_observations, next_sampled_actions), dim=1)
+            next_q_values = th.cat(
+                self.critic_target(replay_data.next_observations, next_sampled_actions),
+                dim=1,
+            )
             next_q_values, _ = th.min(next_q_values, dim=1, keepdim=True)
 
             # add entropy term
@@ -435,13 +507,18 @@ class SAC(opa.OffPolicyAlgorithm):
             next_q_values = next_q_values - ent_coef * next_log_prob.reshape(-1, 1)
 
             # td error + entropy term
-            target_q_values = replay_data.rewards + (1.0 - replay_data.dones) * self.gamma * next_q_values
+            target_q_values = (
+                replay_data.rewards
+                + (1.0 - replay_data.dones) * self.gamma * next_q_values
+            )
 
         # Get current Q-values estimates for each critic network
         # using action from the replay buffer
         current_q_values = self.critic(replay_data.observations, actions)
 
-        critic_loss = 0.5 * sum(F.mse_loss(current_q, target_q_values) for current_q in current_q_values)
+        critic_loss = 0.5 * sum(
+            F.mse_loss(current_q, target_q_values) for current_q in current_q_values
+        )
         assert isinstance(critic_loss, th.Tensor)  # for type checker
 
         if critic_loss.item() < 5e4:  # avoid exploding gradients
@@ -450,7 +527,9 @@ class SAC(opa.OffPolicyAlgorithm):
             self.critic.optimizer.step()
 
         if gradient_step % self.target_update_interval == 0:
-            polyak_update(self.critic.parameters(), self.critic_target.parameters(), self.tau)
+            polyak_update(
+                self.critic.parameters(), self.critic_target.parameters(), self.tau
+            )
             # Copy running stats, see GH issue #996
             polyak_update(self.batch_norm_stats, self.batch_norm_stats_target, 1.0)
 
@@ -480,11 +559,15 @@ class SAC(opa.OffPolicyAlgorithm):
         batch_size = sampled_actions.shape[0]
         sampled_actions.requires_grad = True
 
-        q_values_pi_sampled = th.cat(self.critic(replay_data.observations, sampled_actions), dim=1)
+        q_values_pi_sampled = th.cat(
+            self.critic(replay_data.observations, sampled_actions), dim=1
+        )
         min_qf_pi_sampled, _ = th.min(q_values_pi_sampled, dim=1, keepdim=True)
 
         dnn_input = self.extract_mpc_param_provider_inputs(replay_data)
-        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input).to(self.device)
+        dnn_jacobians = self.actor.mpc_param_provider.parameter_jacobian(dnn_input).to(
+            self.device
+        )
 
         alpha = 1.0  # amplification factor for the mpc_param_provider gradients
         actor_loss = 0.0
@@ -495,9 +578,15 @@ class SAC(opa.OffPolicyAlgorithm):
         actor_losses = []
 
         if isinstance(self.actor, rlmpc_policies.SACMPCActor):
-            cov_inv = th.inverse(th.diag(th.exp(self.actor.log_std))).float().to(self.device)
+            cov_inv = (
+                th.inverse(th.diag(th.exp(self.actor.log_std))).float().to(self.device)
+            )
         else:
-            cov_inv = th.inverse(th.diag(th.exp(self.actor.mpc_log_std))).float().to(self.device)
+            cov_inv = (
+                th.inverse(th.diag(th.exp(self.actor.mpc_log_std)))
+                .float()
+                .to(self.device)
+            )
         for b in range(batch_size):
             actor_info = replay_data.infos[b]["actor_info"]
             if not actor_info["optimal"]:
@@ -509,12 +598,16 @@ class SAC(opa.OffPolicyAlgorithm):
             # print(f"da_dp_mpc: {da_dp_mpc.numpy()}")
             da_dp_mpc.requires_grad = False
             d_log_pi_dp = (
-                (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T @ da_dp_mpc @ dnn_jacobians[b]
+                (cov_inv @ (sampled_actions[b] - norm_mpc_actions[b]).reshape(-1, 1)).T
+                @ da_dp_mpc
+                @ dnn_jacobians[b]
             ).reshape(-1)
             d_log_pi_da = -cov_inv @ (sampled_actions[b] - norm_mpc_actions[b])
             df_repar_dp = da_dp_mpc @ dnn_jacobians[b]
 
-            dQ_da = th.autograd.grad(min_qf_pi_sampled[b], sampled_actions, create_graph=True)[0][b]
+            dQ_da = th.autograd.grad(
+                min_qf_pi_sampled[b], sampled_actions, create_graph=True
+            )[0][b]
             dJ_dp = alpha * (
                 ent_coef * d_log_pi_dp + (ent_coef * d_log_pi_da - dQ_da) @ df_repar_dp
             )  # actor loss gradient with indirect RL DNN policy
@@ -538,7 +631,10 @@ class SAC(opa.OffPolicyAlgorithm):
         return actor_loss, actor_grad, mpc_param_grad_norm
 
     def sample_actions(
-        self, observations: th.Tensor, mpc_actions: th.Tensor, infos: List[Dict[str, Any]]
+        self,
+        observations: th.Tensor,
+        mpc_actions: th.Tensor,
+        infos: List[Dict[str, Any]],
     ) -> Tuple[th.Tensor, th.Tensor]:
         """Samples actions from the actor policy, depending on the actor type. Also returns the corresponding log probabilities.
 
@@ -552,9 +648,13 @@ class SAC(opa.OffPolicyAlgorithm):
         """
         if isinstance(self.actor, rlmpc_policies.SACMPCActor):
             sampled_actions = self.actor.sample_action(mpc_actions)
-            sampled_log_prob = self.actor.action_log_prob(observations, actions=sampled_actions, infos=infos)
+            sampled_log_prob = self.actor.action_log_prob(
+                observations, actions=sampled_actions, infos=infos
+            )
         else:
-            sampled_actions = self.actor.sample_mpc_action(mpc_actions, device=self.device)
+            sampled_actions = self.actor.sample_mpc_action(
+                mpc_actions, device=self.device
+            )
             sampled_log_prob = self.actor.mpc_action_log_prob(
                 observations, actions=sampled_actions, infos=infos, device=self.device
             )
@@ -578,9 +678,18 @@ class SAC(opa.OffPolicyAlgorithm):
             actions = replay_data.actions
         elif isinstance(self.actor, rlmpc_policies.SACMPCParameterProviderActor):
             next_actions = th.from_numpy(
-                np.array([info["next_actor_info"]["norm_mpc_action"] for info in replay_data.infos], dtype=np.float32)
+                np.array(
+                    [
+                        info["next_actor_info"]["norm_mpc_action"]
+                        for info in replay_data.infos
+                    ],
+                    dtype=np.float32,
+                )
             ).to(self.device)
             actions = th.from_numpy(
-                np.array([info["actor_info"]["expl_action"] for info in replay_data.infos], dtype=np.float32)
+                np.array(
+                    [info["actor_info"]["expl_action"] for info in replay_data.infos],
+                    dtype=np.float32,
+                )
             ).to(self.device)
         return actions, next_actions

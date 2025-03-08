@@ -6,13 +6,17 @@ import torch
 import yaml
 from rlmpc.policies import MPCParameterDNN
 from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
-from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    CosineAnnealingWarmRestarts,
+    MultiStepLR,
+    ReduceLROnPlateau,
+)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 
 def main(args):
-
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     hidden_dims_list = [
         [512],
@@ -40,7 +44,12 @@ def main(args):
         [1024, 1024, 1024, 1024],
         [2048, 2048, 2048, 2048],
     ]
-    activation_fn_list = [torch.nn.ReLU, torch.nn.SiLU, torch.nn.ELU, torch.nn.LeakyReLU]
+    activation_fn_list = [
+        torch.nn.ReLU,
+        torch.nn.SiLU,
+        torch.nn.ELU,
+        torch.nn.LeakyReLU,
+    ]
     input_dim = 64 + 12 + 5  # this is, excluding the MPC parameters
 
     load_model = False
@@ -49,7 +58,14 @@ def main(args):
     num_epochs = 30
     learning_rate = 5e-5
 
-    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_rlmpc1" / "final_eval_baseline2"
+    data_dir = (
+        Path.home()
+        / "Desktop"
+        / "machine_learning"
+        / "rlmpc"
+        / "sac_rlmpc1"
+        / "final_eval_baseline2"
+    )
     data_filename_list = []
     for i in range(1, 2):
         data_filename = "sac_rlmpc1_final_eval_env_data"
@@ -57,19 +73,27 @@ def main(args):
 
     dataset = torch.utils.data.ConcatDataset(
         [
-            rl_ds.ParameterProviderDataset(env_data_pkl_file=df, data_dir=data_dir, transform=None)
+            rl_ds.ParameterProviderDataset(
+                env_data_pkl_file=df, data_dir=data_dir, transform=None
+            )
             for df in data_filename_list
         ]
     )
 
     train_size = int(0.85 * len(dataset))
     test_size = len(dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    train_dataset, test_dataset = torch.utils.data.random_split(
+        dataset, [train_size, test_size]
+    )
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-    print(f"Training dataset length: {len(train_dataset)} | Test dataset length: {len(test_dataset)}")
-    print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
+    print(
+        f"Training dataset length: {len(train_dataset)} | Test dataset length: {len(test_dataset)}"
+    )
+    print(
+        f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}"
+    )
 
     base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
     log_dir = base_dir / "logs"
@@ -80,7 +104,8 @@ def main(args):
     test_model = True
     if test_model:
         model_file = (
-            Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth"
+            Path.home()
+            / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth"
         )
         model = MPCParameterDNN(
             param_list=["Q_p", "r_safe_do"],
@@ -105,15 +130,24 @@ def main(args):
     for hidden_dims in hidden_dims_list:
         for actfn in activation_fn_list:
             dnn_pp = MPCParameterDNN(
-                param_list=["Q_p", "r_safe_do"], hidden_sizes=hidden_dims, activation_fn=actfn, features_dim=input_dim
+                param_list=["Q_p", "r_safe_do"],
+                hidden_sizes=hidden_dims,
+                activation_fn=actfn,
+                features_dim=input_dim,
             ).to(device)
 
             hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
-            name = f"pretrained_dnn_pp{exp_counter+1}_HD_" + hidden_dims_str + f"_{actfn.__name__}"
+            name = (
+                f"pretrained_dnn_pp{exp_counter + 1}_HD_"
+                + hidden_dims_str
+                + f"_{actfn.__name__}"
+            )
             experiment_path = base_dir / name
 
             writer = SummaryWriter(log_dir=log_dir / name)
-            optimizer = torch.optim.Adam(dnn_pp.parameters(), lr=learning_rate, weight_decay=1e-5)
+            optimizer = torch.optim.Adam(
+                dnn_pp.parameters(), lr=learning_rate, weight_decay=1e-5
+            )
             # T_max = len(train_dataloader) * num_epochs
             # lr_schedule = CosineAnnealingWarmRestarts(optimizer, T_0=7, T_mult=2, eta_min=1e-5)
             lr_schedule = CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=3e-5)
@@ -133,7 +167,9 @@ def main(args):
                 "save_interval": save_interval,
                 "load_model": load_model,
             }
-            with Path(experiment_path / "config.yaml").open(mode="w", encoding="utf-8") as fp:
+            with Path(experiment_path / "config.yaml").open(
+                mode="w", encoding="utf-8"
+            ) as fp:
                 yaml.dump(training_config, fp)
 
             model, opt_loss, opt_train_loss, opt_epoch = train_mpc_param_dnn(

@@ -1,11 +1,11 @@
 """
-    common.py
+common.py
 
-    Summary:
-        Contains common solver functions and configuration objects used by the various MPC-types.
+Summary:
+    Contains common solver functions and configuration objects used by the various MPC-types.
 
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import pathlib
@@ -119,7 +119,10 @@ class SolverConfig:
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        config = SolverConfig(acados=config_dict["acados"], casadi=CasadiSolverOptions.from_dict(config_dict["casadi"]))
+        config = SolverConfig(
+            acados=config_dict["acados"],
+            casadi=CasadiSolverOptions.from_dict(config_dict["casadi"]),
+        )
         return config
 
     def to_dict(self):
@@ -131,27 +134,31 @@ class NLPSensitivities:
     """Class for containing MPC problem sensitivity functions"""
 
     dlag_dw: csd.Function  # Partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}
-    dlag_dp_f: csd.Function  # Partial derivative of the Lagrangian wrt the fixed parameters
-    dlag_dp: csd.Function  # Partial derivative of the Lagrangian wrt the adjustable parameters
-    d2lag_d2w: (
+    dlag_dp_f: (
         csd.Function
-    )  # Second order partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}, i.e. the Hessian
+    )  # Partial derivative of the Lagrangian wrt the fixed parameters
+    dlag_dp: (
+        csd.Function
+    )  # Partial derivative of the Lagrangian wrt the adjustable parameters
+    d2lag_d2w: csd.Function  # Second order partial derivative of the Lagrangian wrt the primal decision variables w = {U, X}, i.e. the Hessian
 
-    da_dp: csd.Function  # Partial derivative of the RL action a wrt the adjustable parameters
+    da_dp: (
+        csd.Function
+    )  # Partial derivative of the RL action a wrt the adjustable parameters
 
     G: csd.Function  # Equality constraints G
     G_jac: csd.Function  # Jacobian of the equality constraints G
     H: csd.Function  # Inequality constraints H
     H_jac: csd.Function  # Jacobian of the inequality constraints H
     r_kkt: csd.Function  # KKT matrix
-    dz_dp: (
+    dz_dp: csd.Function  # Partial derivative of the NLP solution z = (decision variables, multipliers) wrt the adjustable parameters
+    dr_dz: csd.Function  # Partial derivative of the KKT matrix wrt the NLP solution z = (decision variables, multipliers)
+    dr_dp: (
         csd.Function
-    )  # Partial derivative of the NLP solution z = (decision variables, multipliers) wrt the adjustable parameters
-    dr_dz: (
+    )  # Partial derivative of the KKT matrix wrt the adjustable parameters
+    dr_dp_f: (
         csd.Function
-    )  # Partial derivative of the KKT matrix wrt the NLP solution z = (decision variables, multipliers)
-    dr_dp: csd.Function  # Partial derivative of the KKT matrix wrt the adjustable parameters
-    dr_dp_f: csd.Function  # Partial derivative of the KKT matrix wrt the fixed parameters
+    )  # Partial derivative of the KKT matrix wrt the fixed parameters
 
     # See Gros and Zanon "Reinforcement Learning based on MPC and the Stochastic Policy Gradient Method" for info on the below sensitivity functions
     dr_dz_bar: Optional[
@@ -195,15 +202,25 @@ class NLPSensitivities:
             dr_dp_f=input_dict["dr_dp_f"],
             dr_dz_bar=input_dict["dr_dz_bar"] if "dr_dz_bar" in input_dict else None,
             dr_dp_bar=input_dict["dr_dp_bar"] if "dr_dp_bar" in input_dict else None,
-            dr_dp_f_bar=input_dict["dr_dp_f_bar"] if "dr_dp_f_bar" in input_dict else None,
+            dr_dp_f_bar=input_dict["dr_dp_f_bar"]
+            if "dr_dp_f_bar" in input_dict
+            else None,
             d2r_dp_da=input_dict["d2r_dp_da"] if "d2r_dp_da" in input_dict else None,
-            d2r_dp_dz_bar=input_dict["d2r_dp_dz_bar"] if "d2r_dp_dz_bar" in input_dict else None,
-            d2r_dzdz_j_bar=input_dict["d2r_dzdz_j_bar"] if "d2r_dzdz_j_bar" in input_dict else None,
-            d2r_dadz_j_bar=input_dict["d2r_dadz_j_bar"] if "d2r_dadz_j_bar" in input_dict else None,
+            d2r_dp_dz_bar=input_dict["d2r_dp_dz_bar"]
+            if "d2r_dp_dz_bar" in input_dict
+            else None,
+            d2r_dzdz_j_bar=input_dict["d2r_dzdz_j_bar"]
+            if "d2r_dzdz_j_bar" in input_dict
+            else None,
+            d2r_dadz_j_bar=input_dict["d2r_dadz_j_bar"]
+            if "d2r_dadz_j_bar" in input_dict
+            else None,
         )
         return output
 
-    def generate_c_functions(self, only_da_dp: bool = True, path: Optional[pathlib.Path] = None) -> None:
+    def generate_c_functions(
+        self, only_da_dp: bool = True, path: Optional[pathlib.Path] = None
+    ) -> None:
         """Generates C code for the casadi sensitivity functions. SLOW Shit"""
         if path is None:
             path = dp.casadi_code_gen
@@ -238,7 +255,9 @@ def quadratic_cost(var: csd.MX, var_ref: csd.MX, W: csd.MX) -> csd.MX:
     return (var_ref - var).T @ W @ (var_ref - var)
 
 
-def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, csd.MX, csd.MX]:
+def path_following_cost(
+    x: csd.MX, p_ref: csd.MX, Q_p: csd.MX
+) -> Tuple[csd.MX, csd.MX, csd.MX]:
     """Computes the path following cost for an NMPFC COLAV. Assumes the ship model is augmented by the path timing dynamics.
 
     Args:
@@ -251,13 +270,17 @@ def path_following_cost(x: csd.MX, p_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, 
     """
     # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_dot)
     z = csd.vertcat(x[:2], x[5])  # [x, y, s_dot]
-    assert z.shape[0] == p_ref.shape[0], "Path reference and output vector must have the same dimension."
+    assert z.shape[0] == p_ref.shape[0], (
+        "Path reference and output vector must have the same dimension."
+    )
     path_dev_cost = quadratic_cost(z[:2], p_ref[:2], csd.diag(Q_p[:2]))
     path_dot_dev_cost = quadratic_cost(z[2], p_ref[2], Q_p[2])
     return path_dev_cost + path_dot_dev_cost, path_dev_cost, path_dot_dev_cost
 
 
-def path_following_cost_huber(x: csd.MX, x_ref: csd.MX, Q_p: csd.MX) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
+def path_following_cost_huber(
+    x: csd.MX, x_ref: csd.MX, Q_p: csd.MX
+) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
     """Computes the path following cost for an NMPFC COLAV using the Huber loss for position errors. Assumes the ship model is augmented by the path timing dynamics.
 
     Args:
@@ -270,7 +293,9 @@ def path_following_cost_huber(x: csd.MX, x_ref: csd.MX, Q_p: csd.MX) -> Tuple[cs
         Tuple[csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, path derivative dev cost and actual speed deviation cost.
     """
     z = csd.vertcat(x[:2], x[3], x[5])  # [x, y, U, s_dot]
-    assert z.shape[0] == x_ref.shape[0], "Path reference and output vector must have the same dimension."
+    assert z.shape[0] == x_ref.shape[0], (
+        "Path reference and output vector must have the same dimension."
+    )
     path_dev_squared = (z[:2] - x_ref[:2]).T @ (z[:2] - x_ref[:2])
     path_dev_cost = Q_p[0] * huber_loss(path_dev_squared, delta=1.0)
     speed_dev_cost = Q_p[1] * (z[2] - x_ref[2]) ** 2
@@ -310,9 +335,13 @@ def rate_cost(
         Tuple[csd.MX, csd.MX, csd.MX]: Total cost, course cost, speed cost.
     """
     q_chi = alpha_app[0] * r**2 + (1.0 - csd.exp(-(r**2) / alpha_app[1]))
-    q_chi_max = 1.0  # alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
+    q_chi_max = (
+        1.0  # alpha_app[0] * r_max**2 + (1.0 - csd.exp(-(r_max**2) / alpha_app[1]))
+    )
     q_U = alpha_app[2] * a**2 + (1.0 - csd.exp(-(a**2) / alpha_app[3]))
-    q_U_max = 1.0  # alpha_app[2] * a_max**2 + (1.0 - csd.exp(-(a_max**2) / alpha_app[3]))
+    q_U_max = (
+        1.0  # alpha_app[2] * a_max**2 + (1.0 - csd.exp(-(a_max**2) / alpha_app[3]))
+    )
     course_cost = K_app[0] * q_chi / q_chi_max
     speed_cost = K_app[1] * q_U / q_U_max
     return course_cost + speed_cost, course_cost, speed_cost
@@ -365,19 +394,25 @@ def colregs_cost(
         R_chi_do_cr = mf.Rpsi2D_casadi(x_aug_do_cr[2])
         p_rel = R_chi_do_cr.T @ (x[:2] - x_aug_do_cr[:2])
         d_rel_squared = p_rel.T @ p_rel
-        cr_term += cr_potential(p_rel, alpha_cr, y_0_cr) * csd.exp(-d_rel_squared / d_attenuation**2)
+        cr_term += cr_potential(p_rel, alpha_cr, y_0_cr) * csd.exp(
+            -d_rel_squared / d_attenuation**2
+        )
 
         x_aug_do_ho = X_do_ho[i * nx_do : (i + 1) * nx_do]
         R_chi_do_ho = mf.Rpsi2D_casadi(x_aug_do_ho[2])
         p_rel = R_chi_do_ho.T @ (x[:2] - x_aug_do_ho[:2])
         d_rel_squared = p_rel.T @ p_rel
-        ho_term += ho_potential(p_rel, alpha_ho, x_0_ho) * csd.exp(-d_rel_squared / d_attenuation**2)
+        ho_term += ho_potential(p_rel, alpha_ho, x_0_ho) * csd.exp(
+            -d_rel_squared / d_attenuation**2
+        )
 
         x_aug_do_ot = X_do_ot[i * nx_do : (i + 1) * nx_do]
         R_chi_do_ot = mf.Rpsi2D_casadi(x_aug_do_ot[2])
         p_rel = R_chi_do_ot.T @ (x[:2] - x_aug_do_ot[:2])
         d_rel_squared = p_rel.T @ p_rel
-        ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * csd.exp(-d_rel_squared / d_attenuation**2)
+        ot_term += ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * csd.exp(
+            -d_rel_squared / d_attenuation**2
+        )
 
     cost = weights[0] * cr_term + weights[1] * ho_term + weights[2] * ot_term
     return cost, weights[0] * cr_term, weights[1] * ho_term, weights[2] * ot_term
@@ -444,9 +479,9 @@ def ot_potential(p: csd.MX, alpha: csd.MX, x_0: csd.MX, y_0: csd.MX) -> csd.MX:
     Returns:
         csd.MX: The potential function value.
     """
-    return potential_field_base_function(-alpha[0] * (x_0 - p[0])) * potential_field_base_function(
-        alpha[1] * csd.fabs(p[1] - y_0)
-    )
+    return potential_field_base_function(
+        -alpha[0] * (x_0 - p[0])
+    ) * potential_field_base_function(alpha[1] * csd.fabs(p[1] - y_0))
 
 
 def plot_casadi_solver_stats(stats: dict, show_plots: bool = True) -> None:

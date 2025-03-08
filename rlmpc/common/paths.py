@@ -1,10 +1,10 @@
 """
-    paths.py
+paths.py
 
-    Summary:
-        Contains paths to default configuration files and schemas.
+Summary:
+    Contains paths to default configuration files and schemas.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import pathlib

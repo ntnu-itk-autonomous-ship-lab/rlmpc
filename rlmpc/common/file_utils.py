@@ -1,12 +1,11 @@
 """
-    file_utils.py
+file_utils.py
 
-    Summary:
-        Contains general non-math related utility functions.
+Summary:
+    Contains general non-math related utility functions.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
-
 
 from pathlib import Path
 

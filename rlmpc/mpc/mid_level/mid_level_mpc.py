@@ -1,10 +1,10 @@
 """
-    risk_based_mpc.py
+risk_based_mpc.py
 
-    Summary:
-        Contains the class for a mid-level risk-aware MPC-based COLAV planner.
+Summary:
+    Contains the class for a mid-level risk-aware MPC-based COLAV planner.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import platform
@@ -31,8 +31,12 @@ ACADOS_COMPATIBLE = True
 @dataclass
 class Config:
     enable_acados: bool = False
-    mpc: mpc_parameters.MidlevelMPCParams = field(default_factory=lambda: mpc_parameters.MidlevelMPCParams())
-    solver_options: common.SolverConfig = field(default_factory=lambda: common.SolverConfig())
+    mpc: mpc_parameters.MidlevelMPCParams = field(
+        default_factory=lambda: mpc_parameters.MidlevelMPCParams()
+    )
+    solver_options: common.SolverConfig = field(
+        default_factory=lambda: common.SolverConfig()
+    )
     model: Type[models.MPCModel] = field(
         default_factory=lambda: models.KinematicCSOGWithAccelerationAndPathtimingParams()
     )
@@ -44,7 +48,9 @@ class Config:
         else:
             model = models.KinematicCSOGWithAccelerationAndPathtiming(
                 models.KinematicCSOGWithAccelerationAndPathtimingParams.from_dict(
-                    config_dict["model"]["kinematic_csog_with_acceleration_and_path_timing"]
+                    config_dict["model"][
+                        "kinematic_csog_with_acceleration_and_path_timing"
+                    ]
                 )
             )
 
@@ -151,11 +157,22 @@ class MidlevelMPC:
         Returns:
             Tuple[int, int, int, int, int]: Input, state, slack dimension (for k != 0), total number of slacks, and g func dimensions.
         """
-        return *self._casadi_mpc.model.dims(), self._casadi_mpc.ns, self._casadi_mpc.ns_total, self._casadi_mpc.dim_g
+        return (
+            *self._casadi_mpc.model.dims(),
+            self._casadi_mpc.ns,
+            self._casadi_mpc.ns_total,
+            self._casadi_mpc.dim_g,
+        )
 
     def construct_ocp(
         self,
-        nominal_path: Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.BSpline, float],
+        nominal_path: Tuple[
+            interp.BSpline,
+            interp.BSpline,
+            interp.PchipInterpolator,
+            interp.BSpline,
+            float,
+        ],
         so_list: list,
         enc: senc.ENC,
         map_origin: np.ndarray = np.array([0.0, 0.0]),
@@ -174,11 +191,17 @@ class MidlevelMPC:
             - tau (Optional[float], optional): Barrier parameter for the primal-dual interior point formulation used in the casadi nlp. Defaults to None.
             - debug (bool, optional): Debug flag. Defaults to False.
         """
-        self._casadi_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, tau, debug)
+        self._casadi_mpc.construct_ocp(
+            nominal_path, so_list, enc, map_origin, min_depth, tau, debug
+        )
         if self._acados_enabled and ACADOS_COMPATIBLE:
-            self._acados_mpc.construct_ocp(nominal_path, so_list, enc, map_origin, min_depth, debug)
+            self._acados_mpc.construct_ocp(
+                nominal_path, so_list, enc, map_origin, min_depth, debug
+            )
 
-    def model_prediction(self, xs: np.ndarray, U: np.ndarray, N: int, p: np.ndarray = np.array([])) -> np.ndarray:
+    def model_prediction(
+        self, xs: np.ndarray, U: np.ndarray, N: int, p: np.ndarray = np.array([])
+    ) -> np.ndarray:
         """Predicts the state trajectory of the system using the model.
 
         Args:
@@ -201,7 +224,9 @@ class MidlevelMPC:
         self._acados_mpc.set_action_indices(action_indices)
         self._casadi_mpc.set_action_indices(action_indices)
 
-    def build_sensitivities(self, tau: Optional[float] = None) -> common.NLPSensitivities:
+    def build_sensitivities(
+        self, tau: Optional[float] = None
+    ) -> common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function with respect to the decision variables and parameters.
 
         Args:
@@ -232,11 +257,15 @@ class MidlevelMPC:
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.set_params(params)
 
-    def decision_trajectories(self, solution: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def decision_trajectories(
+        self, solution: dict
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         U, X, Sigma = self._casadi_mpc.extract_trajectories(solution)
         return U, X, Sigma
 
-    def decision_variables(self, U: np.ndarray, X: np.ndarray, Sigma: np.ndarray) -> np.ndarray:
+    def decision_variables(
+        self, U: np.ndarray, X: np.ndarray, Sigma: np.ndarray
+    ) -> np.ndarray:
         return self._casadi_mpc.decision_variables(U, X, Sigma)
 
     def plan(
@@ -319,26 +348,51 @@ class MidlevelMPC:
             return
 
         if mpc_soln_ac is not None:
-            lam_g_ac = mpc_soln_ac["soln"]["lam_g"].flatten() if self._acados_enabled else np.array([])
-            w_ac = mpc_soln_ac["soln"]["x"].flatten() if self._acados_enabled else np.array([])
+            lam_g_ac = (
+                mpc_soln_ac["soln"]["lam_g"].flatten()
+                if self._acados_enabled
+                else np.array([])
+            )
+            w_ac = (
+                mpc_soln_ac["soln"]["x"].flatten()
+                if self._acados_enabled
+                else np.array([])
+            )
             z_ac = np.concatenate(
                 (
                     mpc_soln_ac["soln"]["x"].flatten(),
                     mpc_soln_ac["soln"]["lam_g"].flatten(),
                 )
             )
-            R_kkt_ac = self.sens.r_kkt(z_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+            R_kkt_ac = self.sens.r_kkt(
+                z_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+            ).full()
             dlag_dw_ac = self.sens.dlag_dw(
-                mpc_soln_ac["soln"]["x"], lam_g_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+                mpc_soln_ac["soln"]["x"],
+                lam_g_ac,
+                mpc_soln_ac["p_fixed"],
+                mpc_soln_ac["p"],
             ).full()
 
-            eq_constr_ac = self.sens.G(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-            eq_jac_ac = self.sens.G_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-            ineq_constr_ac = self.sens.H(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
-            ineq_jac_ac = self.sens.H_jac(w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]).full()
+            eq_constr_ac = self.sens.G(
+                w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+            ).full()
+            eq_jac_ac = self.sens.G_jac(
+                w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+            ).full()
+            ineq_constr_ac = self.sens.H(
+                w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+            ).full()
+            ineq_jac_ac = self.sens.H_jac(
+                w_ac, mpc_soln_ac["p_fixed"], mpc_soln_ac["p"]
+            ).full()
             n_eq_constr = eq_jac_ac.shape[0]
-            active_constraints_ac = np.where(np.abs(np.concatenate((eq_constr_ac, ineq_constr_ac))) < 1e-4)[0]
-            active_constr_jac_ac = np.concatenate((eq_jac_ac, ineq_jac_ac), axis=0)[active_constraints_ac, :]
+            active_constraints_ac = np.where(
+                np.abs(np.concatenate((eq_constr_ac, ineq_constr_ac))) < 1e-4
+            )[0]
+            active_constr_jac_ac = np.concatenate((eq_jac_ac, ineq_jac_ac), axis=0)[
+                active_constraints_ac, :
+            ]
             rank_active_constr_jac_ac = np.linalg.matrix_rank(active_constr_jac_ac)
             max_rank_ac = np.min(active_constr_jac_ac.shape)
         else:
@@ -361,18 +415,35 @@ class MidlevelMPC:
                     mpc_soln_csd["soln"]["lam_g"].flatten(),
                 )
             )
-            R_kkt_csd = self.sens.r_kkt(z_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+            R_kkt_csd = self.sens.r_kkt(
+                z_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+            ).full()
             dlag_dw_csd = self.sens.dlag_dw(
-                mpc_soln_csd["soln"]["x"], lam_g_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+                mpc_soln_csd["soln"]["x"],
+                lam_g_csd,
+                mpc_soln_csd["p_fixed"],
+                mpc_soln_csd["p"],
             ).full()
 
-            eq_constr_csd = self.sens.G(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
-            eq_jac_csd = self.sens.G_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
-            ineq_constr_csd = self.sens.H(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
-            ineq_jac_csd = self.sens.H_jac(w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]).full()
+            eq_constr_csd = self.sens.G(
+                w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+            ).full()
+            eq_jac_csd = self.sens.G_jac(
+                w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+            ).full()
+            ineq_constr_csd = self.sens.H(
+                w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+            ).full()
+            ineq_jac_csd = self.sens.H_jac(
+                w_csd, mpc_soln_csd["p_fixed"], mpc_soln_csd["p"]
+            ).full()
 
-            active_constraints_csd = np.where(np.abs(np.concatenate((eq_constr_csd, ineq_constr_csd))) < 1e-4)[0]
-            active_constr_jac_csd = np.concatenate((eq_jac_csd, ineq_jac_csd), axis=0)[active_constraints_csd, :]
+            active_constraints_csd = np.where(
+                np.abs(np.concatenate((eq_constr_csd, ineq_constr_csd))) < 1e-4
+            )[0]
+            active_constr_jac_csd = np.concatenate((eq_jac_csd, ineq_jac_csd), axis=0)[
+                active_constraints_csd, :
+            ]
             rank_active_constr_jac_csd = np.linalg.matrix_rank(active_constr_jac_csd)
             max_rank_csd = np.min(active_constr_jac_csd.shape)
         else:
@@ -389,7 +460,10 @@ class MidlevelMPC:
         #     print(self._casadi_mpc.g_str_list[active_constraints_ac[dep]])
         print("Checking first order necessary conditions for optimality...: ")
         print(
-            "dlag_dw = 0 condition | acados: ", np.linalg.norm(dlag_dw_ac), " | casadi: ", np.linalg.norm(dlag_dw_csd)
+            "dlag_dw = 0 condition | acados: ",
+            np.linalg.norm(dlag_dw_ac),
+            " | casadi: ",
+            np.linalg.norm(dlag_dw_csd),
         )
         print(
             f"c_i(x*) = 0 for all i in E | acados: {np.all(np.abs(eq_constr_ac) < 1e-4)} | casadi: {np.all(np.abs(eq_constr_csd) < 1e-4)}"

@@ -1,10 +1,10 @@
 """
-    buffers.py
+buffers.py
 
-    Summary:
-        Copy of stable-baselines3/common/buffers.py with some modifications to the ReplayBuffer class to store infos.
+Summary:
+    Copy of stable-baselines3/common/buffers.py with some modifications to the ReplayBuffer class to store infos.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import warnings
@@ -178,7 +178,9 @@ class BaseBuffer(ABC):
         return obs
 
     @staticmethod
-    def _normalize_reward(reward: np.ndarray, env: Optional[VecNormalize] = None) -> np.ndarray:
+    def _normalize_reward(
+        reward: np.ndarray, env: Optional[VecNormalize] = None
+    ) -> np.ndarray:
         if env is not None:
             return env.normalize_reward(reward).astype(np.float32)
         return reward
@@ -214,7 +216,9 @@ class ReplayBuffer(BaseBuffer):
         optimize_memory_usage: bool = False,
         handle_timeout_termination: bool = True,
     ):
-        super().__init__(buffer_size, observation_space, action_space, device, n_envs=n_envs)
+        super().__init__(
+            buffer_size, observation_space, action_space, device, n_envs=n_envs
+        )
 
         # Adjust buffer size
         self.buffer_size = max(buffer_size // n_envs, 1)
@@ -232,21 +236,27 @@ class ReplayBuffer(BaseBuffer):
             )
         self.optimize_memory_usage = optimize_memory_usage
 
-        self.observations = np.zeros((self.buffer_size, self.n_envs, *self.obs_shape), dtype=observation_space.dtype)
+        self.observations = np.zeros(
+            (self.buffer_size, self.n_envs, *self.obs_shape),
+            dtype=observation_space.dtype,
+        )
 
         if optimize_memory_usage:
             # `observations` contains also the next observation
             self.next_observations = None
         else:
             self.next_observations = np.zeros(
-                (self.buffer_size, self.n_envs, *self.obs_shape), dtype=observation_space.dtype
+                (self.buffer_size, self.n_envs, *self.obs_shape),
+                dtype=observation_space.dtype,
             )
 
         self.actions = np.zeros(
-            (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+            (self.buffer_size, self.n_envs, self.action_dim),
+            dtype=self._maybe_cast_dtype(action_space.dtype),
         )
         self.next_actions = np.zeros(
-            (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+            (self.buffer_size, self.n_envs, self.action_dim),
+            dtype=self._maybe_cast_dtype(action_space.dtype),
         )
 
         self.rewards = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
@@ -259,7 +269,10 @@ class ReplayBuffer(BaseBuffer):
 
         if psutil is not None:
             total_memory_usage = (
-                self.observations.nbytes + self.actions.nbytes + self.rewards.nbytes + self.dones.nbytes
+                self.observations.nbytes
+                + self.actions.nbytes
+                + self.rewards.nbytes
+                + self.dones.nbytes
             )
 
             if self.next_observations is not None:
@@ -297,7 +310,9 @@ class ReplayBuffer(BaseBuffer):
         self.observations[self.pos] = np.array(obs).copy()
 
         if self.optimize_memory_usage:
-            self.observations[(self.pos + 1) % self.buffer_size] = np.array(next_obs).copy()
+            self.observations[(self.pos + 1) % self.buffer_size] = np.array(
+                next_obs
+            ).copy()
         else:
             self.next_observations[self.pos] = np.array(next_obs).copy()
 
@@ -308,7 +323,9 @@ class ReplayBuffer(BaseBuffer):
         self.infos[self.pos] = infos
 
         if self.handle_timeout_termination:
-            sample_timeouts = np.array([info.get("TimeLimit.truncated", False) for info in infos])
+            sample_timeouts = np.array(
+                [info.get("TimeLimit.truncated", False) for info in infos]
+            )
             self.timeouts[self.pos] = sample_timeouts
             if sample_timeouts.any():
                 print(f"Timeouts: {sample_timeouts}")
@@ -318,7 +335,9 @@ class ReplayBuffer(BaseBuffer):
             self.full = True
             self.pos = 0
 
-    def sample(self, batch_size: int, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
+    def sample(
+        self, batch_size: int, env: Optional[VecNormalize] = None
+    ) -> ReplayBufferSamples:
         """
         Sample elements from the replay buffer.
         Custom sampling when using memory efficient variant,
@@ -335,12 +354,16 @@ class ReplayBuffer(BaseBuffer):
         # Do not sample the element with index `self.pos` as the transitions is invalid
         # (we use only one array to store `obs` and `next_obs`)
         if self.full:
-            batch_inds = (np.random.randint(1, self.buffer_size, size=batch_size) + self.pos) % self.buffer_size
+            batch_inds = (
+                np.random.randint(1, self.buffer_size, size=batch_size) + self.pos
+            ) % self.buffer_size
         else:
             batch_inds = np.random.randint(0, self.pos, size=batch_size)
         return self._get_samples(batch_inds, env=env)
 
-    def _get_samples(self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None) -> ReplayBufferSamples:
+    def _get_samples(
+        self, batch_inds: np.ndarray, env: Optional[VecNormalize] = None
+    ) -> ReplayBufferSamples:
         # Sample randomly the env idx
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
@@ -356,8 +379,13 @@ class ReplayBuffer(BaseBuffer):
             self.next_actions[batch_inds, env_indices, :],
             # Only use dones that are not due to timeouts
             # deactivated by default (timeouts is initialized as an array of False)
-            (self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])).reshape(-1, 1),
-            self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env),
+            (
+                self.dones[batch_inds, env_indices]
+                * (1 - self.timeouts[batch_inds, env_indices])
+            ).reshape(-1, 1),
+            self._normalize_reward(
+                self.rewards[batch_inds, env_indices].reshape(-1, 1), env
+            ),
             [self.infos[b_idx] for b_idx in batch_inds],
         )
         return ReplayBufferSamples(*tuple(map(self.to_torch, data)))
@@ -406,36 +434,50 @@ class DictReplayBuffer(ReplayBuffer):
         handle_timeout_termination: bool = True,
         disable_action_storage: bool = True,  # used if the infos contain the effective actions (case for the SACMPCParameterProviderPolicy)
     ):
-        super(ReplayBuffer, self).__init__(buffer_size, observation_space, action_space, device, n_envs=n_envs)
+        super(ReplayBuffer, self).__init__(
+            buffer_size, observation_space, action_space, device, n_envs=n_envs
+        )
 
-        assert isinstance(self.obs_shape, dict), "DictReplayBuffer must be used with Dict obs space only"
+        assert isinstance(self.obs_shape, dict), (
+            "DictReplayBuffer must be used with Dict obs space only"
+        )
         self.buffer_size = max(buffer_size // n_envs, 1)
 
         # Check that the replay buffer can fit into the memory
         if psutil is not None:
             mem_available = psutil.virtual_memory().available
 
-        assert optimize_memory_usage is False, "DictReplayBuffer does not support optimize_memory_usage"
+        assert optimize_memory_usage is False, (
+            "DictReplayBuffer does not support optimize_memory_usage"
+        )
         # disabling as this adds quite a bit of complexity
         # https://github.com/DLR-RM/stable-baselines3/pull/243#discussion_r531535702
         self.optimize_memory_usage = optimize_memory_usage
         self.disable_action_storage = disable_action_storage
 
         self.observations = {
-            key: np.zeros((self.buffer_size, self.n_envs, *_obs_shape), dtype=observation_space[key].dtype)
+            key: np.zeros(
+                (self.buffer_size, self.n_envs, *_obs_shape),
+                dtype=observation_space[key].dtype,
+            )
             for key, _obs_shape in self.obs_shape.items()
         }
         self.next_observations = {
-            key: np.zeros((self.buffer_size, self.n_envs, *_obs_shape), dtype=observation_space[key].dtype)
+            key: np.zeros(
+                (self.buffer_size, self.n_envs, *_obs_shape),
+                dtype=observation_space[key].dtype,
+            )
             for key, _obs_shape in self.obs_shape.items()
         }
 
         if not self.disable_action_storage:
             self.actions = np.zeros(
-                (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+                (self.buffer_size, self.n_envs, self.action_dim),
+                dtype=self._maybe_cast_dtype(action_space.dtype),
             )
             self.next_actions = np.zeros(
-                (self.buffer_size, self.n_envs, self.action_dim), dtype=self._maybe_cast_dtype(action_space.dtype)
+                (self.buffer_size, self.n_envs, self.action_dim),
+                dtype=self._maybe_cast_dtype(action_space.dtype),
             )
         else:
             self.actions = np.empty(0)
@@ -460,7 +502,11 @@ class DictReplayBuffer(ReplayBuffer):
             est_info_bytes = self.buffer_size * self.n_envs * 558
 
             total_memory_usage = (
-                obs_nbytes + self.actions.nbytes + self.rewards.nbytes + self.dones.nbytes + est_info_bytes
+                obs_nbytes
+                + self.actions.nbytes
+                + self.rewards.nbytes
+                + self.dones.nbytes
+                + est_info_bytes
             )
             if self.next_observations is not None:
                 next_obs_nbytes = 0
@@ -498,7 +544,9 @@ class DictReplayBuffer(ReplayBuffer):
 
         for key in self.next_observations.keys():
             if isinstance(self.observation_space.spaces[key], spaces.Discrete):
-                next_obs[key] = next_obs[key].reshape((self.n_envs,) + self.obs_shape[key])
+                next_obs[key] = next_obs[key].reshape(
+                    (self.n_envs,) + self.obs_shape[key]
+                )
             self.next_observations[key][self.pos] = np.array(next_obs[key]).copy()
 
         if not self.disable_action_storage:
@@ -512,7 +560,9 @@ class DictReplayBuffer(ReplayBuffer):
         self.infos[self.pos] = infos
 
         if self.handle_timeout_termination:
-            self.timeouts[self.pos] = np.array([info.get("TimeLimit.truncated", False) for info in infos])
+            self.timeouts[self.pos] = np.array(
+                [info.get("TimeLimit.truncated", False) for info in infos]
+            )
 
         self.pos += 1
         if self.pos == self.buffer_size:
@@ -542,17 +592,28 @@ class DictReplayBuffer(ReplayBuffer):
         # Sample randomly the env idx
         env_indices = np.random.randint(0, high=self.n_envs, size=(len(batch_inds),))
 
-        obs_ = {key: obs[batch_inds, env_indices, :] for key, obs in self.observations.items()}
-        next_obs_ = {key: obs[batch_inds, env_indices, :] for key, obs in self.next_observations.items()}
+        obs_ = {
+            key: obs[batch_inds, env_indices, :]
+            for key, obs in self.observations.items()
+        }
+        next_obs_ = {
+            key: obs[batch_inds, env_indices, :]
+            for key, obs in self.next_observations.items()
+        }
 
         # Convert to torch tensor
         observations = {key: self.to_torch(obs) for key, obs in obs_.items()}
         next_observations = {key: self.to_torch(obs) for key, obs in next_obs_.items()}
-        infos = [self.infos[b_idx][env_idx] for b_idx, env_idx in zip(batch_inds, env_indices)]
+        infos = [
+            self.infos[b_idx][env_idx]
+            for b_idx, env_idx in zip(batch_inds, env_indices)
+        ]
         return DictReplayBufferSamples(
             observations=observations,
             actions=(
-                self.to_torch(self.actions[batch_inds, env_indices]) if not self.disable_action_storage else np.empty(0)
+                self.to_torch(self.actions[batch_inds, env_indices])
+                if not self.disable_action_storage
+                else np.empty(0)
             ),
             next_observations=next_observations,
             next_actions=(
@@ -563,8 +624,13 @@ class DictReplayBuffer(ReplayBuffer):
             # Only use dones that are not due to timeouts
             # deactivated by default (timeouts is initialized as an array of False)
             dones=self.to_torch(
-                self.dones[batch_inds, env_indices] * (1 - self.timeouts[batch_inds, env_indices])
+                self.dones[batch_inds, env_indices]
+                * (1 - self.timeouts[batch_inds, env_indices])
             ).reshape(-1, 1),
-            rewards=self.to_torch(self._normalize_reward(self.rewards[batch_inds, env_indices].reshape(-1, 1), env)),
+            rewards=self.to_torch(
+                self._normalize_reward(
+                    self.rewards[batch_inds, env_indices].reshape(-1, 1), env
+                )
+            ),
             infos=infos,
         )

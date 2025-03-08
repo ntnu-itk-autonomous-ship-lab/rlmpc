@@ -30,14 +30,18 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
+    parser.add_argument(
+        "--base_dir",
+        type=str,
+        default=str(Path.home() / "Desktop/machine_learning/rlmpc/"),
+    )
     parser.add_argument("--experiment_name", type=str, default="ppo_nmpc_pp")
     parser.add_argument("--n_training_envs", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
     parser.add_argument("--gae_lambda", type=float, default=0.95)
     parser.add_argument("--ent_coef", type=float, default=0.001)
     parser.add_argument("--n_epochs", type=int, default=10)
-    parser.add_argument("--n_steps", type=int, default=20)
+    parser.add_argument("--n_steps", type=int, default=32)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_eval_episodes", type=int, default=1)
     parser.add_argument("--eval_freq", type=int, default=1000)
@@ -62,14 +66,20 @@ def main(args):
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
     base_dir, log_dir, model_dir = hf.create_data_dirs(
-        base_dir=args.base_dir, experiment_name=args.experiment_name, remove_log_files=False
+        base_dir=args.base_dir,
+        experiment_name=args.experiment_name,
+        remove_log_files=False,
     )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -84,7 +94,9 @@ def main(args):
     }
     env_id = "COLAVEnvironment-v0"
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
@@ -92,7 +104,9 @@ def main(args):
     n_mpc_params = 1 + 1 + 1 + 3
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array(
+        [0.0004, 0.0004]
+    )  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.02 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
@@ -102,7 +116,8 @@ def main(args):
         "deterministic": True,
         "recompile_on_reset": False,
         "disable_mpc_info_storage": True,
-        "acados_code_gen_path": str(base_dir.parents[0]) + f"/{args.experiment_name}/acados_code_gen",
+        "acados_code_gen_path": str(base_dir.parents[0])
+        + f"/{args.experiment_name}/acados_code_gen",
     }
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
@@ -210,9 +225,13 @@ def main(args):
             reset_num_timesteps=reset_num_timesteps,
         )
         timesteps_completed = model.num_timesteps
-        load_model_path = model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
+        load_model_path = (
+            model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
+        )
         model.save(load_model_path)
-        print(f"[PPO RLMPC] Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}")
+        print(
+            f"[PPO RLMPC] Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}"
+        )
         print(
             f"[PPO RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * timesteps_completed / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
         )
@@ -228,7 +247,9 @@ def main(args):
         record_path=base_dir / "eval_data" / "final_eval_videos",
         record_name=args.experiment_name + "_final_eval",
     )
-    print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
+    print(
+        f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}"
+    )
     train_cfg = {
         "n_timsteps_per_learn": args.n_timesteps_per_learn,
         "n_learn_iterations": n_learn_iterations,

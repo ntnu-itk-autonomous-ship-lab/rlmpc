@@ -15,7 +15,14 @@ def test_prediction_of_mpc_dnn() -> None:
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
 
     experiment_name = "sac_rlmpc_pp_eval1"
-    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
+    data_dir = (
+        Path.home()
+        / "Desktop"
+        / "machine_learning"
+        / "rlmpc"
+        / experiment_name
+        / "final_eval"
+    )
     data_filename_list = []
     for i in range(1, 2):
         data_filename = f"{experiment_name}_final_eval_env_data"
@@ -24,7 +31,10 @@ def test_prediction_of_mpc_dnn() -> None:
     dataset = torch.utils.data.ConcatDataset(
         [
             rl_ds.ParameterProviderDataset(
-                env_data_pkl_file=df, data_dir=data_dir, param_list=mpc_param_list, transform=None
+                env_data_pkl_file=df,
+                data_dir=data_dir,
+                param_list=mpc_param_list,
+                transform=None,
             )
             for df in data_filename_list
         ]
@@ -32,7 +42,9 @@ def test_prediction_of_mpc_dnn() -> None:
 
     train_size = int(0.85 * len(dataset))
     test_size = len(dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    train_dataset, test_dataset = torch.utils.data.random_split(
+        dataset, [train_size, test_size]
+    )
 
     actfn_str = "ReLU"
     actfn = getattr(torch.nn, actfn_str)

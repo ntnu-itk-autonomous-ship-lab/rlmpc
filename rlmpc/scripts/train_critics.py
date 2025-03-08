@@ -1,10 +1,10 @@
 """
-    train_soft_critics.py
+train_soft_critics.py
 
-    Summary:
-        This script trains the critic and the target critic softly using replayed interaction data.
+Summary:
+    This script trains the critic and the target critic softly using replayed interaction data.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import time
@@ -71,7 +71,9 @@ def train_critics(
         for batch_idx in range(n_batches):
             batch_start_time = time.time()
             replay_data = model.replay_buffer.sample(batch_size=batch_size)
-            loss = model.train_critics(replay_data=replay_data, gradient_step=batch_idx, ent_coef=ent_coef)
+            loss = model.train_critics(
+                replay_data=replay_data, gradient_step=batch_idx, ent_coef=ent_coef
+            )
             training_batch_losses.append(loss.item())
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
@@ -81,7 +83,7 @@ def train_critics(
                 if verbose:
                     print(
                         f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Train Loss: {loss.item():.4f} | "
-                        f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
+                        f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1):.2f}s"
                     )
 
         if verbose:

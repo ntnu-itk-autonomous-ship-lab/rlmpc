@@ -1,10 +1,10 @@
 """
-    train_sac.py
+train_sac.py
 
-    Summary:
-        This script trains the RL agent using the SAC algorithm.
+Summary:
+    This script trains the RL agent using the SAC algorithm.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from pathlib import Path
@@ -84,7 +84,9 @@ def train_rlmpc_sac(
     else:
         training_env = SubprocVecEnv(
             [
-                hf.make_env(env_id=env_id, env_config=training_env_config, rank=i + 1, seed=seed)
+                hf.make_env(
+                    env_id=env_id, env_config=training_env_config, rank=i + 1, seed=seed
+                )
                 for i in range(n_training_envs)
             ]
         )
@@ -106,7 +108,12 @@ def train_rlmpc_sac(
         eval_env = Monitor(gym.make(id=env_id, **eval_env_config))
     else:
         eval_env = SubprocVecEnv(
-            [hf.make_env(env_id=env_id, env_config=eval_env_config, rank=i + 1, seed=seed) for i in range(n_eval_envs)]
+            [
+                hf.make_env(
+                    env_id=env_id, env_config=eval_env_config, rank=i + 1, seed=seed
+                )
+                for i in range(n_eval_envs)
+            ]
         )
     eval_callback = EvalCallback(
         eval_env,
@@ -147,7 +154,10 @@ def train_rlmpc_sac(
 
     if load_critics:
         print(f"Loading critic at {load_critics_path}")
-        model.load_critics(path=load_critics_path, critic_arch=model_kwargs["policy_kwargs"]["critic_arch"])
+        model.load_critics(
+            path=load_critics_path,
+            critic_arch=model_kwargs["policy_kwargs"]["critic_arch"],
+        )
 
     model.set_random_seed(seed)
     model.learn(

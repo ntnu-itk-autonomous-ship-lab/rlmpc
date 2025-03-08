@@ -1,10 +1,10 @@
 """
-    vae.py
+vae.py
 
-    Summary:
-        Contains the vanilla variational autoencoder (VAE) network for processing and reconstructing images from the environment.
+Summary:
+    Contains the vanilla variational autoencoder (VAE) network for processing and reconstructing images from the environment.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import List, Tuple
@@ -67,9 +67,13 @@ class VAE(nn.Module):
         )
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
-        self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
+        self.logvar_params = Lambda(
+            lambda x: x[:, self.latent_dim :]
+        )  # log variance parameters
 
-    def forward(self, img: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
+    def forward(
+        self, img: th.Tensor
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a reconstructed image based on the input image.
 
         Args:

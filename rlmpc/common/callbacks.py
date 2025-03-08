@@ -1,10 +1,10 @@
 """
-    callbacks.py
+callbacks.py
 
-    Summary:
-        Contains custom callback classes for the RL training process.
+Summary:
+    Contains custom callback classes for the RL training process.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import pickle
@@ -104,7 +104,9 @@ class CollectStatisticsCallback(BaseCallback):
             minimal_logging=minimal_logging,
         )
         self.training_stats_logger: rlmpc_logger.Logger = rlmpc_logger.Logger(
-            experiment_name, self.log_dir, max_num_entries=max_num_training_stats_entries
+            experiment_name,
+            self.log_dir,
+            max_num_entries=max_num_training_stats_entries,
         )
 
         self.img_transform = transforms_v2.Compose(
@@ -139,7 +141,9 @@ class CollectStatisticsCallback(BaseCallback):
         self._num_timesteps_prev_agent_save = self.num_timesteps
         self._num_timesteps_prev_log = self.num_timesteps
 
-    def extract_training_info(self, model: "type_aliases.PolicyPredictor") -> Tuple[Dict[str, Any], bool]:
+    def extract_training_info(
+        self, model: "type_aliases.PolicyPredictor"
+    ) -> Tuple[Dict[str, Any], bool]:
         """Extracts training information from the model.
 
         Args:
@@ -153,7 +157,9 @@ class CollectStatisticsCallback(BaseCallback):
 
         info = {
             "n_updates": model.logger.name_to_value["train/n_updates"],
-            "time_elapsed": max((time.time_ns() - model.start_time) / 1e9, sys.float_info.epsilon),
+            "time_elapsed": max(
+                (time.time_ns() - model.start_time) / 1e9, sys.float_info.epsilon
+            ),
             "batch_processing_time": 0.0,
             "ep_rew_mean": model.logger.name_to_value["train/ep_rew_mean"],
             "actor_loss": model.logger.name_to_value["train/actor_loss"],
@@ -169,7 +175,9 @@ class CollectStatisticsCallback(BaseCallback):
         self.n_updates_prev = info["n_updates"]
         return info, just_trained
 
-    def extract_rollout_info(self, model: "type_aliases.PolicyPredictor") -> Tuple[Dict[str, Any], bool]:
+    def extract_rollout_info(
+        self, model: "type_aliases.PolicyPredictor"
+    ) -> Tuple[Dict[str, Any], bool]:
         if hasattr(model, "last_rollout_info"):
             return model.last_rollout_info, model.just_dumped_rollout_logs
 
@@ -196,7 +204,9 @@ class CollectStatisticsCallback(BaseCallback):
         if np.any(done_array):
             self.n_episodes += np.sum(done_array).item()
 
-        if (self.num_timesteps - self._num_timesteps_prev_log) > self.log_freq or np.any(done_array) > 0:
+        if (
+            self.num_timesteps - self._num_timesteps_prev_log
+        ) > self.log_freq or np.any(done_array) > 0:
             self._num_timesteps_prev_log = self.num_timesteps
             # for env_idx in range(self.num_envs):
             #     if np.any(done_array):  # only one element in done_array for SAC
@@ -208,7 +218,9 @@ class CollectStatisticsCallback(BaseCallback):
             # )
             self.env_data_logger(infos)
 
-            last_rollout_info, just_dumped_rollout_logs = self.extract_rollout_info(self.model)
+            last_rollout_info, just_dumped_rollout_logs = self.extract_rollout_info(
+                self.model
+            )
             if just_dumped_rollout_logs:
                 self.training_stats_logger.update_rollout_metrics(last_rollout_info)
                 if hasattr(self.model, "just_dumped_rollout_logs"):
@@ -231,18 +243,29 @@ class CollectStatisticsCallback(BaseCallback):
             #     self.logger.record("env/frame", sb3_Image(pimg[0, 0], "HW"), exclude=("log", "stdout"))
             #     self.logger.record("env/recon_frame", sb3_Image(recon_frame[0, 0], "HW"), exclude=("log", "stdout"))
 
-        if (self.num_timesteps - self._num_timesteps_prev_agent_save) > self.save_agent_freq:
+        if (
+            self.num_timesteps - self._num_timesteps_prev_agent_save
+        ) > self.save_agent_freq:
             # print("Saving agent after", self.num_timesteps, "timesteps")
             self._num_timesteps_prev_agent_save = self.num_timesteps
             # NMPC SAC model must have a custom_save method
-            self.model.save(self.model_save_path / f"{self.experiment_name}_{self.num_timesteps}_steps")
+            self.model.save(
+                self.model_save_path
+                / f"{self.experiment_name}_{self.num_timesteps}_steps"
+            )
             if hasattr(self.model, "save_replay_buffer"):
-                self.model.save_replay_buffer(self.model_save_path / f"{self.experiment_name}_replay_buffer")
+                self.model.save_replay_buffer(
+                    self.model_save_path / f"{self.experiment_name}_replay_buffer"
+                )
 
-        if (self.num_timesteps - self._num_timesteps_prev_save_stats) > self.save_stats_freq:
+        if (
+            self.num_timesteps - self._num_timesteps_prev_save_stats
+        ) > self.save_stats_freq:
             self._num_timesteps_prev_save_stats = self.num_timesteps
             # print("Saving training data after", self.num_timesteps, "timesteps")
-            self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_training_data")
+            self.env_data_logger.save_as_pickle(
+                f"{self.experiment_name}_env_training_data"
+            )
             self.training_stats_logger.save(f"{self.experiment_name}_training_stats")
 
         self.prev_infos = infos
@@ -363,7 +386,9 @@ class EvalCallback(EventCallback):
     def _on_training_start(self) -> None:
         self._num_timesteps_prev_eval = self.num_timesteps
 
-    def _log_success_callback(self, locals_: Dict[str, Any], globals_: Dict[str, Any]) -> None:
+    def _log_success_callback(
+        self, locals_: Dict[str, Any], globals_: Dict[str, Any]
+    ) -> None:
         """
         Callback passed to the  ``evaluate_policy`` function
         in order to log the success rate (when applicable),
@@ -435,17 +460,23 @@ class EvalCallback(EventCallback):
                     kwargs = dict(successes=self.evaluations_successes)
 
                 np.savez(
-                    self.log_path / f"eval_{self.experiment_name}_{self.num_timesteps}.npz",
+                    self.log_path
+                    / f"eval_{self.experiment_name}_{self.num_timesteps}.npz",
                     timesteps=self.evaluations_timesteps,
                     results=self.evaluations_results,
                     ep_lengths=self.evaluations_length,
                     **kwargs,
                 )
 
-                self.env_data_logger.save_as_pickle(f"{self.experiment_name}_env_eval_data")
+                self.env_data_logger.save_as_pickle(
+                    f"{self.experiment_name}_env_eval_data"
+                )
 
             mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
-            mean_ep_length, std_ep_length = np.mean(episode_lengths), np.std(episode_lengths)
+            mean_ep_length, std_ep_length = (
+                np.mean(episode_lengths),
+                np.std(episode_lengths),
+            )
             self.last_mean_reward = mean_reward
 
             self.logger.record("eval/mean_reward", float(mean_reward))
@@ -458,7 +489,9 @@ class EvalCallback(EventCallback):
                 self.logger.record("eval/success_rate", success_rate)
 
             # Dump log so the evaluation results are printed with the correct timestep
-            self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
+            self.logger.record(
+                "time/total_timesteps", self.num_timesteps, exclude="tensorboard"
+            )
             self.logger.dump(self.num_timesteps)
 
             if mean_reward > self.best_mean_reward:
@@ -475,7 +508,9 @@ class EvalCallback(EventCallback):
             if mean_reward < self.worst_mean_reward:
                 self.worst_mean_reward = mean_reward
                 if self.worst_model_save_path is not None:
-                    self.model.save(Path(self.worst_model_save_path / "worst_model_eval"))
+                    self.model.save(
+                        Path(self.worst_model_save_path / "worst_model_eval")
+                    )
 
             # Trigger callback after every evaluation, if needed
             if self.callback is not None:
@@ -565,7 +600,9 @@ def evaluate_policy(
     if not isinstance(env, VecEnv):
         env = DummyVecEnv([lambda: env])  # type: ignore[list-item, return-value]
 
-    is_monitor_wrapped = is_vecenv_wrapped(env, VecMonitor) or env.env_is_wrapped(Monitor)[0]
+    is_monitor_wrapped = (
+        is_vecenv_wrapped(env, VecMonitor) or env.env_is_wrapped(Monitor)[0]
+    )
 
     if not is_monitor_wrapped and warn:
         warnings.warn(
@@ -583,18 +620,25 @@ def evaluate_policy(
     episode_lengths = []
     episode_counts = np.zeros(n_envs, dtype="int")
     # Divides episodes among different sub environments in the vector as evenly as possible
-    episode_count_targets = np.array([(n_eval_episodes + i) // n_envs for i in range(n_envs)], dtype="int")
+    episode_count_targets = np.array(
+        [(n_eval_episodes + i) // n_envs for i in range(n_envs)], dtype="int"
+    )
 
     current_rewards = np.zeros(n_envs)
     current_lengths = np.zeros(n_envs, dtype="int")
     if record:
-        assert record_path is not None, "record_path must be provided if record is True."
+        assert record_path is not None, (
+            "record_path must be provided if record is True."
+        )
         if not record_path.exists():
             record_path.mkdir(parents=True, exist_ok=True)
 
         if record_type == "mp4":
             env = VecVideoRecorder(
-                env, str(record_path), name_prefix=record_name, record_video_trigger=lambda x: x == 0
+                env,
+                str(record_path),
+                name_prefix=record_name,
+                record_video_trigger=lambda x: x == 0,
             )
 
     env.seed(seed)
@@ -608,7 +652,9 @@ def evaluate_policy(
     is_mpc_policy = (
         isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC)
         or isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider)
-        or isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard)
+        or isinstance(
+            model.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard
+        )
     )
     frames = []
     states = None
@@ -631,10 +677,14 @@ def evaluate_policy(
             # For plotting the predicted trajectory
             if isinstance(model.policy, rlmpc_policies.SACPolicyWithMPC):
                 for env_idx in range(env.num_envs):
-                    env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
+                    env.envs[
+                        env_idx
+                    ].unwrapped.ownship.set_remote_actor_predicted_trajectory(
                         actor_infos[env_idx]["trajectory"]
                     )
-                    env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
+                    env.envs[env_idx].unwrapped.ownship.set_colav_data(
+                        actor_infos[env_idx]
+                    )
         else:
             actions, states = model.predict(
                 observations,  # type: ignore[arg-type]
@@ -650,7 +700,9 @@ def evaluate_policy(
                 info.update({"actor_info": actor_info})
                 if actor_info["qp_failure"]:
                     dones[idx] = True
-            elif isinstance(model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider) or isinstance(
+            elif isinstance(
+                model.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider
+            ) or isinstance(
                 model.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard
             ):
                 info["actor_info"] = info["actor_info"] | actor_info
@@ -704,13 +756,15 @@ def evaluate_policy(
             frames.append(frame)
 
     if record_type == "gif":
-        ihm.save_frames_as_gif(frames, record_path / f"{record_name}.gif", verbose=False)
+        ihm.save_frames_as_gif(
+            frames, record_path / f"{record_name}.gif", verbose=False
+        )
 
     mean_reward = np.mean(episode_rewards)
     std_reward = np.std(episode_rewards)
     if reward_threshold is not None:
         assert mean_reward > reward_threshold, (
-            "Mean reward below threshold: " f"{mean_reward:.2f} < {reward_threshold:.2f}"
+            f"Mean reward below threshold: {mean_reward:.2f} < {reward_threshold:.2f}"
         )
     if return_episode_rewards:
         return episode_rewards, episode_lengths

@@ -1,10 +1,10 @@
 """
-    decoder.py
+decoder.py
 
-    Summary:
-        Contains the decoder network for reconstructing images from the latent space.
+Summary:
+    Contains the decoder network for reconstructing images from the latent space.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import List, Tuple
@@ -61,17 +61,30 @@ class ENCDecoder(nn.Module):
         self.fc_block = nn.Sequential(
             nn.Linear(latent_dim, fc_dim),
             # nn.ReLU(),
-            nn.Linear(fc_dim, first_deconv_input_dim[0] * first_deconv_input_dim[1] * first_deconv_input_dim[2]),
+            nn.Linear(
+                fc_dim,
+                first_deconv_input_dim[0]
+                * first_deconv_input_dim[1]
+                * first_deconv_input_dim[2],
+            ),
         )
 
         # Pytorch docs: output_padding is only used to find output shape, but does not actually add zero-padding to output
 
         self.deconv_block = nn.Sequential(
             nn.ConvTranspose2d(
-                in_channels=latent_dim, out_channels=deconv_block_dims[0], kernel_size=3, stride=1, padding=1
+                in_channels=latent_dim,
+                out_channels=deconv_block_dims[0],
+                kernel_size=3,
+                stride=1,
+                padding=1,
             ),
             nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[0], out_channels=deconv_block_dims[1], kernel_size=4, stride=2, padding=2
+                in_channels=deconv_block_dims[0],
+                out_channels=deconv_block_dims[1],
+                kernel_size=4,
+                stride=2,
+                padding=2,
             ),
             nn.ReLU(),
             nn.ConvTranspose2d(
@@ -93,10 +106,18 @@ class ENCDecoder(nn.Module):
             ),
             nn.ReLU(),
             nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[3], out_channels=deconv_block_dims[4], kernel_size=3, stride=1, padding=2
+                in_channels=deconv_block_dims[3],
+                out_channels=deconv_block_dims[4],
+                kernel_size=3,
+                stride=1,
+                padding=2,
             ),
             nn.ConvTranspose2d(
-                in_channels=deconv_block_dims[4], out_channels=n_input_channels, kernel_size=4, stride=2, padding=2
+                in_channels=deconv_block_dims[4],
+                out_channels=n_input_channels,
+                kernel_size=4,
+                stride=2,
+                padding=2,
             ),
             nn.Sigmoid(),
         )
@@ -108,7 +129,10 @@ class ENCDecoder(nn.Module):
         # Fully connected layers
         x = self.fc_block(z)
         x = x.view(
-            x.size(0), self.first_deconv_input_dim[0], self.first_deconv_input_dim[1], self.first_deconv_input_dim[2]
+            x.size(0),
+            self.first_deconv_input_dim[0],
+            self.first_deconv_input_dim[1],
+            self.first_deconv_input_dim[2],
         )
 
         x = self.deconv_block(x)
@@ -120,6 +144,8 @@ if __name__ == "__main__":
 
     latent_dimension = 128
     img_decoder = ENCDecoder(
-        latent_dim=latent_dimension, n_input_channels=1, first_deconv_input_dim=(latent_dimension, 6, 6)
+        latent_dim=latent_dimension,
+        n_input_channels=1,
+        first_deconv_input_dim=(latent_dimension, 6, 6),
     ).to("cuda")
     summary(img_decoder, (1, latent_dimension), device="cuda")

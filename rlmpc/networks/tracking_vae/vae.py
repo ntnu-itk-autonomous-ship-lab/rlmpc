@@ -1,10 +1,10 @@
 """
-    vae.py
+vae.py
 
-    Summary:
-        Contains the vanilla variational autoencoder (VAE) network for processing and reconstructing images from the environment.
+Summary:
+    Contains the vanilla variational autoencoder (VAE) network for processing and reconstructing images from the environment.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import Tuple
@@ -76,9 +76,13 @@ class VAE(nn.Module):
         )
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
-        self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
+        self.logvar_params = Lambda(
+            lambda x: x[:, self.latent_dim :]
+        )  # log variance parameters
 
-        self.mvnormal = th.distributions.MultivariateNormal(th.zeros(self.latent_dim), 0.5 * th.eye(self.latent_dim))
+        self.mvnormal = th.distributions.MultivariateNormal(
+            th.zeros(self.latent_dim), 0.5 * th.eye(self.latent_dim)
+        )
 
         num_params = sum(p.numel() for p in self.parameters())
         print(f"Initialized tracking RNN VAE with {num_params} parameters")
@@ -92,11 +96,15 @@ class VAE(nn.Module):
         seq_lengths[seq_lengths == 0] = 1
         max_seq_length = seq_lengths.max().item()
         observations = observations[:, :, -max_seq_length:]
-        observations = observations.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
+        observations = observations.permute(
+            0, 2, 1
+        )  # permute to (batch, max_seq_len, input_dim)
 
         return observations, seq_lengths
 
-    def forward(self, x: th.Tensor, seq_lengths: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
+    def forward(
+        self, x: th.Tensor, seq_lengths: th.Tensor
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a reconstructed tracking observation based on input observation.
 
         Args:
@@ -135,7 +143,9 @@ class VAE(nn.Module):
         z_sampled = mean + eps * std
         return z_sampled, mean, logvars
 
-    def encode(self, x: th.Tensor, seq_lengths: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor]:
+    def encode(
+        self, x: th.Tensor, seq_lengths: th.Tensor
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a latent vector based on input tracking observation.
 
         Args:
@@ -169,15 +179,18 @@ class VAE(nn.Module):
 
 
 if __name__ == "__main__":
-
     latent_dimension = 10
     x = th.rand(2, 10, 6).to("cuda")
     seq_lengths = th.tensor([10, 5])
 
-    vae = VAE(latent_dim=latent_dimension, input_dim=6, num_layers=1, rnn_type=nn.LSTM).to("cuda")
+    vae = VAE(
+        latent_dim=latent_dimension, input_dim=6, num_layers=1, rnn_type=nn.LSTM
+    ).to("cuda")
     out = vae(x, seq_lengths)
     print(f"Output shape: {out[0].shape}")
 
-    vae = VAE(latent_dim=latent_dimension, input_dim=6, num_layers=1, rnn_type=nn.GRU).to("cuda")
+    vae = VAE(
+        latent_dim=latent_dimension, input_dim=6, num_layers=1, rnn_type=nn.GRU
+    ).to("cuda")
     out = vae(x, seq_lengths)
     print(f"Output shape: {out[0].shape}")

@@ -58,8 +58,12 @@ if __name__ == "__main__":
         "rlmpc_scenario_ms_channel",
         "rlmpc_scenario_random_many_vessels",
     ]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -73,7 +77,9 @@ if __name__ == "__main__":
     }
 
     env_id = "COLAVEnvironment-v0"
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
@@ -109,7 +115,9 @@ if __name__ == "__main__":
         use_vec_env = True
         if use_vec_env:
             num_cpu = 12
-            vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+            vec_env = SubprocVecEnv(
+                [make_env(env_id, env_config, i + 1) for i in range(num_cpu)]
+            )
             obs = vec_env.reset()
             observations = [obs]
             frames = []
@@ -118,12 +126,16 @@ if __name__ == "__main__":
             perception_images = np.zeros((n_steps, *img_dim), dtype=np.uint8)
             masks = np.zeros((n_steps, *img_dim), dtype=np.uint8)
             for i in range(n_steps):
-                actions = np.array([vec_env.action_space.sample() for _ in range(num_cpu)])
+                actions = np.array(
+                    [vec_env.action_space.sample() for _ in range(num_cpu)]
+                )
                 obs, reward, dones, info = vec_env.step(actions)
                 vec_env.render()
 
                 perception_images[i] = obs["PerceptionImageObservation"]
-                masks[i] = cs_ihm.create_simulation_image_segmentation_mask(perception_images[i])
+                masks[i] = cs_ihm.create_simulation_image_segmentation_mask(
+                    perception_images[i]
+                )
                 if False:
                     fig, ax = plt.subplots(1, 2)
                     ax[0].imshow(perception_images[i, 0, 0], cmap="gray")
@@ -145,7 +157,9 @@ if __name__ == "__main__":
             record = False
             if record:
                 video_path = rl_dp.animations / "demo.mp4"
-                env = gym.wrappers.RecordVideo(env, video_path.as_posix(), episode_trigger=lambda x: x == 0)
+                env = gym.wrappers.RecordVideo(
+                    env, video_path.as_posix(), episode_trigger=lambda x: x == 0
+                )
 
             obs, info = env.reset(seed=1)
             img_dim = obs["PerceptionImageObservation"].shape
@@ -192,7 +206,9 @@ if __name__ == "__main__":
                 observations.append(obs)
 
                 perception_images[i] = obs["PerceptionImageObservation"]
-                masks = cs_ihm.create_simulation_image_segmentation_mask(obs["PerceptionImageObservation"])
+                masks = cs_ihm.create_simulation_image_segmentation_mask(
+                    obs["PerceptionImageObservation"]
+                )
 
                 if use_vae:
                     pi_tensor = img_transform(th.tensor(perception_images[i]))
@@ -210,11 +226,19 @@ if __name__ == "__main__":
                     ax.axes.get_xaxis().set_visible(False)
                     ax.axes.get_yaxis().set_visible(False)
                     fig, ax = plt.subplots(1, 1)
-                    ax.imshow(display_transform(pi_tensor)[0, :, :].detach().numpy(), cmap="hot")
+                    ax.imshow(
+                        display_transform(pi_tensor)[0, :, :].detach().numpy(),
+                        cmap="hot",
+                    )
                     ax.axes.get_xaxis().set_visible(False)
                     ax.axes.get_yaxis().set_visible(False)
                     fig, ax = plt.subplots(1, 1)
-                    ax.imshow(display_transform(reconstructed_image)[0, 0, :, :].detach().numpy(), cmap="hot")
+                    ax.imshow(
+                        display_transform(reconstructed_image)[0, 0, :, :]
+                        .detach()
+                        .numpy(),
+                        cmap="hot",
+                    )
                     ax.axes.get_xaxis().set_visible(False)
                     ax.axes.get_yaxis().set_visible(False)
                     # ax[1].imshow(masks[i, 0, 0], cmap="gray")

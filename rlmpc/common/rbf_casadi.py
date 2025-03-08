@@ -1,10 +1,10 @@
 """
-    rbf_casadi.py
+rbf_casadi.py
 
-    Summary:
-        Contains Radial Basis Functions (RBF) interpolators implemented in CasADi. Parts of the code are copied/changed from scipy functionality.
+Summary:
+    Contains Radial Basis Functions (RBF) interpolators implemented in CasADi. Parts of the code are copied/changed from scipy functionality.
 
-    Author: Trym Tengesdal, Scipy authors.
+Author: Trym Tengesdal, Scipy authors.
 """
 
 import casadi as csd
@@ -139,7 +139,9 @@ class RBFInterpolator:
         xeps = x * self.epsilon
         xhat = (x - self.shift) / self.scale
 
-        self.vec[: self.p] = kernel_vector(xeps, self.yeps, self.kernel_func, self.vec[: self.p])
+        self.vec[: self.p] = kernel_vector(
+            xeps, self.yeps, self.kernel_func, self.vec[: self.p]
+        )
         # self.vec[: self.p] = kernel_vector2(xeps, self.yeps, self.vec[: self.p])
         self.vec[self.p :] = polynomial_vector(xhat, self.powers, self.vec[self.p :])
         return self.vec.T @ self.coeffs

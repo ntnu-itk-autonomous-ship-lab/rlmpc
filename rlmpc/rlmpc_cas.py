@@ -1,10 +1,10 @@
 """
-    rlmpc_cas.py
+rlmpc_cas.py
 
-    Summary:
-        COLAV-simulator wrapper for the RL-MPC Collision Avoidance System (CAS).
+Summary:
+    COLAV-simulator wrapper for the RL-MPC Collision Avoidance System (CAS).
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import copy
@@ -53,7 +53,9 @@ class RLMPCParams:
     def from_dict(cls, config_dict: dict):
         config = RLMPCParams(
             los=guidances.LOSGuidanceParams.from_dict(config_dict["los"]),
-            colregs_handler=ch.COLREGSHandlerParams.from_dict(config_dict["colregs_handler"]),
+            colregs_handler=ch.COLREGSHandlerParams.from_dict(
+                config_dict["colregs_handler"]
+            ),
             mpc=mlmpc.Config.from_dict(config_dict["mpc"]),
             rrtstar=cs_bg.RRTConfig.from_dict(config_dict["rrtstar"]),
         )
@@ -103,7 +105,10 @@ class RLMPC(ci.ICOLAV):
     """
 
     def __init__(
-        self, config: RLMPCParams | Path = dp.rlmpc_config, identifier: str = "rlmpc", acados_code_gen_path: str = None
+        self,
+        config: RLMPCParams | Path = dp.rlmpc_config,
+        identifier: str = "rlmpc",
+        acados_code_gen_path: str = None,
     ) -> None:
         if isinstance(config, RLMPCParams):
             self._config: RLMPCParams = config
@@ -114,7 +119,9 @@ class RLMPC(ci.ICOLAV):
         self._los = guidances.LOSGuidance(self._config.los)
         self._ktp = guidances.KinematicTrajectoryPlanner()
         self._mpc = mlmpc.MidlevelMPC(
-            self._config.mpc, identifier=identifier, acados_code_gen_path=acados_code_gen_path
+            self._config.mpc,
+            identifier=identifier,
+            acados_code_gen_path=acados_code_gen_path,
         )
         self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
         self._dt_sim: float = 0.5  # get from scenario config, typically always 0.5
@@ -161,7 +168,9 @@ class RLMPC(ci.ICOLAV):
             self._colregs_handler = None
             self._los = guidances.LOSGuidance(self._config.los)
             self._ktp = guidances.KinematicTrajectoryPlanner()
-            self._mpc = mlmpc.MidlevelMPC(config=self._config.mpc, identifier=self.identifier)
+            self._mpc = mlmpc.MidlevelMPC(
+                config=self._config.mpc, identifier=self.identifier
+            )
             self._colregs_handler = ch.COLREGSHandler(self._config.colregs_handler)
             self._mpc_rel_polygons = []
             self._map_origin = np.array([])
@@ -213,7 +222,13 @@ class RLMPC(ci.ICOLAV):
 
     def get_nominal_path(
         self,
-    ) -> Tuple[interp.BSpline, interp.BSpline, interp.PchipInterpolator, interp.PchipInterpolator, float]:
+    ) -> Tuple[
+        interp.BSpline,
+        interp.BSpline,
+        interp.PchipInterpolator,
+        interp.PchipInterpolator,
+        float,
+    ]:
         return self._nominal_path
 
     def initialize(
@@ -264,11 +279,14 @@ class RLMPC(ci.ICOLAV):
 
         if recompile:
             self._nominal_path = self._ktp.compute_splines(
-                waypoints=waypoints - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
+                waypoints=waypoints
+                - np.array([self._map_origin[0], self._map_origin[1]]).reshape(2, 1),
                 speed_plan=speed_plan,
                 arc_length_parameterization=True,
             )
-            self._setup_mpc_static_obstacle_input(ownship_csog_state, self._enc, self._debug, **kwargs)
+            self._setup_mpc_static_obstacle_input(
+                ownship_csog_state, self._enc, self._debug, **kwargs
+            )
             self._mpc.construct_ocp(
                 nominal_path=self._nominal_path,
                 so_list=self._mpc_rel_polygons,
@@ -277,8 +295,12 @@ class RLMPC(ci.ICOLAV):
                 min_depth=self._min_depth,
             )
 
-        self._goal_state = np.array([waypoints[0, -1], waypoints[1, -1], 0.0, 0.0, 0.0, 0.0])
-        bbox = mapf.create_bbox_from_points(self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=300.0)
+        self._goal_state = np.array(
+            [waypoints[0, -1], waypoints[1, -1], 0.0, 0.0, 0.0, 0.0]
+        )
+        bbox = mapf.create_bbox_from_points(
+            self._enc, ownship_csog_state[:2], self._goal_state[:2], buffer=300.0
+        )
         planning_cdt = mapf.create_safe_sea_triangulation(
             self._enc,
             vessel_min_depth=1,
@@ -291,7 +313,9 @@ class RLMPC(ci.ICOLAV):
         )
         self._hazards = relevant_hazards[0]
         self._rrtstar = rrt_star_lib.RRTStar(
-            los=self._config.rrtstar.los, model=self._config.rrtstar.model, params=self._config.rrtstar.params
+            los=self._config.rrtstar.los,
+            model=self._config.rrtstar.model,
+            params=self._config.rrtstar.params,
         )
         self._rrtstar.reset(0)
         self._rrtstar.transfer_bbox(bbox)
@@ -311,7 +335,9 @@ class RLMPC(ci.ICOLAV):
             )
             self.plot_path()
             self._enc.draw_polygon(os_poly, color="pink")
-            self._enc.draw_circle((self._goal_state[1], self._goal_state[0]), radius=3.0, color="black")
+            self._enc.draw_circle(
+                (self._goal_state[1], self._goal_state[0]), radius=3.0, color="black"
+            )
             # self.plot_surfaces(ownship_state)
 
         self._initialized = True
@@ -325,7 +351,9 @@ class RLMPC(ci.ICOLAV):
         """Plot surface interpolations of the static obstacles."""
         so_surfaces = self._mpc.get_antigrounding_surface_functions()
         fig, ax = plt.subplots()
-        center = ownship_state[:2] - np.array([self._map_origin[0], self._map_origin[1]])
+        center = ownship_state[:2] - np.array(
+            [self._map_origin[0], self._map_origin[1]]
+        )
         npx = npoints
         npy = npoints
         x = np.linspace(center[0] - 300, center[0] + 300, npx)
@@ -334,7 +362,10 @@ class RLMPC(ci.ICOLAV):
         for idy, y_val in enumerate(y):
             for idx, x_val in enumerate(x):
                 for surface in so_surfaces:
-                    surfval = min(1.0, surface(np.array([x_val, y_val]).reshape(1, 2)).full()[0][0])
+                    surfval = min(
+                        1.0,
+                        surface(np.array([x_val, y_val]).reshape(1, 2)).full()[0][0],
+                    )
                     z[idy, idx] += max(0.0, surfval)
         pc = ax.pcolormesh(x, y, z, shading="gouraud", rasterized=True)
         ax.scatter(center[0], center[1], color="red", s=30, marker="x")
@@ -386,15 +417,27 @@ class RLMPC(ci.ICOLAV):
         )
         mpc_output = self._mpc_soln
 
-        U = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)  # absolute speed / COG
-        chi = cs_mf.wrap_angle_to_pmpi(ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3]))
+        U = np.sqrt(
+            ownship_state[3] ** 2 + ownship_state[4] ** 2
+        )  # absolute speed / COG
+        chi = cs_mf.wrap_angle_to_pmpi(
+            ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+        )
         abs_action_vals = self._mpc_soln["soln"]["x"].flatten()[self._action_indices]
         chi_0_ref = cs_mf.wrap_angle_to_pmpi(abs_action_vals[0])
         U_0_ref = abs_action_vals[1]
 
-        los_goal = np.arctan2(self._goal_state[1] - ownship_state[1], self._goal_state[0] - ownship_state[0])
-        if abs(cs_mf.wrap_angle_diff_to_pmpi(los_goal, chi)) > 140.0 * np.pi / 180.0 and self._n_mpc_do == 0:
-            chi_0_ref = cs_mf.wrap_angle_to_pmpi(chi_0_ref + 0.5 * cs_mf.wrap_angle_diff_to_pmpi(los_goal, chi))
+        los_goal = np.arctan2(
+            self._goal_state[1] - ownship_state[1],
+            self._goal_state[0] - ownship_state[0],
+        )
+        if (
+            abs(cs_mf.wrap_angle_diff_to_pmpi(los_goal, chi)) > 140.0 * np.pi / 180.0
+            and self._n_mpc_do == 0
+        ):
+            chi_0_ref = cs_mf.wrap_angle_to_pmpi(
+                chi_0_ref + 0.5 * cs_mf.wrap_angle_diff_to_pmpi(los_goal, chi)
+            )
 
         action = np.array(
             [
@@ -508,7 +551,9 @@ class RLMPC(ci.ICOLAV):
         if self._enc is not None:
             self._enc.close_display()
 
-    def visualize_disturbance(self, ddata: stochasticity.DisturbanceData | None) -> None:
+    def visualize_disturbance(
+        self, ddata: stochasticity.DisturbanceData | None
+    ) -> None:
         """Visualizes the disturbance object.
 
         Args:
@@ -552,7 +597,12 @@ class RLMPC(ci.ICOLAV):
         self._disturbance_handles = handles
 
     def visualize_ships(
-        self, ownship_state: np.ndarray, do_list: list, do_cr_list: list, do_ho_list: list, do_ot_list: list
+        self,
+        ownship_state: np.ndarray,
+        do_list: list,
+        do_cr_list: list,
+        do_ho_list: list,
+        do_ot_list: list,
     ) -> None:
         """Visualize the ships in the ENC.
 
@@ -573,7 +623,9 @@ class RLMPC(ci.ICOLAV):
         self._clear_do_handles()
         for do_id, do_state, do_cov, length, width in do_list:
             ellipse_x, ellipse_y = cs_mhm.create_probability_ellipse(do_cov, 0.67)
-            ell_geometry = sgeo.Polygon(zip(ellipse_y + do_state[1], ellipse_x + do_state[0]))
+            ell_geometry = sgeo.Polygon(
+                zip(ellipse_y + do_state[1], ellipse_x + do_state[0])
+            )
             if do_id in [do_cr[0] for do_cr in do_cr_list]:
                 color = do_cr_color
             elif do_id in [do_ho[0] for do_ho in do_ho_list]:
@@ -618,7 +670,17 @@ class RLMPC(ci.ICOLAV):
 
         nominal_trajectory = self._ktp.compute_reference_trajectory(2.0)
         nominal_trajectory = nominal_trajectory + np.array(
-            [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            [
+                self._map_origin[0],
+                self._map_origin[1],
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ]
         ).reshape(9, 1)
         plotters.plot_waypoints(
             self._waypoints[:2, :],
@@ -649,9 +711,13 @@ class RLMPC(ci.ICOLAV):
         **kwargs,
     ) -> np.ndarray:
         assert enc is not None, "ENC must be provided to the RL-MPC"
-        assert waypoints.size > 2, "Waypoints and speed plan must be provided to the RLMPC"
+        assert waypoints.size > 2, (
+            "Waypoints and speed plan must be provided to the RLMPC"
+        )
         if not self._initialized:
-            self.initialize(t, waypoints, speed_plan, ownship_state, do_list, enc, **kwargs)
+            self.initialize(
+                t, waypoints, speed_plan, ownship_state, do_list, enc, **kwargs
+            )
 
         if t == 0 or t - self._t_prev_mpc >= 1.0 / self._mpc.params.rate:
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
@@ -664,7 +730,9 @@ class RLMPC(ci.ICOLAV):
                     # print(f"Dynamic obstacle {i} is on land, i.e. not relevant")
                     on_land_indices.append(do_tup[0])
             translated_do_list = [
-                translated_do_list[i] for i in range(len(do_list)) if do_list[i][0] not in on_land_indices
+                translated_do_list[i]
+                for i in range(len(do_list))
+                if do_list[i][0] not in on_land_indices
             ]
 
             csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
@@ -673,10 +741,14 @@ class RLMPC(ci.ICOLAV):
             csog_state[3] = csog_state_cpy[2]
 
             do_cr_list, do_ho_list, do_ot_list = self._colregs_handler.handle(
-                csog_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]), translated_do_list
+                csog_state
+                - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0]),
+                translated_do_list,
             )
             self._n_mpc_do = len(do_cr_list) + len(do_ho_list) + len(do_ot_list)
-            self.visualize_ships(ownship_state, do_list, do_cr_list, do_ho_list, do_ot_list)
+            self.visualize_ships(
+                ownship_state, do_list, do_cr_list, do_ho_list, do_ot_list
+            )
             self.visualize_disturbance(w)
 
             if self._debug:
@@ -688,7 +760,10 @@ class RLMPC(ci.ICOLAV):
 
             self._mpc_soln = self._mpc.plan(
                 t,
-                xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                xs=ownship_state
+                - np.array(
+                    [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+                ),
                 do_cr_list=do_cr_list,
                 do_ho_list=do_ho_list,
                 do_ot_list=do_ot_list,
@@ -712,7 +787,10 @@ class RLMPC(ci.ICOLAV):
                 )
                 self._mpc_soln = self._mpc.plan(
                     t,
-                    xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                    xs=ownship_state
+                    - np.array(
+                        [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+                    ),
                     do_cr_list=do_cr_list,
                     do_ho_list=do_ho_list,
                     do_ot_list=do_ot_list,
@@ -729,7 +807,9 @@ class RLMPC(ci.ICOLAV):
             if self._debug:
                 if self._mpc_traj_handle:
                     self._mpc_traj_handle.remove()
-                self._mpc_traj_handle = plotters.plot_trajectory(self._mpc_trajectory, self._enc, color="cyan")
+                self._mpc_traj_handle = plotters.plot_trajectory(
+                    self._mpc_trajectory, self._enc, color="cyan"
+                )
 
             self._t_prev_mpc = t
             self._mpc_soln["trajectory"] = self._mpc_trajectory
@@ -741,7 +821,9 @@ class RLMPC(ci.ICOLAV):
             self._mpc_soln["u_prev"] = self._mpc_inputs[:, 0]
             cost_max = 1e5
             self._mpc_soln["cost_val"] = (
-                cost_max if self._mpc_soln["cost_val"] > cost_max else self._mpc_soln["cost_val"]
+                cost_max
+                if self._mpc_soln["cost_val"] > cost_max
+                else self._mpc_soln["cost_val"]
             )
             self._mpc_soln["mpc_rate"] = self._mpc.params.rate
 
@@ -751,12 +833,16 @@ class RLMPC(ci.ICOLAV):
         else:
             chi_ref = self._mpc_trajectory[2, 2]
             U_ref = self._mpc_trajectory[3, 2]
-        self._references = np.array([0.0, 0.0, chi_ref, U_ref, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(9, 1)
+        self._references = np.array(
+            [0.0, 0.0, chi_ref, U_ref, 0.0, 0.0, 0.0, 0.0, 0.0]
+        ).reshape(9, 1)
         self._t_prev = t
         self._mpc_soln["t_prev"] = t
         return self._references
 
-    def create_mpc_warm_start(self, t: float, ownship_state: np.ndarray, **kwargs) -> Optional[Dict[str, np.ndarray]]:
+    def create_mpc_warm_start(
+        self, t: float, ownship_state: np.ndarray, **kwargs
+    ) -> Optional[Dict[str, np.ndarray]]:
         """Creates a warm start for the MPC by growing an RRT from the terminal MPC state towards the goal state. If t == 0, the RRT is grown from the current ownship state.
 
         Args:
@@ -768,18 +854,35 @@ class RLMPC(ci.ICOLAV):
         """
         _, nu, _, ns_total, dim_g = self._mpc.dims()
         prev_soln = self._mpc_soln if "soln" in self._mpc_soln else None
-        is_prev_soln = True if ("prev_soln" in kwargs and bool(kwargs["prev_soln"])) or prev_soln else False
-        prev_soln = kwargs["prev_soln"] if ("prev_soln" in kwargs and bool(kwargs["prev_soln"])) else prev_soln
+        is_prev_soln = (
+            True
+            if ("prev_soln" in kwargs and bool(kwargs["prev_soln"])) or prev_soln
+            else False
+        )
+        prev_soln = (
+            kwargs["prev_soln"]
+            if ("prev_soln" in kwargs and bool(kwargs["prev_soln"]))
+            else prev_soln
+        )
 
         os_state_csog = ownship_state.copy()
-        os_state_csog[2] = ownship_state[2] + np.arctan2(ownship_state[4], ownship_state[3])
+        os_state_csog[2] = ownship_state[2] + np.arctan2(
+            ownship_state[4], ownship_state[3]
+        )
         os_state_csog[3] = np.sqrt(ownship_state[3] ** 2 + ownship_state[4] ** 2)
-        start_state = self._mpc_trajectory[:, -1] if self._mpc_trajectory.size > 0 else os_state_csog
+        start_state = (
+            self._mpc_trajectory[:, -1]
+            if self._mpc_trajectory.size > 0
+            else os_state_csog
+        )
         start_state = prev_soln["trajectory"][:, -1] if is_prev_soln else start_state
-        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
+        last_mpc_input = (
+            self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.zeros((nu, 1))
+        )
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
         path_var, path_var_dot = self._mpc.compute_path_variable_info(
-            start_state[:4] - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0])
+            start_state[:4]
+            - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0])
         )
         nominal_speed_ref = float(self._nominal_path[3](path_var))
 
@@ -802,19 +905,34 @@ class RLMPC(ci.ICOLAV):
             sample_diff = N + 1 - rrt_trajectory.shape[1]
             xs_init = rrt_trajectory[:, -1] if rrt_trajectory.size > 0 else start_state
             u_init = rrt_inputs[:, -1] if rrt_inputs.size > 0 else last_mpc_input
-            model_traj = self._mpc.model_prediction(xs_init, u_init.reshape((nu, 1)), sample_diff + 1)
+            model_traj = self._mpc.model_prediction(
+                xs_init, u_init.reshape((nu, 1)), sample_diff + 1
+            )
             offset = 1 if rrt_times.size > 0 else 0
-            rrt_trajectory = np.concatenate((rrt_trajectory, model_traj[:, offset:]), axis=1)
+            rrt_trajectory = np.concatenate(
+                (rrt_trajectory, model_traj[:, offset:]), axis=1
+            )
             t_init = rrt_times[-1] if rrt_times.size > 0 else 0.0
-            rrt_times = np.concatenate((rrt_times, t_init + np.arange(1, sample_diff + 1) * self._mpc.params.dt))
-            rrt_inputs = np.concatenate((rrt_inputs, np.tile(u_init.reshape(nu, 1), (1, sample_diff))), axis=1)
+            rrt_times = np.concatenate(
+                (
+                    rrt_times,
+                    t_init + np.arange(1, sample_diff + 1) * self._mpc.params.dt,
+                )
+            )
+            rrt_inputs = np.concatenate(
+                (rrt_inputs, np.tile(u_init.reshape(nu, 1), (1, sample_diff))), axis=1
+            )
 
         if self._debug:
             # plotters.plot_rrt_tree(self._rrtstar.get_tree_as_list_of_dicts(), self._enc)
             if self._rrt_traj_handle:
                 self._rrt_traj_handle.remove()
-            self._rrt_traj_handle = plotters.plot_trajectory(rrt_trajectory, self._enc, color="black")
-        rrt_trajectory -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
+            self._rrt_traj_handle = plotters.plot_trajectory(
+                rrt_trajectory, self._enc, color="black"
+            )
+        rrt_trajectory -= np.array(
+            [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+        ).reshape(6, 1)
 
         if self._config.rrtstar.params.step_size < self._mpc.params.dt:
             step = int(self._mpc.params.dt / self._config.rrtstar.params.step_size)
@@ -828,35 +946,56 @@ class RLMPC(ci.ICOLAV):
         else:
             rrt_trajectory[4:, 0] = np.array([path_var, path_var_dot])
 
-        last_mpc_input = self._mpc_inputs[:, -1] if self._mpc_inputs.size > 0 else np.array([0.0, 0.0, 0.0])
+        last_mpc_input = (
+            self._mpc_inputs[:, -1]
+            if self._mpc_inputs.size > 0
+            else np.array([0.0, 0.0, 0.0])
+        )
         last_mpc_input = prev_soln["inputs"][:, -1] if is_prev_soln else last_mpc_input
         rrt_inputs[2, :] = np.tile(last_mpc_input[2], (1, rrt_inputs.shape[1]))
         # rrt_inputs[2, :] = np.array([u_omega * (1.0**u_idx) for u_idx, u_omega in enumerate(rrt_inputs[2, :])])
 
         # Add path timing dynamics to warm start trajectory
-        mpc_model_traj = self._mpc.model_prediction(rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1])
+        mpc_model_traj = self._mpc.model_prediction(
+            rrt_trajectory[:, 0], rrt_inputs, rrt_trajectory.shape[1]
+        )
         rrt_trajectory[4:, :] = mpc_model_traj[4:, :]
         chi = rrt_trajectory[2, :]
         rrt_trajectory[2, :] = np.unwrap(chi)
 
         warm_start = {}
         if prev_soln:
-            U, X, Sigma = prev_soln["inputs"], prev_soln["trajectory"], prev_soln["slacks"]
-            X -= np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1)
+            U, X, Sigma = (
+                prev_soln["inputs"],
+                prev_soln["trajectory"],
+                prev_soln["slacks"],
+            )
+            X -= np.array(
+                [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+            ).reshape(6, 1)
             prev_abs_action = (
                 prev_soln["abs_action"]
                 if "abs_action" in prev_soln
                 else prev_soln["soln"]["x"].flatten()[self._action_indices]
             )
-            warm_start.update({"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"]})
+            warm_start.update(
+                {"xs_prev": prev_soln["xs_prev"], "u_prev": prev_soln["u_prev"]}
+            )
             X_comb = np.concatenate((X, rrt_trajectory[:, 1:]), axis=1)
             U_comb = np.concatenate((U, rrt_inputs[:, 1:]), axis=1)
-            Sigma_comb = np.concatenate((Sigma, np.zeros((ns_total - Sigma.shape[0], 1))))
+            Sigma_comb = np.concatenate(
+                (Sigma, np.zeros((ns_total - Sigma.shape[0], 1)))
+            )
 
             dt_sim = t - self._t_prev_mpc
             step = int(self._mpc.params.dt / dt_sim)
             X_interp, U_interp, Sigma_interp = hf.interpolate_solution(
-                X_comb, U_comb, Sigma_comb, dt_sim, self._mpc.params.T + rrt_times[-1], self._mpc.params.dt
+                X_comb,
+                U_comb,
+                Sigma_comb,
+                dt_sim,
+                self._mpc.params.T + rrt_times[-1],
+                self._mpc.params.dt,
             )
             if step > 1:
                 # shift the interpolated trajectory dt_sim forward in time
@@ -894,7 +1033,9 @@ class RLMPC(ci.ICOLAV):
         }
         return warm_start
 
-    def build_sensitivities(self, tau: Optional[float] = None) -> mpc_common.NLPSensitivities:
+    def build_sensitivities(
+        self, tau: Optional[float] = None
+    ) -> mpc_common.NLPSensitivities:
         """Builds the sensitivity of the KKT matrix function underlying the MPC NLP with respect to the decision variables and parameters.
 
         Args:
@@ -906,7 +1047,11 @@ class RLMPC(ci.ICOLAV):
         return self._mpc.build_sensitivities(tau)
 
     def _setup_mpc_static_obstacle_input(
-        self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs
+        self,
+        ownship_state: np.ndarray,
+        enc: Optional[senc.ENC] = None,
+        show_plots: bool = False,
+        **kwargs,
     ) -> None:
         """Sets up the fixed static obstacle parameters for the MPC.
 
@@ -924,11 +1069,23 @@ class RLMPC(ci.ICOLAV):
             buffer=self._mpc.params.r_safe_so + self._config.ship_length / 2.0,
             show_plots=show_plots,
         )
-        self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+        self._geometry_tree, self._all_polygons = mapf.fill_rtree_with_geometries(
+            relevant_grounding_hazards
+        )
 
         nominal_trajectory = self._ktp.compute_reference_trajectory(self._mpc.params.dt)
         nominal_trajectory = nominal_trajectory + np.array(
-            [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            [
+                self._map_origin[0],
+                self._map_origin[1],
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ]
         ).reshape(9, 1)
         poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
             nominal_trajectory,
@@ -956,8 +1113,12 @@ class RLMPC(ci.ICOLAV):
         for polygons, original_polygon in poly_tuple_list:
             translated_poly_tuple_list.append(
                 (
-                    hf.translate_polygons(polygons, self._map_origin[1], self._map_origin[0]),
-                    hf.translate_polygons([original_polygon], self._map_origin[1], self._map_origin[0])[0],
+                    hf.translate_polygons(
+                        polygons, self._map_origin[1], self._map_origin[0]
+                    ),
+                    hf.translate_polygons(
+                        [original_polygon], self._map_origin[1], self._map_origin[0]
+                    )[0],
                 )
             )
         self._mpc_rel_polygons = translated_poly_tuple_list
@@ -985,7 +1146,9 @@ class RLMPC(ci.ICOLAV):
             }
         return output
 
-    def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
+    def plot_results(
+        self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs
+    ) -> dict:
         """NOTE: Must use the "colav_nominal_trajectory" and "colav_predicted_trajectory" keys in the plt_handles dictionary.
 
         Args:
@@ -997,7 +1160,11 @@ class RLMPC(ci.ICOLAV):
             dict: Updated matplotlib handles.
         """
         if self._mpc_trajectory.size > 8:
-            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, ::2])
-            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, ::2])
+            plt_handles["colav_predicted_trajectory"].set_xdata(
+                self._mpc_trajectory[1, ::2]
+            )
+            plt_handles["colav_predicted_trajectory"].set_ydata(
+                self._mpc_trajectory[0, ::2]
+            )
 
         return plt_handles

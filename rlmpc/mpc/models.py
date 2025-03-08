@@ -1,10 +1,10 @@
 """
-    models.py
+models.py
 
-    Summary:
-        Contains (Acados and Casadi) models used in the MPC formulation.
+Summary:
+    Contains (Acados and Casadi) models used in the MPC formulation.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from abc import ABC, abstractmethod
@@ -36,11 +36,15 @@ class MPCModel(ABC):
         """Returns casadi relevant symbolics for the model"""
 
     @abstractmethod
-    def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_input_state_bounds(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Returns input and state constraint boxes relevant for the model."""
 
     @abstractmethod
-    def setup_equations_of_motion(self, **kwargs) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+    def setup_equations_of_motion(
+        self, **kwargs
+    ) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the model"""
 
 
@@ -105,11 +109,21 @@ class AugmentedKinematicCSOG(MPCModel):
 
     """
 
-    def __init__(self, params: AugmentedKinematicCSOGParams = AugmentedKinematicCSOGParams()):
+    def __init__(
+        self, params: AugmentedKinematicCSOGParams = AugmentedKinematicCSOGParams()
+    ):
         self._acados_model = AcadosModel()
         self._params = params
-        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
-        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
+        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = (
+            self.setup_equations_of_motion()
+        )
+        self.dynamics = csd.Function(
+            "dynamics",
+            [self.x, self.u, self.p],
+            [self.f_expl],
+            ["x", "u", "p"],
+            ["f_expl"],
+        )
 
         # Input and state bounds
         U_min = self._params.U_min
@@ -125,8 +139,12 @@ class AugmentedKinematicCSOG(MPCModel):
         )
         self.ubu = np.array([r_max, U_dot_max])
 
-        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, U_min, -approx_inf, U_min])
-        self.ubx = np.array([approx_inf, approx_inf, approx_inf, U_max, approx_inf, U_max])
+        self.lbx = np.array(
+            [-approx_inf, -approx_inf, -approx_inf, U_min, -approx_inf, U_min]
+        )
+        self.ubx = np.array(
+            [approx_inf, approx_inf, approx_inf, U_max, approx_inf, U_max]
+        )
 
     def params(self) -> AugmentedKinematicCSOGParams:
         return self._params
@@ -134,7 +152,9 @@ class AugmentedKinematicCSOG(MPCModel):
     def dims(self) -> Tuple[int, int]:
         return 6, 2
 
-    def setup_equations_of_motion(self, **kwargs) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+    def setup_equations_of_motion(
+        self, **kwargs
+    ) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the kinematic model
 
         Returns:
@@ -150,13 +170,20 @@ class AugmentedKinematicCSOG(MPCModel):
         p = csd.vertcat(T_chi, T_U)
 
         kinematics = csd.vertcat(
-            x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), (x[4] - x[2]) / T_chi, (x[5] - x[3]) / T_U, u[0], u[1]
+            x[3] * csd.cos(x[2]),
+            x[3] * csd.sin(x[2]),
+            (x[4] - x[2]) / T_chi,
+            (x[5] - x[3]) / T_U,
+            u[0],
+            u[1],
         )
         f_expl = kinematics
         f_impl = xdot - f_expl
         return f_impl, f_expl, xdot, x, u, p
 
-    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def euler_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N Euler steps for the Telemetron vessel
 
         Args:
@@ -178,7 +205,9 @@ class AugmentedKinematicCSOG(MPCModel):
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
-    def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def erk4_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N explicit runge kutta 4 steps for the model
 
 
@@ -204,7 +233,9 @@ class AugmentedKinematicCSOG(MPCModel):
             xs_k = mf.sat(xs_k, self.lbx, self.ubx)
         return soln
 
-    def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_input_state_bounds(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return self.lbu, self.ubu, self.lbx, self.ubx
 
     def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
@@ -332,7 +363,9 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self._params.s_max = s_max
         self.ubx[4] = s_max
 
-    def setup_equations_of_motion(self, **kwargs) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+    def setup_equations_of_motion(
+        self, **kwargs
+    ) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         nx, nu = self.dims()
         x = csd.MX.sym("x", nx)
         u = csd.MX.sym("u", nu)
@@ -340,7 +373,9 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
 
         p = csd.vertcat([])
 
-        kinematics = csd.vertcat(x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), u[0], u[1], x[5], u[2])
+        kinematics = csd.vertcat(
+            x[3] * csd.cos(x[2]), x[3] * csd.sin(x[2]), u[0], u[1], x[5], u[2]
+        )
         f_expl = kinematics
         f_impl = xdot - f_expl
 
@@ -350,7 +385,13 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         self.x = x
         self.u = u
         self.p = p
-        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
+        self.dynamics = csd.Function(
+            "dynamics",
+            [self.x, self.u, self.p],
+            [self.f_expl],
+            ["x", "u", "p"],
+            ["f_expl"],
+        )
         return f_impl, f_expl, xdot, x, u, p
 
     def create_dynamics_erk4(self, dt: float = 2.0) -> csd.Function:
@@ -361,10 +402,16 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         k4 = self.dynamics(self.x + dt * k3, self.u, self.p)
         x_next = self.x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
         self.dynamics_erk4 = csd.Function(
-            "dynamics_erk4", [self.x, self.u, self.p], [x_next], ["x", "u", "p"], ["x_next"]
+            "dynamics_erk4",
+            [self.x, self.u, self.p],
+            [x_next],
+            ["x", "u", "p"],
+            ["x_next"],
         )
 
-    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def euler_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N Euler steps for the model
 
         Args:
@@ -391,7 +438,9 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
-    def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def erk4_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N explicit runge kutta 4 steps for the model
 
         Args:
@@ -422,7 +471,9 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
             # xs_k = mf.sat(xs_k, self.lbx, self.ubx)
         return soln
 
-    def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_input_state_bounds(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return self.lbu, self.ubu, self.lbx, self.ubx
 
     def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
@@ -446,11 +497,21 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
 
 
 class Telemetron(MPCModel):
-    def __init__(self, params: cs_models.TelemetronParams = cs_models.TelemetronParams()):
+    def __init__(
+        self, params: cs_models.TelemetronParams = cs_models.TelemetronParams()
+    ):
         self._acados_model = AcadosModel()
         self._params = params
-        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
-        self.dynamics = csd.Function("dynamics", [self.x, self.u, self.p], [self.f_expl], ["x", "u", "p"], ["f_expl"])
+        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = (
+            self.setup_equations_of_motion()
+        )
+        self.dynamics = csd.Function(
+            "dynamics",
+            [self.x, self.u, self.p],
+            [self.f_expl],
+            ["x", "u", "p"],
+            ["f_expl"],
+        )
         # Input and state bounds
         min_Fx = self._params.Fx_limits[0]
         max_Fx = self._params.Fx_limits[1]
@@ -467,8 +528,12 @@ class Telemetron(MPCModel):
         self.ubu = np.array([max_Fx, max_Fy])
 
         approx_inf = 1e10
-        self.lbx = np.array([-approx_inf, -approx_inf, -approx_inf, 0.0, -max_speed, -max_turn_rate])
-        self.ubx = np.array([approx_inf, approx_inf, approx_inf, max_speed, max_speed, max_turn_rate])
+        self.lbx = np.array(
+            [-approx_inf, -approx_inf, -approx_inf, 0.0, -max_speed, -max_turn_rate]
+        )
+        self.ubx = np.array(
+            [approx_inf, approx_inf, approx_inf, max_speed, max_speed, max_turn_rate]
+        )
 
     def params(self) -> cs_models.TelemetronParams:
         return self._params
@@ -476,7 +541,9 @@ class Telemetron(MPCModel):
     def dims(self) -> Tuple[int, int]:
         return 6, 2
 
-    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+    def setup_equations_of_motion(
+        self,
+    ) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the Telemetron vessel
 
         Returns:
@@ -490,7 +557,12 @@ class Telemetron(MPCModel):
         Minv = np.linalg.inv(self._params.M_rb + self._params.M_a)
 
         C = mf.Cmtrx_casadi(csd.MX(M), x[3:6])
-        D = mf.Dmtrx_casadi(csd.MX(self._params.D_l), csd.MX(self._params.D_q), csd.MX(self._params.D_c), x[3:6])
+        D = mf.Dmtrx_casadi(
+            csd.MX(self._params.D_l),
+            csd.MX(self._params.D_q),
+            csd.MX(self._params.D_c),
+            x[3:6],
+        )
 
         Rpsi = mf.Rpsi_casadi(x[2])
 
@@ -504,7 +576,9 @@ class Telemetron(MPCModel):
         f_impl = xdot - f_expl
         return f_impl, f_expl, xdot, x, u, p
 
-    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def euler_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N Euler steps for the Telemetron vessel
 
         Args:
@@ -526,7 +600,9 @@ class Telemetron(MPCModel):
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
-    def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def erk4_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N explicit runge kutta 4 steps for the model
 
 
@@ -552,7 +628,9 @@ class Telemetron(MPCModel):
             xs_k = mf.sat(xs_k, self.lbx, self.ubx)
         return soln
 
-    def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_input_state_bounds(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return self.lbu, self.ubu, self.lbx, self.ubx
 
     def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:
@@ -604,9 +682,15 @@ class DoubleIntegrator(MPCModel):
     def __init__(self, params: DoubleIntegratorParams = DoubleIntegratorParams()):
         self._acados_model = AcadosModel()
         self._params = params
-        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = self.setup_equations_of_motion()
+        self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = (
+            self.setup_equations_of_motion()
+        )
         self.dynamics = csd.Function(
-            "dynamics", [self.x, self.u, self.p], [self.f_expl], ["x_p", "u_p", "p_p"], ["f_expl_p"]
+            "dynamics",
+            [self.x, self.u, self.p],
+            [self.f_expl],
+            ["x_p", "u_p", "p_p"],
+            ["f_expl_p"],
         )
 
         # Input and state bounds
@@ -635,7 +719,9 @@ class DoubleIntegrator(MPCModel):
     def dims(self) -> Tuple[int, int]:
         return 2, 1
 
-    def setup_equations_of_motion(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
+    def setup_equations_of_motion(
+        self,
+    ) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
         """Forms the equations of motion for the double integrator
 
         Returns:
@@ -651,7 +737,9 @@ class DoubleIntegrator(MPCModel):
         f_impl = x_s_dot - f_expl
         return f_impl, f_expl, x_s_dot, x_s, u_s, p
 
-    def euler_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def euler_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N Euler steps for the double integrator
 
         Args:
@@ -673,7 +761,9 @@ class DoubleIntegrator(MPCModel):
             xs_k = mf.sat(xs_k + dxs, self.lbx, self.ubx)
         return soln
 
-    def erk4_n_step(self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int) -> np.ndarray:
+    def erk4_n_step(
+        self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
+    ) -> np.ndarray:
         """Simulate N explicit runge kutta 4 steps for the model
 
 
@@ -699,7 +789,9 @@ class DoubleIntegrator(MPCModel):
             xs_k = mf.sat(xs_k, self.lbx, self.ubx)
         return soln
 
-    def get_input_state_bounds(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def get_input_state_bounds(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return self.lbu, self.ubu, self.lbx, self.ubx
 
     def as_casadi(self) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX]:

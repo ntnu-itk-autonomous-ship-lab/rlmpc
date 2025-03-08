@@ -66,12 +66,18 @@ class VectorQuantizer(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.uniform_(self.embedding.weight, -1 / self.num_embeddings, 1 / self.num_embeddings)
+        nn.init.uniform_(
+            self.embedding.weight, -1 / self.num_embeddings, 1 / self.num_embeddings
+        )
 
     def forward(self, latents):
         # Compute L2 distances between latents and embedding weights
-        dist = torch.linalg.vector_norm(latents.movedim(1, -1).unsqueeze(-2) - self.embedding.weight, dim=-1)
-        encoding_inds = torch.argmin(dist, dim=-1)  # Get the number of the nearest codebook vector
+        dist = torch.linalg.vector_norm(
+            latents.movedim(1, -1).unsqueeze(-2) - self.embedding.weight, dim=-1
+        )
+        encoding_inds = torch.argmin(
+            dist, dim=-1
+        )  # Get the number of the nearest codebook vector
         quantized_latents = self.quantize(encoding_inds)  # Quantize the latents
 
         # Compute the VQ Losses
@@ -176,7 +182,11 @@ class PixelCNN(nn.Module):
             # "Mask A is applied only to the first convolutional layer."
             MaskedConv(hidden_dim, hidden_dim, 7, 1, 3, bias=True, mask_type="A"),
             nn.ReLU(),
-            *[layer for _ in range(n_res_blocks) for layer in [ResBlock(hidden_dim), nn.ReLU()]],
+            *[
+                layer
+                for _ in range(n_res_blocks)
+                for layer in [ResBlock(hidden_dim), nn.ReLU()]
+            ],
             *[
                 layer
                 for _ in range(n_conv_blocks)
@@ -211,9 +221,15 @@ class VQVAE(nn.Module):
         self.hidden_dim = hidden_dim
         self.embedding_dim = embedding_dim
 
-        self.enc = Encoder(channels=channels, hidden_dim=hidden_dim, latent_dim=embedding_dim)
-        self.vect_quant = VectorQuantizer(num_embeddings=num_embeddings, embedding_dim=embedding_dim)
-        self.dec = Decoder(channels=channels, hidden_dim=hidden_dim, latent_dim=embedding_dim)
+        self.enc = Encoder(
+            channels=channels, hidden_dim=hidden_dim, latent_dim=embedding_dim
+        )
+        self.vect_quant = VectorQuantizer(
+            num_embeddings=num_embeddings, embedding_dim=embedding_dim
+        )
+        self.dec = Decoder(
+            channels=channels, hidden_dim=hidden_dim, latent_dim=embedding_dim
+        )
 
         self.pixelcnn = PixelCNN(
             num_embeddings=num_embeddings,

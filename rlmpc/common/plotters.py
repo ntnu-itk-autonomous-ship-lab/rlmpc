@@ -1,10 +1,10 @@
 """
-    plotters.py
+plotters.py
 
-    Summary:
-        Contains functions for plotting data from the RL training process.
+Summary:
+    Contains functions for plotting data from the RL training process.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from pathlib import Path
@@ -103,12 +103,17 @@ def plot_single_model_enc_snapshots(
         save_path = save_path if save_path is not None else Path("./figures")
         if not save_path.exists():
             save_path.mkdir(parents=True)
-        plt.savefig(save_path / f"enc_snapshots_{name}.pdf", bbox_inches="tight", dpi=100)
+        plt.savefig(
+            save_path / f"enc_snapshots_{name}.pdf", bbox_inches="tight", dpi=100
+        )
     plt.show(block=False)
 
 
 def plot_multiple_model_reward_curves(
-    model_data: List[Dict[str, Any]], model_names: List[str], save_path: Path, save_fig: bool = False
+    model_data: List[Dict[str, Any]],
+    model_names: List[str],
+    save_path: Path,
+    save_fig: bool = False,
 ) -> None:
     fig, axs = plt.subplots(4, 2, figsize=(15, 15), num="training_reward_curves")
     fig.subplots_adjust(hspace=0.4, wspace=0.25)
@@ -120,7 +125,9 @@ def plot_multiple_model_reward_curves(
         save_path = save_path if save_path is not None else Path("./")
         if not save_path.exists():
             save_path.mkdir(parents=True)
-        plt.savefig(save_path / "training_reward_curves.pdf", bbox_inches="tight", dpi=100)
+        plt.savefig(
+            save_path / "training_reward_curves.pdf", bbox_inches="tight", dpi=100
+        )
 
 
 def plot_single_model_reward_curves(
@@ -128,7 +135,11 @@ def plot_single_model_reward_curves(
 ) -> None:
     # Plot reward components
     sns.lineplot(
-        x=range(len(data["rewards_smoothed"])), y=data["rewards_smoothed"], ax=axs[0, 0], label=model_name, color=color
+        x=range(len(data["rewards_smoothed"])),
+        y=data["rewards_smoothed"],
+        ax=axs[0, 0],
+        label=model_name,
+        color=color,
     )
     axs[0, 0].fill_between(
         range(len(data["rewards_smoothed"])),
@@ -157,8 +168,10 @@ def plot_single_model_reward_curves(
     )
     axs[0, 1].fill_between(
         range(len(data["ep_lengths_smoothed"])),
-        np.array(data["ep_lengths_smoothed"]) - np.array(data["std_ep_lengths_smoothed"]),
-        np.array(data["ep_lengths_smoothed"]) + np.array(data["std_ep_lengths_smoothed"]),
+        np.array(data["ep_lengths_smoothed"])
+        - np.array(data["std_ep_lengths_smoothed"]),
+        np.array(data["ep_lengths_smoothed"])
+        + np.array(data["std_ep_lengths_smoothed"]),
         alpha=0.2,
         color=color,
     )
@@ -166,7 +179,13 @@ def plot_single_model_reward_curves(
     axs[0, 1].set_ylabel("Avg. length", rotation=90)
     # axs[0, 1].set_xlabel("Episode")
 
-    sns.lineplot(x=range(len(data["r_colreg"])), y=data["r_colreg"], ax=axs[1, 0], label=model_name, color=color)
+    sns.lineplot(
+        x=range(len(data["r_colreg"])),
+        y=data["r_colreg"],
+        ax=axs[1, 0],
+        label=model_name,
+        color=color,
+    )
     axs[1, 0].fill_between(
         range(len(data["r_colreg"])),
         np.array(data["r_colreg"]) - np.array(data["std_r_colreg"]),
@@ -178,7 +197,13 @@ def plot_single_model_reward_curves(
     # axs[0, 1].set_xlabel("Episode")
     axs[1, 0].set_ylabel("Avg. return", rotation=90)
 
-    sns.lineplot(x=range(len(data["r_colav"])), y=data["r_colav"], ax=axs[1, 1], label=model_name, color=color)
+    sns.lineplot(
+        x=range(len(data["r_colav"])),
+        y=data["r_colav"],
+        ax=axs[1, 1],
+        label=model_name,
+        color=color,
+    )
     axs[1, 1].fill_between(
         range(len(data["r_colav"])),
         np.array(data["r_colav"]) - np.array(data["std_r_colav"]),
@@ -216,8 +241,10 @@ def plot_single_model_reward_curves(
     )
     axs[2, 1].fill_between(
         range(len(data["r_trajectory_tracking"])),
-        np.array(data["r_trajectory_tracking"]) - np.array(data["std_r_trajectory_tracking"]),
-        np.array(data["r_trajectory_tracking"]) + np.array(data["std_r_trajectory_tracking"]),
+        np.array(data["r_trajectory_tracking"])
+        - np.array(data["std_r_trajectory_tracking"]),
+        np.array(data["r_trajectory_tracking"])
+        + np.array(data["std_r_trajectory_tracking"]),
         alpha=0.2,
         color=color,
     )
@@ -262,7 +289,10 @@ def plot_single_model_reward_curves(
 
 
 def plot_multiple_model_training_stats(
-    model_data: List[rl_logger.RLData], model_names: List[str], save_fig: bool = False, save_path: Path = None
+    model_data: List[rl_logger.RLData],
+    model_names: List[str],
+    save_fig: bool = False,
+    save_path: Path = None,
 ) -> None:
     fig, axs = plt.subplots(3, 2, figsize=(15, 15), num="training_stats")
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
@@ -284,7 +314,13 @@ def plot_single_model_training_stats(
     color: str = None,
 ) -> None:
     plt.show(block=False)
-    sns.lineplot(x=range(len(data.critic_loss)), y=data.critic_loss, ax=axs[0, 0], label=model_name, color=color)
+    sns.lineplot(
+        x=range(len(data.critic_loss)),
+        y=data.critic_loss,
+        ax=axs[0, 0],
+        label=model_name,
+        color=color,
+    )
     axs[0, 0].fill_between(
         range(len(data.critic_loss)),
         data.critic_loss - data.std_critic_loss,
@@ -296,7 +332,13 @@ def plot_single_model_training_stats(
     # axs[0, 0].set_xlabel("Training step")
     axs[0, 0].set_title("Critic loss")
 
-    sns.lineplot(x=range(len(data.actor_loss)), y=data.actor_loss, ax=axs[0, 1], label=model_name, color=color)
+    sns.lineplot(
+        x=range(len(data.actor_loss)),
+        y=data.actor_loss,
+        ax=axs[0, 1],
+        label=model_name,
+        color=color,
+    )
     axs[0, 1].fill_between(
         range(len(data.actor_loss)),
         data.actor_loss - data.std_actor_loss,
@@ -341,7 +383,13 @@ def plot_single_model_training_stats(
     axs[1, 1].set_title("Mean actor grad. norm")
     # axs[1, 1].set_xlabel("Training step")
 
-    sns.lineplot(x=range(len(data.ent_coeff)), y=data.ent_coeff, ax=axs[2, 0], label=model_name, color=color)
+    sns.lineplot(
+        x=range(len(data.ent_coeff)),
+        y=data.ent_coeff,
+        ax=axs[2, 0],
+        label=model_name,
+        color=color,
+    )
     axs[2, 0].fill_between(
         range(len(data.ent_coeff)),
         data.ent_coeff - data.std_ent_coeff,
@@ -398,18 +446,30 @@ def plot_multiple_model_eval_results(
 
         color = colors.pop()
         axs[0].plot(
-            return_data["timesteps"], return_data["mean_ep_length"], label=name, color=color, marker=".", linestyle="--"
+            return_data["timesteps"],
+            return_data["mean_ep_length"],
+            label=name,
+            color=color,
+            marker=".",
+            linestyle="--",
         )
         axs[0].fill_between(
             return_data["timesteps"],
-            np.array(return_data["mean_ep_length"]) - np.array(return_data["std_ep_length"]),
-            np.array(return_data["mean_ep_length"]) + np.array(return_data["std_ep_length"]),
+            np.array(return_data["mean_ep_length"])
+            - np.array(return_data["std_ep_length"]),
+            np.array(return_data["mean_ep_length"])
+            + np.array(return_data["std_ep_length"]),
             alpha=0.2,
             color=color,
         )
         axs[0].set_ylabel("Episode length")
         axs[1].plot(
-            return_data["timesteps"], return_data["mean_ep_rew"], label=name, color=color, marker=".", linestyle="--"
+            return_data["timesteps"],
+            return_data["mean_ep_rew"],
+            label=name,
+            color=color,
+            marker=".",
+            linestyle="--",
         )
         axs[1].fill_between(
             return_data["timesteps"],
@@ -461,8 +521,12 @@ def plot_multiple_model_worst_and_best_episode_data(
     colors = sns.color_palette("tab10", n_colors=len(wb_env_data_list))
     for name, data in zip(model_names, wb_env_data_list):
         color = colors.pop()
-        plot_episode_data_series(data[0], name=name + "_worst_ep", save_figs=save_fig, save_path=save_path)
-        plot_episode_data_series(data[1], name=name + "_best_ep", save_figs=save_fig, save_path=save_path)
+        plot_episode_data_series(
+            data[0], name=name + "_worst_ep", save_figs=save_fig, save_path=save_path
+        )
+        plot_episode_data_series(
+            data[1], name=name + "_best_ep", save_figs=save_fig, save_path=save_path
+        )
 
 
 def plot_episode_data_series(
@@ -480,26 +544,52 @@ def plot_episode_data_series(
         save_figs (bool, optional): Whether to save the figures.
         save_path (Path, optional): Path to save the figure.
     """
-    mpc_params = np.array([data.actor_infos[i]["new_mpc_params"] for i in range(len(data.actor_infos))])
+    mpc_params = np.array(
+        [data.actor_infos[i]["new_mpc_params"] for i in range(len(data.actor_infos))]
+    )
     r_safe_so = 5.0
 
     fig1, axs1 = plt.subplots(4, 1, figsize=(10, 15), num=name + "_d2fail_actions")
     fig1.subplots_adjust(hspace=0.3, wspace=0.25)
     times = np.linspace(0, data.duration, len(data.distances_to_collision))
-    axs1[0].semilogy(times, data.distances_to_grounding, label="Dist. to grounding", color="b")
-    axs1[0].semilogy(times, r_safe_so * np.ones_like(times), label=r"$r_{safe, so}$", color="r", linestyle="--")
+    axs1[0].semilogy(
+        times, data.distances_to_grounding, label="Dist. to grounding", color="b"
+    )
+    axs1[0].semilogy(
+        times,
+        r_safe_so * np.ones_like(times),
+        label=r"$r_{safe, so}$",
+        color="r",
+        linestyle="--",
+    )
     axs1[0].set_ylabel("Distance [m]")
 
-    axs1[1].semilogy(times, data.distances_to_collision, label="Dist. to collision", color="b")
-    axs1[1].semilogy(times, mpc_params[:, 8], label=r"$r_{safe, do}$", color="r", linestyle="--")
+    axs1[1].semilogy(
+        times, data.distances_to_collision, label="Dist. to collision", color="b"
+    )
+    axs1[1].semilogy(
+        times, mpc_params[:, 8], label=r"$r_{safe, do}$", color="r", linestyle="--"
+    )
     axs1[1].set_ylabel("Distance [m]")
 
-    course_refs = np.array([data.actor_infos[i]["applied_refs"][0] for i in range(len(data.actor_infos))])
-    courses = data.ownship_states[:, 2] + np.arctan2(data.ownship_states[:, 4], data.ownship_states[:, 3])
+    course_refs = np.array(
+        [data.actor_infos[i]["applied_refs"][0] for i in range(len(data.actor_infos))]
+    )
+    courses = data.ownship_states[:, 2] + np.arctan2(
+        data.ownship_states[:, 4], data.ownship_states[:, 3]
+    )
     courses = np.unwrap(courses)
-    speed_refs = np.array([data.actor_infos[i]["applied_refs"][1] for i in range(len(data.actor_infos))])
+    speed_refs = np.array(
+        [data.actor_infos[i]["applied_refs"][1] for i in range(len(data.actor_infos))]
+    )
     speeds = np.sqrt(data.ownship_states[:, 3] ** 2 + data.ownship_states[:, 4] ** 2)
-    axs1[2].plot(times, 180.0 * course_refs / np.pi, label=r"$\chi_{d}$", color="r", linestyle="--")
+    axs1[2].plot(
+        times,
+        180.0 * course_refs / np.pi,
+        label=r"$\chi_{d}$",
+        color="r",
+        linestyle="--",
+    )
     axs1[2].plot(times, 180.0 * courses / np.pi, label=r"$\chi$", color="b")
     axs1[2].set_ylabel("Course [deg]")
 
@@ -530,18 +620,42 @@ def plot_episode_data_series(
 
     fig3, axs3 = plt.subplots(4, 2, figsize=(10, 15), num=name + "_rewards")
     r_total = data.rewards
-    r_colreg = np.array([data.reward_components[i]["r_colreg"] for i in range(len(data.reward_components))])
-    r_app_man = np.array(
-        [data.reward_components[i]["r_readily_apparent_maneuvering"] for i in range(len(data.reward_components))]
+    r_colreg = np.array(
+        [
+            data.reward_components[i]["r_colreg"]
+            for i in range(len(data.reward_components))
+        ]
     )
-    r_colav = np.array([data.reward_components[i]["r_collision_avoidance"] for i in range(len(data.reward_components))])
+    r_app_man = np.array(
+        [
+            data.reward_components[i]["r_readily_apparent_maneuvering"]
+            for i in range(len(data.reward_components))
+        ]
+    )
+    r_colav = np.array(
+        [
+            data.reward_components[i]["r_collision_avoidance"]
+            for i in range(len(data.reward_components))
+        ]
+    )
     r_antigrounding = np.array(
-        [data.reward_components[i]["r_antigrounding"] for i in range(len(data.reward_components))]
+        [
+            data.reward_components[i]["r_antigrounding"]
+            for i in range(len(data.reward_components))
+        ]
     )
     r_trajectory_tracking = np.array(
-        [data.reward_components[i]["r_trajectory_tracking"] for i in range(len(data.reward_components))]
+        [
+            data.reward_components[i]["r_trajectory_tracking"]
+            for i in range(len(data.reward_components))
+        ]
     )
-    r_dnn_params = np.array([data.reward_components[i]["r_dnn_parameters"] for i in range(len(data.reward_components))])
+    r_dnn_params = np.array(
+        [
+            data.reward_components[i]["r_dnn_parameters"]
+            for i in range(len(data.reward_components))
+        ]
+    )
     axs3[0, 0].plot(times, r_total, label="Total reward")
     axs3[0, 1].plot(times, r_colreg, label="COLREG reward")
     axs3[1, 0].plot(times, r_colav, label="COLAV reward")
@@ -564,13 +678,19 @@ def plot_episode_data_series(
         save_path = save_path if save_path is not None else Path("./")
         if not save_path.exists():
             save_path.mkdir(parents=True)
-        fig1.savefig(save_path / (name + "_d2fail_actions.pdf"), bbox_inches="tight", dpi=100)
-        fig2.savefig(save_path / (name + "_mpc_params.pdf"), bbox_inches="tight", dpi=100)
+        fig1.savefig(
+            save_path / (name + "_d2fail_actions.pdf"), bbox_inches="tight", dpi=100
+        )
+        fig2.savefig(
+            save_path / (name + "_mpc_params.pdf"), bbox_inches="tight", dpi=100
+        )
         fig3.savefig(save_path / (name + "_rewards.pdf"), bbox_inches="tight", dpi=100)
 
 
 def plot_training_results(
-    base_dir: Path, experiment_names: List[str], abbreviations: Optional[List[str]] = None
+    base_dir: Path,
+    experiment_names: List[str],
+    abbreviations: Optional[List[str]] = None,
 ) -> None:
     """Plots results from training.
 
@@ -589,19 +709,27 @@ def plot_training_results(
     for experiment_name in experiment_names:
         log_dir = base_dir / experiment_name
 
-        rl_data_logger = rlmpc_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+        rl_data_logger = rlmpc_logger.Logger(
+            experiment_name=experiment_name, log_dir=log_dir
+        )
         rl_data_logger.load_from_pickle(f"{experiment_name}_training_stats")
-        smoothed_training_stats = hf.process_rl_training_data(rl_data_logger.rl_data, ma_window_size=5)
+        smoothed_training_stats = hf.process_rl_training_data(
+            rl_data_logger.rl_data, ma_window_size=5
+        )
         training_stats_list.append(smoothed_training_stats)
 
         if plot_env_snapshots or plot_reward_curves:
             env_logger = csenv_logger.Logger(
-                experiment_name=experiment_name, log_dir=log_dir, max_num_logged_episodes=1000000
+                experiment_name=experiment_name,
+                log_dir=log_dir,
+                max_num_logged_episodes=1000000,
             )
             env_logger.load_from_pickle(f"{experiment_name}_env_training_data")
             env_data_list.append(env_logger.env_data)
 
-            reward_data = hf.extract_reward_data(env_logger.env_data, scale_reward_components=True)
+            reward_data = hf.extract_reward_data(
+                env_logger.env_data, scale_reward_components=True
+            )
             reward_data_list.append(reward_data)
 
         if plot_env_snapshots:
@@ -631,7 +759,10 @@ def plot_training_results(
 
 
 def plot_evaluation_results(
-    base_dir: Path, experiment_names: List[str], abbreviations: Optional[List[str]] = None, is_final: bool = False
+    base_dir: Path,
+    experiment_names: List[str],
+    abbreviations: Optional[List[str]] = None,
+    is_final: bool = False,
 ) -> None:
     """Plots results from training, more specifically the environment data logged by the COLAVENvironment gym logger, and
     the .npz files from each evaluation (stored using stable-baselines3 evaluation callback).
@@ -651,9 +782,15 @@ def plot_evaluation_results(
     for experiment_name in experiment_names:
         log_dir = base_dir / experiment_name
         eval_data_dir = log_dir / "eval_data"
-        env_logger = csenv_logger.Logger(experiment_name=experiment_name, log_dir=log_dir)
+        env_logger = csenv_logger.Logger(
+            experiment_name=experiment_name, log_dir=log_dir
+        )
         env_data_pkl_file_list = [file for file in eval_data_dir.iterdir()]
-        env_data_pkl_file_list = [eval_data_dir / file.stem for file in env_data_pkl_file_list if file.suffix == ".pkl"]
+        env_data_pkl_file_list = [
+            eval_data_dir / file.stem
+            for file in env_data_pkl_file_list
+            if file.suffix == ".pkl"
+        ]
         if not is_final:
             env_data_pkl_file_list.sort(key=lambda x: int(x.stem.split("_")[-3]))
 
@@ -745,7 +882,14 @@ def plot_evaluation_results(
                 f"Eval results {experiment_name}: \n\t- mean_reward: {mr:.2f} +/- {stdr:.2f} \n\t- Episode length: {mel:.2f} +/- {stdel:.2f}\n"
             )
         argmin_reward = int(np.argmin(eval_return_data["mean_ep_rew"]))
-        argmax_reward = int(np.argmax([eval_return_data["mean_ep_rew"][i] for i in indices_with_above_100_ep_lengths]))
+        argmax_reward = int(
+            np.argmax(
+                [
+                    eval_return_data["mean_ep_rew"][i]
+                    for i in indices_with_above_100_ep_lengths
+                ]
+            )
+        )
         env_logger.load_from_pickle(str(env_data_pkl_file_list[argmin_reward]))
         worst_env_data = env_logger.env_data[0]
         env_logger.load_from_pickle(str(env_data_pkl_file_list[argmax_reward]))
@@ -786,8 +930,13 @@ if __name__ == "__main__":
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
     experiment_names = ["ssac_gsde_22t_131224_3e_5lr_s2_jid21003695"]
     model_names = ["SSAC-gSDE1"]
-    plot_training_results(base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names)
+    plot_training_results(
+        base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names
+    )
     plot_evaluation_results(
-        base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names, is_final=True
+        base_dir=base_dir,
+        experiment_names=experiment_names,
+        abbreviations=model_names,
+        is_final=True,
     )
     print("Done plotting")

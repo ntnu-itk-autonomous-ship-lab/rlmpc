@@ -1,10 +1,10 @@
 """
-    datasets.py
+datasets.py
 
-    Summary:
-        Contains classes for pytorch datasets.
+Summary:
+    Contains classes for pytorch datasets.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from pathlib import Path
@@ -53,21 +53,32 @@ class ENCImageDataset(Dataset):
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+        self.data = np.load(
+            data_dir / data_npy_file, mmap_mode="r", allow_pickle=True
+        ).astype(np.uint8)
         # self.data = self.data[3:100, 0, :, :, :]  # disregard 3 first.
         self.masks = None
         if mask_npy_file is not None:
-            self.masks = np.load(data_dir / mask_npy_file, mmap_mode="r", allow_pickle=True).astype(np.uint8)
+            self.masks = np.load(
+                data_dir / mask_npy_file, mmap_mode="r", allow_pickle=True
+            ).astype(np.uint8)
             # self.masks = self.masks[3:100, 0, :, :, :]  # disregard 3 first.
 
         if len(self.data.shape) == 4:
             self.data = np.expand_dims(self.data, axis=0)
-            self.masks = np.expand_dims(self.masks, axis=0) if self.masks is not None else None
+            self.masks = (
+                np.expand_dims(self.masks, axis=0) if self.masks is not None else None
+            )
 
-        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = self.data.shape
+        self.n_samples, self.n_envs, self.n_channels, self.height, self.width = (
+            self.data.shape
+        )
 
         self.unnormalize_transform = transforms_v2.Compose(
-            [UnNormalize(mean=[0.5], std=[0.5]), transforms_v2.ToDtype(torch.uint8, scale=True)]
+            [
+                UnNormalize(mean=[0.5], std=[0.5]),
+                transforms_v2.ToDtype(torch.uint8, scale=True),
+            ]
         )
 
     def get_datainfo(self) -> Tuple[int, int, int, int, int]:
@@ -88,7 +99,9 @@ class ENCImageDataset(Dataset):
         assert idx < self.n_samples * self.n_envs, "Index out of range"
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
-        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :, :].copy().astype(np.uint8))
+        sample = torch.from_numpy(
+            self.data[sample_idx, env_idx, :, :, :].copy().astype(np.uint8)
+        )
         if self.masks is not None:
             mask = torch.from_numpy(self.masks[sample_idx, env_idx, :, :, :].copy())
         else:
@@ -128,7 +141,9 @@ class TrackingObservationDataset(Dataset):
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.data = np.load(data_dir / data_npy_file, mmap_mode="r", allow_pickle=True).astype(np.float32)
+        self.data = np.load(
+            data_dir / data_npy_file, mmap_mode="r", allow_pickle=True
+        ).astype(np.float32)
         # self.data = self.data[:1, :1]
         self.n_samples, self.n_envs, self.max_num_do, self.do_info_dim = self.data.shape
         self.do_info_dim = min(4, self.do_info_dim)
@@ -147,7 +162,9 @@ class TrackingObservationDataset(Dataset):
         assert idx < self.n_samples * self.n_envs, "Index out of range"
         env_idx = idx % self.n_envs
         sample_idx = idx // self.n_envs
-        sample = torch.from_numpy(self.data[sample_idx, env_idx, :, :].copy().astype(np.float32))
+        sample = torch.from_numpy(
+            self.data[sample_idx, env_idx, :, :].copy().astype(np.float32)
+        )
         sample = sample[: self.do_info_dim, :]
         # sort sample after entry 0 (distance)
         if self.transform:
@@ -177,13 +194,17 @@ class ParameterProviderDataset(Dataset):
         """
         self.data_dir = data_dir
         self.transform = transform
-        self.env_data_logger = csenv_logger.Logger(experiment_name="parameter_provider_dataset", log_dir=data_dir)
+        self.env_data_logger = csenv_logger.Logger(
+            experiment_name="parameter_provider_dataset", log_dir=data_dir
+        )
         self.env_data_logger.load_from_pickle(name=env_data_pkl_file)
         self.timestep = 2.0
         self.param_list = param_list
-        self.dnn_out_parameter_ranges, self.dnn_out_parameter_incr_ranges, self.dnn_out_parameter_lengths = (
-            mpc_params.MidlevelMPCParams.get_adjustable_parameter_info()
-        )
+        (
+            self.dnn_out_parameter_ranges,
+            self.dnn_out_parameter_incr_ranges,
+            self.dnn_out_parameter_lengths,
+        ) = mpc_params.MidlevelMPCParams.get_adjustable_parameter_info()
         offset = 0
         self.out_parameter_indices = {}
         for param in self.param_list:
@@ -203,20 +224,44 @@ class ParameterProviderDataset(Dataset):
         assert "ms_channel" in env_data[0].name, "must be the rlmpc_scenario_ms_channel"
         self.data = []
         for epdata in env_data:
-            dnn_input_features = np.array([ainfo["dnn_input_features"] for ainfo in epdata.actor_infos])
-            dnn_input_current_norm_mpc_params = np.zeros((dnn_input_features.shape[0], self.num_adjustable_mpc_params))
+            dnn_input_features = np.array(
+                [ainfo["dnn_input_features"] for ainfo in epdata.actor_infos]
+            )
+            dnn_input_current_norm_mpc_params = np.zeros(
+                (dnn_input_features.shape[0], self.num_adjustable_mpc_params)
+            )
             dnn_input_current_norm_mpc_params[0, :] = np.array(
-                [-0.6552, -0.0345, -0.0345, -0.2081, -0.2081, -0.3333, -0.3333, -0.3333, 0.0]
+                [
+                    -0.6552,
+                    -0.0345,
+                    -0.0345,
+                    -0.2081,
+                    -0.2081,
+                    -0.3333,
+                    -0.3333,
+                    -0.3333,
+                    0.0,
+                ]
             )  # dnn_input_features[0, -self.num_adjustable_mpc_params :]
             n_timesteps = dnn_input_features.shape[0]
-            norm_param_incr_preferences, new_norm_mpc_params = self._compute_ad_hoc_episode_parameter_preferences(
-                n_timesteps=n_timesteps,
-                dnn_input_current_norm_mpc_params=dnn_input_current_norm_mpc_params,
-                distances_to_collision=epdata.distances_to_collision,
-                add_noise_to_preferences=False,  # True if epdata.episode > 0 else False,
+            norm_param_incr_preferences, new_norm_mpc_params = (
+                self._compute_ad_hoc_episode_parameter_preferences(
+                    n_timesteps=n_timesteps,
+                    dnn_input_current_norm_mpc_params=dnn_input_current_norm_mpc_params,
+                    distances_to_collision=epdata.distances_to_collision,
+                    add_noise_to_preferences=False,  # True if epdata.episode > 0 else False,
+                )
             )
-            dnn_input_features[:, -self.num_adjustable_mpc_params :] = new_norm_mpc_params
-            self.data.append((epdata.episode, n_timesteps, (dnn_input_features, norm_param_incr_preferences)))
+            dnn_input_features[:, -self.num_adjustable_mpc_params :] = (
+                new_norm_mpc_params
+            )
+            self.data.append(
+                (
+                    epdata.episode,
+                    n_timesteps,
+                    (dnn_input_features, norm_param_incr_preferences),
+                )
+            )
 
         self.n_episodes = len(self.data)
         self.n_mpc_params = new_norm_mpc_params.shape[1]
@@ -253,7 +298,9 @@ class ParameterProviderDataset(Dataset):
         unnorm_param_increments = np.zeros_like(dnn_input_current_norm_mpc_params)
         norm_param_increments = np.zeros_like(dnn_input_current_norm_mpc_params)
         new_unnorm_mpc_params = np.zeros_like(dnn_input_current_norm_mpc_params)
-        new_unnorm_mpc_params[0, :] = self._unnormalize_parameters(dnn_input_current_norm_mpc_params[0, :])
+        new_unnorm_mpc_params[0, :] = self._unnormalize_parameters(
+            dnn_input_current_norm_mpc_params[0, :]
+        )
         new_norm_mpc_params = np.zeros_like(new_unnorm_mpc_params)
         unnorm_params_0 = np.zeros_like(new_unnorm_mpc_params[0, :])
         unnorm_params_1 = np.zeros_like(new_unnorm_mpc_params[0, :])
@@ -276,56 +323,108 @@ class ParameterProviderDataset(Dataset):
                 if t == 0.0:
                     unnorm_params_0 = new_unnorm_mpc_params[0, :].copy()
                 ramp_Q_p_1 = (0.6 - unnorm_params_0[0]) / ((30.0 - 0.0) / self.timestep)
-                ramp_Q_p_2 = (40.0 - unnorm_params_0[1]) / ((30.0 - 0.0) / self.timestep)
-                ramp_Q_p_3 = (40.0 - unnorm_params_0[2]) / ((30.0 - 0.0) / self.timestep)
-                ramp_K_app = (90.0 - unnorm_params_0[3]) / ((30.0 - 0.0) / self.timestep)
-                ramp_w_colregs = (120.0 - unnorm_params_0[5]) / ((30.0 - 0.0) / self.timestep)
+                ramp_Q_p_2 = (40.0 - unnorm_params_0[1]) / (
+                    (30.0 - 0.0) / self.timestep
+                )
+                ramp_Q_p_3 = (40.0 - unnorm_params_0[2]) / (
+                    (30.0 - 0.0) / self.timestep
+                )
+                ramp_K_app = (90.0 - unnorm_params_0[3]) / (
+                    (30.0 - 0.0) / self.timestep
+                )
+                ramp_w_colregs = (120.0 - unnorm_params_0[5]) / (
+                    (30.0 - 0.0) / self.timestep
+                )
                 ramp_r_safe_do = 0.0
             elif t >= 30.0 and t < 100.0:
                 if t == 30.0:
                     unnorm_params_1 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp_r_safe_do = (7.0 - unnorm_params_1[-1]) / ((100.0 - 30.0) / self.timestep)
+                ramp_r_safe_do = (7.0 - unnorm_params_1[-1]) / (
+                    (100.0 - 30.0) / self.timestep
+                )
                 ramp_Q_p_1 = 0.0
                 ramp_Q_p_2 = 0.0
                 ramp_Q_p_3 = 0.0
                 ramp_K_app = 0.0
-                ramp_w_colregs = (80.0 - unnorm_params_1[5]) / ((100.0 - 30.0) / self.timestep)
+                ramp_w_colregs = (80.0 - unnorm_params_1[5]) / (
+                    (100.0 - 30.0) / self.timestep
+                )
             elif t >= 124.0 and t < 160.0:
                 if t == 124.0:
                     unnorm_params_2 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp_r_safe_do = (15.0 - unnorm_params_2[-1]) / ((160.0 - 124.0) / self.timestep)
-                ramp_Q_p_1 = (0.3 - unnorm_params_2[0]) / ((160.0 - 124.0) / self.timestep)
-                ramp_Q_p_2 = (20.0 - unnorm_params_2[1]) / ((160.0 - 124.0) / self.timestep)
-                ramp_Q_p_3 = (20.0 - unnorm_params_2[2]) / ((160.0 - 124.0) / self.timestep)
+                ramp_r_safe_do = (15.0 - unnorm_params_2[-1]) / (
+                    (160.0 - 124.0) / self.timestep
+                )
+                ramp_Q_p_1 = (0.3 - unnorm_params_2[0]) / (
+                    (160.0 - 124.0) / self.timestep
+                )
+                ramp_Q_p_2 = (20.0 - unnorm_params_2[1]) / (
+                    (160.0 - 124.0) / self.timestep
+                )
+                ramp_Q_p_3 = (20.0 - unnorm_params_2[2]) / (
+                    (160.0 - 124.0) / self.timestep
+                )
                 ramp_K_app = 0.0
                 ramp_w_colregs = 0.0
             elif t >= 190.0 and t < 200.0:
                 if t == 190.0:
                     unnorm_params_3 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp_r_safe_do = (5.0 - unnorm_params_3[-1]) / ((200.0 - 190.0) / self.timestep)
-                ramp_Q_p_1 = (0.1 - unnorm_params_3[0]) / ((200.0 - 190.0) / self.timestep)
-                ramp_Q_p_2 = (15.0 - unnorm_params_3[1]) / ((200.0 - 190.0) / self.timestep)
-                ramp_Q_p_3 = (15.0 - unnorm_params_3[2]) / ((200.0 - 190.0) / self.timestep)
+                ramp_r_safe_do = (5.0 - unnorm_params_3[-1]) / (
+                    (200.0 - 190.0) / self.timestep
+                )
+                ramp_Q_p_1 = (0.1 - unnorm_params_3[0]) / (
+                    (200.0 - 190.0) / self.timestep
+                )
+                ramp_Q_p_2 = (15.0 - unnorm_params_3[1]) / (
+                    (200.0 - 190.0) / self.timestep
+                )
+                ramp_Q_p_3 = (15.0 - unnorm_params_3[2]) / (
+                    (200.0 - 190.0) / self.timestep
+                )
                 ramp_K_app = 0.0
                 ramp_w_colregs = 0.0
             elif t >= 234.0 and t < 254.0:
                 if t == 234.0:
                     unnorm_params_4 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp_r_safe_do = (15.0 - unnorm_params_4[-1]) / ((254.0 - 234.0) / self.timestep)
-                ramp_Q_p_1 = (1.0 - unnorm_params_4[0]) / ((254.0 - 234.0) / self.timestep)
-                ramp_Q_p_2 = (30.0 - unnorm_params_4[1]) / ((254.0 - 234.0) / self.timestep)
-                ramp_Q_p_3 = (30.0 - unnorm_params_4[2]) / ((254.0 - 234.0) / self.timestep)
-                ramp_w_colregs = (60.0 - unnorm_params_4[5]) / ((254.0 - 234.0) / self.timestep)
-                ramp_K_app = (15.0 - unnorm_params_4[3]) / ((254.0 - 234.0) / self.timestep)
+                ramp_r_safe_do = (15.0 - unnorm_params_4[-1]) / (
+                    (254.0 - 234.0) / self.timestep
+                )
+                ramp_Q_p_1 = (1.0 - unnorm_params_4[0]) / (
+                    (254.0 - 234.0) / self.timestep
+                )
+                ramp_Q_p_2 = (30.0 - unnorm_params_4[1]) / (
+                    (254.0 - 234.0) / self.timestep
+                )
+                ramp_Q_p_3 = (30.0 - unnorm_params_4[2]) / (
+                    (254.0 - 234.0) / self.timestep
+                )
+                ramp_w_colregs = (60.0 - unnorm_params_4[5]) / (
+                    (254.0 - 234.0) / self.timestep
+                )
+                ramp_K_app = (15.0 - unnorm_params_4[3]) / (
+                    (254.0 - 234.0) / self.timestep
+                )
             elif t >= 254.0:
                 if t == 254.0:
                     unnorm_params_5 = new_unnorm_mpc_params[k - 1, :].copy()
-                ramp_r_safe_do = (25.0 - unnorm_params_5[-1]) / ((330.0 - 254.0) / self.timestep)
-                ramp_Q_p_1 = (2.0 - unnorm_params_5[0]) / ((330.0 - 254.0) / self.timestep)
-                ramp_Q_p_2 = (40.0 - unnorm_params_5[1]) / ((330.0 - 254.0) / self.timestep)
-                ramp_Q_p_3 = (40.0 - unnorm_params_5[2]) / ((330.0 - 254.0) / self.timestep)
-                ramp_w_colregs = (120.0 - unnorm_params_5[5]) / ((330.0 - 254.0) / self.timestep)
-                ramp_K_app = (10.0 - unnorm_params_5[3]) / ((330.0 - 254.0) / self.timestep)
+                ramp_r_safe_do = (25.0 - unnorm_params_5[-1]) / (
+                    (330.0 - 254.0) / self.timestep
+                )
+                ramp_Q_p_1 = (2.0 - unnorm_params_5[0]) / (
+                    (330.0 - 254.0) / self.timestep
+                )
+                ramp_Q_p_2 = (40.0 - unnorm_params_5[1]) / (
+                    (330.0 - 254.0) / self.timestep
+                )
+                ramp_Q_p_3 = (40.0 - unnorm_params_5[2]) / (
+                    (330.0 - 254.0) / self.timestep
+                )
+                ramp_w_colregs = (120.0 - unnorm_params_5[5]) / (
+                    (330.0 - 254.0) / self.timestep
+                )
+                ramp_K_app = (10.0 - unnorm_params_5[3]) / (
+                    (330.0 - 254.0) / self.timestep
+                )
             else:
                 ramp_r_safe_do = 0.0
                 ramp_Q_p_1 = 0.0
@@ -393,16 +492,24 @@ class ParameterProviderDataset(Dataset):
             #     unnorm_param_increments[k, 7] = 0.5 * self.dnn_out_parameter_incr_ranges["w_colregs"][0]
 
             if add_noise_to_preferences:
-                unnorm_param_increments = self.add_noise_to_preferences(unnorm_param_increments, k)
+                unnorm_param_increments = self.add_noise_to_preferences(
+                    unnorm_param_increments, k
+                )
 
-            norm_param_increments[k, :] = self._normalize_parameter_increments(unnorm_param_increments[k, :])
+            norm_param_increments[k, :] = self._normalize_parameter_increments(
+                unnorm_param_increments[k, :]
+            )
             if k > 0:
-                new_unnorm_mpc_params[k, :] = new_unnorm_mpc_params[k - 1, :] + unnorm_param_increments[k, :]
+                new_unnorm_mpc_params[k, :] = (
+                    new_unnorm_mpc_params[k - 1, :] + unnorm_param_increments[k, :]
+                )
 
             new_norm_mpc_params[k, :] = self._normalize_parameters(
                 new_unnorm_mpc_params[k, :].copy()
             )  # clips to -1.0, 1.0
-            new_unnorm_mpc_params[k, :] = self._unnormalize_parameters(new_norm_mpc_params[k, :].copy())
+            new_unnorm_mpc_params[k, :] = self._unnormalize_parameters(
+                new_norm_mpc_params[k, :].copy()
+            )
 
         # self.plot_ad_hoc_preferences(new_unnorm_mpc_params)
         return norm_param_increments, new_norm_mpc_params
@@ -418,7 +525,9 @@ class ParameterProviderDataset(Dataset):
             unnorm_mpc_params_prefs (np.ndarray): Preferred hand-crafted unnormalized mpc params.
             pred_unnorm_mpc_param (Optional[np.ndarray]): Predicted unnormalized mpc params from the DNN (added on top of the original mpc params per step)
         """
-        assert unnorm_mpc_params_prefs.shape[1] == 9, "The parameter increments must have shape (n_timesteps, 9)"
+        assert unnorm_mpc_params_prefs.shape[1] == 9, (
+            "The parameter increments must have shape (n_timesteps, 9)"
+        )
         n_timesteps = unnorm_mpc_params_prefs.shape[0]
         times = np.arange(0, n_timesteps * self.timestep, self.timestep)
         matplotlib.use("TkAgg")
@@ -466,18 +575,28 @@ class ParameterProviderDataset(Dataset):
         ep_data = self.data[ep_idx]
         dnn_input_features = ep_data[2][0]
         pref_norm_mpc_param_incr = ep_data[2][1]
-        pred_norm_mpc_param_incr = model(torch.from_numpy(dnn_input_features.copy())).detach().numpy()
+        pred_norm_mpc_param_incr = (
+            model(torch.from_numpy(dnn_input_features.copy())).detach().numpy()
+        )
 
-        original_norm_mpc_params = dnn_input_features[:, -self.num_adjustable_mpc_params :].copy()
+        original_norm_mpc_params = dnn_input_features[
+            :, -self.num_adjustable_mpc_params :
+        ].copy()
         new_norm_mpc_params = original_norm_mpc_params.copy()
         original_unnorm_mpc_params = np.zeros_like(new_norm_mpc_params)
         new_unnorm_mpc_params = np.zeros_like(new_norm_mpc_params)
         for k in range(dnn_input_features.shape[0]):
-            original_unnorm_mpc_params[k, :] = self._unnormalize_parameters(original_norm_mpc_params[k, :].copy())
+            original_unnorm_mpc_params[k, :] = self._unnormalize_parameters(
+                original_norm_mpc_params[k, :].copy()
+            )
             if k > 0:
-                new_norm_mpc_params[k, :] = new_norm_mpc_params[k - 1, :] + pred_norm_mpc_param_incr[k, :]
+                new_norm_mpc_params[k, :] = (
+                    new_norm_mpc_params[k - 1, :] + pred_norm_mpc_param_incr[k, :]
+                )
             new_norm_mpc_params[k, :] = np.clip(new_norm_mpc_params[k, :], -1.0, 1.0)
-            new_unnorm_mpc_params[k, :] = self._unnormalize_parameters(new_norm_mpc_params[k, :].copy())
+            new_unnorm_mpc_params[k, :] = self._unnormalize_parameters(
+                new_norm_mpc_params[k, :].copy()
+            )
         # self.plot_ad_hoc_preferences(original_unnorm_mpc_params, pred_unnorm_mpc_param=new_unnorm_mpc_params)
         self.plot_ad_hoc_preferences(pref_norm_mpc_param_incr, pred_norm_mpc_param_incr)
 
@@ -499,9 +618,13 @@ class ParameterProviderDataset(Dataset):
 
             for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
                 if param_name == "Q_p":
-                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range[j]))
+                    x_param[j] = csmf.linear_map(
+                        x_param[j], (-1.0, 1.0), tuple(param_range[j])
+                    )
                 else:
-                    x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+                    x_param[j] = csmf.linear_map(
+                        x_param[j], (-1.0, 1.0), tuple(param_range)
+                    )
             x_unnorm[pindx : pindx + param_length] = x_param
         return x_unnorm
 
@@ -523,9 +646,13 @@ class ParameterProviderDataset(Dataset):
 
             for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
                 if param_name == "Q_p":
-                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range[j]), (-1.0, 1.0))
+                    x_param[j] = csmf.linear_map(
+                        x_param[j], tuple(param_range[j]), (-1.0, 1.0)
+                    )
                 else:
-                    x_param[j] = csmf.linear_map(x_param[j], tuple(param_range), (-1.0, 1.0))
+                    x_param[j] = csmf.linear_map(
+                        x_param[j], tuple(param_range), (-1.0, 1.0)
+                    )
             x_norm[pindx : pindx + param_length] = x_param
         return np.clip(x_norm, -1.0, 1.0)
 
@@ -547,9 +674,13 @@ class ParameterProviderDataset(Dataset):
 
             for j in range(len(x_param_norm)):  # pylint: disable=consider-using-enumerate
                 if param_name == "Q_p":
-                    x_param_norm[j] = csmf.linear_map(x_param_norm[j], tuple(param_range[j]), (-1.0, 1.0))
+                    x_param_norm[j] = csmf.linear_map(
+                        x_param_norm[j], tuple(param_range[j]), (-1.0, 1.0)
+                    )
                 else:
-                    x_param_norm[j] = csmf.linear_map(x_param_norm[j], tuple(param_range), (-1.0, 1.0))
+                    x_param_norm[j] = csmf.linear_map(
+                        x_param_norm[j], tuple(param_range), (-1.0, 1.0)
+                    )
             x_norm[pindx : pindx + param_length] = x_param_norm
         return x_norm
 
@@ -570,7 +701,9 @@ class ParameterProviderDataset(Dataset):
             x_param = x[pindx : pindx + param_length]
 
             for j in range(len(x_param)):  # pylint: disable=consider-using-enumerate
-                x_param[j] = csmf.linear_map(x_param[j], (-1.0, 1.0), tuple(param_range))
+                x_param[j] = csmf.linear_map(
+                    x_param[j], (-1.0, 1.0), tuple(param_range)
+                )
             x_unnorm[pindx : pindx + param_length] = x_param
         return x_unnorm
 
@@ -595,15 +728,21 @@ class ParameterProviderDataset(Dataset):
 
         sample_idx = idx - (cumulative_sum - self.data[ep_idx][1])
 
-        dnn_input_feature_sample = torch.from_numpy(considered_samples[0][sample_idx, :].copy().astype(np.float32))
-        norm_mpc_param_incr_sample = torch.from_numpy(considered_samples[1][sample_idx, :].copy().astype(np.float32))
+        dnn_input_feature_sample = torch.from_numpy(
+            considered_samples[0][sample_idx, :].copy().astype(np.float32)
+        )
+        norm_mpc_param_incr_sample = torch.from_numpy(
+            considered_samples[1][sample_idx, :].copy().astype(np.float32)
+        )
 
         if self.transform:
             dnn_input_feature_sample = self.transform(dnn_input_feature_sample)
             norm_mpc_param_incr_sample = self.transform(norm_mpc_param_incr_sample)
         return dnn_input_feature_sample, norm_mpc_param_incr_sample
 
-    def add_noise_to_preferences(self, unnorm_param_increments: np.ndarray, k: int) -> np.ndarray:
+    def add_noise_to_preferences(
+        self, unnorm_param_increments: np.ndarray, k: int
+    ) -> np.ndarray:
         """Adds noise to the parameter increments.
 
         Args:
@@ -613,7 +752,9 @@ class ParameterProviderDataset(Dataset):
         Returns:
             np.ndarray: The updated parameter increments.
         """
-        assert unnorm_param_increments.shape[1] == 9, "The parameter increments must have shape (n_timesteps, 9)"
+        assert unnorm_param_increments.shape[1] == 9, (
+            "The parameter increments must have shape (n_timesteps, 9)"
+        )
         eps = 1e-6
         if abs(unnorm_param_increments[k, 0]) > eps:
             unnorm_param_increments[k, 0] = np.clip(

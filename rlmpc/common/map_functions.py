@@ -1,11 +1,11 @@
 """
-    map_functions.py
+map_functions.py
 
-    Summary:
-        Contains various commonly used map functions, including
-        latlon to local UTM (ENU) coordinate transformation functions etc..
+Summary:
+    Contains various commonly used map functions, including
+    latlon to local UTM (ENU) coordinate transformation functions etc..
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import Optional, Tuple
@@ -52,7 +52,9 @@ def local2latlon(
     elif utm_zone == 33:
         from_zone = 6173  # ETRS89 / UTM zone 33 + NN54 height
     else:
-        raise ValueError('Input "utm_zone" is not correct. Supported zones sofar are 32 and 33.')
+        raise ValueError(
+            'Input "utm_zone" is not correct. Supported zones sofar are 32 and 33.'
+        )
 
     src = osr.SpatialReference()
     src.ImportFromEPSG(from_zone)
@@ -92,7 +94,9 @@ def latlon2local(
     elif utm_zone == 33:
         to_zone = 6173  # ETRS89 / UTM zone 33 + NN54 height
     else:
-        raise ValueError('Input "utm_zone" is not correct. Supported zones sofar are 32 and 33.')
+        raise ValueError(
+            'Input "utm_zone" is not correct. Supported zones sofar are 32 and 33.'
+        )
 
     src = osr.SpatialReference()
     src.ImportFromEPSG(from_zone)
@@ -110,7 +114,9 @@ def latlon2local(
     return x, y
 
 
-def dist_between_latlon_coords(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+def dist_between_latlon_coords(
+    lat1: float, lon1: float, lat2: float, lon2: float
+) -> float:
     """Computes the distance between two latitude, longitude coordinates.
 
     Args:
@@ -217,9 +223,13 @@ def extract_relevant_grounding_hazards(
     Returns:
         geometry.MultiPolygon: The relevant grounding hazards.
     """
-    dangerous_seabed = enc.seabed[0].geometry.difference(enc.seabed[vessel_min_depth].geometry)
+    dangerous_seabed = enc.seabed[0].geometry.difference(
+        enc.seabed[vessel_min_depth].geometry
+    )
     # return [enc.land.geometry, enc.shore.geometry, dangerous_seabed]
-    relevant_hazards = [enc.land.geometry.union(enc.shore.geometry).union(dangerous_seabed)]
+    relevant_hazards = [
+        enc.land.geometry.union(enc.shore.geometry).union(dangerous_seabed)
+    ]
     filtered_relevant_hazards = []
     for hazard in relevant_hazards:
         poly = geometry.MultiPolygon(geometry.Polygon(p.exterior) for p in hazard.geoms)
@@ -265,13 +275,17 @@ def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]
     """
     poly_list = []
     for poly in geometries:
-        assert isinstance(poly, geometry.MultiPolygon), "Only MultiPolygon members are supported"
+        assert isinstance(poly, geometry.MultiPolygon), (
+            "Only MultiPolygon members are supported"
+        )
         for sub_poly in poly.geoms:
             poly_list.append(sub_poly)
     return strtree.STRtree(poly_list), poly_list
 
 
-def generate_enveloping_polygon(trajectory: np.ndarray, buffer: float) -> geometry.Polygon:
+def generate_enveloping_polygon(
+    trajectory: np.ndarray, buffer: float
+) -> geometry.Polygon:
     """Creates an enveloping polygon around the trajectory of the vessel, buffered by the given amount.
 
     Args:
@@ -394,7 +408,9 @@ def extract_safe_sea_area(
     return safe_sea
 
 
-def create_free_boundary_points_from_enc(enc: senc.ENC, hazards: list) -> Tuple[np.ndarray, np.ndarray]:
+def create_free_boundary_points_from_enc(
+    enc: senc.ENC, hazards: list
+) -> Tuple[np.ndarray, np.ndarray]:
     """Creates an array of points on the ENC boundary which is free from grounding hazards.
 
     Args:
@@ -483,7 +499,9 @@ def point_in_point_list(point: geometry.Point, points: list) -> bool:
     return False
 
 
-def create_safe_sea_voronoi_diagram(enc: senc.ENC, vessel_min_depth: int = 5) -> Tuple[scipy_spatial.Voronoi, list]:
+def create_safe_sea_voronoi_diagram(
+    enc: senc.ENC, vessel_min_depth: int = 5
+) -> Tuple[scipy_spatial.Voronoi, list]:
     """Creates a Voronoi diagram of the safe sea region (i.e. its vertices).
 
     Args:
@@ -495,7 +513,9 @@ def create_safe_sea_voronoi_diagram(enc: senc.ENC, vessel_min_depth: int = 5) ->
     """
     bbox = enc.bbox
     enc_bbox_poly = bbox_to_polygon(bbox)
-    safe_sea = extract_safe_sea_area(vessel_min_depth, enc_bbox_poly, enc, as_polygon_list=True, show_plots=True)
+    safe_sea = extract_safe_sea_area(
+        vessel_min_depth, enc_bbox_poly, enc, as_polygon_list=True, show_plots=True
+    )
     polygons = []
     for sea_poly in safe_sea:
         if isinstance(sea_poly, geometry.MultiPolygon):
@@ -527,7 +547,9 @@ def create_safe_sea_voronoi_diagram(enc: senc.ENC, vessel_min_depth: int = 5) ->
     return vor, region_polygons
 
 
-def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show_plots: bool = False) -> list:
+def create_safe_sea_triangulation(
+    enc: senc.ENC, vessel_min_depth: int = 5, show_plots: bool = False
+) -> list:
     """Creates a constrained delaunay triangulation of the safe sea region.
 
     Args:
@@ -538,7 +560,11 @@ def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show
         list: List of triangles.
     """
     safe_sea_poly_list = extract_safe_sea_area(
-        vessel_min_depth, bbox_to_polygon(enc.bbox), enc, as_polygon_list=True, show_plots=show_plots
+        vessel_min_depth,
+        bbox_to_polygon(enc.bbox),
+        enc,
+        as_polygon_list=True,
+        show_plots=show_plots,
     )
     cdt_list = []
     largest_poly_area = 0.0
@@ -557,7 +583,9 @@ def create_safe_sea_triangulation(enc: senc.ENC, vessel_min_depth: int = 5, show
     return cdt_largest
 
 
-def create_region_polygons_from_voronoi(vor: scipy_spatial.Voronoi, enc: Optional[senc.ENC] = None) -> list:
+def create_region_polygons_from_voronoi(
+    vor: scipy_spatial.Voronoi, enc: Optional[senc.ENC] = None
+) -> list:
     """Creates a list of polygons from the Voronoi diagram.
 
     Args:
@@ -585,7 +613,10 @@ def create_region_polygons_from_voronoi(vor: scipy_spatial.Voronoi, enc: Optiona
 
 
 def extract_boundary_polygons_inside_envelope(
-    poly_tuple_list: list, enveloping_polygon: geometry.Polygon, enc: Optional[senc.ENC] = None, show_plots: bool = True
+    poly_tuple_list: list,
+    enveloping_polygon: geometry.Polygon,
+    enc: Optional[senc.ENC] = None,
+    show_plots: bool = True,
 ) -> list:
     """Extracts the boundary trianguled polygons that are relevant for the trajectory of the vessel, inside the given envelope polygon.
 
@@ -617,7 +648,9 @@ def extract_boundary_polygons_inside_envelope(
 
 
 def extract_triangle_boundaries_from_polygon(
-    polygon: geometry.Polygon, planning_area_envelope: geometry.Polygon, original_polygon: geometry.Polygon
+    polygon: geometry.Polygon,
+    planning_area_envelope: geometry.Polygon,
+    original_polygon: geometry.Polygon,
 ) -> list:
     """Extracts the triangles that comprise the boundary of the polygon.
 
@@ -633,8 +666,12 @@ def extract_triangle_boundaries_from_polygon(
     """
     cdt = constrained_delaunay_triangulation_custom(polygon)
     # return cdt
-    envelope_boundary = geometry.LineString(planning_area_envelope.exterior.coords).buffer(0.0001)
-    original_polygon_boundary = geometry.LineString(original_polygon.exterior.coords).buffer(0.0001)
+    envelope_boundary = geometry.LineString(
+        planning_area_envelope.exterior.coords
+    ).buffer(0.0001)
+    original_polygon_boundary = geometry.LineString(
+        original_polygon.exterior.coords
+    ).buffer(0.0001)
     boundary_triangles = []
     if len(cdt) == 1:
         return cdt
@@ -740,16 +777,21 @@ def constrained_delaunay_triangulation_custom(polygon: geometry.Polygon) -> list
     )
     # Remove overlapping from other triangles (Necessary for multi-polygons overlapping or close to each other)
     filtered_triangles_join = filtered_triangles_join[
-        filtered_triangles_join["TRI_ID_left"] == filtered_triangles_join["TRI_ID_right"]
+        filtered_triangles_join["TRI_ID_left"]
+        == filtered_triangles_join["TRI_ID_right"]
     ]
     # Remove overload triangles from same filtered_triangless
-    filtered_triangles = filtered_triangles[filtered_triangles["LINK_ID"].isin(filtered_triangles_join["LINK_ID"])]
+    filtered_triangles = filtered_triangles[
+        filtered_triangles["LINK_ID"].isin(filtered_triangles_join["LINK_ID"])
+    ]
     filtered_triangles = filtered_triangles.geometry.values
     # double check
     cdt_triangles = []
     for tri in triangles:
         intersection_poly = tri.intersection(polygon)
-        if isinstance(intersection_poly, geometry.Point) or isinstance(intersection_poly, geometry.LineString):
+        if isinstance(intersection_poly, geometry.Point) or isinstance(
+            intersection_poly, geometry.LineString
+        ):
             continue
         if intersection_poly.area == 0.0:
             continue
@@ -792,7 +834,12 @@ def compute_smallest_enclosing_circle_for_polygons(
         circle = smallestenclosingcircle.make_circle(points)
         circles.append(circle)
         if enc is not None and show_plots:
-            enc.draw_circle((circle[1] + map_origin[1], circle[0] + map_origin[0]), circle[2], color="red", fill=False)
+            enc.draw_circle(
+                (circle[1] + map_origin[1], circle[0] + map_origin[0]),
+                circle[2],
+                color="red",
+                fill=False,
+            )
     return circles
 
 
@@ -854,7 +901,11 @@ def compute_smallest_enclosing_ellipse_for_polygons(
         ell_x, ell_y = hf.create_ellipse(c, np.asarray(np.linalg.inv(A)))
         ell = geometry.Polygon(zip(ell_y, ell_x))
         if enc is not None and show_plots:
-            enc.draw_polygon(hf.translate_polygons([ell], -map_origin[1], -map_origin[0]), color="red", fill=False)
+            enc.draw_polygon(
+                hf.translate_polygons([ell], -map_origin[1], -map_origin[0]),
+                color="red",
+                fill=False,
+            )
     return ellipses
 
 
@@ -877,12 +928,16 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
     Returns:
         list: List of ellipsoidal approximations for each polygon.
     """
-    envelope_boundary = geometry.LineString(planning_area_envelope.exterior.coords).buffer(0.0001)
+    envelope_boundary = geometry.LineString(
+        planning_area_envelope.exterior.coords
+    ).buffer(0.0001)
     ellipses = []
     ellipses_per_m2 = 5e-4
 
     for polygons, original_poly in poly_tuple_list:
-        original_polygon_boundary = geometry.LineString(original_poly.exterior.coords).buffer(0.0001)
+        original_polygon_boundary = geometry.LineString(
+            original_poly.exterior.coords
+        ).buffer(0.0001)
         for polygon in polygons:
             centroid = [polygon.centroid.y, polygon.centroid.x]
             min_y, min_x, max_y, max_x = polygon.bounds
@@ -891,10 +946,18 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
             init_sigma = np.zeros((num_ellipses, 2, 2))
             for i in range(num_ellipses):
                 init_mu[i, :] = centroid + np.random.uniform(
-                    low=np.array([min_x, min_y]) - centroid, high=np.array([max_x, max_y]) - centroid, size=(2,)
+                    low=np.array([min_x, min_y]) - centroid,
+                    high=np.array([max_x, max_y]) - centroid,
+                    size=(2,),
                 )
                 init_sigma[i, :, :] = 1e4 * np.eye(2)
-            gmm_em_object = gmm_em.GMM_EM(k=num_ellipses, dim=2, init_mu=init_mu, init_sigma=init_sigma, init_pi=None)
+            gmm_em_object = gmm_em.GMM_EM(
+                k=num_ellipses,
+                dim=2,
+                init_mu=init_mu,
+                init_sigma=init_sigma,
+                init_pi=None,
+            )
 
             # Remove points that are on the enveloping polygon boundary
             y, x = polygon.exterior.coords.xy
@@ -906,26 +969,37 @@ def compute_multi_ellipsoidal_approximations_from_polygons(
 
             if enc is not None and show_plots:
                 enc.draw_polygon(
-                    hf.translate_polygons([envelope_boundary], -map_origin[1], -map_origin[0])[0],
+                    hf.translate_polygons(
+                        [envelope_boundary], -map_origin[1], -map_origin[0]
+                    )[0],
                     color="green",
                     fill=False,
                 )
                 enc.draw_polygon(
-                    hf.translate_polygons([polygon], -map_origin[1], -map_origin[0])[0], color="red", fill=False
+                    hf.translate_polygons([polygon], -map_origin[1], -map_origin[0])[0],
+                    color="red",
+                    fill=False,
                 )
                 enc.draw_polygon(
-                    hf.translate_polygons([original_polygon_boundary], -map_origin[1], -map_origin[0])[0], color="blue"
+                    hf.translate_polygons(
+                        [original_polygon_boundary], -map_origin[1], -map_origin[0]
+                    )[0],
+                    color="blue",
                 )
 
             gmm_em_object.init_em(X=relevant_boundary_points)
             mu_c, sigma_c, _ = gmm_em_object.run(num_iters=50)
             for i in range(num_ellipses):
                 ellipses.append((mu_c[i, :].T, sigma_c[i, :, :]))
-                ell_x, ell_y = hf.create_ellipse(center=mu_c[i, :], A=np.squeeze(sigma_c[i, :, :]))
+                ell_x, ell_y = hf.create_ellipse(
+                    center=mu_c[i, :], A=np.squeeze(sigma_c[i, :, :])
+                )
                 ell = geometry.Polygon(zip(ell_y, ell_x))
                 if enc is not None and show_plots:
                     enc.draw_polygon(
-                        hf.translate_polygons([ell], -map_origin[1], -map_origin[0])[0], color="orange", fill=False
+                        hf.translate_polygons([ell], -map_origin[1], -map_origin[0])[0],
+                        color="orange",
+                        fill=False,
                     )
 
     return ellipses
@@ -962,33 +1036,45 @@ def compute_surface_approximations_from_polygons(
     bbox_poly = bbox_to_polygon(tuple(rel_bbox))
     j = 0
     for d_safe in safety_margins:
-        d_safe = d_safe + 0.05  # buffer to account for function slope not being infinite
+        d_safe = (
+            d_safe + 0.05
+        )  # buffer to account for function slope not being infinite
         surfaces = []
         scipy_surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
         for polygons, original_poly in polygons:
-            original_polygon_boundary = geometry.LineString(original_poly.exterior.coords).buffer(
-                0.5, cap_style=cap_style, join_style=join_style
-            )
+            original_polygon_boundary = geometry.LineString(
+                original_poly.exterior.coords
+            ).buffer(0.5, cap_style=cap_style, join_style=join_style)
             original_polygon_boundary_d_safe = geometry.LineString(
-                original_poly.buffer(d_safe, cap_style=cap_style, join_style=join_style).exterior.coords
+                original_poly.buffer(
+                    d_safe, cap_style=cap_style, join_style=join_style
+                ).exterior.coords
             ).buffer(0.5, cap_style=cap_style, join_style=join_style)
             for polygon in polygons:
                 # Extract the relevant polygon coastline  and safety buffered polygon coastline
-                relevant_coastline = polygon.intersection(original_polygon_boundary).intersection(bbox_poly)
+                relevant_coastline = polygon.intersection(
+                    original_polygon_boundary
+                ).intersection(bbox_poly)
                 # Check if the relevant coastline is a multipolygon and choose the largest one
                 if isinstance(relevant_coastline, geometry.MultiPolygon):
-                    max_area_idx = np.argmax([poly.area for poly in relevant_coastline.geoms])
+                    max_area_idx = np.argmax(
+                        [poly.area for poly in relevant_coastline.geoms]
+                    )
                     relevant_coastline = relevant_coastline.geoms[max_area_idx]
 
                 if enc is not None and show_plots:
                     enc.start_display()
-                    translated_poly = hf.translate_polygons([polygon], -map_origin[1], -map_origin[0])[0]
-                    translated_coastline = hf.translate_polygons([relevant_coastline], -map_origin[1], -map_origin[0])[
-                        0
-                    ]
+                    translated_poly = hf.translate_polygons(
+                        [polygon], -map_origin[1], -map_origin[0]
+                    )[0]
+                    translated_coastline = hf.translate_polygons(
+                        [relevant_coastline], -map_origin[1], -map_origin[0]
+                    )[0]
                     enc.draw_polygon(
-                        translated_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style),
+                        translated_coastline.buffer(
+                            0.0, cap_style=cap_style, join_style=join_style
+                        ),
                         color="green",
                         fill=False,
                     )
@@ -999,15 +1085,21 @@ def compute_surface_approximations_from_polygons(
                 )
                 # Again, check if the safety relevant coastline is a multipolygon and choose the largest one
                 if isinstance(relevant_coastline_safety, geometry.MultiPolygon):
-                    max_area_idx = np.argmax([poly.area for poly in relevant_coastline_safety.geoms])
-                    relevant_coastline_safety = relevant_coastline_safety.geoms[max_area_idx]
-                y_coastline_orig, x_coastline_orig = relevant_coastline_safety.exterior.coords.xy
+                    max_area_idx = np.argmax(
+                        [poly.area for poly in relevant_coastline_safety.geoms]
+                    )
+                    relevant_coastline_safety = relevant_coastline_safety.geoms[
+                        max_area_idx
+                    ]
+                y_coastline_orig, x_coastline_orig = (
+                    relevant_coastline_safety.exterior.coords.xy
+                )
 
                 if len(y_coastline_orig) < 3:
                     continue
 
-                x_coastline_interp, y_coastline_interp, arc_length = hf.create_arc_length_spline(
-                    x_coastline_orig, y_coastline_orig
+                x_coastline_interp, y_coastline_interp, arc_length = (
+                    hf.create_arc_length_spline(x_coastline_orig, y_coastline_orig)
                 )
 
                 # Tuning parameter
@@ -1017,8 +1109,12 @@ def compute_surface_approximations_from_polygons(
                 #         f"Polygon {j}: Relevant coastline arc length: {arc_length[-1]} | distance spacing: {orig_point_spacing}"
                 #     )
 
-                y_surface_points = list(y_coastline_interp(np.arange(0, arc_length[-1], orig_point_spacing)))
-                x_surface_points = list(x_coastline_interp(np.arange(0, arc_length[-1], orig_point_spacing)))
+                y_surface_points = list(
+                    y_coastline_interp(np.arange(0, arc_length[-1], orig_point_spacing))
+                )
+                x_surface_points = list(
+                    x_coastline_interp(np.arange(0, arc_length[-1], orig_point_spacing))
+                )
                 x_surface_data_points = []
                 y_surface_data_points = []
                 for xcoord, ycoord in zip(x_surface_points, y_surface_points):
@@ -1034,7 +1130,10 @@ def compute_surface_approximations_from_polygons(
                     y_surface_data_points.append(ycoord)
                     if enc is not None and show_plots:
                         enc.draw_circle(
-                            (ycoord + map_origin[1], xcoord + map_origin[0]), radius=0.5, color="blue", fill=False
+                            (ycoord + map_origin[1], xcoord + map_origin[0]),
+                            radius=0.5,
+                            color="blue",
+                            fill=False,
                         )
 
                 if enc is not None and show_plots:
@@ -1042,7 +1141,9 @@ def compute_surface_approximations_from_polygons(
                         [relevant_coastline_safety], -map_origin[1], -map_origin[0]
                     )[0]
                     enc.draw_polygon(
-                        translated_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style),
+                        translated_coastline.buffer(
+                            0.0, cap_style=cap_style, join_style=join_style
+                        ),
                         color="orange",
                         fill=False,
                     )
@@ -1061,16 +1162,26 @@ def compute_surface_approximations_from_polygons(
                 y_poly, x_poly = polygon.buffer(
                     d_safe + buffer_distance, cap_style=cap_style, join_style=join_style
                 ).exterior.coords.xy
-                x_poly_spline, y_poly_spline, arc_length_poly = hf.create_arc_length_spline(x_poly, y_poly)
+                x_poly_spline, y_poly_spline, arc_length_poly = (
+                    hf.create_arc_length_spline(x_poly, y_poly)
+                )
 
                 surface_value_at_buffer_points = -0.5
-                y_poly_spaced = list(y_poly_spline(np.arange(0, arc_length_poly[-1], orig_point_spacing)))
-                x_poly_spaced = list(x_poly_spline(np.arange(0, arc_length_poly[-1], orig_point_spacing)))
+                y_poly_spaced = list(
+                    y_poly_spline(np.arange(0, arc_length_poly[-1], orig_point_spacing))
+                )
+                x_poly_spaced = list(
+                    x_poly_spline(np.arange(0, arc_length_poly[-1], orig_point_spacing))
+                )
                 y_buffer_points = []
                 x_buffer_points = []
 
                 relevant_coastline_safety_buffered = (
-                    polygon.buffer(d_safe + buffer_distance, cap_style=cap_style, join_style=join_style)
+                    polygon.buffer(
+                        d_safe + buffer_distance,
+                        cap_style=cap_style,
+                        join_style=join_style,
+                    )
                     .intersection(
                         original_polygon_boundary_d_safe.buffer(
                             buffer_distance, cap_style=cap_style, join_style=join_style
@@ -1088,10 +1199,14 @@ def compute_surface_approximations_from_polygons(
                         # ):
                         #     continue
 
-                        if relevant_coastline_safety_buffered.buffer(0.2).contains(geometry.Point(ycoord, xcoord)):
+                        if relevant_coastline_safety_buffered.buffer(0.2).contains(
+                            geometry.Point(ycoord, xcoord)
+                        ):
                             x_buffer_points.append(xcoord)
                             y_buffer_points.append(ycoord)
-                            mask_surface_data_points.append(surface_value_at_buffer_points)
+                            mask_surface_data_points.append(
+                                surface_value_at_buffer_points
+                            )
                             # if enc is not None:
                             #     enc.draw_circle(
                             #         (ycoord + map_origin[1], xcoord + map_origin[0]),
@@ -1109,7 +1224,9 @@ def compute_surface_approximations_from_polygons(
                 ## Add more buffer points further away from the relevant polygon coastline, where the mask is zero or negative (no collision)
                 buffer_distance = 1.0
                 surface_value_at_outlier_points = -1.0
-                relevant_coastline_extra_buffered = polygon.buffer(d_safe + buffer_distance)
+                relevant_coastline_extra_buffered = polygon.buffer(
+                    d_safe + buffer_distance
+                )
 
                 # if enc is not None:
                 #     translated_poly = hf.translate_polygons(
@@ -1138,36 +1255,60 @@ def compute_surface_approximations_from_polygons(
                 #     )
                 # Again, check if the relevant coastline is a multipolygon and choose the largest one
                 if isinstance(relevant_coastline_extra_buffered, geometry.MultiPolygon):
-                    max_area_idx = np.argmax([poly.area for poly in relevant_coastline_extra_buffered.geoms])
-                    relevant_coastline_extra_buffered = relevant_coastline_extra_buffered.geoms[max_area_idx]
-                y_buffered_boundary, x_buffered_boundary = relevant_coastline_extra_buffered.exterior.coords.xy
+                    max_area_idx = np.argmax(
+                        [poly.area for poly in relevant_coastline_extra_buffered.geoms]
+                    )
+                    relevant_coastline_extra_buffered = (
+                        relevant_coastline_extra_buffered.geoms[max_area_idx]
+                    )
+                y_buffered_boundary, x_buffered_boundary = (
+                    relevant_coastline_extra_buffered.exterior.coords.xy
+                )
 
                 if False:  # enc is not None and show_plots:
                     translated_extra_buff_coastline = hf.translate_polygons(
-                        [relevant_coastline_extra_buffered], -map_origin[1], -map_origin[0]
+                        [relevant_coastline_extra_buffered],
+                        -map_origin[1],
+                        -map_origin[0],
                     )[0]
                     enc.draw_polygon(
-                        translated_extra_buff_coastline.buffer(0.0, cap_style=cap_style, join_style=join_style),
+                        translated_extra_buff_coastline.buffer(
+                            0.0, cap_style=cap_style, join_style=join_style
+                        ),
                         color="cyan",
                         fill=False,
                     )
 
-                polygon_safety = polygon.buffer(d_safe, cap_style=cap_style, join_style=join_style)
+                polygon_safety = polygon.buffer(
+                    d_safe, cap_style=cap_style, join_style=join_style
+                )
                 (
                     x_extra_boundary_spline,
                     y_extra_boundary_spline,
                     arc_length_extra_boundary,
-                ) = hf.create_arc_length_spline(x_buffered_boundary, y_buffered_boundary)
+                ) = hf.create_arc_length_spline(
+                    x_buffered_boundary, y_buffered_boundary
+                )
                 # Tuning parameter
-                extra_buffer_point_distance_spacing = max(50.0, 0.02 * arc_length_extra_boundary[-1])
+                extra_buffer_point_distance_spacing = max(
+                    50.0, 0.02 * arc_length_extra_boundary[-1]
+                )
                 y_extra_boundary = list(
                     y_extra_boundary_spline(
-                        np.arange(0, arc_length_extra_boundary[-1], extra_buffer_point_distance_spacing)
+                        np.arange(
+                            0,
+                            arc_length_extra_boundary[-1],
+                            extra_buffer_point_distance_spacing,
+                        )
                     )
                 )
                 x_extra_boundary = list(
                     x_extra_boundary_spline(
-                        np.arange(0, arc_length_extra_boundary[-1], extra_buffer_point_distance_spacing)
+                        np.arange(
+                            0,
+                            arc_length_extra_boundary[-1],
+                            extra_buffer_point_distance_spacing,
+                        )
                     )
                 )
                 x_buffer_points = []
@@ -1185,7 +1326,10 @@ def compute_surface_approximations_from_polygons(
                     mask_surface_data_points.append(surface_value_at_outlier_points)
                     if False:  # enc is not None and show_plots:
                         enc.draw_circle(
-                            (ycoord + map_origin[1], xcoord + map_origin[0]), radius=1.0, color="black", fill=False
+                            (ycoord + map_origin[1], xcoord + map_origin[0]),
+                            radius=1.0,
+                            color="black",
+                            fill=False,
                         )
                 x_surface_data_points.extend(x_buffer_points)
                 y_surface_data_points.extend(y_buffer_points)
@@ -1215,9 +1359,13 @@ def compute_surface_approximations_from_polygons(
                 x = csd.MX.sym("x", 2)
                 intp = rbf_csd(x.reshape((1, 2)))
                 rbf_surface_func = csd.Function(
-                    "so_surface_func_" + str(j) + "_" + safety_margin_str, [x.reshape((1, 2))], [intp]
+                    "so_surface_func_" + str(j) + "_" + safety_margin_str,
+                    [x.reshape((1, 2))],
+                    [intp],
                 )
-                grad_rbf = csd.gradient(rbf_surface_func(x.reshape((1, 2))), x.reshape((1, 2)))
+                grad_rbf = csd.gradient(
+                    rbf_surface_func(x.reshape((1, 2))), x.reshape((1, 2))
+                )
                 grad_rbf_func = csd.Function("grad_f", [x.reshape((1, 2))], [grad_rbf])
 
                 scipy_surfaces.append(rbf)
@@ -1227,7 +1375,10 @@ def compute_surface_approximations_from_polygons(
                     hf.plot_surface_approximation_stuff(
                         radial_basis_function=rbf_surface_func,
                         radial_basis_function_gradient=grad_rbf_func,
-                        surface_data_points=(x_surface_data_points, y_surface_data_points),
+                        surface_data_points=(
+                            x_surface_data_points,
+                            y_surface_data_points,
+                        ),
                         surface_data_point_mask=mask_surface_data_points,
                         surface_data_points_before_buffering=(
                             x_surface_points_before_buffering,
@@ -1249,7 +1400,9 @@ def compute_surface_approximations_from_polygons(
     return surfaces_list, scipy_surfaces_list
 
 
-def point_is_within_distance_of_points_in_list(x: float, y: float, points: list, distance: float) -> bool:
+def point_is_within_distance_of_points_in_list(
+    x: float, y: float, points: list, distance: float
+) -> bool:
     """Checks if a point is within a certain distance of any point in a list.
 
     Args:
@@ -1261,7 +1414,12 @@ def point_is_within_distance_of_points_in_list(x: float, y: float, points: list,
     Returns:
         bool: True if point is within distance of any point in list, False otherwise.
     """
-    return np.any([np.linalg.norm(np.array([x, y]) - np.array([x_, y_])) < distance for x_, y_ in points])
+    return np.any(
+        [
+            np.linalg.norm(np.array([x, y]) - np.array([x_, y_])) < distance
+            for x_, y_ in points
+        ]
+    )
 
 
 def find_intersections_line_polygon(
@@ -1317,7 +1475,9 @@ def create_path_linestring_from_splines(
     return path_linestring
 
 
-def find_closest_arclength_to_point(p: np.ndarray, path_linestring: geometry.LineString) -> float:
+def find_closest_arclength_to_point(
+    p: np.ndarray, path_linestring: geometry.LineString
+) -> float:
     """Finds the closest arclength to a point on a path linestring.
 
     Args:

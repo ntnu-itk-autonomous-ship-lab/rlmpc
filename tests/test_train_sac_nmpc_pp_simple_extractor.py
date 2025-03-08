@@ -30,7 +30,11 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 def main(args):
     # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
+    parser.add_argument(
+        "--base_dir",
+        type=str,
+        default=str(Path.home() / "Desktop/machine_learning/rlmpc/"),
+    )
     parser.add_argument("--experiment_name", type=str, default="snmpc_pp1")
     parser.add_argument("--n_training_envs", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.00001)
@@ -58,14 +62,20 @@ def main(args):
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
     base_dir, log_dir, model_dir = hf.create_data_dirs(
-        base_dir=args.base_dir, experiment_name=args.experiment_name, remove_log_files=False
+        base_dir=args.base_dir,
+        experiment_name=args.experiment_name,
+        remove_log_files=False,
     )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -80,7 +90,9 @@ def main(args):
     }
     env_id = "COLAVEnvironment-v0"
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
@@ -88,7 +100,9 @@ def main(args):
     n_mpc_params = 3 + 1 + 1 + 3 + 1
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    action_noise_std_dev = np.array([0.002, 0.002])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array(
+        [0.002, 0.002]
+    )  # normalized std dev for the action space [course, speed]
     param_action_noise_std_dev = np.array([0.5 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
@@ -97,7 +111,8 @@ def main(args):
         "std_init": action_noise_std_dev,
         "deterministic": False,
         "recompile_on_reset": False,
-        "acados_code_gen_path": str(base_dir.parents[0]) + f"/{args.experiment_name}/acados_code_gen",
+        "acados_code_gen_path": str(base_dir.parents[0])
+        + f"/{args.experiment_name}/acados_code_gen",
     }
     training_env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
@@ -135,14 +150,29 @@ def main(args):
 
     load_model = True if not args.load_model_name == "" else False
 
-    load_model_name = args.load_model_name if not args.load_model_name else "snmpc_db_200te_5ee_16cpus"
-    rb_load_name = args.load_model_name if not args.load_model_name else "snmpc_db_200te_5ee_16cpus"
-    model_path = str(base_dir.parents[0]) + f"/{load_model_name}/models/{load_model_name}_71888_steps"
-    load_rb_path = str(base_dir.parents[0]) + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer.pkl"
+    load_model_name = (
+        args.load_model_name
+        if not args.load_model_name
+        else "snmpc_db_200te_5ee_16cpus"
+    )
+    rb_load_name = (
+        args.load_model_name
+        if not args.load_model_name
+        else "snmpc_db_200te_5ee_16cpus"
+    )
+    model_path = (
+        str(base_dir.parents[0])
+        + f"/{load_model_name}/models/{load_model_name}_71888_steps"
+    )
+    load_rb_path = (
+        str(base_dir.parents[0])
+        + f"/{rb_load_name}/models/{rb_load_name}_replay_buffer.pkl"
+    )
 
     load_critic = False  # args.load_critics
     load_critic_path = (
-        str(base_dir.parents[0]) + "/sac_critics/pretrained_sac_critics_HD_495_498_ReLU/models/best_model"
+        str(base_dir.parents[0])
+        + "/sac_critics/pretrained_sac_critics_HD_495_498_ReLU/models/best_model"
     )
     #     load_critic_path = model_path
 
@@ -190,7 +220,9 @@ def main(args):
         if i > 0:
             load_critic = False
             load_model = True
-            load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer.pkl"
+            load_rb_path = (
+                str(model_dir) + "/" + args.experiment_name + "_replay_buffer.pkl"
+            )
             model_kwargs["learning_starts"] = 0
             reset_num_timesteps = False
 
@@ -239,7 +271,9 @@ def main(args):
         record_path=base_dir / "eval_data" / "final_eval_videos",
         record_name=args.experiment_name + "_final_eval",
     )
-    print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
+    print(
+        f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}"
+    )
     train_cfg = {
         "n_timsteps_per_learn": args.n_timesteps_per_learn,
         "n_learn_iterations": n_learn_iterations,

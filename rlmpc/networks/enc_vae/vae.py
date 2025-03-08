@@ -1,10 +1,10 @@
 """
-    vae.py
+vae.py
 
-    Summary:
-        Contains the vanilla variational autoencoder (VAE) network for processing and reconstructing images from the environment.
+Summary:
+    Contains the vanilla variational autoencoder (VAE) network for processing and reconstructing images from the environment.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import List, Tuple
@@ -67,9 +67,13 @@ class VAE(nn.Module):
         )
 
         self.mean_params = Lambda(lambda x: x[:, : self.latent_dim])  # mean parameters
-        self.logvar_params = Lambda(lambda x: x[:, self.latent_dim :])  # log variance parameters
+        self.logvar_params = Lambda(
+            lambda x: x[:, self.latent_dim :]
+        )  # log variance parameters
 
-    def forward(self, img: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
+    def forward(
+        self, img: th.Tensor
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a reconstructed image based on the input image.
 
         Args:
@@ -93,7 +97,9 @@ class VAE(nn.Module):
         img_recon = self.decoder(z_sampled)
         return img_recon, mean, logvars, z_sampled
 
-    def forward_test(self, image: th.Tensor) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
+    def forward_test(
+        self, image: th.Tensor
+    ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
         """Do a forward pass of the VAE. Generates a reconstructed image based on input image.
 
         Args:
@@ -163,6 +169,9 @@ if __name__ == "__main__":
     fc_dim = 512
     device = th.device("cpu")
     vae = VAE(
-        latent_dim=LATENT_DIM, input_image_dim=image_dim, encoder_conv_block_dims=(32, 128, 256, 256), fc_dim=fc_dim
+        latent_dim=LATENT_DIM,
+        input_image_dim=image_dim,
+        encoder_conv_block_dims=(32, 128, 256, 256),
+        fc_dim=fc_dim,
     ).to(device)
     summary(vae, input_size=image_dim, batch_size=-1, device=device.type)

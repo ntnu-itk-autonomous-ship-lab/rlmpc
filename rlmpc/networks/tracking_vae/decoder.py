@@ -1,10 +1,10 @@
 """
-    decoder.py
+decoder.py
 
-    Summary:
-        Contains the decoder network for reconstructing tracking observations from the latent space.
+Summary:
+    Contains the decoder network for reconstructing tracking observations from the latent space.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import torch as th
@@ -77,7 +77,9 @@ class TrackingDecoder(nn.Module):
 
 if __name__ == "__main__":
     latent_dimension = 10
-    decoder = TrackingDecoder(latent_dim=latent_dimension, output_dim=6, num_layers=1, rnn_type=nn.LSTM).to("cuda")
+    decoder = TrackingDecoder(
+        latent_dim=latent_dimension, output_dim=6, num_layers=1, rnn_type=nn.LSTM
+    ).to("cuda")
     x = th.rand(2, latent_dimension).to("cuda")
     out = decoder(x, max_seq_len=6)
     print(f"In: {x.shape}, Out: {out.shape}")

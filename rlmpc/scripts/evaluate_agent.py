@@ -1,10 +1,10 @@
 """
-    train_sac.py
+train_sac.py
 
-    Summary:
-        This script trains the RL agent using the SAC algorithm.
+Summary:
+    This script trains the RL agent using the SAC algorithm.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import argparse
@@ -90,7 +90,11 @@ def evaluate(
 
 def main(args):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc"))
+    parser.add_argument(
+        "--base_dir",
+        type=str,
+        default=str(Path.home() / "Desktop/machine_learning/rlmpc"),
+    )
     parser.add_argument(
         "--model_class", type=str, default="sac_rlmpc_param_provider_policy"
     )  # either "sac_rlmpc_policy", "sac_rlmpc_param_provider_policy" or "sb3_sac"
@@ -106,7 +110,9 @@ def main(args):
     print("Provided args to SAC RLMPC eval:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
-    base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=args.experiment_name)
+    base_dir, log_dir, model_dir = hf.create_data_dirs(
+        base_dir=args.base_dir, experiment_name=args.experiment_name
+    )
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -126,7 +132,9 @@ def main(args):
     scenario_names = [
         "rlmpc_scenario_ms_channel"
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     rewarder_config = rlmpc_rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
@@ -155,13 +163,21 @@ def main(args):
 
     if args.model_class == "sac_rlmpc_policy":
         mpc_config_path = rl_dp.config / "rlmpc.yaml"
-        mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
+        mpc_param_list = [
+            "Q_p",
+            "K_app_course",
+            "K_app_speed",
+            "w_colregs",
+            "r_safe_do",
+        ]
         mpc_param_provider_kwargs = {
             "param_list": mpc_param_list,
             "hidden_sizes": [256, 256],
             "activation_fn": th.nn.ReLU,
         }
-        actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+        actor_noise_std_dev = np.array(
+            [0.004, 0.004]
+        )  # normalized std dev for the action space [course, speed]
         policy_kwargs = {
             "features_extractor_class": rlmpc_fe.CombinedExtractor,
             "critic_arch": [256, 256],
@@ -193,9 +209,17 @@ def main(args):
             if not args.disable_rlmpc_parameter_provider
             else rl_dp.config / "rlmpc_baseline.yaml"
         )
-        mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
+        mpc_param_list = [
+            "Q_p",
+            "K_app_course",
+            "K_app_speed",
+            "w_colregs",
+            "r_safe_do",
+        ]
         n_mpc_params = 3 + 1 + 1 + 3 + 1
-        action_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+        action_noise_std_dev = np.array(
+            [0.004, 0.004]
+        )  # normalized std dev for the action space [course, speed]
         param_action_noise_std_dev = np.array([0.01 for _ in range(n_mpc_params)])
         action_kwargs = {
             "mpc_config_path": mpc_config_path,
@@ -238,7 +262,12 @@ def main(args):
         )
 
         if args.n_cpus > 1:
-            env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(args.n_cpus)])
+            env = SubprocVecEnv(
+                [
+                    hf.make_env(env_id, eval_env_config, i + 1)
+                    for i in range(args.n_cpus)
+                ]
+            )
         else:
             env = Monitor(gym.make(id=env_id, **eval_env_config))
         model = rlmpc_sac.SAC(env=env, **model_kwargs)
@@ -251,9 +280,17 @@ def main(args):
             if not args.disable_rlmpc_parameter_provider
             else rl_dp.config / "rlmpc_baseline.yaml"
         )
-        mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
+        mpc_param_list = [
+            "Q_p",
+            "K_app_course",
+            "K_app_speed",
+            "w_colregs",
+            "r_safe_do",
+        ]
         n_mpc_params = 3 + 1 + 1 + 3 + 1
-        action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
+        action_noise_std_dev = np.array(
+            [0.0004, 0.0004]
+        )  # normalized std dev for the action space [course, speed]
         param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
         action_kwargs = {
             "mpc_config_path": mpc_config_path,
@@ -263,7 +300,8 @@ def main(args):
             "deterministic": True,
             "recompile_on_reset": False,
             "disable_mpc_info_storage": False,
-            "acados_code_gen_path": str(base_dir.parents[0]) + f"/{args.experiment_name}/acados_code_gen",
+            "acados_code_gen_path": str(base_dir.parents[0])
+            + f"/{args.experiment_name}/acados_code_gen",
         }
         mpc_param_provider_kwargs = {
             "param_list": mpc_param_list,
@@ -292,7 +330,10 @@ def main(args):
             "ent_coef": "auto",
             "verbose": 1,
             "tensorboard_log": str(log_dir),
-            "replay_buffer_kwargs": {"handle_timeout_termination": True, "disable_action_storage": False},
+            "replay_buffer_kwargs": {
+                "handle_timeout_termination": True,
+                "disable_action_storage": False,
+            },
         }
         with (base_dir / "eval_model_kwargs.pkl").open(mode="wb") as fp:
             pickle.dump(model_kwargs, fp)
@@ -306,7 +347,12 @@ def main(args):
         )
 
         if args.n_cpus > 1:
-            env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(args.n_cpus)])
+            env = SubprocVecEnv(
+                [
+                    hf.make_env(env_id, eval_env_config, i + 1)
+                    for i in range(args.n_cpus)
+                ]
+            )
         else:
             env = Monitor(gym.make(id=env_id, **eval_env_config))
         model = rlmpc_ssac.SAC(env=env, **model_kwargs)
@@ -332,10 +378,17 @@ def main(args):
         if args.n_cpus > 1:
             if action_kwargs["debug"]:
                 raise ValueError("Cannot use debug flag with vectorized evaluation!")
-            env = SubprocVecEnv([hf.make_env(env_id, eval_env_config, i + 1) for i in range(args.n_cpus)])
+            env = SubprocVecEnv(
+                [
+                    hf.make_env(env_id, eval_env_config, i + 1)
+                    for i in range(args.n_cpus)
+                ]
+            )
         else:
             env = Monitor(gym.make(id=env_id, **eval_env_config))
-        model = sb3_sac.SAC.load(path=model_dir / args.experiment_name, env=env, **model_kwargs)
+        model = sb3_sac.SAC.load(
+            path=model_dir / args.experiment_name, env=env, **model_kwargs
+        )
 
     mean_reward, std_reward, rewards = evaluate(
         model=model,

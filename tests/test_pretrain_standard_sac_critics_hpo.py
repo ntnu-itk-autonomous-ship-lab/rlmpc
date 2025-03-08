@@ -44,7 +44,9 @@ def objective(trial: optuna.Trial) -> float:
     }
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
     mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"]
-    action_noise_std_dev = np.array([0.0001, 0.0001])  # normalized std dev for the action space [course, speed]
+    action_noise_std_dev = np.array(
+        [0.0001, 0.0001]
+    )  # normalized std dev for the action space [course, speed]
     n_mpc_params = 3 + 1 + 1 + 3 + 1
     param_action_noise_std_dev = np.array([0.005 for _ in range(n_mpc_params)])
     action_kwargs = {
@@ -58,7 +60,9 @@ def objective(trial: optuna.Trial) -> float:
         "acados_code_gen_path": str(base_dir.parents[0]) + "/acados_code_gen",
     }
     scenario_names = ["rlmpc_scenario_ms_channel"]
-    scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
+    scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
     env_id = "COLAVEnvironment-v0"
     env_config = {
         "scenario_file_folder": [scenario_folders[0]],
@@ -77,7 +81,9 @@ def objective(trial: optuna.Trial) -> float:
     if n_cpus_used == 1:
         env = Monitor(gym.make(id=env_id, **env_config))
     else:
-        env = SubprocVecEnv([hf.make_env(env_id, env_config, i + 1) for i in range(n_cpus_used)])
+        env = SubprocVecEnv(
+            [hf.make_env(env_id, env_config, i + 1) for i in range(n_cpus_used)]
+        )
 
     save_interval = 20
     batch_size = 32  # trial.suggest_int("batch_size", 1, 64)
@@ -127,7 +133,10 @@ def objective(trial: optuna.Trial) -> float:
         "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
-        "replay_buffer_kwargs": {"handle_timeout_termination": True, "disable_action_storage": False},
+        "replay_buffer_kwargs": {
+            "handle_timeout_termination": True,
+            "disable_action_storage": False,
+        },
     }
 
     experiment_name = "standard_snmpc_1te_4ee_seed1_jid20787312"
@@ -156,7 +165,12 @@ def objective(trial: optuna.Trial) -> float:
     print(f"Replay buffer size: {model.replay_buffer.size()}")
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])
-    name = "pretrained_ssac_critics_HD_" + hidden_dims_str + f"_{actfn_str}" + f"_ent_coef{ent_coef:5f}"
+    name = (
+        "pretrained_ssac_critics_HD_"
+        + hidden_dims_str
+        + f"_{actfn_str}"
+        + f"_ent_coef{ent_coef:5f}"
+    )
     experiment_path = base_dir / name
     if not experiment_path.exists():
         experiment_path.mkdir(parents=True)

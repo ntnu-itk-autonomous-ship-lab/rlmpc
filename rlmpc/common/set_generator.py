@@ -1,10 +1,10 @@
 """
-    set_generator.py
+set_generator.py
 
-    Summary:
-        Contains a class for generating a convex safe set around a point
+Summary:
+    Contains a class for generating a convex safe set around a point
 
-    Author: Glenn Bitar, Andreas Martinsen, Trym Tengesdal
+Author: Glenn Bitar, Andreas Martinsen, Trym Tengesdal
 """
 
 from typing import Optional, Tuple
@@ -16,7 +16,9 @@ import shapely.geometry as geometry
 from scipy.spatial import ConvexHull, HalfspaceIntersection
 
 
-def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int) -> Tuple[np.ndarray, np.ndarray]:
+def reduce_constraints(
+    A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int
+) -> Tuple[np.ndarray, np.ndarray]:
     """Reduces the number of constraints to n_set_constr, by removing the last constraints in A_full and b_full
 
     Args:
@@ -174,20 +176,24 @@ class SetGenerator(object):
         )
 
         if reduce == "none":
-            N = np.sqrt(np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)).reshape(
-                -1, 1
-            )  # Normalizing factor
-            N[N == 0] = 1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
+            N = np.sqrt(
+                np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)
+            ).reshape(-1, 1)  # Normalizing factor
+            N[N == 0] = (
+                1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
+            )
             A = (((Pc - P) @ Pr)[closest]) / N
             b = np.sum(A * Pc[closest], axis=1)
 
             return A, b
 
         elif reduce == "continuous":
-            N = np.sqrt(np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)).reshape(
-                -1, 1
-            )  # Normalizing factor
-            N[N == 0] = 1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
+            N = np.sqrt(
+                np.sum(((Pc - P) @ Pr)[closest] * ((Pc - P) @ Pr)[closest], axis=1)
+            ).reshape(-1, 1)  # Normalizing factor
+            N[N == 0] = (
+                1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
+            )
             A = (((Pc - P) @ Pr)[closest]) / N
             b = np.sum(A * Pc[closest], axis=1)
 
@@ -218,11 +224,18 @@ class SetGenerator(object):
                 A = (Pc - P)[mask[-1]]
                 b = np.sum(A * Pc[mask[-1]], axis=0)
 
-                tmp = tmp & (((A @ P1.T).T <= (1 - epsilon) * b) | ((A @ P2.T).T <= (1 - epsilon) * b))
+                tmp = tmp & (
+                    ((A @ P1.T).T <= (1 - epsilon) * b)
+                    | ((A @ P2.T).T <= (1 - epsilon) * b)
+                )
                 tmp[mask] = True
 
-            N = np.sqrt(np.sum((Pc - P)[mask] * (Pc - P)[mask], axis=1)).reshape(-1, 1)  # Normalizing factor
-            N[N == 0] = 1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
+            N = np.sqrt(np.sum((Pc - P)[mask] * (Pc - P)[mask], axis=1)).reshape(
+                -1, 1
+            )  # Normalizing factor
+            N[N == 0] = (
+                1  # Avoid dividing by 0 (alternativly add a small positive epsilon when computing N above)
+            )
             A = ((Pc - P)[mask]) / N
             b = np.sum(A * Pc[mask], axis=1)
 
@@ -258,7 +271,9 @@ def plot_constraints(
     enc.start_display()
     A_nonzero = A[~np.any(A == 0.0, axis=1)]
     b_nonzero = b[b != 0.0]
-    hs = HalfspaceIntersection(np.concatenate((A_nonzero, -b_nonzero.reshape((-1, 1))), axis=1), p)
+    hs = HalfspaceIntersection(
+        np.concatenate((A_nonzero, -b_nonzero.reshape((-1, 1))), axis=1), p
+    )
     x, y = hs.intersections.T
 
     convex_hull = ConvexHull(hs.intersections)
@@ -266,7 +281,11 @@ def plot_constraints(
     x, y = conv_hull_pts.T
     set_polygon = geometry.Polygon(np.array([y, x]).T)
     min_x, min_y, max_x, max_y = set_polygon.bounds
-    enc.draw_polygon(hf.translate_polygons([set_polygon], -map_origin[1], -map_origin[0]), color=color, fill=False)
+    enc.draw_polygon(
+        hf.translate_polygons([set_polygon], -map_origin[1], -map_origin[0]),
+        color=color,
+        fill=False,
+    )
     # for row in range(A_nonzero.shape[0]):  # pylint: disable=consider-using-enumerate
     #     x_1 = (min_x + map_origin[1], min_y + map_origin[0])
     #     x_2 = (max_x + map_origin[1], max_y + map_origin[0])

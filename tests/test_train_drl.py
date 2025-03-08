@@ -1,5 +1,4 @@
-"""Test a standard SAC DRL agent on the COLAV environment.
-"""
+"""Test a standard SAC DRL agent on the COLAV environment."""
 
 import argparse
 import copy
@@ -29,7 +28,11 @@ def main(args):
     hf.set_memory_limit(28_000_000_000)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
+    parser.add_argument(
+        "--base_dir",
+        type=str,
+        default=str(Path.home() / "Desktop/machine_learning/rlmpc/"),
+    )
     parser.add_argument("--experiment_name", type=str, default="sac_drl1")
     parser.add_argument("--n_cpus", type=int, default=2)
     parser.add_argument("--learning_rate", type=float, default=0.0001)
@@ -47,13 +50,19 @@ def main(args):
     print("Provided args to SAC DRL training:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
-    base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=args.experiment_name)
+    base_dir, log_dir, model_dir = hf.create_data_dirs(
+        base_dir=args.base_dir, experiment_name=args.experiment_name
+    )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     observation_type = {
         "dict_observation": [
@@ -66,7 +75,9 @@ def main(args):
     }
 
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder_drl.yaml")
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
@@ -143,7 +154,10 @@ def main(args):
         for i in range(n_learn_iterations):
             if i > 0:
                 load_model = True
-                load_model_name = args.experiment_name + f"_exp{e + 1}_{i * n_timesteps_per_learn}_steps"
+                load_model_name = (
+                    args.experiment_name
+                    + f"_exp{e + 1}_{i * n_timesteps_per_learn}_steps"
+                )
 
             model = train_sac(
                 model_kwargs=model_kwargs,
@@ -162,8 +176,13 @@ def main(args):
                 seed=seed,
                 iteration=i + 1,
             )
-            model.save(model_dir / f"{args.experiment_name}_exp{e + 1}_{(i + 1) * n_timesteps_per_learn}_steps")
-            model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
+            model.save(
+                model_dir
+                / f"{args.experiment_name}_exp{e + 1}_{(i + 1) * n_timesteps_per_learn}_steps"
+            )
+            model.save_replay_buffer(
+                model_dir / f"{args.experiment_name}_replay_buffer"
+            )
             print(
                 f"[SAC DRL] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn / args.timesteps}%"
             )
@@ -182,7 +201,9 @@ def main(args):
         record_path=base_dir / "eval_data" / "final_eval_videos",
         record_name=args.experiment_name + "_final_eval",
     )
-    print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
+    print(
+        f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}"
+    )
     train_cfg = {
         "n_timsteps_per_learn": n_timesteps_per_learn,
         "n_learn_iterations": n_learn_iterations,

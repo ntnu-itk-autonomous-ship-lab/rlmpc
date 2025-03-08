@@ -1,10 +1,10 @@
 """
-    running_loss.py
+running_loss.py
 
-    Summary:
-        Class for a running loss to be used in DNN training.
+Summary:
+    Class for a running loss to be used in DNN training.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 

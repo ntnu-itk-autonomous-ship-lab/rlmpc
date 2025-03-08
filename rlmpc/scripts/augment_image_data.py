@@ -25,7 +25,9 @@ def plot_image(axes: plt.Axes, img: np.ndarray, title: str) -> None:
 
 
 def show_dataset(dataset, n=6):
-    img = np.vstack([np.hstack([np.asarray(dataset[i][0]) for _ in range(n)]) for i in range(n)])
+    img = np.vstack(
+        [np.hstack([np.asarray(dataset[i][0]) for _ in range(n)]) for i in range(n)]
+    )
     plt.tight_layout()
     plt.imshow(img)
     plt.axis("off")
@@ -33,7 +35,6 @@ def show_dataset(dataset, n=6):
 
 
 if __name__ == "__main__":
-
     FILENAME = "perception_images_rogaland_random_everything_vecenv_test"
     NPY_FILE = FILENAME + ".npy"
 
@@ -48,7 +49,9 @@ if __name__ == "__main__":
                 transforms_v2.RandomChoice(
                     [
                         transforms_v2.ToDtype(torch.uint8, scale=True),
-                        transforms_v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+                        transforms_v2.ColorJitter(
+                            brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1
+                        ),
                         transforms_v2.RandomHorizontalFlip(),
                         transforms_v2.RandomRotation(10),
                         transforms_v2.ElasticTransform(alpha=100, sigma=5),
@@ -105,14 +108,19 @@ if __name__ == "__main__":
         transform=transforms_v2.Compose(
             [
                 transforms_v2.ToDtype(torch.uint8, scale=True),
-                transforms_v2.RandomAffine(degrees=45, translate=(0.1, 0.1), scale=(0.8, 1.2)),
+                transforms_v2.RandomAffine(
+                    degrees=45, translate=(0.1, 0.1), scale=(0.8, 1.2)
+                ),
                 transforms_v2.ToDtype(torch.float16, scale=True),
                 transforms_v2.Normalize(mean=[0.5], std=[0.5]),
             ]
         ),
     )
     unnnormalize_transform = transforms_v2.Compose(
-        [rl_ds.UnNormalize(mean=[0.5], std=[0.5]), transforms_v2.ToDtype(torch.uint8, scale=True)]
+        [
+            rl_ds.UnNormalize(mean=[0.5], std=[0.5]),
+            transforms_v2.ToDtype(torch.uint8, scale=True),
+        ]
     )
 
     for i in range(10):

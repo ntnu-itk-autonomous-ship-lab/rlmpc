@@ -21,7 +21,9 @@ def test_tracking_vae_attention() -> None:
         "rlmpc_scenario_ms_channel",
         # "rlmpc_scenario_random_many_vessels",
     ]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -36,7 +38,9 @@ def test_tracking_vae_attention() -> None:
     }
 
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
@@ -90,9 +94,13 @@ def test_tracking_vae_attention() -> None:
         tracking_obs = tracking_obs[:, :input_dim, :]
         mask = tracking_obs[:, 0, :] < threshold_dist
         seq_lengths = (
-            torch.sum(tracking_obs[:, 0, :] < threshold_dist, dim=1).to("cpu").type(torch.int64)
+            torch.sum(tracking_obs[:, 0, :] < threshold_dist, dim=1)
+            .to("cpu")
+            .type(torch.int64)
         )  # idx 0 is normalized distance, where vals = 1.0 is max dist of 1e4++ and thus not valid
-        tracking_obs = tracking_obs.permute(0, 2, 1)  # permute to (batch, max_seq_len, input_dim)
+        tracking_obs = tracking_obs.permute(
+            0, 2, 1
+        )  # permute to (batch, max_seq_len, input_dim)
 
         recon_obs, means, log_vars, _ = model(tracking_obs, seq_lengths)
         recon_obs = recon_obs.permute(0, 2, 1).squeeze(0).detach().numpy()
@@ -112,7 +120,10 @@ def test_tracking_vae_attention() -> None:
             # print(f"z_enc otherwise: {means}")
             # print(f"Recon x: {new_unnorm_tracking_obs[:, -seq_lengths[0]:]}")
             # print(f"Diff unnorm: {diff_unnorm[:, -seq_lengths[0]:]}")
-            errors[:, k] = np.sum((unnorm_tracking_obs - new_unnorm_tracking_obs) * mask, axis=1) / seq_lengths[0]
+            errors[:, k] = (
+                np.sum((unnorm_tracking_obs - new_unnorm_tracking_obs) * mask, axis=1)
+                / seq_lengths[0]
+            )
         # else:
         #     print(f"z_enc when seq_len == 0: {means}")
         #
@@ -128,10 +139,18 @@ def test_tracking_vae_attention() -> None:
     avg_rel_bearing_error = avg_error[1]
     avg_rel_vx_error = avg_error[2]
     avg_rel_vy_error = avg_error[3]
-    print(f"Average distance error: {avg_rel_dist_error} | std: {np.std(errors[0, :])} | max: {np.max(errors[0, :])}")
-    print(f"Average bearing error: {avg_rel_bearing_error} | std: {np.std(errors[1, :])} | max: {np.max(errors[1, :])}")
-    print(f"Average vx error: {avg_rel_vx_error} | std: {np.std(errors[2, :])} | max: {np.max(errors[2, :])}")
-    print(f"Average vy error: {avg_rel_vy_error} | std: {np.std(errors[3, :])} | max: {np.max(errors[3, :])}")
+    print(
+        f"Average distance error: {avg_rel_dist_error} | std: {np.std(errors[0, :])} | max: {np.max(errors[0, :])}"
+    )
+    print(
+        f"Average bearing error: {avg_rel_bearing_error} | std: {np.std(errors[1, :])} | max: {np.max(errors[1, :])}"
+    )
+    print(
+        f"Average vx error: {avg_rel_vx_error} | std: {np.std(errors[2, :])} | max: {np.max(errors[2, :])}"
+    )
+    print(
+        f"Average vy error: {avg_rel_vy_error} | std: {np.std(errors[3, :])} | max: {np.max(errors[3, :])}"
+    )
 
 
 if __name__ == "__main__":

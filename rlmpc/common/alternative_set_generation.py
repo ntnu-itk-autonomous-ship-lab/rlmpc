@@ -1,11 +1,12 @@
 """
-    alternative_set_generator.py
+alternative_set_generator.py
 
-    Summary:
-        Contains a class for generating a convex safe set around a point
+Summary:
+    Contains a class for generating a convex safe set around a point
 
-    Author: Aksel Vaaler, Trym Tengesdal
+Author: Aksel Vaaler, Trym Tengesdal
 """
+
 import time
 from typing import Optional, Tuple
 
@@ -18,7 +19,9 @@ from shapely import affinity as aff
 from shapely import ops as ops
 
 
-def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int) -> Tuple[np.ndarray, np.ndarray]:
+def reduce_constraints(
+    A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int
+) -> Tuple[np.ndarray, np.ndarray]:
     """Reduces the number of constraints to n_set_constr, by removing the last constraints in A_full and b_full
 
     Args:
@@ -38,9 +41,16 @@ def reduce_constraints(A_full: np.ndarray, b_full: np.ndarray, n_set_constr: int
 
 # Defines a rectangle of a given width and length,
 # centered on the object position, and rotated according to the object heading
-def object_horizon(xpos: float, ypos: float, heading: float, width: float, length: float) -> geo.Polygon:
+def object_horizon(
+    xpos: float, ypos: float, heading: float, width: float, length: float
+) -> geo.Polygon:
     rect = geo.Polygon(
-        [(xpos - width / 2, ypos - length / 2), (xpos - width / 2, ypos + length / 2), (xpos + width / 2, ypos + length / 2), (xpos + width / 2, ypos - length / 2)]
+        [
+            (xpos - width / 2, ypos - length / 2),
+            (xpos - width / 2, ypos + length / 2),
+            (xpos + width / 2, ypos + length / 2),
+            (xpos + width / 2, ypos - length / 2),
+        ]
     )
     return aff.rotate(rect, -heading)
 
@@ -56,7 +66,9 @@ def safe_area(obj_hor_rectangle, seabed_multipoly):
     return None
 
 
-def orthogonal_constraint_line(xpos: float, ypos: float, boundary_point: geo.Point, line_length: float) -> Tuple[geo.LineString, float, float]:
+def orthogonal_constraint_line(
+    xpos: float, ypos: float, boundary_point: geo.Point, line_length: float
+) -> Tuple[geo.LineString, float, float]:
     xdiff = boundary_point.x - xpos
     ydiff = boundary_point.y - ypos
     sq_dist = xdiff**2 + ydiff**2
@@ -89,14 +101,14 @@ def multiline_inside_constraint(line, xpos, ypos, boundary_point, constraint_lin
     const_norm_y = -(boundary_point.y - ypos)
 
     if geo.Point((line.coords[0][0], line.coords[0][1])).intersects(constraint_line):
-
         line_grad_x = line.coords[1][0] - line.coords[0][0]
         line_grad_y = line.coords[1][1] - line.coords[0][1]
 
         return (const_norm_x * line_grad_x + const_norm_y * line_grad_y) >= 0
 
-    elif geo.Point((line.coords[-1][0], line.coords[-1][1])).intersects(constraint_line):
-
+    elif geo.Point((line.coords[-1][0], line.coords[-1][1])).intersects(
+        constraint_line
+    ):
         line_grad_x = line.coords[-2][0] - line.coords[-1][0]
         line_grad_y = line.coords[-2][1] - line.coords[-1][1]
 
@@ -111,15 +123,25 @@ def multiline_inside_constraint(line, xpos, ypos, boundary_point, constraint_lin
         return (xdiff * lxdiff + ydiff * lydiff) <= (xdiff**2 + ydiff**2)
 
 
-def lines_inside_constraint(safe_bound: geo.MultiLineString, xpos: float, ypos: float, boundary_point: geo.Point, constraint_line: geo.LineString) -> geo.MultiLineString:
+def lines_inside_constraint(
+    safe_bound: geo.MultiLineString,
+    xpos: float,
+    ypos: float,
+    boundary_point: geo.Point,
+    constraint_line: geo.LineString,
+) -> geo.MultiLineString:
     inside_lines = []
     for line in safe_bound.geoms:
-        if multiline_inside_constraint(line, xpos, ypos, boundary_point, constraint_line):
+        if multiline_inside_constraint(
+            line, xpos, ypos, boundary_point, constraint_line
+        ):
             inside_lines.append(line)
     return geo.MultiLineString(inside_lines)
 
 
-def safe_near_point(safe_bound: geo.MultiLineString, pos: geo.Point, dist: float) -> geo.Point:
+def safe_near_point(
+    safe_bound: geo.MultiLineString, pos: geo.Point, dist: float
+) -> geo.Point:
     near_point = ops.nearest_points(safe_bound, pos)[0]
     v = near_point.x - pos.x, near_point.y - pos.y
     u = dist * v / (np.sqrt(v[0] ** 2 + v[1] ** 2))
@@ -129,7 +151,11 @@ def safe_near_point(safe_bound: geo.MultiLineString, pos: geo.Point, dist: float
     return geo.Point((point))
 
 
-def safe_convex_poly(safe_bound: geo.LineString | geo.MultiLineString, pos: geo.Point, enc: Optional[senc.ENC] = None) -> Tuple[list, np.ndarray, np.ndarray]:
+def safe_convex_poly(
+    safe_bound: geo.LineString | geo.MultiLineString,
+    pos: geo.Point,
+    enc: Optional[senc.ENC] = None,
+) -> Tuple[list, np.ndarray, np.ndarray]:
     """Computes an approximate convex safe set of the in general non-convedx safe area, with constraints
 
     A(p - pos) <= b
@@ -161,7 +187,9 @@ def safe_convex_poly(safe_bound: geo.LineString | geo.MultiLineString, pos: geo.
     constraint_line, A, b = orthogonal_constraint_line(xpos, ypos, near_point, 1000)
     constraint_lines.append(constraint_line)
     curr_safe = ops.split(safe_bound, constraint_line)
-    curr_safe = lines_inside_constraint(curr_safe, xpos, ypos, near_point, constraint_line.buffer(0.1))
+    curr_safe = lines_inside_constraint(
+        curr_safe, xpos, ypos, near_point, constraint_line.buffer(0.1)
+    )
 
     if enc is not None:
         enc.draw_line(curr_safe.coords, color="orange")
@@ -175,12 +203,16 @@ def safe_convex_poly(safe_bound: geo.LineString | geo.MultiLineString, pos: geo.
 
     while not curr_safe.is_empty:
         near_point = safe_near_point(curr_safe, geo.Point(pos), 5)
-        constraint_line, A_row_next, b_row_next = orthogonal_constraint_line(xpos, ypos, near_point, 1000)
+        constraint_line, A_row_next, b_row_next = orthogonal_constraint_line(
+            xpos, ypos, near_point, 1000
+        )
         A = np.vstack([A, A_row_next])
         b = np.vstack([b, b_row_next])
         constraint_lines.append(constraint_line)
         curr_safe = ops.split(curr_safe, constraint_line)
-        curr_safe = lines_inside_constraint(curr_safe, xpos, ypos, near_point, constraint_line.buffer(0.1))
+        curr_safe = lines_inside_constraint(
+            curr_safe, xpos, ypos, near_point, constraint_line.buffer(0.1)
+        )
 
         if enc is not None:
             enc.draw_line(curr_safe.coords, color="orange")
@@ -188,7 +220,9 @@ def safe_convex_poly(safe_bound: geo.LineString | geo.MultiLineString, pos: geo.
     return constraint_lines, A, b
 
 
-def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, enc: senc.ENC) -> None:
+def plot_constraints(
+    A: np.ndarray, b: np.ndarray, p: np.ndarray, enc: senc.ENC
+) -> None:
     """Plots the constraints in the halfspace intersection
 
     Args:
@@ -199,7 +233,9 @@ def plot_constraints(A: np.ndarray, b: np.ndarray, p: np.ndarray, enc: senc.ENC)
     """
     A_nonzero = A[~np.any(A == 0.0, axis=1)]
     b_nonzero = b[b != 0.0]
-    hs = HalfspaceIntersection(np.concatenate((A_nonzero, -b_nonzero.reshape((-1, 1))), axis=1), p)
+    hs = HalfspaceIntersection(
+        np.concatenate((A_nonzero, -b_nonzero.reshape((-1, 1))), axis=1), p
+    )
     intersections = hs.intersections
     points = [(p_i[1], p_i[0]) for p_i in intersections]
     points.append(points[0])

@@ -18,19 +18,44 @@ if __name__ == "__main__":
     training_data_npy_filename2 = "tracking_vae_training_data_rogaland2.npy"
     test_data_npy_filename2 = "tracking_vae_test_data_rogaland2.npy"
 
-    training_dataset1 = rl_ds.TrackingObservationDataset(training_data_npy_filename, data_dir).get_data()
-    test_dataset1 = rl_ds.TrackingObservationDataset(test_data_npy_filename, data_dir).get_data()
-    training_dataset2 = rl_ds.TrackingObservationDataset(training_data_npy_filename2, data_dir).get_data()
-    test_dataset2 = rl_ds.TrackingObservationDataset(test_data_npy_filename2, data_dir).get_data()
+    training_dataset1 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename, data_dir
+    ).get_data()
+    test_dataset1 = rl_ds.TrackingObservationDataset(
+        test_data_npy_filename, data_dir
+    ).get_data()
+    training_dataset2 = rl_ds.TrackingObservationDataset(
+        training_data_npy_filename2, data_dir
+    ).get_data()
+    test_dataset2 = rl_ds.TrackingObservationDataset(
+        test_data_npy_filename2, data_dir
+    ).get_data()
 
-    titles = ["Rel dist", "Rel speed x", "Rel speed y", "Var speed x", "Var speed y", "Cov speed xy"]
+    titles = [
+        "Rel dist",
+        "Rel speed x",
+        "Rel speed y",
+        "Var speed x",
+        "Var speed y",
+        "Cov speed xy",
+    ]
 
-    df_training1 = pd.DataFrame(training_dataset1[::20, :, 1:3, :].reshape(-1, 2), columns=["speed x", "speed y"])
-    df_test1 = pd.DataFrame(test_dataset1[::20, :, 1:3, :].reshape(-1, 2), columns=["speed x", "speed y"])
+    df_training1 = pd.DataFrame(
+        training_dataset1[::20, :, 1:3, :].reshape(-1, 2),
+        columns=["speed x", "speed y"],
+    )
+    df_test1 = pd.DataFrame(
+        test_dataset1[::20, :, 1:3, :].reshape(-1, 2), columns=["speed x", "speed y"]
+    )
 
     # Create dataframes for dataset 2
-    df_training2 = pd.DataFrame(training_dataset2[::20, :, 1:3, :].reshape(-1, 2), columns=["speed x", "speed y"])
-    df_test2 = pd.DataFrame(test_dataset2[::20, :, 1:3, :].reshape(-1, 2), columns=["speed x", "speed y"])
+    df_training2 = pd.DataFrame(
+        training_dataset2[::20, :, 1:3, :].reshape(-1, 2),
+        columns=["speed x", "speed y"],
+    )
+    df_test2 = pd.DataFrame(
+        test_dataset2[::20, :, 1:3, :].reshape(-1, 2), columns=["speed x", "speed y"]
+    )
 
     # find indices where both speed x and speed y are 0:
     td1sub = training_dataset1[::10, :, :, :].reshape(-1, 6, 10)
@@ -43,7 +68,9 @@ if __name__ == "__main__":
     df_test2["dataset"] = "test_dataset2"
 
     # Concatenate all dataframes into one
-    combined_df = pd.concat([df_training1, df_test1, df_training2, df_test2], ignore_index=True)
+    combined_df = pd.concat(
+        [df_training1, df_test1, df_training2, df_test2], ignore_index=True
+    )
 
     g = sns.JointGrid(
         data=combined_df,

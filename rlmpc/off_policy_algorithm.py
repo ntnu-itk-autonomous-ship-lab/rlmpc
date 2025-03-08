@@ -1,11 +1,11 @@
 """
-    off_policy_algorithm.py
+off_policy_algorithm.py
 
-    Summary:
-        Contains functionality for off-policy RL algorithms. Heavily inspired/boiled from stable-baselines3.
+Summary:
+    Contains functionality for off-policy RL algorithms. Heavily inspired/boiled from stable-baselines3.
 
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import sys
@@ -119,7 +119,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self._last_rewards: float = np.zeros(self.n_envs)
         self._last_dones: np.ndarray = np.zeros(self.n_envs, dtype=bool)
         self._last_infos: List[Dict[str, Any]] = [{} for _ in range(self.n_envs)]
-        self._current_obs: Union[np.ndarray, Dict[str, np.ndarray]] | None = self._last_obs
+        self._current_obs: Union[np.ndarray, Dict[str, np.ndarray]] | None = (
+            self._last_obs
+        )
         self.learning_rate = learning_rate
         self.buffer_size: int = buffer_size
         self.batch_size: int = batch_size
@@ -147,8 +149,12 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         self.last_training_info: Dict[str, Any] = {}
         self.last_rollout_info: Dict[str, Any] = {}
         self.just_trained: bool = False  # Used by callback for logging purposes
-        self.just_dumped_rollout_logs: bool = False  # Used by callback for logging purposes
-        self.non_optimal_solutions_per_episode: np.ndarray = np.zeros(self.n_envs, dtype=np.float32)
+        self.just_dumped_rollout_logs: bool = (
+            False  # Used by callback for logging purposes
+        )
+        self.non_optimal_solutions_per_episode: np.ndarray = np.zeros(
+            self.n_envs, dtype=np.float32
+        )
         self.vecenv_failed: bool = False
 
     @abstractmethod
@@ -184,7 +190,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         Returns:
             - Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]: the MPC unnormalized action, normalized action and the MPC internal states (solution info etc.)
         """
-        return self.policy.custom_predict(observation, state, episode_start, deterministic)
+        return self.policy.custom_predict(
+            observation, state, episode_start, deterministic
+        )
 
     def _sample_action(
         self,
@@ -228,14 +236,19 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 train_freq = (train_freq, "step")
 
             try:
-                train_freq = (train_freq[0], sb3_types.TrainFrequencyUnit(train_freq[1]))
+                train_freq = (
+                    train_freq[0],
+                    sb3_types.TrainFrequencyUnit(train_freq[1]),
+                )
             except ValueError as e:
                 raise ValueError(
                     f"The unit of the `train_freq` must be either 'step' or 'episode' not '{train_freq[1]}'!"
                 ) from e
 
             if not isinstance(train_freq[0], int):
-                raise ValueError(f"The frequency of `train_freq` must be an integer and not {train_freq[0]}")
+                raise ValueError(
+                    f"The frequency of `train_freq` must be an integer and not {train_freq[0]}"
+                )
 
             self.train_freq = sb3_types.TrainFreq(*train_freq)
 
@@ -293,9 +306,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - path (Path): path where the replay buffer should be loaded from
         """
         self.replay_buffer = sb3_sutils.load_from_pkl(path)
-        assert isinstance(
-            self.replay_buffer, rlmpc_buffers.ReplayBuffer
-        ), "The replay buffer must be a ReplayBuffer class"
+        assert isinstance(self.replay_buffer, rlmpc_buffers.ReplayBuffer), (
+            "The replay buffer must be a ReplayBuffer class"
+        )
 
     def _setup_learn(
         self,
@@ -320,7 +333,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         """
         replay_buffer = self.replay_buffer
         truncate_last_traj = (
-            reset_num_timesteps and replay_buffer is not None and (replay_buffer.full or replay_buffer.pos > 0)
+            reset_num_timesteps
+            and replay_buffer is not None
+            and (replay_buffer.full or replay_buffer.pos > 0)
         )
 
         if truncate_last_traj:
@@ -378,10 +393,16 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             if self.num_timesteps > 0 and self.num_timesteps > self.learning_starts:
                 # If no `gradient_steps` is specified,
                 # do as many gradients steps as steps performed during the rollout
-                gradient_steps = self.gradient_steps if self.gradient_steps >= 0 else rollout.episode_timesteps
+                gradient_steps = (
+                    self.gradient_steps
+                    if self.gradient_steps >= 0
+                    else rollout.episode_timesteps
+                )
                 # Special case when the user passes `gradient_steps=0`
                 if gradient_steps > 0:
-                    self.train(batch_size=self.batch_size, gradient_steps=gradient_steps)
+                    self.train(
+                        batch_size=self.batch_size, gradient_steps=gradient_steps
+                    )
                     self.just_trained = True
 
         callback.on_training_end()
@@ -421,13 +442,21 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         deterministic = True
         assert isinstance(env, VecEnv), "You must pass a VecEnv. "
         if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
-            assert env.num_envs == 1, "Only one environment is supported for SACPolicyWithMPC."
+            assert env.num_envs == 1, (
+                "Only one environment is supported for SACPolicyWithMPC."
+            )
         elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider):
             deterministic = True  # exploration is done in the MPC action type class
-        elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard):
-            deterministic = False  # exploration is done in the parameter provider network
+        elif isinstance(
+            self.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard
+        ):
+            deterministic = (
+                False  # exploration is done in the parameter provider network
+            )
 
-        assert self.train_freq.frequency > 0, "Should at least collect one step or episode."
+        assert self.train_freq.frequency > 0, (
+            "Should at least collect one step or episode."
+        )
 
         if self.use_sde:
             self.policy.actor.reset_noise(env.num_envs)
@@ -436,20 +465,31 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         continue_training = True
 
         action_count = 0
-        if self._current_obs is None or self._current_obs["TimeObservation"].shape[0] != env.num_envs:
+        if (
+            self._current_obs is None
+            or self._current_obs["TimeObservation"].shape[0] != env.num_envs
+        ):
             self._current_obs = self._last_obs
             self._last_actor_info = [{} for _ in range(env.num_envs)]
-            self.non_optimal_solutions_per_episode = np.zeros(env.num_envs, dtype=np.float32)
+            self.non_optimal_solutions_per_episode = np.zeros(
+                env.num_envs, dtype=np.float32
+            )
 
-        while self._should_collect_more_steps(train_freq, num_collected_steps, num_collected_episodes):
+        while self._should_collect_more_steps(
+            train_freq, num_collected_steps, num_collected_episodes
+        ):
             if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
                 for env_idx in range(env.num_envs):
                     if env.envs[env_idx].unwrapped.time < 0.0001:
                         self.policy.initialize_actor(env.envs[env_idx], evaluate=False)
 
-            if self.use_sde and self.sde_sample_freq > 0 and self.num_timesteps % self.sde_sample_freq == 0:
+            if (
+                self.use_sde
+                and self.sde_sample_freq > 0
+                and self.num_timesteps % self.sde_sample_freq == 0
+            ):
                 # Sample a new noise matrix
-                print("Resetting actor noise...")
+                print(f"[SSAC] {self.num_timesteps} Resetting actor noise...")
                 self.policy.actor.reset_noise(env.num_envs)
 
             t_action_start = time.time()
@@ -465,10 +505,14 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
                 # For plotting the predicted trajectory
                 for env_idx in range(env.num_envs):
-                    env.envs[env_idx].unwrapped.ownship.set_remote_actor_predicted_trajectory(
+                    env.envs[
+                        env_idx
+                    ].unwrapped.ownship.set_remote_actor_predicted_trajectory(
                         actor_infos[env_idx]["trajectory"]
                     )
-                    env.envs[env_idx].unwrapped.ownship.set_colav_data(actor_infos[env_idx])
+                    env.envs[env_idx].unwrapped.ownship.set_colav_data(
+                        actor_infos[env_idx]
+                    )
 
             t_env_plotting_and_step_start = time.time()
 
@@ -478,7 +522,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 print(f"Error when stepping vectorized environment! {e} Exiting...")
                 self.vecenv_failed = True
                 return sb3_types.RolloutReturn(
-                    num_collected_steps * env.num_envs, num_collected_episodes, continue_training=False
+                    num_collected_steps * env.num_envs,
+                    num_collected_episodes,
+                    continue_training=False,
                 )
 
             # if self.verbose:
@@ -493,17 +539,28 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 for idx, info in enumerate(self._last_infos):
                     if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
                         info.update({"next_actor_info": actor_infos[idx]})
-                    elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider):
+                    elif isinstance(
+                        self.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider
+                    ):
                         info["next_actor_info"] = {}
-                        info["next_actor_info"]["expl_action"] = infos[idx]["actor_info"]["expl_action"]
-                        info["next_actor_info"]["norm_mpc_action"] = infos[idx]["actor_info"]["norm_mpc_action"]
-                    elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProviderStandard):
+                        info["next_actor_info"]["expl_action"] = infos[idx][
+                            "actor_info"
+                        ]["expl_action"]
+                        info["next_actor_info"]["norm_mpc_action"] = infos[idx][
+                            "actor_info"
+                        ]["norm_mpc_action"]
+                    elif isinstance(
+                        self.policy,
+                        rlmpc_policies.SACPolicyWithMPCParameterProviderStandard,
+                    ):
                         info["next_actor_info"] = {}
 
                     # Only store the actor info in the replay buffer unless you want OOM errors.
                     rb_info[idx]["actor_info"] = info["actor_info"]
                     rb_info[idx]["next_actor_info"] = info["next_actor_info"]
-                    rb_info[idx]["TimeLimit.truncated"] = info.get("TimeLimit.truncated", False)
+                    rb_info[idx]["TimeLimit.truncated"] = info.get(
+                        "TimeLimit.truncated", False
+                    )
 
                 self._store_transition(
                     replay_buffer=replay_buffer,
@@ -525,7 +582,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             callback.update_locals(locals())
             if callback.on_step() is False:
                 return sb3_types.RolloutReturn(
-                    num_collected_steps * env.num_envs, num_collected_episodes, continue_training=False
+                    num_collected_steps * env.num_envs,
+                    num_collected_episodes,
+                    continue_training=False,
                 )
 
             # if self.verbose:
@@ -533,30 +592,41 @@ class OffPolicyAlgorithm(BaseAlgorithm):
 
             # Retrieve reward and episode length if using Monitor wrapper
             self._update_info_buffer(infos, dones)
-            self._update_current_progress_remaining(self.num_timesteps, self._total_timesteps)
+            self._update_current_progress_remaining(
+                self.num_timesteps, self._total_timesteps
+            )
 
             for idx, done in enumerate(dones):
                 if done:
                     # print(f"Rollout collection for episode {self.num_episodes} finished")
-                    self.non_optimal_solutions_per_episode[idx] = self._last_infos[idx]["actor_info"][
-                        "non_optimal_solutions_per_episode"
-                    ]
+                    self.non_optimal_solutions_per_episode[idx] = self._last_infos[idx][
+                        "actor_info"
+                    ]["non_optimal_solutions_per_episode"]
                     num_collected_episodes += 1
                     self.num_episodes += 1
                     action_count = 0
                     self._last_actor_info[idx] = {}
                     self._last_dones[idx] = False
                     if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
-                        if not self.env.envs[idx].unwrapped.time < 0.0001:  # only reset if not already reset
+                        if (
+                            not self.env.envs[idx].unwrapped.time < 0.0001
+                        ):  # only reset if not already reset
                             self.env.envs[idx].unwrapped.reset()
                         self.env.envs[idx].unwrapped.terminal_info = infos[idx]
 
-                    if log_interval is not None and num_collected_episodes % log_interval == 0:
+                    if (
+                        log_interval is not None
+                        and num_collected_episodes % log_interval == 0
+                    ):
                         self._dump_logs()
                         self.just_dumped_rollout_logs = True
 
         callback.on_rollout_end()
-        return sb3_types.RolloutReturn(num_collected_steps * env.num_envs, num_collected_episodes, continue_training)
+        return sb3_types.RolloutReturn(
+            num_collected_steps * env.num_envs,
+            num_collected_episodes,
+            continue_training,
+        )
 
     def _update_locals(self, locals_dict: Dict[str, Any]) -> None:
         """Update the local variables from locals_dict.
@@ -654,7 +724,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         """Getter for the logger object."""
         return self._logger
 
-    def _update_current_progress_remaining(self, num_timesteps: int, total_timesteps: int) -> None:
+    def _update_current_progress_remaining(
+        self, num_timesteps: int, total_timesteps: int
+    ) -> None:
         """
         Compute current progress remaining (starts from 1 and ends to 0)
 
@@ -662,7 +734,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - num_timesteps (int): current number of timesteps
             - total_timesteps (int): total number of timesteps
         """
-        self._current_progress_remaining = 1.0 - float(num_timesteps) / float(total_timesteps)
+        self._current_progress_remaining = 1.0 - float(num_timesteps) / float(
+            total_timesteps
+        )
 
     def _should_collect_more_steps(
         self,
@@ -698,7 +772,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         """
         Write log.
         """
-        time_elapsed = max((time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon)
+        time_elapsed = max(
+            (time.time_ns() - self.start_time) / 1e9, sys.float_info.epsilon
+        )
         fps = int((self.num_timesteps - self._num_timesteps_at_start) / time_elapsed)
         self.logger.record("time/episodes", self.num_episodes, exclude="tensorboard")
         self.logger.record(
@@ -708,13 +784,19 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         ep_len_mean = 0.0
         ep_rew_mean = 0.0
         if len(self.ep_info_buffer) > 0 and len(self.ep_info_buffer[0]) > 0:
-            ep_rew_mean = sb3_utils.safe_mean([ep_info["r"] for ep_info in self.ep_info_buffer])
-            ep_len_mean = sb3_utils.safe_mean([ep_info["l"] for ep_info in self.ep_info_buffer])
+            ep_rew_mean = sb3_utils.safe_mean(
+                [ep_info["r"] for ep_info in self.ep_info_buffer]
+            )
+            ep_len_mean = sb3_utils.safe_mean(
+                [ep_info["l"] for ep_info in self.ep_info_buffer]
+            )
             self.logger.record("rollout/ep_rew_mean", ep_rew_mean)
             self.logger.record("rollout/ep_len_mean", ep_len_mean)
         self.logger.record("time/fps", fps)
         self.logger.record("time/time_elapsed", int(time_elapsed))
-        self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
+        self.logger.record(
+            "time/total_timesteps", self.num_timesteps, exclude="tensorboard"
+        )
 
         actor_expl_std = 0.0
         if self.use_sde:
@@ -738,6 +820,7 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 "episodes": self.num_episodes,
                 "success_rate": success_rate,
                 "actor_expl_std": actor_expl_std,
-                "non_optimal_solution_rate": 100.0 * self.non_optimal_solutions_per_episode.mean(),
+                "non_optimal_solution_rate": 100.0
+                * self.non_optimal_solutions_per_episode.mean(),
             }
         )

@@ -1,6 +1,6 @@
 """Test module for gym.py
 
-    Shows how to use the gym environment, and how to save a video + gif of the simulation.
+Shows how to use the gym environment, and how to save a video + gif of the simulation.
 """
 
 from pathlib import Path

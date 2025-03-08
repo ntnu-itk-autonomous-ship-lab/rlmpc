@@ -6,7 +6,12 @@ import rlmpc.common.datasets as rl_ds
 import torch
 from rlmpc.policies import MPCParameterDNN
 from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
-from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    CosineAnnealingWarmRestarts,
+    MultiStepLR,
+    ReduceLROnPlateau,
+)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -32,7 +37,14 @@ def objective(trial: optuna.Trial) -> float:
     save_interval = 10
 
     experiment_name = "sac_rlmpc_pp_eval1"
-    data_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / experiment_name / "final_eval"
+    data_dir = (
+        Path.home()
+        / "Desktop"
+        / "machine_learning"
+        / "rlmpc"
+        / experiment_name
+        / "final_eval"
+    )
     data_filename_list = []
     for i in range(1, 2):
         data_filename = f"{experiment_name}_final_eval_env_data"
@@ -41,7 +53,10 @@ def objective(trial: optuna.Trial) -> float:
     dataset = torch.utils.data.ConcatDataset(
         [
             rl_ds.ParameterProviderDataset(
-                env_data_pkl_file=df, data_dir=data_dir, param_list=mpc_param_list, transform=None
+                env_data_pkl_file=df,
+                data_dir=data_dir,
+                param_list=mpc_param_list,
+                transform=None,
             )
             for df in data_filename_list
         ]
@@ -49,13 +64,19 @@ def objective(trial: optuna.Trial) -> float:
 
     train_size = int(0.85 * len(dataset))
     test_size = len(dataset) - train_size
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    train_dataset, test_dataset = torch.utils.data.random_split(
+        dataset, [train_size, test_size]
+    )
 
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     if trial.number == 0:
-        print(f"Training dataset length: {len(train_dataset)} | Test dataset length: {len(test_dataset)}")
-        print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
+        print(
+            f"Training dataset length: {len(train_dataset)} | Test dataset length: {len(test_dataset)}"
+        )
+        print(
+            f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}"
+        )
 
     base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
     log_dir = base_dir / "logs"
@@ -72,7 +93,10 @@ def objective(trial: optuna.Trial) -> float:
         hidden_dims.append(out_features)
 
     model = MPCParameterDNN(
-        param_list=mpc_param_list, hidden_sizes=hidden_dims, activation_fn=actfn, features_dim=input_dim
+        param_list=mpc_param_list,
+        hidden_sizes=hidden_dims,
+        activation_fn=actfn,
+        features_dim=input_dim,
     ).to(device)
 
     hidden_dims_str = "_".join([str(hd) for hd in hidden_dims])

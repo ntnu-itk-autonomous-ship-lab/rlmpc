@@ -19,7 +19,13 @@ class VectorQuantization(Function):
             inputs_sqr = torch.sum(inputs_flatten**2, dim=1, keepdim=True)
 
             # Compute the distances to the codebook
-            distances = torch.addmm(codebook_sqr + inputs_sqr, inputs_flatten, codebook.t(), alpha=-2.0, beta=1.0)
+            distances = torch.addmm(
+                codebook_sqr + inputs_sqr,
+                inputs_flatten,
+                codebook.t(),
+                alpha=-2.0,
+                beta=1.0,
+            )
 
             _, indices_flatten = torch.min(distances, dim=1)
             indices = indices_flatten.view(*inputs_size[:-1])
@@ -100,7 +106,9 @@ class VQEmbedding(nn.Module):
         z_q_x_, indices = vq_st(z_e_x_, self.embedding.weight.detach())
         z_q_x = z_q_x_.permute(0, 3, 1, 2).contiguous()
 
-        z_q_x_bar_flatten = torch.index_select(self.embedding.weight, dim=0, index=indices)
+        z_q_x_bar_flatten = torch.index_select(
+            self.embedding.weight, dim=0, index=indices
+        )
         z_q_x_bar_ = z_q_x_bar_flatten.view_as(z_e_x_)
         z_q_x_bar = z_q_x_bar_.permute(0, 3, 1, 2).contiguous()
 

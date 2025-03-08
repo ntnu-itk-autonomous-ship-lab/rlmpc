@@ -1,10 +1,10 @@
 """
-    colregs_handler.py
+colregs_handler.py
 
-    Summary:
-        Class for a COLREGS handler.
+Summary:
+    Class for a COLREGS handler.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from dataclasses import asdict, dataclass
@@ -29,16 +29,26 @@ class COLREGSSituation(Enum):
 
 @dataclass
 class COLREGSHandlerParams:
-    theta_critical_ot: float = np.deg2rad(45.0)  # contact angle threshold for OT situation
-    theta_critical_ho: float = np.deg2rad(13.0)  # contact and bearing angle threshold for HO situation
-    theta_critical_cr: float = np.deg2rad(-13.0)  # contact and bearing angle threshold for CR situation
+    theta_critical_ot: float = np.deg2rad(
+        45.0
+    )  # contact angle threshold for OT situation
+    theta_critical_ho: float = np.deg2rad(
+        13.0
+    )  # contact and bearing angle threshold for HO situation
+    theta_critical_cr: float = np.deg2rad(
+        -13.0
+    )  # contact and bearing angle threshold for CR situation
     theta_ot_min: float = np.deg2rad(112.5)  # minimum bearing angle for OT situation
     theta_ot_max: float = np.deg2rad(247.5)  # maximum bearing angle for OT situation
-    d_critical_so: float = 100.0  # critical distance threshold where stand-on duties are aborted
+    d_critical_so: float = (
+        100.0  # critical distance threshold where stand-on duties are aborted
+    )
 
     d_activation: float = 5000.0  # distance threshold for activation of COLREGS handler
     t_cpa_entry: float = 100.0  # time to CPA threshold for entry into COLREGS situation
-    d_cpa_entry: float = 900.0  # distance to CPA threshold for entry into COLREGS situation
+    d_cpa_entry: float = (
+        900.0  # distance to CPA threshold for entry into COLREGS situation
+    )
 
     @classmethod
     def from_dict(cls, config_dict: dict):
@@ -109,11 +119,15 @@ class COLREGSHandler:
             ):  # or (ID in self._already_removed_labels and not do_is_relevant):
                 continue
 
-            situation, do_passed_by, os_passed_by = self.determine_applicable_rules(xs, do_state)
+            situation, do_passed_by, os_passed_by = self.determine_applicable_rules(
+                xs, do_state
+            )
 
             if ID in self._do_labels and (do_passed_by):
                 if self.verbose:
-                    print(f"Removed DO{i} | do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}")
+                    print(
+                        f"Removed DO{i} | do_passed_by: {do_passed_by}, os_passed_by: {os_passed_by}"
+                    )
                 self._remove_do(ID)
                 self._already_removed_labels.append(ID)
                 continue
@@ -126,11 +140,17 @@ class COLREGSHandler:
                 self._do_ho_list.append((ID, do_state, do_cov, length, width))
             elif situation == COLREGSSituation.CRGW:
                 self._do_cr_list.append((ID, do_state, do_cov, length, width))
-            elif situation == COLREGSSituation.CRSO and dist2do < self._params.d_critical_so:
+            elif (
+                situation == COLREGSSituation.CRSO
+                and dist2do < self._params.d_critical_so
+            ):
                 self._do_cr_list.append((ID, do_state, do_cov, length, width))
             elif situation == COLREGSSituation.OTGW:
                 self._do_ot_list.append((ID, do_state, do_cov, length, width))
-            elif situation == COLREGSSituation.OTSO and dist2do < self._params.d_critical_so:
+            elif (
+                situation == COLREGSSituation.OTSO
+                and dist2do < self._params.d_critical_so
+            ):
                 self._do_ot_list.append((ID, do_state, do_cov, length, width))
             else:
                 continue
@@ -155,7 +175,9 @@ class COLREGSHandler:
 
         return self._do_cr_list, self._do_ho_list, self._do_ot_list
 
-    def _update_do(self, ID: int, do_info: Tuple[int, np.ndarray, np.ndarray, float, float]) -> None:
+    def _update_do(
+        self, ID: int, do_info: Tuple[int, np.ndarray, np.ndarray, float, float]
+    ) -> None:
         """Updates the state of the dynamic obstacle with ID.
 
         Args:
@@ -186,7 +208,10 @@ class COLREGSHandler:
             ID (int): ID of the dynamic obstacle to be removed.
         """
         _, situation = self._get_do_situation(ID)
-        if situation.value == COLREGSSituation.CRGW.value or situation.value == COLREGSSituation.CRSO.value:
+        if (
+            situation.value == COLREGSSituation.CRGW.value
+            or situation.value == COLREGSSituation.CRSO.value
+        ):
             for i, (do_ID, _, _, _, _) in enumerate(self._do_cr_list):
                 if ID == do_ID:
                     self._do_cr_list.pop(i)
@@ -196,7 +221,10 @@ class COLREGSHandler:
                 if ID == do_ID:
                     self._do_ho_list.pop(i)
                     break
-        elif situation.value == COLREGSSituation.OTGW.value or situation.value == COLREGSSituation.OTSO.value:
+        elif (
+            situation.value == COLREGSSituation.OTGW.value
+            or situation.value == COLREGSSituation.OTSO.value
+        ):
             for i, (do_ID, _, _, _, _) in enumerate(self._do_ot_list):
                 if ID == do_ID:
                     self._do_ot_list.pop(i)
@@ -223,9 +251,13 @@ class COLREGSHandler:
         for i, (do_ID, situation) in enumerate(self._do_situations):
             if do_ID == ID:
                 return i, situation
-        raise ValueError(f"Dynamic obstacle with ID {ID} not found in the list of dynamic obstacles.")
+        raise ValueError(
+            f"Dynamic obstacle with ID {ID} not found in the list of dynamic obstacles."
+        )
 
-    def check_if_do_is_relevant(self, p_os: np.ndarray, v_os: np.ndarray, p_do: np.ndarray, v_do: np.ndarray) -> bool:
+    def check_if_do_is_relevant(
+        self, p_os: np.ndarray, v_os: np.ndarray, p_do: np.ndarray, v_do: np.ndarray
+    ) -> bool:
         """Checks if the dynamic obstacle is relevant to the own-ship.
 
         Args:
@@ -244,7 +276,9 @@ class COLREGSHandler:
             and (np.linalg.norm(p_do - p_os) < self._params.d_activation)
         )
 
-    def determine_applicable_rules(self, xs: np.ndarray, do_state: np.ndarray) -> Tuple[COLREGSSituation, int, int]:
+    def determine_applicable_rules(
+        self, xs: np.ndarray, do_state: np.ndarray
+    ) -> Tuple[COLREGSSituation, int, int]:
         """Determine applicable COLREGS rule for vessel with regards to obstacle at sample index i.
 
         Args:
@@ -264,7 +298,9 @@ class COLREGSHandler:
         los = dist2do / np.linalg.norm(dist2do)
 
         # Relative bearing (obstacle as seen from own-ship)
-        beta_180 = mf.wrap_angle_diff_to_pmpi(np.arctan2(dist2do[1], dist2do[0]), chi_os)
+        beta_180 = mf.wrap_angle_diff_to_pmpi(
+            np.arctan2(dist2do[1], dist2do[0]), chi_os
+        )
         beta = mf.wrap_angle_to_02pi(beta_180)
 
         # Contact angle (own-ship as seen from obstacle)
@@ -289,7 +325,9 @@ class COLREGSHandler:
         ):
             situation = COLREGSSituation.OTGW
         # HO if abs(beta) < theta_critical_ho and abs(alpha) < theta_critical_ho
-        elif (abs(beta_180) < self._params.theta_critical_ho) and (abs(alpha) < self._params.theta_critical_ho):
+        elif (abs(beta_180) < self._params.theta_critical_ho) and (
+            abs(alpha) < self._params.theta_critical_ho
+        ):
             situation = COLREGSSituation.HO
         # CRSO if -theta_ot_min < alpha < theta_critical_ot and -theta_ot_min < beta < theta_critical_cr
         elif (0.0 < alpha_360 < self._params.theta_ot_min) and (
@@ -307,7 +345,9 @@ class COLREGSHandler:
 
         do_passed_by = False
         os_passed_by = False
-        if np.dot(v_do, -los) < np.cos(self._params.theta_ot_min) * np.linalg.norm(v_do):
+        if np.dot(v_do, -los) < np.cos(self._params.theta_ot_min) * np.linalg.norm(
+            v_do
+        ):
             os_passed_by = True
 
         if np.dot(v_os, los) < np.cos(self._params.theta_ot_min) * np.linalg.norm(v_os):

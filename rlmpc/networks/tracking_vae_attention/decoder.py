@@ -1,10 +1,10 @@
 """
-    decoder.py
+decoder.py
 
-    Summary:
-        Contains the decoder network for reconstructing tracking observations from the latent space.
+Summary:
+    Contains the decoder network for reconstructing tracking observations from the latent space.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import torch as th
@@ -54,7 +54,9 @@ class TrackingDecoder(nn.Module):
             )
             self.fc1 = nn.Linear(self.embedding_dim, self.output_dim)
         else:
-            self.rnn_hidden_init = nn.Parameter(th.zeros(self.num_layers, 1, self.rnn_hidden_dim))
+            self.rnn_hidden_init = nn.Parameter(
+                th.zeros(self.num_layers, 1, self.rnn_hidden_dim)
+            )
             self.rnn = rnn_type(
                 input_size=self.embedding_dim,
                 hidden_size=rnn_hidden_dim,
@@ -65,7 +67,11 @@ class TrackingDecoder(nn.Module):
             )
             rnn_output_dim = rnn_hidden_dim * (2 if bidirectional else 1)
             self.h_0 = nn.Parameter(
-                th.zeros(self.num_layers * 2 if bidirectional else self.num_layers, 1, self.rnn_hidden_dim)
+                th.zeros(
+                    self.num_layers * 2 if bidirectional else self.num_layers,
+                    1,
+                    self.rnn_hidden_dim,
+                )
             )
             self.fc1 = nn.Linear(rnn_output_dim, output_dim)
         self.layer_norm1 = nn.LayerNorm(self.embedding_dim)
@@ -87,7 +93,9 @@ class TrackingDecoder(nn.Module):
         else:
             batch_size = z.size(0)
             h_0 = self.h_0.expand(-1, batch_size, -1).contiguous()
-            output, _ = self.rnn(z, h_0)  # output hidden state is dont care for decoder.
+            output, _ = self.rnn(
+                z, h_0
+            )  # output hidden state is dont care for decoder.
 
         output = self.fc1(output)
         return output
@@ -117,4 +125,6 @@ if __name__ == "__main__":
     x = th.rand(2, latent_dimension).to("cuda")
     out = decoder(x, max_seq_len=10)
     print(f"In: {x.shape}, Out: {out.shape}")
-    print(f"Decoder number of parameters: {sum(p.numel() for p in decoder.parameters() if p.requires_grad)}")
+    print(
+        f"Decoder number of parameters: {sum(p.numel() for p in decoder.parameters() if p.requires_grad)}"
+    )

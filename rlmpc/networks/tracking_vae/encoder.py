@@ -1,10 +1,10 @@
 """
-    encoder.py
+encoder.py
 
-    Summary:
-        Contains the encoder network for processing images from the environment.
+Summary:
+    Contains the encoder network for processing images from the environment.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import Tuple
@@ -25,7 +25,6 @@ def weights_init(m):
 
 
 class TrackingEncoder(nn.Module):
-
     def __init__(
         self,
         input_dim: int = 6,
@@ -85,7 +84,9 @@ class TrackingEncoder(nn.Module):
         #     f"Input shape: {x.shape}, seq_lengths shape: {seq_lengths.shape}, Input (min, max): ({x.min()}, {x.max()})"
         # )
         batch_size = x.shape[0]
-        packed_seq = rnn_utils.pack_padded_sequence(x, seq_lengths, batch_first=True, enforce_sorted=False)
+        packed_seq = rnn_utils.pack_padded_sequence(
+            x, seq_lengths, batch_first=True, enforce_sorted=False
+        )
 
         if isinstance(self.rnn1, nn.LSTM):
             output_seq, (hidden, last_cell) = self.rnn1(packed_seq)
@@ -120,7 +121,9 @@ class TrackingEncoder(nn.Module):
 
 if __name__ == "__main__":
     latent_dimension = 10
-    encoder = TrackingEncoder(input_dim=6, latent_dim=latent_dimension, num_layers=1, rnn_type=nn.LSTM).to("cpu")
+    encoder = TrackingEncoder(
+        input_dim=6, latent_dim=latent_dimension, num_layers=1, rnn_type=nn.LSTM
+    ).to("cpu")
 
     x = th.rand(2, 6, 6)
     seq_lengths = th.tensor([6, 5])

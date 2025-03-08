@@ -1,11 +1,11 @@
 """
-    ttmpc.py
+ttmpc.py
 
-    Summary:
-        Contains the class for a trajectory tracking MPC-based COLAV planner.
+Summary:
+    Contains the class for a trajectory tracking MPC-based COLAV planner.
 
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import platform
@@ -36,15 +36,20 @@ else:
 @dataclass
 class Config:
     enable_acados: bool = False
-    mpc: mpc_parameters.TTMPCParams = field(default_factory=lambda: mpc_parameters.TTMPCParams())
-    solver_options: common.SolverConfig = field(default_factory=lambda:common.SolverConfig())
-    model: Type[models.MPCModel] = field(default_factory=lambda:models.Telemetron())
+    mpc: mpc_parameters.TTMPCParams = field(
+        default_factory=lambda: mpc_parameters.TTMPCParams()
+    )
+    solver_options: common.SolverConfig = field(
+        default_factory=lambda: common.SolverConfig()
+    )
+    model: Type[models.MPCModel] = field(default_factory=lambda: models.Telemetron())
 
     @classmethod
     def from_dict(self, config_dict: dict):
-
         if "csog" in config_dict["model"]:
-            model = models.KinematicCSOG(cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"]))
+            model = models.KinematicCSOG(
+                cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"])
+            )
         elif "telemetron" in config_dict["model"]:
             model = models.Telemetron()
         else:
@@ -62,7 +67,11 @@ class Config:
 class TTMPC:
     """Class for the trajectory tracking MPC with COLAV. Quadratic cost in states and inputs. Nonlinear obstacle constraints."""
 
-    def __init__(self, config: Optional[Config] = None, config_file: Optional[Path] = dp.rl_rrt_mpc_config) -> None:
+    def __init__(
+        self,
+        config: Optional[Config] = None,
+        config_file: Optional[Path] = dp.rl_rrt_mpc_config,
+    ) -> None:
         if config:
             self._params = config.mpc
             self._solver_options: common.SolverConfig = config.solver_options
@@ -85,7 +94,9 @@ class TTMPC:
     def params(self) -> mpc_parameters.TTMPCParams:
         return self._params
 
-    def action_value(self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray) -> Tuple[float, dict]:
+    def action_value(
+        self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray
+    ) -> Tuple[float, dict]:
         """Returns the Q(s, a) action-value function value for the given state and action.
 
         Args:
@@ -131,7 +142,14 @@ class TTMPC:
         self._casadi_mpc.construct_ocp(so_list, enc, map_origin, min_depth)
         if self._acados_enabled and ACADOS_COMPATIBLE:
             self._acados_mpc.construct_ocp(
-                nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, map_origin, min_depth
+                nominal_trajectory,
+                nominal_inputs,
+                xs,
+                do_list,
+                so_list,
+                enc,
+                map_origin,
+                min_depth,
             )
 
     def plan(
@@ -143,7 +161,7 @@ class TTMPC:
         do_list: list,
         so_list: list,
         enc: senc.ENC,
-        **kwargs
+        **kwargs,
     ) -> dict:
         """Plans a static and dynamic obstacle free trajectory for the ownship.
 
@@ -161,7 +179,25 @@ class TTMPC:
             - dict: Dictionary containing the optimal trajectory, inputs, slacks and solver stats.
         """
         if self._acados_enabled:
-            mpc_soln = self._acados_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
+            mpc_soln = self._acados_mpc.plan(
+                t,
+                nominal_trajectory,
+                nominal_inputs,
+                xs,
+                do_list,
+                so_list,
+                enc,
+                **kwargs,
+            )
         else:
-            mpc_soln = self._casadi_mpc.plan(t, nominal_trajectory, nominal_inputs, xs, do_list, so_list, enc, **kwargs)
+            mpc_soln = self._casadi_mpc.plan(
+                t,
+                nominal_trajectory,
+                nominal_inputs,
+                xs,
+                do_list,
+                so_list,
+                enc,
+                **kwargs,
+            )
         return mpc_soln

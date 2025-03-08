@@ -1,11 +1,12 @@
 """
-    config_parsing.py
+config_parsing.py
 
-    Summary:
-        Contains functionality for reading and validating configuration files from schemas.
+Summary:
+    Contains functionality for reading and validating configuration files from schemas.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
+
 from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any, List, Optional
@@ -15,7 +16,13 @@ import dacite
 from cerberus import Validator
 
 
-def extract(data_class: Any, config_file: Path, config_schema: Path, converter: Optional[dict] = None, **kwargs) -> Any:
+def extract(
+    data_class: Any,
+    config_file: Path,
+    config_schema: Path,
+    converter: Optional[dict] = None,
+    **kwargs,
+) -> Any:
     """Extracts configuration settings from a configuration file, and converts them to a dataclass.
     Validation is performed using the input schema.
 
@@ -39,7 +46,9 @@ def extract(data_class: Any, config_file: Path, config_schema: Path, converter: 
     return settings
 
 
-def convert_settings_dict_to_dataclass(data_class, config_dict: dict, converter: Optional[dict] = None) -> Any:
+def convert_settings_dict_to_dataclass(
+    data_class, config_dict: dict, converter: Optional[dict] = None
+) -> Any:
     """Converts a settings dictionary to a dataclass.
 
     Args:
@@ -51,13 +60,19 @@ def convert_settings_dict_to_dataclass(data_class, config_dict: dict, converter:
         Any: The dataclass.
     """
     if not is_dataclass(data_class):
-        raise ValueError(f"Desired class is not a dataclass type, its type is {data_class}")
+        raise ValueError(
+            f"Desired class is not a dataclass type, its type is {data_class}"
+        )
 
     if hasattr(data_class, "from_dict") and callable(getattr(data_class, "from_dict")):
         return data_class.from_dict(config_dict)
 
     if converter is not None:
-        return dacite.from_dict(data_class=data_class, data=config_dict, config=dacite.Config(type_hooks=converter))
+        return dacite.from_dict(
+            data_class=data_class,
+            data=config_dict,
+            config=dacite.Config(type_hooks=converter),
+        )
 
     return dacite.from_dict(data_class=data_class, data=config_dict)
 

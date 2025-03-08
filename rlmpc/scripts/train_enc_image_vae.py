@@ -15,7 +15,12 @@ from rlmpc.common.running_loss import RunningLoss
 
 # from rlmpc.networks.enc_vae_128.vae import VAE
 from rlmpc.networks.enc_vae_128_simple.vae import VAE
-from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    CosineAnnealingWarmRestarts,
+    MultiStepLR,
+    ReduceLROnPlateau,
+)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -104,7 +109,9 @@ def train_vae(
 
             # Forward pass
             log_sigma_opt = 0.0
-            reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
+            reconstructed_images, means, log_vars, sampled_latent_vars = model(
+                batch_images
+            )
             # mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
             #     reconstructed_images, batch_images, semantic_masks
             # )
@@ -127,14 +134,26 @@ def train_vae(
 
             # Update the tensorboard
             if batch_idx % save_interval == 0:
-                writer.add_scalar("Training/Loss", loss.item() / batch_size, epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/KLD Loss", kld_loss.item() / batch_size, epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/MSE Loss", mse_loss.item() / batch_size, epoch * n_batches + batch_idx)
+                writer.add_scalar(
+                    "Training/Loss",
+                    loss.item() / batch_size,
+                    epoch * n_batches + batch_idx,
+                )
+                writer.add_scalar(
+                    "Training/KLD Loss",
+                    kld_loss.item() / batch_size,
+                    epoch * n_batches + batch_idx,
+                )
+                writer.add_scalar(
+                    "Training/MSE Loss",
+                    mse_loss.item() / batch_size,
+                    epoch * n_batches + batch_idx,
+                )
                 # writer.add_scalar("Training/Sigma Opt", log_sigma_opt.exp() / batch_size, epoch * n_batches + batch_idx)
                 if verbose:
                     print(
-                        f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Avg. Train Loss: {loss.item() / batch_size:.4f} | KL Div. Loss: {kld_loss.item()/batch_size:.4f} | "
-                        f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
+                        f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Avg. Train Loss: {loss.item() / batch_size:.4f} | KL Div. Loss: {kld_loss.item() / batch_size:.4f} | "
+                        f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1):.2f}s"
                     )
 
                 grid = rl_hf.make_grid_for_tensorboard(
@@ -143,18 +162,29 @@ def train_vae(
                     semantic_masks[random_indices],
                     n_rows=6,
                 )
-                writer.add_image("training/images", grid, global_step=epoch * n_batches + batch_idx)
+                writer.add_image(
+                    "training/images", grid, global_step=epoch * n_batches + batch_idx
+                )
                 if batch_idx % (5 * save_interval) == 0:
                     torchvision.utils.save_image(
                         grid,
                         train_images_path
-                        / (experiment_name + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
+                        / (
+                            experiment_name
+                            + "_epoch_"
+                            + str(epoch)
+                            + "_batch_"
+                            + str(batch_idx)
+                            + ".png"
+                        ),
                     )
 
         lr_schedule.step()
 
         if verbose:
-            print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
+            print(
+                f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}"
+            )
         loss_meter.reset()
 
         if save_intermittent_models:
@@ -180,7 +210,9 @@ def train_vae(
 
             # Forward pass
             log_sigma_opt = 0.0
-            reconstructed_images, means, log_vars, sampled_latent_vars = model(batch_images)
+            reconstructed_images, means, log_vars, sampled_latent_vars = model(
+                batch_images
+            )
             # mse_loss, log_sigma_opt = loss_functions.sigma_semantically_weighted_reconstruction(
             #     reconstructed_images, batch_images, semantic_masks
             # )
@@ -197,10 +229,18 @@ def train_vae(
             if batch_idx % save_interval == 0:
                 if verbose:
                     print(
-                        f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Test Loss: {loss.item()/batch_size:.4f} | KL Div Loss.: {kld_loss.item()/batch_size:.4f}"
+                        f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Avg. Test Loss: {loss.item() / batch_size:.4f} | KL Div Loss.: {kld_loss.item() / batch_size:.4f}"
                     )
-                writer.add_scalar("Test/Loss", loss.item() / batch_size, epoch * n_test_batches + batch_idx)
-                writer.add_scalar("Test/KL Div Loss", -kld_loss.item() / batch_size, epoch * n_test_batches + batch_idx)
+                writer.add_scalar(
+                    "Test/Loss",
+                    loss.item() / batch_size,
+                    epoch * n_test_batches + batch_idx,
+                )
+                writer.add_scalar(
+                    "Test/KL Div Loss",
+                    -kld_loss.item() / batch_size,
+                    epoch * n_test_batches + batch_idx,
+                )
 
                 grid = rl_hf.make_grid_for_tensorboard(
                     batch_images[random_indices],
@@ -208,12 +248,21 @@ def train_vae(
                     semantic_masks[random_indices],
                     n_rows=6,
                 )
-                writer.add_image("testing/images", grid, global_step=epoch * n_batches + batch_idx)
+                writer.add_image(
+                    "testing/images", grid, global_step=epoch * n_batches + batch_idx
+                )
                 if batch_idx % (5 * save_interval) == 0:
                     torchvision.utils.save_image(
                         grid,
                         test_images_path
-                        / (experiment_name + "_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + ".png"),
+                        / (
+                            experiment_name
+                            + "_epoch_"
+                            + str(epoch)
+                            + "_batch_"
+                            + str(batch_idx)
+                            + ".png"
+                        ),
                     )
 
         testing_losses.append(test_batch_losses)
@@ -225,23 +274,36 @@ def train_vae(
             best_epoch = epoch
             num_nondecreasing_loss_iters = 0
             if verbose:
-                print(f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}")
+                print(
+                    f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}"
+                )
             best_model_path = f"{experiment_path}/{experiment_name}_model_LD_{model.latent_dim}_best.pth"
             torch.save(model.state_dict(), best_model_path)
             torchvision.utils.save_image(
                 grid,
                 experiment_path
-                / (experiment_name + "_test_epoch_" + str(epoch) + "_batch_" + str(batch_idx) + "_best.png"),
+                / (
+                    experiment_name
+                    + "_test_epoch_"
+                    + str(epoch)
+                    + "_batch_"
+                    + str(batch_idx)
+                    + "_best.png"
+                ),
             )
         else:
             if verbose:
-                print(f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
+                print(
+                    f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations."
+                )
             num_nondecreasing_loss_iters += 1
         loss_meter.reset()
 
         if num_nondecreasing_loss_iters > early_stopping_patience:
             if verbose:
-                print(f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training.")
+                print(
+                    f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training."
+                )
             break
 
     training_losses = np.array(training_losses)
@@ -321,7 +383,10 @@ def objective(trial: optuna.Trial) -> float:
     training_dataset = torch.utils.data.ConcatDataset(
         [
             rl_ds.ENCImageDataset(
-                data_npy_file=data_file, mask_npy_file=mask_file, data_dir=data_dir, transform=training_transform
+                data_npy_file=data_file,
+                mask_npy_file=mask_file,
+                data_dir=data_dir,
+                transform=training_transform,
             )
             for data_file, mask_file in zip(training_data_list, training_masks_list)
         ]
@@ -329,7 +394,10 @@ def objective(trial: optuna.Trial) -> float:
     test_dataset = torch.utils.data.ConcatDataset(
         [
             rl_ds.ENCImageDataset(
-                data_npy_file=data_file, mask_npy_file=mask_file, data_dir=data_dir, transform=test_transform
+                data_npy_file=data_file,
+                mask_npy_file=mask_file,
+                data_dir=data_dir,
+                transform=test_transform,
             )
             for data_file, mask_file in zip(test_data_list, test_masks_list)
         ]

@@ -1,10 +1,10 @@
 """
-    antigrounding_mpc.py
+antigrounding_mpc.py
 
-    Summary:
-        COLAV-simulator planner wrapper for the anti-grounding MPC.
+Summary:
+    COLAV-simulator planner wrapper for the anti-grounding MPC.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from dataclasses import dataclass
@@ -45,13 +45,16 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
     """MPC for COLAV with anti-grounding functionality."""
 
     def __init__(
-        self, config: Optional[TrajectoryTrackingMPCParams] = None, config_file: Optional[Path] = dp.ttmpc_config
+        self,
+        config: Optional[TrajectoryTrackingMPCParams] = None,
+        config_file: Optional[Path] = dp.ttmpc_config,
     ) -> None:
-
         if config:
             self._config: TrajectoryTrackingMPCParams = config
         else:
-            self._config = cp.extract(TrajectoryTrackingMPCParams, config_file, dp.ttmpc_schema)
+            self._config = cp.extract(
+                TrajectoryTrackingMPCParams, config_file, dp.ttmpc_schema
+            )
 
         self._los = guidances.LOSGuidance(self._config.los)
         self._mpc = ttmpc.TTMPC(self._config.mpc)
@@ -112,10 +115,14 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
         if not self._initialized:
             self._map_origin = ownship_state[:2]
             self._initialized = True
-            self._nominal_trajectory, self._nominal_inputs = hf.create_los_based_trajectory(
-                ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt
+            self._nominal_trajectory, self._nominal_inputs = (
+                hf.create_los_based_trajectory(
+                    ownship_state, waypoints, speed_plan, self._los, self._mpc.params.dt
+                )
             )
-            self._setup_mpc_static_obstacle_input(ownship_state, enc, self._mpc.params.debug, **kwargs)
+            self._setup_mpc_static_obstacle_input(
+                ownship_state, enc, self._mpc.params.debug, **kwargs
+            )
             self._nominal_trajectory[:2, :] -= self._map_origin.reshape((2, 1))
             translated_do_list = hf.translate_dynamic_obstacle_coordinates(
                 do_list, self._map_origin[1], self._map_origin[0]
@@ -123,7 +130,10 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
             self._mpc.construct_ocp(
                 nominal_trajectory=self._nominal_trajectory,
                 nominal_inputs=self._nominal_inputs,
-                xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                xs=ownship_state
+                - np.array(
+                    [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+                ),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
@@ -139,16 +149,24 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
             nominal_trajectory, nominal_inputs = hf.shift_nominal_plan(
                 self._nominal_trajectory,
                 self._nominal_inputs,
-                ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                ownship_state
+                - np.array(
+                    [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+                ),
                 N,
             )
             psi_nom = nominal_trajectory[2, :]
-            nominal_trajectory[2, :] = np.unwrap(np.concatenate(([psi_nom[0]], psi_nom)))[1:]
+            nominal_trajectory[2, :] = np.unwrap(
+                np.concatenate(([psi_nom[0]], psi_nom))
+            )[1:]
             self._mpc_soln = self._mpc.plan(
                 t,
                 nominal_trajectory=nominal_trajectory,
                 nominal_inputs=nominal_inputs,
-                xs=ownship_state - np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]),
+                xs=ownship_state
+                - np.array(
+                    [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+                ),
                 do_list=translated_do_list,
                 so_list=self._mpc_rel_polygons,
                 enc=enc,
@@ -160,11 +178,15 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
             if enc is not None and self._mpc.params.debug:
                 hf.plot_trajectory(
                     nominal_trajectory
-                    + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1),
+                    + np.array(
+                        [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+                    ).reshape(6, 1),
                     enc,
                     "yellow",
                 )
-                hf.plot_dynamic_obstacles(do_list, enc, self._mpc.params.T, self._mpc.params.dt, color="red")
+                hf.plot_dynamic_obstacles(
+                    do_list, enc, self._mpc.params.T, self._mpc.params.dt, color="red"
+                )
                 hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
                 ship_poly = hf.create_ship_polygon(
                     ownship_state[0],
@@ -177,7 +199,12 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
                 )
                 enc.draw_polygon(ship_poly, color="pink")
             self._mpc_trajectory, self._mpc_inputs = hf.interpolate_solution(
-                self._mpc_trajectory, self._mpc_inputs, t, self._t_prev, self._mpc.params.T, self._mpc.params.dt
+                self._mpc_trajectory,
+                self._mpc_inputs,
+                t,
+                self._t_prev,
+                self._mpc.params.T,
+                self._mpc.params.dt,
             )
             d2last_ref = np.linalg.norm(nominal_trajectory[:2, -1] - ownship_state[:2])
             # self._los.reset_wp_counter()
@@ -204,7 +231,11 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
         return self._references
 
     def _setup_mpc_static_obstacle_input(
-        self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False, **kwargs
+        self,
+        ownship_state: np.ndarray,
+        enc: Optional[senc.ENC] = None,
+        show_plots: bool = False,
+        **kwargs,
     ) -> None:
         """Sets up the fixed static obstacle parameters for the MPC.
 
@@ -215,8 +246,12 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
             - **kwargs: Additional keyword arguments.
         """
         self._min_depth = mapf.find_minimum_depth(kwargs["os_draft"], enc)
-        relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(self._min_depth, enc)
-        self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(relevant_grounding_hazards)
+        relevant_grounding_hazards = mapf.extract_relevant_grounding_hazards_as_union(
+            self._min_depth, enc
+        )
+        self._geometry_tree, self._original_poly_list = mapf.fill_rtree_with_geometries(
+            relevant_grounding_hazards
+        )
 
         poly_tuple_list, enveloping_polygon = mapf.extract_polygons_near_trajectory(
             self._nominal_trajectory,
@@ -236,7 +271,13 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
                 enc.draw_polygon(hazard, color="red", fill=False)
 
             ship_poly = hf.create_ship_polygon(
-                ownship_state[0], ownship_state[1], ownship_state[2], kwargs["os_length"], kwargs["os_width"], 1.0, 1.0
+                ownship_state[0],
+                ownship_state[1],
+                ownship_state[2],
+                kwargs["os_length"],
+                kwargs["os_width"],
+                1.0,
+                1.0,
             )
             # enc.draw_circle((ownship_state[1], ownship_state[0]), radius=40, color="yellow", alpha=0.4)
             enc.draw_polygon(ship_poly, color="pink")
@@ -250,8 +291,12 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
         for polygons, original_polygon in poly_tuple_list:
             translated_poly_tuple_list.append(
                 (
-                    hf.translate_polygons(polygons, self._map_origin[1], self._map_origin[0]),
-                    hf.translate_polygons([original_polygon], self._map_origin[1], self._map_origin[0])[0],
+                    hf.translate_polygons(
+                        polygons, self._map_origin[1], self._map_origin[0]
+                    ),
+                    hf.translate_polygons(
+                        [original_polygon], self._map_origin[1], self._map_origin[0]
+                    )[0],
                 )
             )
         translated_enveloping_polygon = hf.translate_polygons(
@@ -259,24 +304,48 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
         )[0]
 
         # enc.save_image(name="enc_hazards", path=dp.figures, extension="pdf")
-        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.CIRCULAR:
-            self._mpc_rel_polygons = mapf.compute_smallest_enclosing_circle_for_polygons(
-                translated_rel_polygons, enc, self._map_origin
+        if (
+            self._mpc.params.so_constr_type
+            == mpc_params.StaticObstacleConstraint.CIRCULAR
+        ):
+            self._mpc_rel_polygons = (
+                mapf.compute_smallest_enclosing_circle_for_polygons(
+                    translated_rel_polygons, enc, self._map_origin
+                )
             )
-        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL:
-            self._mpc_rel_polygons = mapf.compute_multi_ellipsoidal_approximations_from_polygons(
-                translated_poly_tuple_list, translated_enveloping_polygon, enc, self._map_origin
+        elif (
+            self._mpc.params.so_constr_type
+            == mpc_params.StaticObstacleConstraint.ELLIPSOIDAL
+        ):
+            self._mpc_rel_polygons = (
+                mapf.compute_multi_ellipsoidal_approximations_from_polygons(
+                    translated_poly_tuple_list,
+                    translated_enveloping_polygon,
+                    enc,
+                    self._map_origin,
+                )
             )
-        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+        elif (
+            self._mpc.params.so_constr_type
+            == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET
+        ):
             P1, P2 = mapf.create_point_list_from_polygons(translated_rel_polygons)
             self._set_generator = sg.SetGenerator(P1, P2)
-        elif self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE:
+        elif (
+            self._mpc.params.so_constr_type
+            == mpc_params.StaticObstacleConstraint.PARAMETRICSURFACE
+        ):
             self._mpc_rel_polygons = translated_poly_tuple_list  # mapf.extract_boundary_polygons_inside_envelope(poly_tuple_list, enveloping_polygon, enc)
         else:
-            raise ValueError(f"Unknown static obstacle constraint type: {self._mpc.params.so_constr_type}")
+            raise ValueError(
+                f"Unknown static obstacle constraint type: {self._mpc.params.so_constr_type}"
+            )
 
     def _update_mpc_so_polygon_input(
-        self, ownship_state: np.ndarray, enc: Optional[senc.ENC] = None, show_plots: bool = False
+        self,
+        ownship_state: np.ndarray,
+        enc: Optional[senc.ENC] = None,
+        show_plots: bool = False,
     ) -> None:
         """Updates the static obstacle constraint parameters to the MPC, based on the constraint type used.
 
@@ -285,12 +354,22 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
             - enc (Optional[senc.ENC]): ENC object containing the map info.
             - show_plots (bool): Whether to show plots or not.
         """
-        if self._mpc.params.so_constr_type == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET:
+        if (
+            self._mpc.params.so_constr_type
+            == mpc_params.StaticObstacleConstraint.APPROXCONVEXSAFESET
+        ):
             A_full, b_full = self._set_generator(ownship_state[0:2] - self._map_origin)
-            A_reduced, b_reduced = sg.reduce_constraints(A_full, b_full, self._mpc.params.max_num_so_constr)
+            A_reduced, b_reduced = sg.reduce_constraints(
+                A_full, b_full, self._mpc.params.max_num_so_constr
+            )
             if show_plots:
                 sg.plot_constraints(
-                    A_reduced, b_reduced, ownship_state[0:2] - self._map_origin, "black", enc, self._map_origin
+                    A_reduced,
+                    b_reduced,
+                    ownship_state[0:2] - self._map_origin,
+                    "black",
+                    enc,
+                    self._map_origin,
                 )
             self._mpc_rel_polygons = [A_reduced, b_reduced]
 
@@ -302,7 +381,9 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
         if self._t_prev_mpc == self._t_prev:
             output = {
                 "nominal_trajectory": self._nominal_trajectory
-                + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1),
+                + np.array(
+                    [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
+                ).reshape(6, 1),
                 "nominal_inputs": self._nominal_inputs,
                 "time_of_last_plan": self._t_prev_mpc,
                 "mpc_soln": self._mpc_soln,
@@ -313,14 +394,23 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
             }
         return output
 
-    def plot_results(self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs) -> dict:
-
+    def plot_results(
+        self, ax_map: plt.Axes, enc: senc.ENC, plt_handles: dict, **kwargs
+    ) -> dict:
         if self._nominal_trajectory.size > 6:
-            plt_handles["colav_nominal_trajectory"].set_xdata(self._nominal_trajectory[1, 0:-1:5] + self._map_origin[1])
-            plt_handles["colav_nominal_trajectory"].set_ydata(self._nominal_trajectory[0, 0:-1:5] + self._map_origin[0])
+            plt_handles["colav_nominal_trajectory"].set_xdata(
+                self._nominal_trajectory[1, 0:-1:5] + self._map_origin[1]
+            )
+            plt_handles["colav_nominal_trajectory"].set_ydata(
+                self._nominal_trajectory[0, 0:-1:5] + self._map_origin[0]
+            )
 
         if self._mpc_trajectory.size > 6:
-            plt_handles["colav_predicted_trajectory"].set_xdata(self._mpc_trajectory[1, 0:-1:2])
-            plt_handles["colav_predicted_trajectory"].set_ydata(self._mpc_trajectory[0, 0:-1:2])
+            plt_handles["colav_predicted_trajectory"].set_xdata(
+                self._mpc_trajectory[1, 0:-1:2]
+            )
+            plt_handles["colav_predicted_trajectory"].set_ydata(
+                self._mpc_trajectory[0, 0:-1:2]
+            )
 
         return plt_handles

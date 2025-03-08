@@ -1,10 +1,10 @@
 """
-    parameters.py
+parameters.py
 
-    Summary:
-        Contains parameter classes for MPC-based COLAV in different flavours.
+Summary:
+    Contains parameter classes for MPC-based COLAV in different flavours.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from abc import ABC, abstractmethod
@@ -52,17 +52,25 @@ class TTMPCParams(IParams):
     """Class for parameters used by the lower level trajectory tracking MPC with COLAV. Can be used as regular (N)MPC COLAV by setting gamma to 1.0."""
 
     rate: float = 5.0  # rate of the controller
-    reference_traj_bbox_buffer: float = 500.0  # buffer for the reference trajectory bounding box
+    reference_traj_bbox_buffer: float = (
+        500.0  # buffer for the reference trajectory bounding box
+    )
     T: float = 10.0  # prediction horizon
     dt: float = 0.5  # time step
-    Q: np.ndarray = field(default_factory=lambda: np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0]))  # state cost matrix
-    R: np.ndarray = field(default_factory=lambda: np.diag([1.0, 1.0]))  # input cost matrix
+    Q: np.ndarray = field(
+        default_factory=lambda: np.diag([1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
+    )  # state cost matrix
+    R: np.ndarray = field(
+        default_factory=lambda: np.diag([1.0, 1.0])
+    )  # input cost matrix
     w_L2: float = 1e4  # slack variable weight L2 norm
     w_L1: float = 1e2  # slack variable weight L1 norm
     gamma: float = 0.9  # discount factor in RL setting
     d_safe_so: float = 5.0  # safety distance to static obstacles
     d_safe_do: float = 5.0  # safety distance to dynamic obstacles
-    so_constr_type: StaticObstacleConstraint = field(default_factory=lambda: StaticObstacleConstraint.PARAMETRICSURFACE)
+    so_constr_type: StaticObstacleConstraint = field(
+        default_factory=lambda: StaticObstacleConstraint.PARAMETRICSURFACE
+    )
     max_num_so_constr: int = 5  # maximum number of static obstacle constraints
     max_num_do_constr: int = 0  # maximum number of dynamic obstacle constraints
     path_following: bool = False  # whether to use path following or trajectory tracking
@@ -78,7 +86,9 @@ class TTMPCParams(IParams):
             raise ValueError("Q must be a 2x2 matrix when path_following is True.")
 
         if not params.path_following and params.Q.shape[0] != 6:
-            raise ValueError("Q must be a 6x6 matrix when path_following is False (trajectory tracking).")
+            raise ValueError(
+                "Q must be a 6x6 matrix when path_following is False (trajectory tracking)."
+            )
 
         return params
 
@@ -94,7 +104,14 @@ class TTMPCParams(IParams):
         Returns:
             np.ndarray: Array of adjustable parameters.
         """
-        return np.array([*self.Q.flatten().tolist(), *self.R.flatten().tolist(), self.d_safe_so, self.d_safe_do])
+        return np.array(
+            [
+                *self.Q.flatten().tolist(),
+                *self.R.flatten().tolist(),
+                self.d_safe_so,
+                self.d_safe_do,
+            ]
+        )
 
 
 @dataclass
@@ -102,12 +119,18 @@ class MidlevelMPCParams(IParams):
     """Class for parameters used by the mid-level MPC COLAV."""
 
     rate: float = 5.0  # rate of the controller
-    reference_traj_bbox_buffer: float = 200.0  # buffer for the reference trajectory bounding box
+    reference_traj_bbox_buffer: float = (
+        200.0  # buffer for the reference trajectory bounding box
+    )
     T: float = 100.0  # prediction horizon
     dt: float = 1.0  # time step
-    so_constr_type: StaticObstacleConstraint = field(default_factory=lambda: StaticObstacleConstraint.PARAMETRICSURFACE)
+    so_constr_type: StaticObstacleConstraint = field(
+        default_factory=lambda: StaticObstacleConstraint.PARAMETRICSURFACE
+    )
     max_num_so_constr: int = 5  # maximum number of static obstacle constraints
-    max_num_do_constr_per_zone: int = 5  # maximum number of dynamic obstacle constraints
+    max_num_do_constr_per_zone: int = (
+        5  # maximum number of dynamic obstacle constraints
+    )
 
     w_L2: float = 1e4  # slack variable weight L2 norm
     w_L1: float = 1e2  # slack variable weight L1 norm
@@ -122,19 +145,31 @@ class MidlevelMPCParams(IParams):
     K_prev_sol_dev: np.ndarray = field(
         default_factory=lambda: np.array([1.0, 1.0])
     )  # penalty for deviation from previous solution (course and speed ref to autopilot)
-    alpha_app_course: np.ndarray = field(default_factory=lambda: np.array([112.0, 0.0006]))
-    alpha_app_speed: np.ndarray = field(default_factory=lambda: np.array([8.0, 0.00025]))
+    alpha_app_course: np.ndarray = field(
+        default_factory=lambda: np.array([112.0, 0.0006])
+    )
+    alpha_app_speed: np.ndarray = field(
+        default_factory=lambda: np.array([8.0, 0.00025])
+    )
     K_app_course: float = 0.5  # turn rate penalty
     K_app_speed: float = 0.6  # speed deviation penalty
 
-    alpha_cr: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))
+    alpha_cr: np.ndarray = field(
+        default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0])
+    )
     y_0_cr: float = 100.0
-    alpha_ho: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))
+    alpha_ho: np.ndarray = field(
+        default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0])
+    )
     x_0_ho: float = 200.0
-    alpha_ot: np.ndarray = field(default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0]))
+    alpha_ot: np.ndarray = field(
+        default_factory=lambda: np.array([1.0 / 500.0, 1.0 / 500.0])
+    )
     x_0_ot: float = 200.0
     y_0_ot: float = 100.0
-    d_attenuation: float = 400.0  # attenuation distance for the COLREGS potential functions
+    d_attenuation: float = (
+        400.0  # attenuation distance for the COLREGS potential functions
+    )
     w_colregs: np.ndarray = field(
         default_factory=lambda: np.array([1.0, 1.0, 1.0])
     )  # weights for the COLREGS potential functions
@@ -270,27 +305,43 @@ class MidlevelMPCParams(IParams):
         """
         for key, value in param_subset.items():
             if key == "Q_p":
-                self.Q_p = np.clip(np.diag(value), np.diag([1e-4, 1e-4, 1e-4]), np.diag([1e3, 1e3, 1e3]))
+                self.Q_p = np.clip(
+                    np.diag(value),
+                    np.diag([1e-4, 1e-4, 1e-4]),
+                    np.diag([1e3, 1e3, 1e3]),
+                )
             elif key == "K_prev_sol_dev":
-                self.K_prev_sol_dev = np.clip(value, np.array([0.001, 0.001]), np.array([100.0, 100.0]))
+                self.K_prev_sol_dev = np.clip(
+                    value, np.array([0.001, 0.001]), np.array([100.0, 100.0])
+                )
             elif key == "alpha_app_course":
-                self.alpha_app_course = np.clip(value, np.array([1e-6, 0.000001]), np.array([1e3, 1.0]))
+                self.alpha_app_course = np.clip(
+                    value, np.array([1e-6, 0.000001]), np.array([1e3, 1.0])
+                )
             elif key == "alpha_app_speed":
-                self.alpha_app_speed = np.clip(value, np.array([1.0, 0.00001]), np.array([1e3, 1.0]))
+                self.alpha_app_speed = np.clip(
+                    value, np.array([1.0, 0.00001]), np.array([1e3, 1.0])
+                )
             elif key == "K_app_course":
                 self.K_app_course = float(np.clip(value, 0.001, 1e3))
             elif key == "K_app_speed":
                 self.K_app_speed = float(np.clip(value, 0.001, 1e3))
             elif key == "alpha_cr":
-                self.alpha_cr = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+                self.alpha_cr = np.clip(
+                    value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0])
+                )
             elif key == "y_0_cr":
                 self.y_0_cr = float(np.clip(value, -1e4, 1e4))
             elif key == "alpha_ho":
-                self.alpha_ho = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+                self.alpha_ho = np.clip(
+                    value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0])
+                )
             elif key == "x_0_ho":
                 self.x_0_ho = float(np.clip(value, -1e4, 1e4))
             elif key == "alpha_ot":
-                self.alpha_ot = np.clip(value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0]))
+                self.alpha_ot = np.clip(
+                    value, np.array([1e-6, 1e-6]), np.array([1.0, 1.0])
+                )
             elif key == "x_0_ot":
                 self.x_0_ot = float(np.clip(value, -1e4, 1e4))
             elif key == "y_0_ot":
@@ -298,14 +349,18 @@ class MidlevelMPCParams(IParams):
             elif key == "d_attenuation":
                 self.d_attenuation = float(np.clip(value, 1.0, 1e4))
             elif key == "w_colregs":
-                self.w_colregs = np.clip(value, np.array([1e-4, 1e-4, 1e-4]), np.array([1e4, 1e4, 1e4]))
+                self.w_colregs = np.clip(
+                    value, np.array([1e-4, 1e-4, 1e-4]), np.array([1e4, 1e4, 1e4])
+                )
             elif key == "r_safe_do":
                 self.r_safe_do = float(np.clip(value, 1.0, 1e4))
             else:
                 raise ValueError(f"Parameter {key} not in the parameter list.")
 
     @classmethod
-    def get_adjustable_parameter_info(cls) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    def get_adjustable_parameter_info(
+        cls,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """Returns the adjustable parameter ranges, increments and lengths.
 
         Returns:

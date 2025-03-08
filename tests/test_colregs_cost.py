@@ -1,6 +1,6 @@
 """Test module for gym.py
 
-    Shows how to use the gym environment, and how to save a video + gif of the simulation.
+Shows how to use the gym environment, and how to save a video + gif of the simulation.
 """
 
 import colav_simulator.common.map_functions as mapf
@@ -59,7 +59,9 @@ def test_colregs_cost():
     xs = np.array([6574298.6, -30098.26, -1.78, 4.6, 0.00001, 4.6])
     xs_rel = np.array([0.0, 0.0, -1.78, 4.6])
 
-    xs_target = np.array([6574223.59832493 - xs[0], -30497.98151476 - xs[1], 0.7897036, 3.38688909])
+    xs_target = np.array(
+        [6574223.59832493 - xs[0], -30497.98151476 - xs[1], 0.7897036, 3.38688909]
+    )
     chi_target = np.arctan2(xs_target[3], xs_target[2])
     U_target = np.sqrt(xs_target[2] ** 2 + xs_target[3] ** 2)
     xs_ts = np.array([xs_target[0], xs_target[1], chi_target, U_target, 2.0, 1.0])

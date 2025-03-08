@@ -1,10 +1,10 @@
 """
-    gmm_em.py
+gmm_em.py
 
-    Summary:
-        Contains a class for a Gaussian Mixture Model with the Expectation-Maximization algorithm.
+Summary:
+    Contains a class for a Gaussian Mixture Model with the Expectation-Maximization algorithm.
 
-    Author: https://github.com/mr-easy/GMM-EM-Python, Trym Tengesdal
+Author: https://github.com/mr-easy/GMM-EM-Python, Trym Tengesdal
 """
 
 from typing import Optional, Tuple
@@ -62,7 +62,9 @@ class GMM_EM:
         self.num_points: int = 0
         self.z: np.ndarray = np.zeros((0, k))
 
-    def run(self, num_iters: int, show_plots: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def run(
+        self, num_iters: int, show_plots: bool = False
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Run EM algorithm for a number of iterations.
 
         Args:
@@ -98,7 +100,9 @@ class GMM_EM:
         E-step of EM algorithm.
         """
         for i in range(self.k):
-            self.z[:, i] = self.pi[i] * multivariate_normal.pdf(self.data, mean=self.mu[i], cov=self.sigma[i])
+            self.z[:, i] = self.pi[i] * multivariate_normal.pdf(
+                self.data, mean=self.mu[i], cov=self.sigma[i]
+            )
         self.z /= self.z.sum(axis=1, keepdims=True)
 
     def m_step(self) -> None:
@@ -129,7 +133,9 @@ class GMM_EM:
         for d in X:
             tot = 0
             for i in range(self.k):
-                tot += self.pi[i] * multivariate_normal.pdf(d, mean=self.mu[i], cov=self.sigma[i])
+                tot += self.pi[i] * multivariate_normal.pdf(
+                    d, mean=self.mu[i], cov=self.sigma[i]
+                )
             ll.append(np.log(tot))
         return np.sum(ll)
 
@@ -156,19 +162,38 @@ class GMM_EM:
         plt.show()
         plt.clf()
 
-    def plot_gaussian(self, mean: np.ndarray, cov: np.ndarray, ax: plt.Axes, n_std: float = 3.0, facecolor: str = "none", **kwargs) -> plt.Axes:
+    def plot_gaussian(
+        self,
+        mean: np.ndarray,
+        cov: np.ndarray,
+        ax: plt.Axes,
+        n_std: float = 3.0,
+        facecolor: str = "none",
+        **kwargs,
+    ) -> plt.Axes:
         """
         Utility function to plot one Gaussian from mean and covariance.
         """
         pearson = cov[0, 1] / np.sqrt(cov[0, 0] * cov[1, 1])
         ell_radius_x = np.sqrt(1 + pearson)
         ell_radius_y = np.sqrt(1 - pearson)
-        ellipse = Ellipse((0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2, facecolor=facecolor, **kwargs)
+        ellipse = Ellipse(
+            (0, 0),
+            width=ell_radius_x * 2,
+            height=ell_radius_y * 2,
+            facecolor=facecolor,
+            **kwargs,
+        )
         scale_x = np.sqrt(cov[0, 0]) * n_std
         mean_x = mean[0]
         scale_y = np.sqrt(cov[1, 1]) * n_std
         mean_y = mean[1]
-        transf = transforms.Affine2D().rotate_deg(45).scale(scale_x, scale_y).translate(mean_x, mean_y)
+        transf = (
+            transforms.Affine2D()
+            .rotate_deg(45)
+            .scale(scale_x, scale_y)
+            .translate(mean_x, mean_y)
+        )
         ellipse.set_transform(transf + ax.transData)
         return ax.add_patch(ellipse)
 
@@ -181,4 +206,11 @@ class GMM_EM:
             print("Drawing available only for 2D case.")
             return
         for i in range(self.k):
-            self.plot_gaussian(self.mu[i], self.sigma[i], ax, n_std=n_std, edgecolor=self.colors[i], **kwargs)
+            self.plot_gaussian(
+                self.mu[i],
+                self.sigma[i],
+                ax,
+                n_std=n_std,
+                edgecolor=self.colors[i],
+                **kwargs,
+            )

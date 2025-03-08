@@ -39,7 +39,9 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
     """
 
     def _init():
-        env_config.update({"identifier": env_config["identifier"] + str(rank), "seed": seed + rank})
+        env_config.update(
+            {"identifier": env_config["identifier"] + str(rank), "seed": seed + rank}
+        )
         env = gym.make(env_id, **env_config)
         return env
 
@@ -48,14 +50,20 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
 
 
 if __name__ == "__main__":
-    TRACKINGOBS_DATADIR: Path = Path.home() / "Desktop/machine_learning/tracking_vae/data"
+    TRACKINGOBS_DATADIR: Path = (
+        Path.home() / "Desktop/machine_learning/tracking_vae/data"
+    )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel",
         "rlmpc_scenario_random_many_vessels",
     ]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -70,7 +78,9 @@ if __name__ == "__main__":
     }
 
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     env_id = "COLAVEnvironment-v0"
     env_config = {
@@ -110,7 +120,9 @@ if __name__ == "__main__":
                     "identifier": "training_env",
                 }
             )
-            training_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+            training_vec_env = SubprocVecEnv(
+                [make_env(env_id, env_config, i + 1) for i in range(num_cpu)]
+            )
             env_config.update(
                 {
                     "scenario_file_folder": test_scenario_folders,
@@ -119,7 +131,9 @@ if __name__ == "__main__":
                     "identifier": "eval_env",
                 }
             )
-            test_vec_env = SubprocVecEnv([make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+            test_vec_env = SubprocVecEnv(
+                [make_env(env_id, env_config, i + 1) for i in range(num_cpu)]
+            )
         else:
             env = gym.make(id=env_id, **env_config)
 
@@ -130,9 +144,13 @@ if __name__ == "__main__":
             frames = []
             tracking_obs_dim = list(obs["RelativeTrackingObservation"].shape)
             n_steps = 1200
-            tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
+            tracking_observations = np.zeros(
+                (n_steps, *tracking_obs_dim), dtype=np.float32
+            )
             for i in range(n_steps):
-                actions = np.array([training_vec_env.action_space.sample() for _ in range(num_cpu)])
+                actions = np.array(
+                    [training_vec_env.action_space.sample() for _ in range(num_cpu)]
+                )
                 obs, reward, dones, info = training_vec_env.step(actions)
                 # training_vec_env.render()
 
@@ -152,9 +170,13 @@ if __name__ == "__main__":
             frames = []
             tracking_obs_dim = list(obs["RelativeTrackingObservation"].shape)
             n_steps = 1200
-            tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
+            tracking_observations = np.zeros(
+                (n_steps, *tracking_obs_dim), dtype=np.float32
+            )
             for i in range(n_steps):
-                actions = np.array([test_vec_env.action_space.sample() for _ in range(num_cpu)])
+                actions = np.array(
+                    [test_vec_env.action_space.sample() for _ in range(num_cpu)]
+                )
 
                 obs, reward, dones, info = test_vec_env.step(actions)
                 # test_vec_env.render()
@@ -187,7 +209,9 @@ if __name__ == "__main__":
             # vae.set_inference_mode(True)
 
             n_steps = 500
-            tracking_observations = np.zeros((n_steps, *tracking_obs_dim), dtype=np.float32)
+            tracking_observations = np.zeros(
+                (n_steps, *tracking_obs_dim), dtype=np.float32
+            )
             for i in range(n_steps):
                 random_action = env.action_space.sample()
                 obs, reward, terminated, truncated, info = env.step(random_action)
@@ -195,7 +219,9 @@ if __name__ == "__main__":
 
                 tracking_observations[i] = obs["RelativeTrackingObservation"]
 
-                pobs, seq_lengths = vae.preprocess_obs(th.from_numpy(tracking_observations[i]).unsqueeze(0))
+                pobs, seq_lengths = vae.preprocess_obs(
+                    th.from_numpy(tracking_observations[i]).unsqueeze(0)
+                )
                 recon_obs, _, _, _ = vae(pobs, seq_lengths)
 
                 if terminated or truncated:

@@ -1,10 +1,10 @@
 """
-    feature_extractors.py
+feature_extractors.py
 
-    Summary:
-        Contains feature extractors for neural networks (NNs) used in DRL. Feature extractor inspired by stable-baselines3 (SB3) implementation, the CNN-work of Thomas Larsen, and variational autoencoders (VAEs).
+Summary:
+    Contains feature extractors for neural networks (NNs) used in DRL. Feature extractor inspired by stable-baselines3 (SB3) implementation, the CNN-work of Thomas Larsen, and variational autoencoders (VAEs).
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import pathlib
@@ -27,7 +27,6 @@ TRACKINGVAE_DATADIR: pathlib.Path = rl_dp.root / "rlmpc/networks/models"
 
 
 class ENCVAE(BaseFeaturesExtractor):
-
     def __init__(
         self,
         observation_space: spaces.Box,
@@ -39,14 +38,22 @@ class ENCVAE(BaseFeaturesExtractor):
     ):
         super(ENCVAE, self).__init__(observation_space, features_dim=latent_dim)
 
-        self.input_image_dim = (observation_space.shape[0], observation_space.shape[1], observation_space.shape[2])
+        self.input_image_dim = (
+            observation_space.shape[0],
+            observation_space.shape[1],
+            observation_space.shape[2],
+        )
 
         if model_file is None:
             # model_file = ENCVAE_DATADIR / "LD_40_128x128/model_LD_40_best.pth"
             model_file = ENCVAE_DATADIR / "enc_vae.pth"
         self.vae: enc_vae.VAE = enc_vae.VAE(
             latent_dim=latent_dim,
-            input_image_dim=(observation_space.shape[0], observation_space.shape[1], observation_space.shape[2]),
+            input_image_dim=(
+                observation_space.shape[0],
+                observation_space.shape[1],
+                observation_space.shape[2],
+            ),
             encoder_conv_block_dims=encoder_conv_block_dims,
             decoder_conv_block_dims=decoder_conv_block_dims,
             fc_dim=fc_dim,
@@ -89,7 +96,9 @@ class ENCVAE(BaseFeaturesExtractor):
             return recon_obs
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
+        assert self.vae.inference_mode, (
+            "VAE must be in inference mode before usage as a feature extractor."
+        )
         # self.display_image(observations[0])
         z_e, _, _ = self.vae.encode(observations)
         # print(f"z_e shape: {z_e.shape}")
@@ -107,7 +116,9 @@ class PathRelativeNavigationNN(BaseFeaturesExtractor):
             observation_space (gym.spaces.Box): Navigation state observation space.
             features_dim (int, optional): Length of Features
         """
-        super(PathRelativeNavigationNN, self).__init__(observation_space, features_dim=features_dim)
+        super(PathRelativeNavigationNN, self).__init__(
+            observation_space, features_dim=features_dim
+        )
         self.passthrough = nn.Identity()
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
@@ -122,7 +133,9 @@ class DisturbanceFeedforward(BaseFeaturesExtractor):
             observation_space (gym.spaces.Box): Navigation state observation space.
             features_dim (int, optional): Disturbance vector length. Defaults to 4, i.e. [V_c, beta_c, V_w, beta_w].
         """
-        super(DisturbanceFeedforward, self).__init__(observation_space, features_dim=features_dim)
+        super(DisturbanceFeedforward, self).__init__(
+            observation_space, features_dim=features_dim
+        )
 
         self.passthrough = nn.Identity()
 
@@ -138,7 +151,9 @@ class MPCParameterFeedforward(BaseFeaturesExtractor):
             observation_space (gym.spaces.Box): Navigation state observation space.
             features_dim (int, optional): MPC parameter vector length. Defaults to 9, i.e. [Q_p (3), K_app(2), w_colregs (3), r_safe_do].
         """
-        super(MPCParameterFeedforward, self).__init__(observation_space, features_dim=features_dim)
+        super(MPCParameterFeedforward, self).__init__(
+            observation_space, features_dim=features_dim
+        )
         self.passthrough = nn.Identity()
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
@@ -152,7 +167,9 @@ class SimpleTrackingFeatureExtractor(BaseFeaturesExtractor):
         Args:
             observation_space (gym.spaces.Box): Relative tracking observation space.
         """
-        super(SimpleTrackingFeatureExtractor, self).__init__(observation_space, features_dim=features_dim)
+        super(SimpleTrackingFeatureExtractor, self).__init__(
+            observation_space, features_dim=features_dim
+        )
         self.num_considered_dos = 3
         self.input_dim = observation_space.shape[0]
         self._features_dim = self.num_considered_dos * self.input_dim
@@ -170,7 +187,9 @@ class ClosestENCHazardFeedForward(BaseFeaturesExtractor):
         Args:
             observation_space (gym.spaces.Box): ENC image observation space.
         """
-        super(ClosestENCHazardFeedForward, self).__init__(observation_space, features_dim=features_dim)
+        super(ClosestENCHazardFeedForward, self).__init__(
+            observation_space, features_dim=features_dim
+        )
         self.passthrough = nn.Identity()
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
@@ -235,7 +254,9 @@ class TrackingVAE(BaseFeaturesExtractor):
         return recon_obs
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        assert self.vae.inference_mode, "VAE must be in inference mode before usage as a feature extractor."
+        assert self.vae.inference_mode, (
+            "VAE must be in inference mode before usage as a feature extractor."
+        )
         observations, seq_lengths = self.preprocess_obs(observations)
         z_e, _, _ = self.vae.encode(observations, seq_lengths)
         z_e = z_e / self.scaling_factor
@@ -247,7 +268,12 @@ class TrackingVAE(BaseFeaturesExtractor):
 class CombinedExtractor(BaseFeaturesExtractor):
     """Feature extractor that combines multiple feature extractors into one."""
 
-    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256, batch_size: int = 1) -> None:
+    def __init__(
+        self,
+        observation_space: spaces.Dict,
+        features_dim: int = 256,
+        batch_size: int = 1,
+    ) -> None:
         # We do not know features-dim here before going over all the items,
         # so put something dummy for now. PyTorch requires calling
         # nn.Module.__init__ before adding modules
@@ -262,7 +288,9 @@ class CombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = ENCVAE(subspace)
                 total_concat_size += extractors[key].latent_dim
             elif key == "PathRelativeNavigationObservation":
-                extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
+                extractors[key] = PathRelativeNavigationNN(
+                    subspace, features_dim=subspace.shape[-1]
+                )  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
                 extractors[key] = TrackingVAE(subspace, features_dim=12)
@@ -291,7 +319,12 @@ class CombinedExtractor(BaseFeaturesExtractor):
 class SimpleCombinedExtractor(BaseFeaturesExtractor):
     """Simple feature extractor that combines multiple feature extractors into one."""
 
-    def __init__(self, observation_space: spaces.Dict, features_dim: int = 19, batch_size: int = 1) -> None:
+    def __init__(
+        self,
+        observation_space: spaces.Dict,
+        features_dim: int = 19,
+        batch_size: int = 1,
+    ) -> None:
         # We do not know features-dim here before going over all the items,
         # so put something dummy for now. PyTorch requires calling
         # nn.Module.__init__ before adding modules
@@ -306,13 +339,17 @@ class SimpleCombinedExtractor(BaseFeaturesExtractor):
                 extractors[key] = ClosestENCHazardFeedForward(subspace)
                 total_concat_size += subspace.shape[-1]
             elif key == "PathRelativeNavigationObservation":
-                extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
+                extractors[key] = PathRelativeNavigationNN(
+                    subspace, features_dim=subspace.shape[-1]
+                )  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
             elif key == "RelativeTrackingObservation":
                 extractors[key] = TrackingVAE(subspace, features_dim=12)
                 total_concat_size += extractors[key].latent_dim
             elif key == "MPCParameterObservation":
-                extractors[key] = MPCParameterFeedforward(subspace, features_dim=subspace.shape[-1])
+                extractors[key] = MPCParameterFeedforward(
+                    subspace, features_dim=subspace.shape[-1]
+                )
                 total_concat_size += subspace.shape[-1]
 
         self.extractors = nn.ModuleDict(extractors)

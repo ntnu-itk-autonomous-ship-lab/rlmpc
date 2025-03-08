@@ -1,10 +1,10 @@
 """
-    train_drl_sac.py
+train_drl_sac.py
 
-    Summary:
-        This script trains the RL agent using the SAC algorithm.
+Summary:
+    This script trains the RL agent using the SAC algorithm.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from pathlib import Path
@@ -13,9 +13,17 @@ from typing import Any, Dict
 import gymnasium as gym
 import matplotlib.pyplot as plt
 from colav_simulator.gym.environment import COLAVEnvironment
-from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
+from rlmpc.common.callbacks import (
+    CollectStatisticsCallback,
+    EvalCallback,
+    evaluate_policy,
+)
 from stable_baselines3 import SAC as sb3_SAC
-from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.callbacks import (
+    CallbackList,
+    CheckpointCallback,
+    StopTrainingOnNoModelImprovement,
+)
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -101,7 +109,9 @@ def train_sac(
     )
 
     if load_model:
-        model = sb3_SAC.load(path=model_dir / load_model_name, env=training_vec_env, **model_kwargs)
+        model = sb3_SAC.load(
+            path=model_dir / load_model_name, env=training_vec_env, **model_kwargs
+        )
         model.load_replay_buffer(path=model_dir / load_rb_name)
     else:
         model = sb3_SAC(env=training_vec_env, **model_kwargs)

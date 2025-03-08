@@ -10,7 +10,6 @@ warnings.filterwarnings("ignore", module="pandas")
 
 
 class TestRLMPC(unittest.TestCase):
-
     def setUp(self) -> None:
         self.rlmpc_obj = rlmpc_cas.RLMPC()
         csconfig = cssim.Config.from_file(dp.config / "training_simulator.yaml")

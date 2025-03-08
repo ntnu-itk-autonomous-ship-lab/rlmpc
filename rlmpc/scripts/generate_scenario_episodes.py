@@ -19,14 +19,19 @@ def main():
         "rlmpc_scenario_ms_channel",
         "rlmpc_scenario_random_many_vessels",
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss"]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     generate = True
     if generate:
-        scenario_generator = cs_sg.ScenarioGenerator(config_file=rl_dp.config / "scenario_generator.yaml")
+        scenario_generator = cs_sg.ScenarioGenerator(
+            config_file=rl_dp.config / "scenario_generator.yaml"
+        )
         for idx, name in enumerate(scenario_names):
-
             if idx == 0:
                 continue
 

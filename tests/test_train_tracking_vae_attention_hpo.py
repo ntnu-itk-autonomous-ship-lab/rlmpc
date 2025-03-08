@@ -6,7 +6,12 @@ import rlmpc.common.datasets as rl_ds
 import torch
 from rlmpc.networks.tracking_vae_attention.vae import VAE
 from rlmpc.scripts.train_tracking_vae_attention import train_vae
-from torch.optim.lr_scheduler import CosineAnnealingLR, CosineAnnealingWarmRestarts, MultiStepLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+    CosineAnnealingWarmRestarts,
+    MultiStepLR,
+    ReduceLROnPlateau,
+)
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -24,7 +29,9 @@ def objective(trial: optuna.Trial) -> float:
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     latent_dim = trial.suggest_categorical("latent_dim", [8, 10, 12])
-    rnn_hidden_dim = trial.suggest_categorical("rnn_hidden_dim", [8, 16, 32, 64, 128, 256])
+    rnn_hidden_dim = trial.suggest_categorical(
+        "rnn_hidden_dim", [8, 16, 32, 64, 128, 256]
+    )
     num_rnn_layers_decoder = trial.suggest_categorical("num_rnn_layers_decoder", [1, 2])
     num_heads = trial.suggest_categorical("num_heads", [4, 8])
     beta = 0.01  # trial.suggest_float("beta", 0.05, 1.0, step=0.1)
@@ -32,7 +39,9 @@ def objective(trial: optuna.Trial) -> float:
     for i in range(n_iter):
         # embedding_dim = trial.suggest_categorical("embedding_dim", [5, 10, 16, 20, 24, 32, 40, 48, 64])
         # embedding_dim *= num_heads
-        embedding_dim = trial.suggest_categorical("embedding_dim", [8, 16, 32, 64, 128, 256, 512])
+        embedding_dim = trial.suggest_categorical(
+            "embedding_dim", [8, 16, 32, 64, 128, 256, 512]
+        )
         if embedding_dim % num_heads == 0:
             break
     # if embedding_dim < 30:
@@ -55,7 +64,10 @@ def objective(trial: optuna.Trial) -> float:
         data_filename_list.append(f"tracking_vae_test_data_rogaland_new{i}.npy")
 
     full_dataset = torch.utils.data.ConcatDataset(
-        [rl_ds.TrackingObservationDataset(data_file, data_dir) for data_file in data_filename_list]
+        [
+            rl_ds.TrackingObservationDataset(data_file, data_dir)
+            for data_file in data_filename_list
+        ]
     )
 
     training_dataset, test_dataset = torch.utils.data.random_split(
@@ -63,8 +75,12 @@ def objective(trial: optuna.Trial) -> float:
     )
     train_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
-    print(f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}")
-    print(f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}")
+    print(
+        f"Training dataset length: {len(training_dataset)} | Test dataset length: {len(test_dataset)}"
+    )
+    print(
+        f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}"
+    )
 
     log_dir = BASE_PATH / "logs"
 

@@ -41,7 +41,11 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 def main(args):
     hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_dir", type=str, default=str(Path.home() / "Desktop/machine_learning/rlmpc/"))
+    parser.add_argument(
+        "--base_dir",
+        type=str,
+        default=str(Path.home() / "Desktop/machine_learning/rlmpc/"),
+    )
     parser.add_argument("--experiment_name", type=str, default="sac_rlmpc5")
     parser.add_argument("--n_cpus", type=int, default=1)
     parser.add_argument("--learning_rate", type=float, default=0.001)
@@ -60,13 +64,19 @@ def main(args):
     print("Provided args to SAC RLMPC training:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
-    base_dir, log_dir, model_dir = hf.create_data_dirs(base_dir=args.base_dir, experiment_name=args.experiment_name)
+    base_dir, log_dir, model_dir = hf.create_data_dirs(
+        base_dir=args.base_dir, experiment_name=args.experiment_name
+    )
 
     scenario_names = [
         "rlmpc_scenario_ms_channel"
     ]  # ["rlmpc_scenario_ho", "rlmpc_scenario_cr_ss", "rlmpc_scenario_random_many_vessels"]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
-    test_scenario_folders = [rl_dp.scenarios / "test_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
+    test_scenario_folders = [
+        rl_dp.scenarios / "test_data" / name for name in scenario_names
+    ]
 
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
@@ -82,7 +92,9 @@ def main(args):
     }
 
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     env_id = "COLAVEnvironment-v0"
@@ -120,7 +132,9 @@ def main(args):
 
     mpc_config_file = rl_dp.config / "rlmpc.yaml"
     # actor_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
-    actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    actor_noise_std_dev = np.array(
+        [0.004, 0.004]
+    )  # normalized std dev for the action space [course, speed]
     mpc_param_provider_kwargs = {
         "param_list": ["Q_p", "r_safe_do"],
         "hidden_sizes": [256, 128],
@@ -157,15 +171,26 @@ def main(args):
         pickle.dump(model_kwargs, fp)
 
     load_model = True
-    load_model_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_3000_steps"
-    load_rb_path = str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_replay_buffer"
+    load_model_path = (
+        str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_3000_steps"
+    )
+    load_rb_path = (
+        str(base_dir.parents[0]) + "/sac_rlmpc4/models/sac_rlmpc4_replay_buffer"
+    )
     n_timesteps_per_learn = 7500
     n_learn_iterations = args.timesteps // n_timesteps_per_learn
     for i in range(n_learn_iterations):
         if i > 0:
             load_model = True
-            load_model_path = str(model_dir) + "/" + args.experiment_name + f"_{i * n_timesteps_per_learn}"
-            load_rb_path = str(model_dir) + "/" + args.experiment_name + "_replay_buffer"
+            load_model_path = (
+                str(model_dir)
+                + "/"
+                + args.experiment_name
+                + f"_{i * n_timesteps_per_learn}"
+            )
+            load_rb_path = (
+                str(model_dir) + "/" + args.experiment_name + "_replay_buffer"
+            )
 
         model = train_rlmpc_sac(
             model_kwargs=model_kwargs,
@@ -185,7 +210,9 @@ def main(args):
             seed=0,
             iteration=i + 1,
         )
-        model.custom_save(model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}")
+        model.custom_save(
+            model_dir / f"{args.experiment_name}_{(i + 1) * n_timesteps_per_learn}"
+        )
         model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
         print(
             f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * (i + 1) * n_timesteps_per_learn}/{args.timesteps}%"
@@ -200,7 +227,9 @@ def main(args):
         record_path=base_dir / "eval_data" / "final_eval_videos",
         record_name=args.experiment_name + "_final_eval",
     )
-    print(f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}")
+    print(
+        f"{args.experiment_name} final evaluation | mean_reward: {mean_reward}, std_reward: {std_reward}"
+    )
     train_cfg = {
         "n_timsteps_per_learn": n_timesteps_per_learn,
         "n_learn_iterations": n_learn_iterations,

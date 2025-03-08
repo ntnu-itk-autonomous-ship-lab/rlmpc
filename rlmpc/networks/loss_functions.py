@@ -1,10 +1,10 @@
 """
-    loss_functions.py
+loss_functions.py
 
-    Summary:
-        Contains various loss functions used in the training of VAE models.
+Summary:
+    Contains various loss functions used in the training of VAE models.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import Tuple
@@ -15,7 +15,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def mpc_parameter_provider_loss(predicted_param_increment: th.Tensor, target_param_increment: th.Tensor) -> th.Tensor:
+def mpc_parameter_provider_loss(
+    predicted_param_increment: th.Tensor, target_param_increment: th.Tensor
+) -> th.Tensor:
     """Compute the loss for the MPC parameter provider.
 
     Args:
@@ -26,13 +28,20 @@ def mpc_parameter_provider_loss(predicted_param_increment: th.Tensor, target_par
         th.Tensor: The loss.
     """
     target_loss = F.mse_loss(predicted_param_increment, target_param_increment)
-    chatter_loss = F.mse_loss(predicted_param_increment, th.zeros_like(predicted_param_increment))
+    chatter_loss = F.mse_loss(
+        predicted_param_increment, th.zeros_like(predicted_param_increment)
+    )
     loss = target_loss + 0.1 * chatter_loss
     return loss
 
 
 def vqvae(
-    recon_x: th.Tensor, z_e_x: th.Tensor, z_q_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor, beta: float = 1.0
+    recon_x: th.Tensor,
+    z_e_x: th.Tensor,
+    z_q_x: th.Tensor,
+    x: th.Tensor,
+    semantic_mask: th.Tensor,
+    beta: float = 1.0,
 ) -> Tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
     """Loss function for VQ-VAE.
 
@@ -61,7 +70,9 @@ def vqvae(
     return loss, loss_recon, loss_vq, loss_commit
 
 
-def compute_weights_from_semantic_mask_land_ownship_only(semantic_mask: th.Tensor) -> th.Tensor:
+def compute_weights_from_semantic_mask_land_ownship_only(
+    semantic_mask: th.Tensor,
+) -> th.Tensor:
     """Compute weights from semantic mask.
 
     Args:
@@ -95,7 +106,9 @@ def compute_weights_from_semantic_mask(semantic_mask: th.Tensor) -> th.Tensor:
     return weight_matrix
 
 
-def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
+def sigma_semantically_weighted_reconstruction(
+    recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor
+) -> th.Tensor:
     """Loss function for semantically weighted reconstruction.
 
     Args:
@@ -119,12 +132,17 @@ def sigma_semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor,
         ax[1].imshow(semantic_mask[0, 0].detach().cpu().numpy())
         ax[2].imshow(weight_matrix[0, 0].detach().cpu().numpy())
         ax[3].imshow(recon_x[0, 0].detach().cpu().numpy())
-    recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weight_matrix + log_sigma_opt
+    recon_loss = (
+        0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weight_matrix
+        + log_sigma_opt
+    )
     recon_loss = th.mean(th.sum(recon_loss, dim=dims))
     return recon_loss, log_sigma_opt + 1e-7
 
 
-def semantically_weighted_reconstruction(recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor) -> th.Tensor:
+def semantically_weighted_reconstruction(
+    recon_x: th.Tensor, x: th.Tensor, semantic_mask: th.Tensor
+) -> th.Tensor:
     """Loss function for semantically weighted reconstruction.
 
     Args:
@@ -161,7 +179,9 @@ def sigma_reconstruction(recon_x: th.Tensor, x: th.Tensor) -> th.Tensor:
     return recon_loss, log_sigma_opt + 1e-7
 
 
-def sigma_reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:
+def sigma_reconstruction_rnn(
+    recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor
+) -> Tuple[th.Tensor, th.Tensor]:
     """
     Compute the reconstruction loss of the sigma-VAE.
 
@@ -174,17 +194,23 @@ def sigma_reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.T
     """
     dims = [i for i in range(1, len(x.shape))]
     weights = th.ones_like(x)
-    weights[th.where(x[:, :, :3] > -1.0)] = 5.0  # increase the weight for the first three channels
+    weights[th.where(x[:, :, :3] > -1.0)] = (
+        5.0  # increase the weight for the first three channels
+    )
     weights[th.where(x[:, :, 0] > 0.98)] = 0.0
     mse = F.mse_loss(recon_x, x, reduction="none") * weights
     mse = th.mean(th.sum(mse, dim=dims))
     log_sigma_opt = 0.5 * (mse + 1e-7).log()
-    recon_loss = 0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weights + log_sigma_opt
+    recon_loss = (
+        0.5 * th.pow((recon_x - x) / log_sigma_opt.exp(), 2) * weights + log_sigma_opt
+    )
     recon_loss = th.mean(th.sum(recon_loss, dim=dims))
     return recon_loss, log_sigma_opt + 1e-7
 
 
-def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor, threshold_dist: float) -> th.Tensor:
+def reconstruction_rnn(
+    recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor, threshold_dist: float
+) -> th.Tensor:
     """
     Compute the reconstruction loss of the VAE.
 
@@ -199,7 +225,9 @@ def reconstruction_rnn(recon_x: th.Tensor, x: th.Tensor, seq_lengths: th.Tensor,
     """
     dims = [i for i in range(1, len(x.shape))]
     weights = 0.1 * th.ones_like(x)
-    weights[:, :, 0][th.where(x[:, :, 0] >= -1.0)] = 100.0  # increase the weight for the first four channels
+    weights[:, :, 0][th.where(x[:, :, 0] >= -1.0)] = (
+        100.0  # increase the weight for the first four channels
+    )
     weights[:, :, 1][th.where(x[:, :, 1] >= -1.0)] = 50.0
     weights[:, :, 2][th.where(x[:, :, 2] >= -1.0)] = 50.0
     weights[:, :, 3][th.where(x[:, :, 3] >= -1.0)] = 50.0
@@ -241,5 +269,7 @@ def kullback_leibler_divergence(mean: th.Tensor, logvar: th.Tensor) -> th.Tensor
     """
     # logvar = th.log(logvar.exp() + 1e-7)  # To avoid singularity
     # print(f"latent variance (min, max): ({logvar.exp().min()}, {logvar.exp().max()})")
-    kld_loss = -0.5 * th.mean(th.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1), dim=0)
+    kld_loss = -0.5 * th.mean(
+        th.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1), dim=0
+    )
     return kld_loss

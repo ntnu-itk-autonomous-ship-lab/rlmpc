@@ -1,10 +1,10 @@
 """
-    train_mpc_param_provider.py
+train_mpc_param_provider.py
 
-    Summary:
-        This script trains the MPC parameter provider.
+Summary:
+    This script trains the MPC parameter provider.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import time
@@ -80,7 +80,9 @@ def train_mpc_param_dnn(
         training_batch_losses = []
 
         model.train()
-        for batch_idx, (batch_dnn_inputs, batch_param_incr) in enumerate(training_dataloader):
+        for batch_idx, (batch_dnn_inputs, batch_param_incr) in enumerate(
+            training_dataloader
+        ):
             batch_start_time = time.time()
             model.zero_grad()
             optimizer.zero_grad()
@@ -90,7 +92,9 @@ def train_mpc_param_dnn(
 
             # Forward pass
             predicted_param_incr = model(batch_dnn_inputs)
-            loss = loss_functions.mpc_parameter_provider_loss(predicted_param_incr, batch_param_incr)
+            loss = loss_functions.mpc_parameter_provider_loss(
+                predicted_param_incr, batch_param_incr
+            )
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
             training_batch_losses.append(loss.item())
@@ -102,18 +106,24 @@ def train_mpc_param_dnn(
             # Update the tensorboard
             if batch_idx % save_interval == 0:
                 lr = lr_schedule.get_last_lr()[0]
-                writer.add_scalar("Training/Learning Rate", lr, epoch * n_batches + batch_idx)
-                writer.add_scalar("Training/Loss", loss.item(), epoch * n_batches + batch_idx)
+                writer.add_scalar(
+                    "Training/Learning Rate", lr, epoch * n_batches + batch_idx
+                )
+                writer.add_scalar(
+                    "Training/Loss", loss.item(), epoch * n_batches + batch_idx
+                )
                 if verbose:
                     print(
                         f"[TRAINING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_batches} | Train Loss: {loss.item():.4f} | "
-                        f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1) :.2f}s"
+                        f"Batch processing time: {time.time() - batch_start_time:.2f}s | Est. time remaining: {(n_batches - batch_idx) * avg_iter_time * (n_epochs - epoch + 1):.2f}s"
                     )
 
         lr_schedule.step()
 
         if verbose:
-            print(f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}")
+            print(
+                f"Epoch: {epoch} | Loss: {loss_meter.average_loss} | Time: {time.time() - epoch_start_time}"
+            )
         loss_meter.reset()
 
         if save_intermittent_models:
@@ -127,7 +137,9 @@ def train_mpc_param_dnn(
 
         model.eval()
         test_batch_losses = []
-        for batch_idx, (batch_dnn_inputs, batch_param_incr) in enumerate(test_dataloader):
+        for batch_idx, (batch_dnn_inputs, batch_param_incr) in enumerate(
+            test_dataloader
+        ):
             batch_start_time = time.time()
 
             batch_dnn_inputs = batch_dnn_inputs.to(device)
@@ -135,7 +147,9 @@ def train_mpc_param_dnn(
 
             # Forward pass
             predicted_param_incr = model(batch_dnn_inputs)
-            loss = loss_functions.mpc_parameter_provider_loss(predicted_param_incr, batch_param_incr)
+            loss = loss_functions.mpc_parameter_provider_loss(
+                predicted_param_incr, batch_param_incr
+            )
             loss_meter.update(loss.item())
             avg_iter_time = (time.time() - epoch_start_time) / (batch_idx + 1)
             test_batch_losses.append(loss.item())
@@ -146,7 +160,9 @@ def train_mpc_param_dnn(
                     print(
                         f"[TESTING] Epoch: {epoch + 1}/{n_epochs} | Batch: {batch_idx + 1}/{n_test_batches} | Test Loss: {loss.item():.4f}"
                     )
-                writer.add_scalar("Test/Loss", loss.item(), epoch * n_test_batches + batch_idx)
+                writer.add_scalar(
+                    "Test/Loss", loss.item(), epoch * n_test_batches + batch_idx
+                )
 
         testing_losses.append(test_batch_losses)
         if verbose:
@@ -156,17 +172,23 @@ def train_mpc_param_dnn(
             best_epoch = epoch
             num_nondecreasing_loss_iters = 0
             if verbose:
-                print(f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}")
+                print(
+                    f"Current best model at epoch {best_epoch + 1} with test loss {best_test_loss}"
+                )
             best_model_path = f"{experiment_path}/best_model.pth"
             torch.save(model.state_dict(), best_model_path)
         else:
             if verbose:
-                print(f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations.")
+                print(
+                    f"Test loss has not decreased for {num_nondecreasing_loss_iters} iterations."
+                )
             num_nondecreasing_loss_iters += 1
 
         if num_nondecreasing_loss_iters > early_stopping_patience:
             if verbose:
-                print(f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training.")
+                print(
+                    f"Test loss has not decreased for {early_stopping_patience} epochs. Stopping training."
+                )
             break
 
     training_losses = np.array(training_losses)

@@ -1,10 +1,10 @@
 """
-    logger.py
+logger.py
 
-    Summary:
-        Contains class for reporting data from the RL training process.
+Summary:
+    Contains class for reporting data from the RL training process.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 import pickle
@@ -70,7 +70,9 @@ class Logger:
 
     """
 
-    def __init__(self, experiment_name: str, log_dir: Path, max_num_entries: int = 30_000) -> None:
+    def __init__(
+        self, experiment_name: str, log_dir: Path, max_num_entries: int = 30_000
+    ) -> None:
         if not log_dir.exists():
             log_dir.mkdir(parents=True)
 
@@ -89,12 +91,20 @@ class Logger:
         self.episodes: int = 0
         self.critic_loss: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
         self.actor_loss: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
-        self.mean_actor_grad_norm: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
+        self.mean_actor_grad_norm: np.ndarray = np.zeros(
+            max_num_entries, dtype=np.float32
+        )
         self.ent_coef_loss: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
         self.ent_coef: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
-        self.non_optimal_solution_rate: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
-        self.mean_episode_rewards: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
-        self.mean_episode_lengths: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
+        self.non_optimal_solution_rate: np.ndarray = np.zeros(
+            max_num_entries, dtype=np.float32
+        )
+        self.mean_episode_rewards: np.ndarray = np.zeros(
+            max_num_entries, dtype=np.float32
+        )
+        self.mean_episode_lengths: np.ndarray = np.zeros(
+            max_num_entries, dtype=np.float32
+        )
         self.success_rates: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
         self.actor_expl_std: np.ndarray = np.zeros(max_num_entries, dtype=np.float32)
 
@@ -145,18 +155,36 @@ class Logger:
                 n_updates=self.rl_data_list[-1].n_updates,
                 time_elapsed=self.rl_data_list[-1].time_elapsed,
                 episodes=self.rl_data_list[-1].episodes,
-                critic_loss=np.concatenate([rl_data.critic_loss for rl_data in self.rl_data_list]),
-                actor_loss=np.concatenate([rl_data.actor_loss for rl_data in self.rl_data_list]),
-                mean_actor_grad_norm=np.concatenate([rl_data.mean_actor_grad_norm for rl_data in self.rl_data_list]),
-                ent_coeff_loss=np.concatenate([rl_data.ent_coeff_loss for rl_data in self.rl_data_list]),
-                ent_coeff=np.concatenate([rl_data.ent_coeff for rl_data in self.rl_data_list]),
+                critic_loss=np.concatenate(
+                    [rl_data.critic_loss for rl_data in self.rl_data_list]
+                ),
+                actor_loss=np.concatenate(
+                    [rl_data.actor_loss for rl_data in self.rl_data_list]
+                ),
+                mean_actor_grad_norm=np.concatenate(
+                    [rl_data.mean_actor_grad_norm for rl_data in self.rl_data_list]
+                ),
+                ent_coeff_loss=np.concatenate(
+                    [rl_data.ent_coeff_loss for rl_data in self.rl_data_list]
+                ),
+                ent_coeff=np.concatenate(
+                    [rl_data.ent_coeff for rl_data in self.rl_data_list]
+                ),
                 non_optimal_solution_rate=np.concatenate(
                     [rl_data.non_optimal_solution_rate for rl_data in self.rl_data_list]
                 ),
-                mean_episode_reward=np.concatenate([rl_data.mean_episode_reward for rl_data in self.rl_data_list]),
-                mean_episode_length=np.concatenate([rl_data.mean_episode_length for rl_data in self.rl_data_list]),
-                success_rate=np.concatenate([rl_data.success_rate for rl_data in self.rl_data_list]),
-                actor_expl_std=np.concatenate([rl_data.actor_expl_std for rl_data in self.rl_data_list]),
+                mean_episode_reward=np.concatenate(
+                    [rl_data.mean_episode_reward for rl_data in self.rl_data_list]
+                ),
+                mean_episode_length=np.concatenate(
+                    [rl_data.mean_episode_length for rl_data in self.rl_data_list]
+                ),
+                success_rate=np.concatenate(
+                    [rl_data.success_rate for rl_data in self.rl_data_list]
+                ),
+                actor_expl_std=np.concatenate(
+                    [rl_data.actor_expl_std for rl_data in self.rl_data_list]
+                ),
             )
             print(
                 f"Merged {len(self.rl_data_list)} RL data objects into one object with {self.rl_data.n_updates} updates."
@@ -174,8 +202,12 @@ class Logger:
 
         # Updated in off_policy_algorithm.py
         self.episodes = rollout_info["episodes"]
-        self.mean_episode_rewards[self.rollout_pos] = rollout_info["mean_episode_reward"]
-        self.mean_episode_lengths[self.rollout_pos] = rollout_info["mean_episode_length"]
+        self.mean_episode_rewards[self.rollout_pos] = rollout_info[
+            "mean_episode_reward"
+        ]
+        self.mean_episode_lengths[self.rollout_pos] = rollout_info[
+            "mean_episode_length"
+        ]
         self.success_rates[self.rollout_pos] = rollout_info["success_rate"]
         self.actor_expl_std[self.rollout_pos] = rollout_info["actor_expl_std"]
         self.rollout_pos += 1
@@ -189,7 +221,9 @@ class Logger:
         if not training_info:
             return
 
-        self.non_optimal_solution_rate[self.rollout_pos] = training_info["non_optimal_solution_rate"]
+        self.non_optimal_solution_rate[self.rollout_pos] = training_info[
+            "non_optimal_solution_rate"
+        ]
         self.n_updates = training_info["n_updates"]
         self.time_elapsed = training_info["time_elapsed"]
         self.critic_loss[self.train_pos] = training_info["critic_loss"]
@@ -215,21 +249,34 @@ class Logger:
             episodes=self.episodes,
             critic_loss=self.critic_loss[self.prev_train_pos : self.train_pos],
             actor_loss=self.actor_loss[self.prev_train_pos : self.train_pos],
-            mean_actor_grad_norm=self.mean_actor_grad_norm[self.prev_train_pos : self.train_pos],
+            mean_actor_grad_norm=self.mean_actor_grad_norm[
+                self.prev_train_pos : self.train_pos
+            ],
             ent_coeff_loss=self.ent_coef_loss[self.prev_train_pos : self.train_pos],
             ent_coeff=self.ent_coef[self.prev_train_pos : self.train_pos],
-            non_optimal_solution_rate=self.non_optimal_solution_rate[self.prev_rollout_pos : self.rollout_pos],
-            mean_episode_reward=self.mean_episode_rewards[self.prev_rollout_pos : self.rollout_pos],
-            mean_episode_length=self.mean_episode_lengths[self.prev_rollout_pos : self.rollout_pos],
+            non_optimal_solution_rate=self.non_optimal_solution_rate[
+                self.prev_rollout_pos : self.rollout_pos
+            ],
+            mean_episode_reward=self.mean_episode_rewards[
+                self.prev_rollout_pos : self.rollout_pos
+            ],
+            mean_episode_length=self.mean_episode_lengths[
+                self.prev_rollout_pos : self.rollout_pos
+            ],
             success_rate=self.success_rates[self.prev_rollout_pos : self.rollout_pos],
-            actor_expl_std=self.actor_expl_std[self.prev_rollout_pos : self.rollout_pos],
+            actor_expl_std=self.actor_expl_std[
+                self.prev_rollout_pos : self.rollout_pos
+            ],
         )
         self.prev_train_pos = self.train_pos
         self.prev_rollout_pos = self.rollout_pos
 
         self._save_as_pickle(name)
 
-        if self.train_pos >= self.max_num_entries or self.rollout_pos >= self.max_num_entries:
+        if (
+            self.train_pos >= self.max_num_entries
+            or self.rollout_pos >= self.max_num_entries
+        ):
             self._reset()
 
         self.n_updates_prev = self.n_updates
@@ -246,5 +293,7 @@ class Logger:
 if __name__ == "__main__":
     log_dir = Path.home() / "Desktop" / "machine_learning" / "rlmpc" / "sac_drl1"
     experiment_name = "sac_drl1"
-    logger = Logger(experiment_name=experiment_name, log_dir=log_dir, max_num_entries=30_000)
+    logger = Logger(
+        experiment_name=experiment_name, log_dir=log_dir, max_num_entries=30_000
+    )
     logger.load_from_pickle(f"{experiment_name}_training_stats")

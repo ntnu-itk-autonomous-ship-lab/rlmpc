@@ -1,5 +1,4 @@
-"""
-"""
+""" """
 
 import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.math_functions as mf
@@ -87,17 +86,21 @@ if __name__ == "__main__":
             # p = np.array([6574298.6177, -30398.2644])
             p_rel = mf.Rmtrx2D(heading_cr).T @ (p - p_ts)
             d_rel_squared = p_rel.T @ p_rel
-            cr_surface[i, j] = mpc_common.cr_potential(p_rel, alpha_cr, y_0_cr) * np.exp(-d_rel_squared / d_factor**2)
+            cr_surface[i, j] = mpc_common.cr_potential(
+                p_rel, alpha_cr, y_0_cr
+            ) * np.exp(-d_rel_squared / d_factor**2)
 
             p_rel = mf.Rmtrx2D(heading_ho).T @ (p - p_ts)
             d_rel_squared = p_rel.T @ p_rel
-            ho_surface[i, j] = mpc_common.ho_potential(p_rel, alpha_ho, x_0_ho) * np.exp(-d_rel_squared / d_factor**2)
+            ho_surface[i, j] = mpc_common.ho_potential(
+                p_rel, alpha_ho, x_0_ho
+            ) * np.exp(-d_rel_squared / d_factor**2)
 
             p_rel = mf.Rmtrx2D(heading_ot).T @ (p - p_ts)
             d_rel_squared = p_rel.T @ p_rel
-            ot_surface[i, j] = mpc_common.ot_potential(p_rel, alpha_ot, x_0_ot, y_0_ot) * np.exp(
-                -d_rel_squared / d_factor**2
-            )
+            ot_surface[i, j] = mpc_common.ot_potential(
+                p_rel, alpha_ot, x_0_ot, y_0_ot
+            ) * np.exp(-d_rel_squared / d_factor**2)
 
     # Plot the potential functions
     colormap = cm.inferno
@@ -110,7 +113,9 @@ if __name__ == "__main__":
     ship_width = 25
     fig2, ax2 = plt.subplots()
     pc2 = ax2.contourf(Y, X, cr_surface, cmap=colormap)
-    gw_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_cr, ship_length, ship_width)
+    gw_poly = mapf.create_ship_polygon(
+        p_ts[0], p_ts[1], heading_cr, ship_length, ship_width
+    )
     y, x = gw_poly.exterior.xy
     cbar2 = fig2.colorbar(pc2)
     ax2.fill(y, x, alpha=1, fc="g", ec="none")
@@ -125,7 +130,9 @@ if __name__ == "__main__":
 
     fig4, ax4 = plt.subplots()
     pc4 = ax4.contourf(Y, X, ho_surface, cmap=colormap)
-    ho_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_ho, ship_length, ship_width)
+    ho_poly = mapf.create_ship_polygon(
+        p_ts[0], p_ts[1], heading_ho, ship_length, ship_width
+    )
     y, x = ho_poly.exterior.xy
     cbar4 = fig4.colorbar(pc4)
     ax4.fill(y, x, alpha=1, fc="g", ec="none")
@@ -140,7 +147,9 @@ if __name__ == "__main__":
 
     fig6, ax6 = plt.subplots()
     pc6 = ax6.contourf(Y, X, ot_surface, cmap=colormap)
-    ot_poly = mapf.create_ship_polygon(p_ts[0], p_ts[1], heading_ot, ship_length, ship_width)
+    ot_poly = mapf.create_ship_polygon(
+        p_ts[0], p_ts[1], heading_ot, ship_length, ship_width
+    )
     y, x = ot_poly.exterior.xy
     cbar6 = fig6.colorbar(pc6)
     ax6.fill(y, x, alpha=1, fc="g", ec="none")

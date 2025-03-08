@@ -14,8 +14,12 @@ class VectorQuantizer(nn.Module):
 
     def forward(self, latents):
         # Compute L2 distances between latents and embedding weights
-        dist = torch.linalg.vector_norm(latents.movedim(1, -1).unsqueeze(-2) - self.embedding.weight, dim=-1)
-        encoding_inds = torch.argmin(dist, dim=-1)  # Get the number of the nearest codebook vector
+        dist = torch.linalg.vector_norm(
+            latents.movedim(1, -1).unsqueeze(-2) - self.embedding.weight, dim=-1
+        )
+        encoding_inds = torch.argmin(
+            dist, dim=-1
+        )  # Get the number of the nearest codebook vector
         quantized_latents = self.quantize(encoding_inds)  # Quantize the latents
 
         # Compute the VQ Losses
@@ -33,14 +37,23 @@ class VectorQuantizer(nn.Module):
         return z
 
     def reset_parameters(self):
-        nn.init.uniform_(self.embedding.weight, -1 / self.num_embeddings, 1 / self.num_embeddings)
+        nn.init.uniform_(
+            self.embedding.weight, -1 / self.num_embeddings, 1 / self.num_embeddings
+        )
 
 
 class ConvBlock(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, act=True):
         padding = (kernel_size - 1) // 2
         layers = [
-            nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False),
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride=stride,
+                padding=padding,
+                bias=False,
+            ),
             nn.BatchNorm2d(out_channels),
         ]
         if act:
@@ -84,7 +97,10 @@ class DownBlock(nn.Sequential):
 
 class UpBlock(nn.Sequential):
     def __init__(self, in_channels, out_channels):
-        super().__init__(nn.Upsample(scale_factor=2, mode="nearest"), ConvBlock(in_channels, out_channels, 3))
+        super().__init__(
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            ConvBlock(in_channels, out_channels, 3),
+        )
 
 
 class Decoder(nn.Module):
@@ -103,7 +119,14 @@ class Decoder(nn.Module):
 
 
 class VQVAE(nn.Module):
-    def __init__(self, num_downsamplings, latent_channels, num_embeddings, channels=32, in_channels=3):
+    def __init__(
+        self,
+        num_downsamplings,
+        latent_channels,
+        num_embeddings,
+        channels=32,
+        in_channels=3,
+    ):
         super().__init__()
         self.embedding_dim = latent_channels
         self.num_embeddings = num_embeddings
@@ -123,7 +146,11 @@ class VQVAE(nn.Module):
         return out, vq_loss
 
     def sample(self, num_samples, shape, device):
-        latent_shape = (num_samples, shape[0] // self.reduction, shape[1] // self.reduction)
+        latent_shape = (
+            num_samples,
+            shape[0] // self.reduction,
+            shape[1] // self.reduction,
+        )
         ind = torch.randint(0, self.num_embeddings, latent_shape, device=device)
         with torch.no_grad():
             z = self.vq.quantize(ind)

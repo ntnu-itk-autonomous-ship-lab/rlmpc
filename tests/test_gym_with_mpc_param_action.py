@@ -1,6 +1,6 @@
 """Test module for gym.py
 
-    Shows how to use the gym environment, and how to save a video + gif of the simulation.
+Shows how to use the gym environment, and how to save a video + gif of the simulation.
 """
 
 import colav_simulator.common.image_helper_methods as ihm
@@ -31,20 +31,32 @@ if __name__ == "__main__":
     }
     env_id = "COLAVEnvironment-v0"
     rewarder_config = rewards.Config.from_file(rl_dp.config / "rewarder.yaml")
-    training_sim_config = cs_sim.Config.from_file(rl_dp.config / "training_simulator.yaml")
+    training_sim_config = cs_sim.Config.from_file(
+        rl_dp.config / "training_simulator.yaml"
+    )
     training_sim_config.visualizer.matplotlib_backend = "TkAgg"  # to show the live viz
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
-    actor_noise_std_dev = np.array([0.004, 0.004])  # normalized std dev for the action space [course, speed]
+    actor_noise_std_dev = np.array(
+        [0.004, 0.004]
+    )  # normalized std dev for the action space [course, speed]
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
-        "mpc_param_list": ["Q_p", "K_app_course", "K_app_speed", "w_colregs", "r_safe_do"],
+        "mpc_param_list": [
+            "Q_p",
+            "K_app_course",
+            "K_app_speed",
+            "w_colregs",
+            "r_safe_do",
+        ],
         "debug": False,
         "std_init": actor_noise_std_dev,
     }
 
     scenario_names = ["rlmpc_scenario_ms_channel"]
-    training_scenario_folders = [rl_dp.scenarios / "training_data" / name for name in scenario_names]
+    training_scenario_folders = [
+        rl_dp.scenarios / "training_data" / name for name in scenario_names
+    ]
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
@@ -67,7 +79,9 @@ if __name__ == "__main__":
     use_vec_env = False
     if use_vec_env:
         num_cpu = 2
-        env = SubprocVecEnv([hf.make_env(env_id, env_config, i + 1) for i in range(num_cpu)])
+        env = SubprocVecEnv(
+            [hf.make_env(env_id, env_config, i + 1) for i in range(num_cpu)]
+        )
     else:
         env = gym.make(id=env_id, **env_config)
 
@@ -79,7 +93,9 @@ if __name__ == "__main__":
         # )
         if use_vec_env:
             actions = np.array([env.action_space.sample() for _ in range(env.num_envs)])
-            obs, reward, dones, infos = env.step(actions)  # vec env resets automatically
+            obs, reward, dones, infos = env.step(
+                actions
+            )  # vec env resets automatically
         else:
             action = env.action_space.sample()
             obs, reward, terminated, truncated, info = env.step(action)

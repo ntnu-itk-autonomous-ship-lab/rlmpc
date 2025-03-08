@@ -1,10 +1,10 @@
 """
-    encoder.py
+encoder.py
 
-    Summary:
-        Contains the encoder network for processing images from the environment.
+Summary:
+    Contains the encoder network for processing images from the environment.
 
-    Author: Trym Tengesdal
+Author: Trym Tengesdal
 """
 
 from typing import Tuple
@@ -25,7 +25,6 @@ def weights_init(m):
 
 
 class TrackingEncoder(nn.Module):
-
     def __init__(
         self,
         input_dim: int = 6,
@@ -59,7 +58,9 @@ class TrackingEncoder(nn.Module):
                 bidirectional=True,
             )
 
-        self.fc1 = nn.Linear(self.input_dim, self.input_dim if self.enable_rnn else self.embedding_dim)
+        self.fc1 = nn.Linear(
+            self.input_dim, self.input_dim if self.enable_rnn else self.embedding_dim
+        )
         self.multihead_attention1 = nn.MultiheadAttention(
             embed_dim=embedding_dim, num_heads=num_heads, batch_first=True
         )
@@ -94,9 +95,9 @@ class TrackingEncoder(nn.Module):
 
         # Create an attention mask
         seq_len = x.size(1)
-        mask = th.arange(seq_len).unsqueeze(0).to(x.device) < (seq_len - seq_lengths.to(x.device)).unsqueeze(
-            1
-        )  # (batch_size, seq_len)
+        mask = th.arange(seq_len).unsqueeze(0).to(x.device) < (
+            seq_len - seq_lengths.to(x.device)
+        ).unsqueeze(1)  # (batch_size, seq_len)
 
         # print("Seq lengths are zero!")
         idx_nan = th.where(seq_lengths == 0)
@@ -110,13 +111,20 @@ class TrackingEncoder(nn.Module):
         if self.enable_rnn:
             attn_input = th.zeros_like(x_nonnan)
             packed_seq = rnn_utils.pack_padded_sequence(
-                x_nonnan, seq_lengths[idx_nonnan], batch_first=True, enforce_sorted=False
+                x_nonnan,
+                seq_lengths[idx_nonnan],
+                batch_first=True,
+                enforce_sorted=False,
             )
             attn_input_packed, _ = self.rnn(packed_seq)
-            rnn_output, _ = rnn_utils.pad_packed_sequence(attn_input_packed, batch_first=True)
+            rnn_output, _ = rnn_utils.pad_packed_sequence(
+                attn_input_packed, batch_first=True
+            )
             attn_input = rnn_output
             mask = mask[:, -max_seq_len:]
-            attn_output = th.zeros(x.shape[0], max_seq_len, self.embedding_dim).to(x.device)
+            attn_output = th.zeros(x.shape[0], max_seq_len, self.embedding_dim).to(
+                x.device
+            )
 
         mask = mask.to(x.device)
         attn_output_sub1, _ = self.multihead_attention1(
@@ -140,13 +148,17 @@ class TrackingEncoder(nn.Module):
         # attn_output2 = self.layer_norm2(attn_output2)
 
         # Mean pooling over the valid tokens (ignoring padding)
-        valid_seq_lengths = seq_lengths.clamp(min=1).unsqueeze(1).to(x.device)  # (batch_size, 1)
+        valid_seq_lengths = (
+            seq_lengths.clamp(min=1).unsqueeze(1).to(x.device)
+        )  # (batch_size, 1)
 
         # Max pooling over the valid tokens (ignoring padding)
         # pooled_output = attn_output2.max(dim=1).values  # (batch_size, embedding_dim)
 
         # Average pooling over the valid tokens (ignoring padding)
-        pooled_output = attn_output2.sum(dim=1) / valid_seq_lengths.float()  # (batch_size, embedding_dim)
+        pooled_output = (
+            attn_output2.sum(dim=1) / valid_seq_lengths.float()
+        )  # (batch_size, embedding_dim)
 
         attn_output2 = self.fc3(attn_output2)
         attn_output2 = self.elu(attn_output2)
@@ -169,10 +181,14 @@ class TrackingEncoder(nn.Module):
 
 if __name__ == "__main__":
     latent_dimension = 10
-    encoder = TrackingEncoder(input_dim=4, embedding_dim=12, num_heads=6, latent_dim=latent_dimension)
+    encoder = TrackingEncoder(
+        input_dim=4, embedding_dim=12, num_heads=6, latent_dim=latent_dimension
+    )
 
     x = th.rand(2, 6, 4)
     seq_lengths = th.tensor([6, 5])
     out = encoder(x, seq_lengths)
     print(f"In: {x.shape}, Out: {out.shape}")
-    print(f"Encoder number of parameters: {sum(p.numel() for p in encoder.parameters() if p.requires_grad)}")
+    print(
+        f"Encoder number of parameters: {sum(p.numel() for p in encoder.parameters() if p.requires_grad)}"
+    )
