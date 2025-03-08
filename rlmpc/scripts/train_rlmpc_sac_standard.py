@@ -11,13 +11,22 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import gymnasium as gym
-import rlmpc.common.helper_functions as hf
-import rlmpc.standard_sac as rlmpc_ssac
 from colav_simulator.gym.environment import COLAVEnvironment
-from rlmpc.common.callbacks import CollectStatisticsCallback, EvalCallback, evaluate_policy
-from stable_baselines3.common.callbacks import CallbackList, CheckpointCallback, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.callbacks import (
+    CallbackList,
+    CheckpointCallback,
+    StopTrainingOnNoModelImprovement,
+)
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
+
+import rlmpc.common.helper_functions as hf
+import rlmpc.standard_sac as rlmpc_ssac
+from rlmpc.common.callbacks import (
+    CollectStatisticsCallback,
+    EvalCallback,
+    evaluate_policy,
+)
 
 
 def train_rlmpc_sac_standard(

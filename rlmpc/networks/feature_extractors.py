@@ -164,7 +164,7 @@ class SimpleTrackingFeatureExtractor(BaseFeaturesExtractor):
 
 
 class ClosestENCHazardFeedForward(BaseFeaturesExtractor):
-    def __init__(self, observation_space: spaces.Box, features_dim: int = 1):
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 2):
         """Feature extractor for ENC data, feedforward of a simple computation of the distance to the closest hazard.
 
         Args:
@@ -291,7 +291,7 @@ class CombinedExtractor(BaseFeaturesExtractor):
 class SimpleCombinedExtractor(BaseFeaturesExtractor):
     """Simple feature extractor that combines multiple feature extractors into one."""
 
-    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256, batch_size: int = 1) -> None:
+    def __init__(self, observation_space: spaces.Dict, features_dim: int = 19, batch_size: int = 1) -> None:
         # We do not know features-dim here before going over all the items,
         # so put something dummy for now. PyTorch requires calling
         # nn.Module.__init__ before adding modules
