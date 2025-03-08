@@ -62,7 +62,6 @@ def main(args):
     args.base_dir = Path(args.base_dir)
     print("Provided args to training SAC with NMPC parameter provider DNN:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
-    print(f"seed = {args.seed}")
 
     base_dir, log_dir, model_dir = hf.create_data_dirs(
         base_dir=args.base_dir, experiment_name=args.experiment_name, remove_log_files=False
@@ -82,7 +81,6 @@ def main(args):
             "closest_enc_hazard_observation",
             "relative_tracking_observation",
             "time_observation",
-            "mpc_parameter_observation",
         ]
     }
     env_id = "COLAVEnvironment-v0"
@@ -91,12 +89,12 @@ def main(args):
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
-    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "r_safe_do"]
-    n_mpc_params = 3 + 1 + 1 + 1
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "r_safe_do", "w_colregs"]
+    n_mpc_params = 3 + 1 + 1 + 1 + 3
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array([0.0004, 0.0004])  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.02 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -118,7 +116,7 @@ def main(args):
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "render_update_rate": 0.5,
-        "render_mode": "rgb_array",
+        "render_mode": "none",
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
@@ -137,6 +135,7 @@ def main(args):
     )
     eval_env_config.update(
         {
+            "render_mode": "rgb_array",
             "action_kwargs": action_kwargs,
             "reload_map": False,
             "max_number_of_episodes": args.max_num_loaded_eval_scen_episodes,
@@ -172,7 +171,7 @@ def main(args):
         # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     }
     policy_kwargs = {
-        "features_extractor_class": CombinedExtractor,
+        "features_extractor_class": SimpleCombinedExtractor,
         "critic_arch": [128, 128],
         "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,

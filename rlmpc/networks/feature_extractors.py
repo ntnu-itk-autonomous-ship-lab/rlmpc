@@ -11,13 +11,14 @@ import pathlib
 from typing import Tuple
 
 import numpy as np
-import rlmpc.common.paths as rl_dp
-import rlmpc.networks.enc_vae_128.vae as enc_vae
-import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 import torch as th
 import torch.nn as nn
 from gymnasium import spaces
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+
+import rlmpc.common.paths as rl_dp
+import rlmpc.networks.enc_vae_128.vae as enc_vae
+import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 
 # ENCVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/enc_vae/"
 # TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/tracking_vae/chosen"
@@ -303,7 +304,7 @@ class SimpleCombinedExtractor(BaseFeaturesExtractor):
         for key, subspace in observation_space.spaces.items():
             if key == "ClosestENCHazardObservation":
                 extractors[key] = ClosestENCHazardFeedForward(subspace)
-                total_concat_size += extractors[key].latent_dim
+                total_concat_size += subspace.shape[-1]
             elif key == "PathRelativeNavigationObservation":
                 extractors[key] = PathRelativeNavigationNN(subspace, features_dim=subspace.shape[-1])  # nn.Identity()
                 total_concat_size += subspace.shape[-1]
@@ -332,6 +333,7 @@ class SimpleCombinedExtractor(BaseFeaturesExtractor):
 
 if __name__ == "__main__":
     import gymnasium as gym
+
     import rlmpc.common.paths as rl_dp
 
     scenario_name = "rlmpc_scenario_cr_ss"

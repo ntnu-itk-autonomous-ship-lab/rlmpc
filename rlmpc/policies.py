@@ -14,13 +14,6 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import colav_simulator.core.stochasticity as stochasticity
 import colav_simulator.gym.environment as csenv
 import numpy as np
-import rlmpc.common.buffers as rlmpc_buffers
-import rlmpc.common.helper_functions as hf
-import rlmpc.common.paths as dp
-import rlmpc.mpc.common as mpc_common
-import rlmpc.mpc.parameters as mpc_params
-import rlmpc.networks.feature_extractors as rlmpc_fe
-import rlmpc.rlmpc_cas as rlmpc_cas
 import torch as th
 from gymnasium import spaces
 from stable_baselines3.common.distributions import (
@@ -32,6 +25,14 @@ from stable_baselines3.common.policies import ContinuousCritic
 from stable_baselines3.common.preprocessing import get_action_dim, is_image_space
 from stable_baselines3.common.type_aliases import PyTorchObs, Schedule
 from stable_baselines3.sac.policies import BasePolicy
+
+import rlmpc.common.buffers as rlmpc_buffers
+import rlmpc.common.helper_functions as hf
+import rlmpc.common.paths as dp
+import rlmpc.mpc.common as mpc_common
+import rlmpc.mpc.parameters as mpc_params
+import rlmpc.networks.feature_extractors as rlmpc_fe
+import rlmpc.rlmpc_cas as rlmpc_cas
 
 # CAP the standard deviation of the actor
 LOG_STD_MAX = 2
@@ -333,9 +334,7 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
         return data
 
     def action_log_prob(
-        self,
-        obs: rlmpc_buffers.TensorDict,
-        deterministic: bool = False
+        self, obs: rlmpc_buffers.TensorDict, deterministic: bool = False
     ) -> Tuple[th.Tensor, th.Tensor]:
         """Samples actions from the current action distribution and computes the corresponding log probabilities
 
@@ -434,7 +433,7 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
             Tuple[th.Tensor, th.Tensor, Dict[str, th.Tensor]]: Mean, standard deviation and optional keyword arguments.
         """
         obs_tensor = obs
-        if isinstance(obs["MPCParameterObservation"], np.ndarray):
+        if "MPCParameterObservation" in obs and isinstance(obs["MPCParameterObservation"], np.ndarray):
             obs_tensor = self._convert_obs_numpy_to_tensor(obs)
         preprocessed_obs = self.preprocess_obs_for_dnn(obs_tensor, self.observation_space)
         features = self.features_extractor(preprocessed_obs)
@@ -1884,7 +1883,9 @@ class SACPolicyWithMPCParameterProviderStandard(BasePolicy):
     ) -> None:
         self.actor_kwargs = self._update_features_extractor(self.actor_kwargs, features_extractor=feature_extractor)
         self.actor = SACMPCParameterProviderActorStandard(**self.actor_kwargs)
-        self.actor.optimizer = self.optimizer_class(self.actor.parameters(), lr=lr_schedule(1), **self.optimizer_kwargs)
+        self.actor.optimizer = self.optimizer_class(
+            self.actor.parameters(), lr=3.0 * lr_schedule(1), **self.optimizer_kwargs
+        )
 
     def rebuild_critic_and_actor(self, critic_arch: List[int]) -> None:
         """In case the critic and actor need to be rebuilt, this method can be called to rebuild them.
@@ -1963,6 +1964,7 @@ class SACPolicyWithMPCParameterProviderStandard(BasePolicy):
         """
         self.actor.set_training_mode(mode)
         self.critic.set_training_mode(mode)
+        self.training = mode
         self.training = mode
         self.training = mode
         self.training = mode

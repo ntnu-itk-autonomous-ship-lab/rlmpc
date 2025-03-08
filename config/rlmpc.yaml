@@ -75,7 +75,7 @@ mpc:
 
     w_L2: 0.0
     w_L1: 500.0 # too high weight here => QP-failure
-    r_safe_so: 5.0
+    r_safe_so: 2.0
     r_safe_do: 15.0
     gamma: 1.0
     so_constr_type: "PARAMETRICSURFACE"

@@ -37,7 +37,7 @@ collision_avoidance:
 anti_grounding:
   reference_traj_bbox_buffer: 200.0
   rho_anti_grounding: 800.0
-  r_safe: 5.0
+  r_safe: 2.0
 dnn_parameter_provider:
   disable: False
   rho_solver_time: 0.0

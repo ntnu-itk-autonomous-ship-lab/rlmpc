@@ -1,30 +1,30 @@
 #!/bin/sh
 
-#SBATCH --job-name=standard_ssac_nmpc_pp_simpler_fe
+#SBATCH --job-name=ssac_nmpc_pp_simpler_fe
 #SBATCH --partition=CPUQ
 #SBATCH --account=share-ie-itk
 #SBATCH --time=20-12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=250G
+#SBATCH --mem=180G
 #SBATCH --output=idun/R-%x.%j.out
 
 
 CURRENT_DATE_TIME="`date +%d%m%y`"
 BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
 BATCH_SIZE=256
-LEARNING_RATE=5e-6 #0.00002
-TAU=0.005
-SDE_SAMPLE_FREQ=20
+LEARNING_RATE=3e-6 #0.00002
+TAU=0.001
+SDE_SAMPLE_FREQ=30
 NCPUS=20 # Equal to number of training environments
 N_EVAL_ENVS=4
 TRAIN_FREQ=8
 EVAL_FREQ=10000
-GRADIENT_STEPS=1
-BUFFER_SIZE=200000
+GRADIENT_STEPS=2
+BUFFER_SIZE=500000
 DEVICE="cpu"
-MAX_NUM_TRAIN_EPS=50 # Maximum number of loaded training episodes
+MAX_NUM_TRAIN_EPS=200 # Maximum number of loaded training episodes
 MAX_NUM_EVAL_EPS=10 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=10
 TIMESTEPS=10_000_000
@@ -32,7 +32,7 @@ N_TIMESTEPS_PER_LEARN=10000
 LOAD_MODEL_PATH="" #"sac_gsde20_rd_050225_8e_6lr_0005tau_s1_jid21125646/models/sac_gsde20_rd_050225_8e_6lr_0005tau_s1_jid21125646_71680_steps"
 SEED=1
 
-EXPERIMENT_NAME="sac_gsde_50eps_rd_${CURRENT_DATE_TIME}_5e_6lr_0005tau_s${SEED}_jid${SLURM_JOB_ID}"
+EXPERIMENT_NAME="sac_gsde30_10k_200eps_rd_${CURRENT_DATE_TIME}_3e_6lr_0001tau_s${SEED}_jid${SLURM_JOB_ID}"
 
 # show available resources
 sinfo -o "%10P %5D %34N  %5c  %7m  %47f  %23G"
