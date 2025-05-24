@@ -431,7 +431,7 @@ def compute_distances_to_dynamic_obstacles(
 
 
 def process_rl_training_data(
-    data: rlmpc_logger.RLData, ma_window_size: int = 5
+    data: rlmpc_logger.RLData, ma_window_size: int = 20
 ) -> rlmpc_logger.RLData:
     """Smooths out training data from the RL process, given the chosen window size.
 
@@ -518,11 +518,21 @@ def exponential_moving_average(data: List[float], alpha: float = 0.9) -> List[fl
 
 
 def compute_smooted_mean_and_std(
-    data: List[float], window_size: int = 10
+    data: List[float], window_size: int = 10, mode="valid"
 ) -> Tuple[List[float], List[float]]:
-    mean = np.convolve(data, np.ones((window_size,)) / window_size, mode="valid")
-    std = [np.std(mean[max(0, i - window_size + 1) : i + 1]) for i in range(len(mean))]
+    if window_size < 1:
+        raise ValueError("window_size must be at least 1")
 
+    mean = np.convolve(data, np.ones((window_size,)) / window_size, mode=mode)
+    # std = []
+    # half_window = window_size // 2
+    # for i in range(len(data)):
+    #     start = max(0, i - half_window)
+    #     end = min(len(data), i + half_window + 1)
+    #     std.append(np.std(data[start:end]))
+
+    # return mean.tolist(), std
+    std = [np.std(mean[max(0, i - window_size + 1) : i + 1]) for i in range(len(mean))]
     return mean, std
 
 

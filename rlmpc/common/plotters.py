@@ -150,6 +150,7 @@ def plot_single_model_reward_curves(
     )
     axs[0, 0].set_title("Total return")
     axs[0, 0].set_ylabel("Avg. return", rotation=90)
+    axs[0, 0].grid(True)
     # axs[0, 0].set_xlabel("Episode")
 
     axs[0, 1].plot(
@@ -177,6 +178,7 @@ def plot_single_model_reward_curves(
     )
     axs[0, 1].set_title("Episode length")
     axs[0, 1].set_ylabel("Avg. length", rotation=90)
+    axs[0, 1].grid(True)
     # axs[0, 1].set_xlabel("Episode")
 
     sns.lineplot(
@@ -196,6 +198,7 @@ def plot_single_model_reward_curves(
     axs[1, 0].set_title("COLREG")
     # axs[0, 1].set_xlabel("Episode")
     axs[1, 0].set_ylabel("Avg. return", rotation=90)
+    axs[1, 0].grid(True)
 
     sns.lineplot(
         x=range(len(data["r_colav"])),
@@ -213,6 +216,7 @@ def plot_single_model_reward_curves(
     )
     # axs[1, 1].set_xlabel("Episode")
     axs[1, 1].set_title("Collision avoidance")
+    axs[1, 1].grid(True)
 
     sns.lineplot(
         x=range(len(data["r_antigrounding"])),
@@ -231,6 +235,7 @@ def plot_single_model_reward_curves(
     axs[2, 0].set_title("Anti-grounding")
     axs[2, 0].set_ylabel("Avg. return", rotation=90)
     # axs[2, 0].set_xlabel("Episode")
+    axs[2, 0].grid(True)
 
     sns.lineplot(
         x=range(len(data["r_trajectory_tracking"])),
@@ -249,6 +254,7 @@ def plot_single_model_reward_curves(
         color=color,
     )
     axs[2, 1].set_title("Trajectory tracking")
+    axs[2, 1].grid(True)
     # axs[2, 1].set_xlabel("Episode")
 
     sns.lineplot(
@@ -268,6 +274,7 @@ def plot_single_model_reward_curves(
     axs[3, 0].set_title("RA maneuvering")
     axs[3, 0].set_xlabel("Episode")
     axs[3, 0].set_ylabel("Avg. return", rotation=90)
+    axs[3, 0].grid(True)
 
     sns.lineplot(
         x=range(len(data["r_dnn_pp"])),
@@ -285,6 +292,7 @@ def plot_single_model_reward_curves(
     )
     axs[3, 1].set_title("Parameters")
     axs[3, 1].set_xlabel("Episode")
+    axs[3, 1].grid(True)
     plt.show(block=False)
 
 
@@ -416,6 +424,12 @@ def plot_single_model_training_stats(
     )
     axs[2, 1].set_title("Non-optimal solution percentage")
     axs[2, 1].set_xlabel("Training step")
+    axs[0, 0].grid(True)
+    axs[0, 1].grid(True)
+    axs[1, 0].grid(True)
+    axs[1, 1].grid(True)
+    axs[2, 0].grid(True)
+    axs[2, 1].grid(True)
 
 
 def plot_multiple_model_eval_results(
@@ -432,17 +446,28 @@ def plot_multiple_model_eval_results(
         save_fig (bool, optional): Whether to save the figure.
         save_path (Path, optional): Path to save the figure.
     """
-    fig, axs = plt.subplots(3, 1, figsize=(10, 15), num="mm_eval_results")
+    fig, axs = plt.subplots(5, 1, figsize=(10, 15), num="mm_eval_results")
     fig.subplots_adjust(hspace=0.3, wspace=0.25)
     colors = sns.color_palette("tab10", n_colors=len(eval_data_list))
     for name, data in zip(model_names, eval_data_list):
         return_data = data[0]
         # indices_with_ep_lengths_above_100 = data[1]
-        goal_reached_rate = data[2]
-        collision_rate = data[3]
-        grounding_rate = data[4]
-        truncation_rate = data[5]
-        actor_failed_rate = data[6]
+
+        goal_reached_rate, goal_reached_rate_std = hf.compute_smooted_mean_and_std(
+            data[2], 20, mode="same"
+        )
+        collision_rate, collision_rate_std = hf.compute_smooted_mean_and_std(
+            data[3], 20, mode="same"
+        )
+        grounding_rate, grounding_rate_std = hf.compute_smooted_mean_and_std(
+            data[4], 20, mode="same"
+        )
+        truncation_rate, truncation_rate_std = hf.compute_smooted_mean_and_std(
+            data[5], 20, mode="same"
+        )
+        actor_failed_rate, actor_failed_rate_std = hf.compute_smooted_mean_and_std(
+            data[6], 20, mode="same"
+        )
 
         color = colors.pop()
         axs[0].plot(
@@ -482,20 +507,71 @@ def plot_multiple_model_eval_results(
         axs[2].plot(
             return_data["timesteps"],
             goal_reached_rate,
-            label="Goals reached rate",
+            label=name,
             color=color,
             marker=".",
             linestyle="--",
         )
-        # axs[2].plot(return_data["timesteps"], collision_rate, label="Collision rate", color="r")
-        # axs[2].plot(return_data["timesteps"], grounding_rate, label="Grounding rate", color="b")
+        axs[2].set_xlabel("Timesteps")
+        axs[2].set_ylabel("Goal reahed rate")
+
+        axs[2].fill_between(
+            return_data["timesteps"],
+            goal_reached_rate - goal_reached_rate_std,
+            goal_reached_rate + goal_reached_rate_std,
+            alpha=0.2,
+            color=color,
+        )
+
+        axs[3].plot(
+            return_data["timesteps"],
+            collision_rate,
+            label=name,
+            color=color,
+            marker=".",
+            linestyle="--",
+        )
+        axs[3].fill_between(
+            return_data["timesteps"],
+            collision_rate - collision_rate_std,
+            collision_rate + collision_rate_std,
+            alpha=0.2,
+            color=color,
+        )
+        axs[3].set_xlabel("Timesteps")
+        axs[3].set_ylabel("Collision rate")
+
+        axs[4].plot(
+            return_data["timesteps"],
+            grounding_rate,
+            label=name,
+            color=color,
+            marker=".",
+            linestyle="--",
+        )
+        axs[4].fill_between(
+            return_data["timesteps"],
+            grounding_rate - grounding_rate_std,
+            grounding_rate + grounding_rate_std,
+            alpha=0.2,
+            color=color,
+        )
+        axs[4].set_xlabel("Timesteps")
+        axs[4].set_ylabel("Grounding rate")
         # axs[2].plot(return_data["timesteps"], truncation_rate, label="Truncation rate", color="k")
         # axs[2].plot(return_data["timesteps"], actor_failed_rate, label="Actor failure rate", color="y")
-        axs[2].set_xlabel("Timesteps")
-        axs[2].set_ylabel("Rate")
+        axs[4].set_xlabel("Timesteps")
+        axs[4].set_ylabel("Rate")
     axs[0].legend()
     axs[1].legend()
     axs[2].legend()
+    axs[3].legend()
+    axs[4].legend()
+    axs[0].grid(True)
+    axs[1].grid(True)
+    axs[2].grid(True)
+    axs[3].grid(True)
+    axs[4].grid(True)
     plt.show(block=False)
     if save_fig:
         save_path = save_path if save_path is not None else Path("./")
@@ -563,7 +639,7 @@ def plot_episode_data_series(
         linestyle="--",
     )
     axs1[0].set_ylabel("Distance [m]")
-
+    axs1[0].grid(True)
     axs1[1].semilogy(
         times, data.distances_to_collision, label="Dist. to collision", color="b"
     )
@@ -571,7 +647,7 @@ def plot_episode_data_series(
         times, mpc_params[:, 8], label=r"$r_{safe, do}$", color="r", linestyle="--"
     )
     axs1[1].set_ylabel("Distance [m]")
-
+    axs1[1].grid(True)
     course_refs = np.array(
         [data.actor_infos[i]["applied_refs"][0] for i in range(len(data.actor_infos))]
     )
@@ -583,6 +659,7 @@ def plot_episode_data_series(
         [data.actor_infos[i]["applied_refs"][1] for i in range(len(data.actor_infos))]
     )
     speeds = np.sqrt(data.ownship_states[:, 3] ** 2 + data.ownship_states[:, 4] ** 2)
+    axs1[2].grid(True)
     axs1[2].plot(
         times,
         180.0 * course_refs / np.pi,
@@ -592,7 +669,7 @@ def plot_episode_data_series(
     )
     axs1[2].plot(times, 180.0 * courses / np.pi, label=r"$\chi$", color="b")
     axs1[2].set_ylabel("Course [deg]")
-
+    axs1[3].grid(True)
     axs1[3].plot(times, speed_refs, label=r"$U_{d}$", color="r", linestyle="--")
     axs1[3].plot(times, speeds, label=r"$U$", color="b")
     axs1[3].set_ylabel("Speed [m/s]")
@@ -656,14 +733,22 @@ def plot_episode_data_series(
             for i in range(len(data.reward_components))
         ]
     )
+    axs3[0, 0].grid(True)
     axs3[0, 0].plot(times, r_total, label="Total reward")
+    axs3[0, 1].grid(True)
     axs3[0, 1].plot(times, r_colreg, label="COLREG reward")
     axs3[1, 0].plot(times, r_colav, label="COLAV reward")
+    axs3[1, 0].grid(True)
+    axs3[1, 1].grid(True)
     axs3[1, 1].plot(times, r_antigrounding, label="Anti-grounding reward")
+    axs3[2, 0].grid(True)
     axs3[2, 0].plot(times, r_trajectory_tracking, label="Trajectory tracking reward")
+    axs3[2, 1].grid(True)
     axs3[2, 1].plot(times, r_app_man, label="Readily apparent maneuvering reward")
+    axs3[3, 0].grid(True)
     axs3[3, 0].plot(times, r_dnn_params, label="DNN parameters reward")
     axs3[3, 0].set_xlabel("Time [s]")
+    axs3[3, 1].grid(True)
     axs3[3, 1].set_xlabel("Time [s]")
     axs3[0, 0].legend()
     axs3[0, 1].legend()
@@ -928,7 +1013,9 @@ def plot_evaluation_results(
 if __name__ == "__main__":
     matplotlib.use("TkAgg")
     base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
-    experiment_names = ["ssac_gsde_22t_131224_3e_5lr_s2_jid21003695"]
+    experiment_names = [
+        "tsac128net_ent001_tfreq16_170425_1e_4lr_0005tau_s1_jid21854737"
+    ]
     model_names = ["SSAC-gSDE1"]
     plot_training_results(
         base_dir=base_dir, experiment_names=experiment_names, abbreviations=model_names

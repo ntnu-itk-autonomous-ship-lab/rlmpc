@@ -427,10 +427,10 @@ class AntiGroundingRewarder(cs_reward.IReward):
                 )
             )
             if g_so[j] > 0.0 and d2so > self._config.r_safe:
-                g_so[j] = 0.0
                 print(
                     f"[{self.env.env_id.upper()}] Erroneous static obstacle surface {j} g_so[i]={g_so[j]} | d2so={d2so}."
                 )
+                g_so[j] = 0.0
             elif d2so <= self._config.r_safe:
                 g_so[j] = 1.0
                 print(

@@ -41,7 +41,7 @@ anti_grounding:
 dnn_parameter_provider:
   disable: False
   rho_solver_time: 0.0
-  rho_qp_failure: 1000.0
+  rho_qp_failure: 800.0
   rho_high_app_params: 0.0
   rho_safety_param: 5.0
   rho_diff_colreg_weights: 0.0
