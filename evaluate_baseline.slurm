@@ -38,7 +38,7 @@ module load FFmpeg/6.0-GCCcore-12.3.0
 module load Clang/16.0.6-GCCcore-12.3.0
 
 # enable virtual env
-source /cluster/home/trymte/Desktop/mpy3.11.3/bin/activate
+source $HOME/Desktop/mpy3.11.3/bin/activate
 
 # setting the matplotlib backend to be headless
 export MPLBACKEND="Agg"
@@ -61,7 +61,7 @@ scontrol show jobid -dd $SLURM_JOB_ID
 # scancel <-t PENDING> -u <username>
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/rlmpc/scripts/evaluate_agent.py --base_dir=$BASE_DIR --experiment_name=$EXPERIMENT_NAME --n_eval_episodes=$N_EVAL_EPS --seed=$SEED --n_cpus=$NCPUS
+srun --ntasks=1 python $HOME/Desktop/rlmpc/rlmpc/scripts/evaluate_agent.py --base_dir=$BASE_DIR --experiment_name=$EXPERIMENT_NAME --n_eval_episodes=$N_EVAL_EPS --seed=$SEED --n_cpus=$NCPUS
 
 
 # fetching the job information

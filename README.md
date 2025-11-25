@@ -1,15 +1,16 @@
 
 # rlmpc
 This repository contains
-- Functionality for ship collision avoidance motion planning using NMPC
-- Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and target tracks
-- A Soft Actor Critic (SAC) implementation with an NMPC actor (in progress), based on a modded version of stable baselines3
+- A trajectory tracking NMPC with anti-grounding functionality.
+- A mid-level NMPC implementation for dynamic ship collision avoidance and grounding avoidance.
+- Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamc obstacle target tracks.
+- A Soft Actor Critic (SAC) implementation with an NMPC actor (in progress), based on a modded version of stable baselines3.
 
-using the colav-simulation framework in <https://github.com/NTNU-Autoship-Internal/colav_simulator>.
+coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>.
 
 <p align="center">
-    <img src="https://github.com/NTNU-Autoship-Internal/rlmpc/blob/main/mpc_teaser.gif?raw=true" width="1000px"><br/>
-    <em>Example run of an MPC-based COLAV planner in the simulator.</em>
+    <img src="https://github.com/NTNU-Autoship-Internal/colav_simulator/blob/main/gym_env_teaser.gif?raw=true" width="1000px"><br/>
+    <em>Example visualization of a DRL-based MPC algorithm run in multiple evaluation episodes using the COLAVEnvironment Gymnasium functionality.</em>
 </p>
 <p align="center">
     <img src="https://github.com/NTNU-Autoship-Internal/rlmpc/blob/main/simple_planning_example_ep1.gif?raw=true" width="1000px"><br/>

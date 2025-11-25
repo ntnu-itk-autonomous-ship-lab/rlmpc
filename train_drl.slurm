@@ -115,7 +115,7 @@ module load GDAL/3.7.1-foss-2023a
 module load FFmpeg/6.0-GCCcore-12.3.0
 
 # enable virtual env
-source /cluster/home/trymte/Desktop/mpy3.11.3/bin/activate
+source $HOME/Desktop/mpy3.11.3/bin/activate
 
 # setting the matplotlib backend to be headless
 export MPLBACKEND="Agg"
@@ -130,7 +130,7 @@ which python
 echo -e "\n\n"
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
+srun --ntasks=1 python $HOME/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
 
 # running the analysis script sequentially after the srun command has finished
 
@@ -145,6 +145,3 @@ $job_info
 
 EOF
 )
-
-# sending the log file via email with the job information in the email body
-echo "$email_body" | mailx -s "SLURM Job ${SLURM_JOB_NAME} Completed" -a R-${SLURM_JOB_NAME}.${SLURM_JOB_ID}.out trym.tengesdal@ntnu.no

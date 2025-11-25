@@ -70,7 +70,7 @@ module load FFmpeg/6.0-GCCcore-12.3.0
 module load Clang/16.0.6-GCCcore-12.3.0
 
 # enable virtual env
-source /cluster/home/trymte/Desktop/mpy3.11.3/bin/activate
+source $HOME/Desktop/mpy3.11.3/bin/activate
 
 # setting the matplotlib backend to be headless
 export MPLBACKEND="Agg"
@@ -102,7 +102,7 @@ scontrol show jobid -dd $SLURM_JOB_ID
 # scancel <-t PENDING> -u <username>
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python /cluster/home/trymte/Desktop/rlmpc/tests/test_train_sac_nmpc_pp.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE --n_training_envs=$NCPUS --max_num_loaded_train_scen_episodes=$MAX_NUM_TRAIN_EPS --max_num_loaded_eval_scen_episodes=$MAX_NUM_EVAL_EPS --n_eval_envs=$N_EVAL_ENVS --n_eval_episodes=$N_EVAL_EPS --n_timesteps_per_learn=$N_TIMESTEPS_PER_LEARN --eval_freq=$EVAL_FREQ --load_model_name=$LOAD_MODEL_NAME --device=$DEVICE --reset_num_timesteps --seed=$SEED
+srun --ntasks=1 python $HOME/Desktop/rlmpc/tests/test_train_sac_nmpc_pp.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE --n_training_envs=$NCPUS --max_num_loaded_train_scen_episodes=$MAX_NUM_TRAIN_EPS --max_num_loaded_eval_scen_episodes=$MAX_NUM_EVAL_EPS --n_eval_envs=$N_EVAL_ENVS --n_eval_episodes=$N_EVAL_EPS --n_timesteps_per_learn=$N_TIMESTEPS_PER_LEARN --eval_freq=$EVAL_FREQ --load_model_name=$LOAD_MODEL_NAME --device=$DEVICE --reset_num_timesteps --seed=$SEED
 
 
 # fetching the job information
@@ -115,6 +115,3 @@ $job_info
 
 EOF
 )
-
-# sending the log file via email with the job information in the email body
-echo "$email_body" | mailx -s "SLURM Job ${SLURM_JOB_NAME} Completed" -a R-${SLURM_JOB_NAME}.${SLURM_JOB_ID}.out trym.tengesdal@ntnu.no
