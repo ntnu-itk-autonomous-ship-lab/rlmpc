@@ -1,29 +1,24 @@
 #  Use argument parser to set arguments of experiment name
 import argparse
-import inspect
 import time
 from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
-import pytorch_warmup as warmup
-import rlmpc.common.datasets as rl_ds
-import rlmpc.networks.loss_functions as loss_functions
 import torch
-import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rlmpc.common.running_loss import RunningLoss
-from rlmpc.networks.tracking_vae.vae import VAE
 from torch.optim.lr_scheduler import (
-    CosineAnnealingLR,
     CosineAnnealingWarmRestarts,
-    MultiStepLR,
-    ReduceLROnPlateau,
 )
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-BASE_PATH: Path = Path.home() / "Desktop/machine_learning/tracking_vae/"
+import rlmpc.common.datasets as rl_ds
+import rlmpc.networks.loss_functions as loss_functions
+from rlmpc.common.running_loss import RunningLoss
+from rlmpc.networks.tracking_vae.vae import VAE
+
+BASE_PATH: Path = Path.home() / "machine_learning/tracking_vae/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")
@@ -268,7 +263,7 @@ if __name__ == "__main__":
     batch_size = 128
     num_epochs = 60
     learning_rate = 1e-4
-    data_dir = Path.home() / "Desktop/machine_learning/tracking_vae/data"
+    data_dir = Path.home() / "machine_learning/tracking_vae/data"
     training_data_npy_filename = "tracking_gru_training_data_rogaland.npy"
     test_data_npy_filename = "tracking_gru_test_data_rogaland.npy"
     training_data_npy_filename2 = "tracking_gru_training_data_rogaland2.npy"

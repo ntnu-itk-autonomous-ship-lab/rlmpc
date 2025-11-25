@@ -1,19 +1,17 @@
 import sys
 from pathlib import Path
 
-import rlmpc.common.datasets as rl_ds
 import torch
 import yaml
-from rlmpc.policies import MPCParameterDNN
-from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
 from torch.optim.lr_scheduler import (
     CosineAnnealingLR,
-    CosineAnnealingWarmRestarts,
-    MultiStepLR,
-    ReduceLROnPlateau,
 )
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+
+import rlmpc.common.datasets as rl_ds
+from rlmpc.policies import MPCParameterDNN
+from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
 
 
 def main(args):
@@ -95,7 +93,7 @@ def main(args):
         f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}"
     )
 
-    base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
+    base_dir = Path.home() / "machine_learning/rlmpc/dnn_pp"
     log_dir = base_dir / "logs"
 
     if not log_dir.exists():
@@ -105,7 +103,7 @@ def main(args):
     if test_model:
         model_file = (
             Path.home()
-            / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth"
+            / "machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_1399_1316_662_ReLU/best_model.pth"
         )
         model = MPCParameterDNN(
             param_list=["Q_p", "r_safe_do"],

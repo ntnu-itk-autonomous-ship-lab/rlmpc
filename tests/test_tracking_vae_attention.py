@@ -1,17 +1,12 @@
-import os
 from pathlib import Path
-from typing import Callable, Tuple
 
-import colav_simulator.behavior_generator as cs_bg
-import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
-import matplotlib.pyplot as plt
 import numpy as np
+import torch
+
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
-import torch
-from colav_simulator.gym.environment import COLAVEnvironment
 from rlmpc.networks.tracking_vae.vae import VAE
 from rlmpc.networks.tracking_vae_attention.vae import VAE
 
@@ -61,7 +56,7 @@ def test_tracking_vae_attention() -> None:
         "identifier": "training_env",
         "seed": 123124014,
     }
-    vae_dir = Path.home() / "Desktop/machine_learning/tracking_vae/chosen"
+    vae_dir = Path.home() / "machine_learning/tracking_vae/chosen"
     name = "tracking_avae_mdnew_beta001_3_NL_1_nonbi_HD_64_LD_12_NH_8_ED_16"
     input_dim = 4
     model = VAE(

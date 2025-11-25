@@ -2,18 +2,16 @@ import sys
 from pathlib import Path
 
 import optuna
-import rlmpc.common.datasets as rl_ds
 import torch
-from rlmpc.policies import MPCParameterDNN
-from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
 from torch.optim.lr_scheduler import (
     CosineAnnealingLR,
-    CosineAnnealingWarmRestarts,
-    MultiStepLR,
-    ReduceLROnPlateau,
 )
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+
+import rlmpc.common.datasets as rl_ds
+from rlmpc.policies import MPCParameterDNN
+from rlmpc.scripts.train_mpc_param_provider import train_mpc_param_dnn
 
 
 def objective(trial: optuna.Trial) -> float:
@@ -78,7 +76,7 @@ def objective(trial: optuna.Trial) -> float:
             f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}"
         )
 
-    base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
+    base_dir = Path.home() / "machine_learning/rlmpc/dnn_pp"
     log_dir = base_dir / "logs"
 
     if not log_dir.exists():

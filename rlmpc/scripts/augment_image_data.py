@@ -2,16 +2,17 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import rlmpc.common.datasets as rl_ds
 import torch
 from torchvision.transforms import v2 as transforms_v2
+
+import rlmpc.common.datasets as rl_ds
 
 # Depending on your OS, you might need to change these paths
 plt.rcParams["animation.convert_path"] = "/usr/bin/convert"
 plt.rcParams["animation.ffmpeg_path"] = "/usr/bin/ffmpeg"
 
 
-IMAGE_DATADIR = Path.home() / "Desktop/machine_learning/data/vae/"
+IMAGE_DATADIR = Path.home() / "machine_learning/data/vae/"
 assert IMAGE_DATADIR.exists(), f"Directory {IMAGE_DATADIR} does not exist."
 
 

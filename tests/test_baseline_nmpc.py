@@ -2,15 +2,16 @@ import unittest
 import warnings
 
 import colav_simulator.simulator as cssim
+from colav_simulator.scenario_generator import ScenarioGenerator
+
 import rlmpc.common.paths as dp
 import rlmpc.rlmpc_cas as rlmpc_cas
-from colav_simulator.scenario_generator import ScenarioGenerator
 
 warnings.filterwarnings("ignore", module="pandas")
 
 
 class TestRLMPC(unittest.TestCase):
-    def setUp(self) -> None:
+    def set_up(self) -> None:
         self.rlmpc_obj = rlmpc_cas.RLMPC()
         csconfig = cssim.Config.from_file(dp.config / "training_simulator.yaml")
         csconfig.visualizer.matplotlib_backend = "TkAgg"
@@ -20,7 +21,7 @@ class TestRLMPC(unittest.TestCase):
         self.simulator = cssim.Simulator(config=csconfig)
         self.scenario_generator = ScenarioGenerator(seed=7)
 
-    def tearDown(self) -> None:
+    def tear_down(self) -> None:
         return super().tearDown()
 
     def test_rlmpc(self):

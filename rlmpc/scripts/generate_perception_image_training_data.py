@@ -1,22 +1,19 @@
-import os
 from pathlib import Path
 from typing import Callable
 
 import colav_simulator.common.image_helper_methods as cs_ihm
-import colav_simulator.common.paths as cs_dp
 import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
-import rlmpc.common.paths as rl_dp
 import torch as th
 import torchvision.transforms.v2 as transforms_v2
-from colav_simulator.gym.environment import COLAVEnvironment
-from matplotlib import animation
-from rlmpc.networks.enc_vae.vae import VAE
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import SubprocVecEnv
+
+import rlmpc.common.paths as rl_dp
+from rlmpc.networks.enc_vae.vae import VAE
 
 # For macOS users, you might need to set the environment variable
 # os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
@@ -51,7 +48,7 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
 
 
 if __name__ == "__main__":
-    IMAGE_DATADIR: Path = Path.home() / "Desktop/machine_learning/enc_vae/data"
+    IMAGE_DATADIR: Path = Path.home() / "machine_learning/enc_vae/data"
     if not IMAGE_DATADIR.exists():
         IMAGE_DATADIR.mkdir(parents=True)
     scenario_names = [
@@ -177,7 +174,10 @@ if __name__ == "__main__":
 
                 vae.load_state_dict(
                     th.load(
-                        "/Users/trtengesdal/Desktop/machine_learning/vae_models/training_vae2_model_LD_160_best.pth",
+                        str(
+                            Path.home()
+                            / "machine_learning/vae_models/training_vae2_model_LD_160_best.pth"
+                        ),
                         map_location=th.device("cpu"),
                     )
                 )

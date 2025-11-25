@@ -4,17 +4,18 @@ from pathlib import Path
 import gymnasium as gym
 import numpy as np
 import optuna
+import torch as th
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import SubprocVecEnv
+from torch.utils.tensorboard import SummaryWriter
+
 import rlmpc.action as rlmpc_actions
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
-import torch as th
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.scripts.train_critics import train_critics
 from rlmpc.standard_sac import SAC
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import SubprocVecEnv
-from torch.utils.tensorboard import SummaryWriter
 
 
 def objective(trial: optuna.Trial) -> float:
@@ -26,7 +27,7 @@ def objective(trial: optuna.Trial) -> float:
     Returns:
         float: The loss value to minimize
     """
-    base_dir = Path.home() / "Desktop/machine_learning/rlmpc/standard_sac_critics"
+    base_dir = Path.home() / "machine_learning/rlmpc/standard_sac_critics"
     log_dir = base_dir / "logs"
 
     if not log_dir.exists():
@@ -106,7 +107,7 @@ def objective(trial: optuna.Trial) -> float:
         "hidden_sizes": [256, 256],  # [458, 242, 141],
         "activation_fn": th.nn.ReLU,
         # "model_file": Path.home()
-        # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
+        # / "machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
     }
     policy_kwargs = {
         "features_extractor_class": CombinedExtractor,

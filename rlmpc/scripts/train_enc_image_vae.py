@@ -1,28 +1,26 @@
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
 import numpy as np
 import optuna
-import rlmpc.common.datasets as rl_ds
-import rlmpc.common.helper_functions as rl_hf
-import rlmpc.networks.loss_functions as loss_functions
 import torch
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
+from torch.optim.lr_scheduler import (
+    CosineAnnealingLR,
+)
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+
+import rlmpc.common.datasets as rl_ds
+import rlmpc.common.helper_functions as rl_hf
+import rlmpc.networks.loss_functions as loss_functions
 from rlmpc.common.running_loss import RunningLoss
 
 # from rlmpc.networks.enc_vae_128.vae import VAE
 from rlmpc.networks.enc_vae_128_simple.vae import VAE
-from torch.optim.lr_scheduler import (
-    CosineAnnealingLR,
-    CosineAnnealingWarmRestarts,
-    MultiStepLR,
-    ReduceLROnPlateau,
-)
-from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 
 
 def train_vae(
@@ -323,7 +321,7 @@ def objective(trial: optuna.Trial) -> float:
     Returns:
         float: The loss value to minimize
     """
-    BASE_PATH: Path = Path.home() / "Desktop/machine_learning/enc_vae/"
+    BASE_PATH: Path = Path.home() / "machine_learning/enc_vae/"
     latent_dim = trial.suggest_int("latent_dim", 20, 40)  # 40
     fc_dim = trial.suggest_int("fc_dim", 900, 1024)  # 512
     encoder_conv_block_dims = [128, 128, 128]
@@ -344,7 +342,7 @@ def objective(trial: optuna.Trial) -> float:
         experiment_path.mkdir(parents=True)
 
     log_dir = BASE_PATH / "logs"
-    data_dir = Path.home() / "Desktop/machine_learning/enc_vae/data"
+    data_dir = Path.home() / "machine_learning/enc_vae/data"
 
     training_data_list = []
     training_masks_list = []

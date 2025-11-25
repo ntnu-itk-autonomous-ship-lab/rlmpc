@@ -20,8 +20,8 @@ import rlmpc.common.paths as rl_dp
 import rlmpc.networks.enc_vae_128.vae as enc_vae
 import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 
-# ENCVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/enc_vae/"
-# TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "Desktop/machine_learning/tracking_vae/chosen"
+# ENCVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "machine_learning/enc_vae/"
+# TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "machine_learning/tracking_vae/chosen"
 ENCVAE_DATADIR: pathlib.Path = rl_dp.root / "rlmpc/networks/models"
 TRACKINGVAE_DATADIR: pathlib.Path = rl_dp.root / "rlmpc/networks/models"
 
@@ -96,9 +96,9 @@ class ENCVAE(BaseFeaturesExtractor):
             return recon_obs
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        assert self.vae.inference_mode, (
-            "VAE must be in inference mode before usage as a feature extractor."
-        )
+        assert (
+            self.vae.inference_mode
+        ), "VAE must be in inference mode before usage as a feature extractor."
         # self.display_image(observations[0])
         z_e, _, _ = self.vae.encode(observations)
         # print(f"z_e shape: {z_e.shape}")
@@ -254,9 +254,9 @@ class TrackingVAE(BaseFeaturesExtractor):
         return recon_obs
 
     def forward(self, observations: th.Tensor) -> th.Tensor:
-        assert self.vae.inference_mode, (
-            "VAE must be in inference mode before usage as a feature extractor."
-        )
+        assert (
+            self.vae.inference_mode
+        ), "VAE must be in inference mode before usage as a feature extractor."
         observations, seq_lengths = self.preprocess_obs(observations)
         z_e, _, _ = self.vae.encode(observations, seq_lengths)
         z_e = z_e / self.scaling_factor

@@ -1,28 +1,23 @@
 #  Use argument parser to set arguments of experiment name
 import argparse
-import inspect
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
 import optuna
-import pytorch_warmup as warmup
-import rlmpc.common.datasets as rl_ds
-import rlmpc.networks.loss_functions as loss_functions
 import torch
-import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rlmpc.common.running_loss import RunningLoss
-from rlmpc.networks.tracking_vae_attention.vae import VAE
 from torch.optim.lr_scheduler import (
     CosineAnnealingLR,
-    CosineAnnealingWarmRestarts,
-    MultiStepLR,
-    ReduceLROnPlateau,
 )
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+
+import rlmpc.common.datasets as rl_ds
+import rlmpc.networks.loss_functions as loss_functions
+from rlmpc.common.running_loss import RunningLoss
+from rlmpc.networks.tracking_vae_attention.vae import VAE
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")
@@ -294,7 +289,7 @@ if __name__ == "__main__":
     num_epochs = 40
     learning_rate = 2e-4
 
-    data_dir = Path.home() / "Desktop/machine_learning/tracking_vae/data"
+    data_dir = Path.home() / "machine_learning/tracking_vae/data"
     training_data_filename_list = []
     for i in range(1, 46):
         training_data_filename = f"tracking_vae_training_data_rogaland{i}.npy"
@@ -330,7 +325,7 @@ if __name__ == "__main__":
     print(
         f"Training dataloader length: {len(train_dataloader)} | Test dataloader length: {len(test_dataloader)}"
     )
-    BASE_PATH: Path = Path.home() / "Desktop/machine_learning/tracking_vae/"
+    BASE_PATH: Path = Path.home() / "machine_learning/tracking_vae/"
     log_dir = BASE_PATH / "logs"
 
     test_model = True

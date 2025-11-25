@@ -11,7 +11,7 @@ import argparse
 import pickle
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, List, Tuple
 
 import colav_simulator.gym.environment as csenv
 import colav_simulator.gym.logger as csenv_logger
@@ -19,6 +19,11 @@ import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import numpy as np
+import stable_baselines3.sac as sb3_sac
+import torch as th
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
 import rlmpc.action as rlmpc_actions
 import rlmpc.common.callbacks as rlmpc_callbacks
 import rlmpc.common.helper_functions as hf
@@ -28,12 +33,6 @@ import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rlmpc_rewards
 import rlmpc.sac as rlmpc_sac
 import rlmpc.standard_sac as rlmpc_ssac
-import stable_baselines3.sac as sb3_sac
-import torch as th
-from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import SubprocVecEnv
 
 
 def evaluate(
@@ -93,7 +92,7 @@ def main(args):
     parser.add_argument(
         "--base_dir",
         type=str,
-        default=str(Path.home() / "Desktop/machine_learning/rlmpc"),
+        default=str(Path.home() / "machine_learning/rlmpc"),
     )
     parser.add_argument(
         "--model_class", type=str, default="sac_rlmpc_param_provider_policy"
@@ -308,7 +307,7 @@ def main(args):
             "hidden_sizes": [256, 256],  # [458, 242, 141],
             "activation_fn": th.nn.ReLU,
             # "model_file": Path.home()
-            # / "Desktop/machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
+            # / "machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
         }
         policy_kwargs = {
             "features_extractor_class": rlmpc_fe.CombinedExtractor,

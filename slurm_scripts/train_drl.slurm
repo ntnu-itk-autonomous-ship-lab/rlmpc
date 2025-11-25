@@ -27,7 +27,7 @@ helpFunction()
 }
 
 
-BASE_DIR="/cluster/work/trymte/drl_dir"
+BASE_DIR="$HOME/drl_dir"
 BATCH_SIZE=32
 LEARNING_RATE=0.0002
 NCPUS=24
@@ -130,7 +130,7 @@ which python
 echo -e "\n\n"
 
 # using srun to launch the MPI job, --ntasks below must equal --nodes in #SBATCH above
-srun --ntasks=1 python $HOME/Desktop/rlmpc/tests/test_drl.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
+srun --ntasks=1 python $HOME/Desktop/rlmpc/run_examples/run_vanilla_training_drl.py --base_dir=$BASE_DIR --learning_rate=$LEARNING_RATE --buffer_size=$BUFFER_SIZE --train_freq=$TRAIN_FREQ --gradient_steps=$GRADIENT_STEPS --timesteps=$TIMESTEPS --experiment_name=$EXPERIMENT_NAME --batch_size=$BATCH_SIZE
 
 # running the analysis script sequentially after the srun command has finished
 

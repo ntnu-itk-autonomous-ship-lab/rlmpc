@@ -3,20 +3,20 @@ import argparse
 import time
 from pathlib import Path
 
-import rlmpc.common.datasets as rl_ds
-import rlmpc.common.helper_functions as rl_hf
-import rlmpc.networks.loss_functions as loss_functions
 import torch
 import torchvision
 import torchvision.transforms.v2 as transforms_v2
 import yaml
-from rlmpc.common.datasets import PerceptionImageDataset
-from rlmpc.common.running_loss import RunningLoss
-from rlmpc.networks.vqvae2 import VQVAE
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-BASE_PATH: Path = Path.home() / "Desktop/machine_learning/perception_vae/"
+import rlmpc.common.datasets as rl_ds
+import rlmpc.common.helper_functions as rl_hf
+import rlmpc.networks.loss_functions as loss_functions
+from rlmpc.common.running_loss import RunningLoss
+from rlmpc.networks.vqvae2 import VQVAE
+
+BASE_PATH: Path = Path.home() / "machine_learning/perception_vae/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--experiment_name", type=str, default="default")
@@ -298,7 +298,7 @@ if __name__ == "__main__":
     learning_rate = 2e-4
 
     log_dir = EXPERIMENT_PATH / "logs"
-    data_dir = Path.home() / "Desktop/machine_learning/data/vae/"
+    data_dir = Path.home() / "machine_learning/data/vae/"
     training_data_npy_filename1 = "perception_data_rogaland_random_everything.npy"
     training_masks_npy_filename1 = "segmentation_masks_rogaland_random_everything.npy"
 

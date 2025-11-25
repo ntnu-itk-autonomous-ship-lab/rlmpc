@@ -9,18 +9,18 @@ import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import numpy as np
+import torch as th
+import yaml
+from stable_baselines3.common.monitor import Monitor
+
 import rlmpc.action as rlmpc_actions
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.policies as rlmpc_policies
 import rlmpc.rewards as rewards
-import torch as th
-import yaml
-from memory_profiler import profile
 from rlmpc.common.callbacks import evaluate_policy
 from rlmpc.networks.feature_extractors import SimpleCombinedExtractor
-from rlmpc.scripts.train_rlmpc_ppo_standard import train_rlmpc_ppo_standard
-from stable_baselines3.common.monitor import Monitor
+from rlmpc.scripts.train_rlmpc_sac_standard import train_rlmpc_sac_standard
 
 # Supressing futurewarning to speed up execution time
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -33,36 +33,37 @@ def main(args):
     parser.add_argument(
         "--base_dir",
         type=str,
-        default=str(Path.home() / "Desktop/machine_learning/rlmpc/"),
+        default=str(Path.home() / "machine_learning/rlmpc/"),
     )
-    parser.add_argument("--experiment_name", type=str, default="ppo_nmpc_pp")
+    parser.add_argument("--experiment_name", type=str, default="snmpc_pp2")
     parser.add_argument("--n_training_envs", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=0.0001)
-    parser.add_argument("--gae_lambda", type=float, default=0.95)
-    parser.add_argument("--ent_coef", type=float, default=0.001)
-    parser.add_argument("--n_epochs", type=int, default=10)
-    parser.add_argument("--n_steps", type=int, default=32)
-    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--learning_rate", type=float, default=0.00001)
+    parser.add_argument("--buffer_size", type=int, default=10000)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--gradient_steps", type=int, default=2)
+    parser.add_argument("--train_freq", type=int, default=4)
     parser.add_argument("--n_eval_episodes", type=int, default=1)
-    parser.add_argument("--eval_freq", type=int, default=1000)
+    parser.add_argument("--eval_freq", type=int, default=20000)
     parser.add_argument("--n_eval_envs", type=int, default=1)
     parser.add_argument("--timesteps", type=int, default=100000)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--n_timesteps_per_learn", type=int, default=10000)
-    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
+    parser.add_argument("--disable_parameter_provider", type=bool, default=False)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=2)
     parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
     parser.add_argument(
         "--load_model_path",
         type=str,
-        default="",  # "/Users/trtengesdal/Desktop/machine_learning/rlmpc/snmpc_pp2/models/snmpc_pp2_0_steps.zip",
     )
+    parser.add_argument("--load_critics", default=False, action="store_true")
     parser.add_argument("--reset_num_timesteps", default=True, action="store_true")
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--sde_sample_freq", type=int, default=30)
+    parser.add_argument("--tau", type=float, default=0.01)
 
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
-    print("Provided args to training PPO with NMPC parameter provider DNN:")
+    print("Provided args to training SAC with NMPC parameter provider DNN:")
     print("".join(f"{k}={v}\n" for k, v in vars(args).items()))
 
     base_dir, log_dir, model_dir = hf.create_data_dirs(
@@ -89,7 +90,6 @@ def main(args):
             "closest_enc_hazard_observation",
             "relative_tracking_observation",
             "time_observation",
-            # "mpc_parameter_observation",
         ]
     }
     env_id = "COLAVEnvironment-v0"
@@ -100,14 +100,14 @@ def main(args):
     eval_sim_config = cs_sim.Config.from_file(rl_dp.config / "eval_simulator.yaml")
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
-    mpc_param_list = ["K_app_course", "K_app_speed", "r_safe_do", "w_colregs"]
-    n_mpc_params = 1 + 1 + 1 + 3
+    mpc_param_list = ["Q_p", "K_app_course", "K_app_speed", "r_safe_do", "w_colregs"]
+    n_mpc_params = 3 + 1 + 1 + 1 + 3
 
     # action_noise_std_dev = np.array([0.004, 0.004, 0.025])  # normalized std dev for the action space [x, y, speed]
     action_noise_std_dev = np.array(
         [0.0004, 0.0004]
     )  # normalized std dev for the action space [course, speed]
-    param_action_noise_std_dev = np.array([0.02 for _ in range(n_mpc_params)])
+    param_action_noise_std_dev = np.array([0.05 for _ in range(n_mpc_params)])
     action_kwargs = {
         "mpc_config_path": mpc_config_path,
         "debug": False,
@@ -130,7 +130,7 @@ def main(args):
         "rewarder_class": rewards.MPCRewarder,
         "rewarder_kwargs": {"config": rewarder_config},
         "render_update_rate": 0.5,
-        "render_mode": "rgb_array",
+        "render_mode": "none",
         "observation_type": observation_type,
         "reload_map": False,
         "show_loaded_scenario_data": False,
@@ -162,36 +162,62 @@ def main(args):
     )
 
     load_model_path = args.load_model_path if args.load_model_path else ""
+    load_rb_path = ""
     if load_model_path:
         if not Path(load_model_path).exists():
             raise ValueError(f"The model path {load_model_path} does not exist!")
         load_model_path = Path(load_model_path)
+        rb_load_name = (
+            "_".join(load_model_path.name.split("_")[:-2]) + "_replay_buffer.pkl"
+        )
+        load_rb_path = str(load_model_path.parent / rb_load_name)
         load_model_path = str(load_model_path)
 
+    load_critic = args.load_critics
+    load_critic_path = (
+        str(base_dir.parents[0])
+        + "/sac_critics/pretrained_sac_critics_HD_495_498_ReLU/models/best_model"
+    )
+    #     load_critic_path = model_path
+
+    mpc_param_provider_kwargs = {
+        "param_list": mpc_param_list,
+        "hidden_sizes": [128, 128],  # [458, 242, 141],
+        "activation_fn": th.nn.ReLU,
+        # "model_file": Path.home()
+        # / "machine_learning/rlmpc/dnn_pp/pretrained_dnn_pp_HD_458_242_141_ReLU/best_model.pth",
+    }
     policy_kwargs = {
         "features_extractor_class": SimpleCombinedExtractor,
-        "features_extractor_kwargs": {"features_dim": 19},
+        "critic_arch": [128, 128],
+        "mpc_param_provider_kwargs": mpc_param_provider_kwargs,
         "activation_fn": th.nn.ReLU,
-        "net_arch": dict(pi=[128, 128], vf=[128, 128]),
-        "log_std_init": np.log(param_action_noise_std_dev[0]),
+        "std_init": param_action_noise_std_dev,
+        "use_sde": True,
         "full_std": True,
         "use_expln": False,
+        "clip_mean": False,
     }
     model_kwargs = {
-        "policy": "MultiInputPolicy",
+        "policy": rlmpc_policies.SACPolicyWithMPCParameterProviderStandard,
         "policy_kwargs": policy_kwargs,
         "learning_rate": args.learning_rate,
-        "n_steps": args.n_steps,
-        "gae_lambda": args.gae_lambda,
+        "buffer_size": args.buffer_size,
         "batch_size": args.batch_size,
+        "gradient_steps": args.gradient_steps,
         "sde_sample_freq": args.sde_sample_freq,
-        "n_epochs": args.n_epochs,
+        "train_freq": (args.train_freq, "step"),
         "gamma": 0.99,
+        "learning_starts": 1000 if not load_model_path else 0,
+        "tau": args.tau,
         "device": args.device,
-        "use_sde": True,
-        "ent_coef": args.ent_coef,
+        "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
+        "replay_buffer_kwargs": {
+            "handle_timeout_termination": True,
+            "disable_action_storage": False,
+        },
     }
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
@@ -203,10 +229,14 @@ def main(args):
     reset_num_timesteps = args.reset_num_timesteps
     for i in range(n_learn_iterations):
         if i > 0:
+            load_critic = False
+            load_rb_path = (
+                str(model_dir) + "/" + args.experiment_name + "_replay_buffer.pkl"
+            )
             model_kwargs["learning_starts"] = 0
             reset_num_timesteps = False
 
-        model, vecenv_failed = train_rlmpc_ppo_standard(
+        model, vecenv_failed = train_rlmpc_sac_standard(
             model_kwargs=model_kwargs,
             n_timesteps=args.n_timesteps_per_learn,
             env_id=env_id,
@@ -219,21 +249,26 @@ def main(args):
             base_dir=base_dir,
             model_dir=model_dir,
             experiment_name=args.experiment_name,
+            load_critics=load_critic,
+            load_critics_path=load_critic_path,
             load_model_path=load_model_path,
+            load_rb_path=load_rb_path,
             seed=args.seed,
             iteration=i + 1,
             reset_num_timesteps=reset_num_timesteps,
         )
         timesteps_completed = model.num_timesteps
+        episodes_completed = model.num_episodes
         load_model_path = (
             model_dir / f"{args.experiment_name}_{timesteps_completed}_steps"
         )
         model.save(load_model_path)
+        model.save_replay_buffer(model_dir / f"{args.experiment_name}_replay_buffer")
         print(
-            f"[PPO RLMPC] Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}"
+            f"[SAC RLMPC] Replay buffer size: {model.replay_buffer.size()} | Current num timesteps: {timesteps_completed} | Current num episodes: {episodes_completed}"
         )
         print(
-            f"[PPO RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * timesteps_completed / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
+            f"[SAC RLMPC] Finished learning iteration {i + 1}. Progress: {100.0 * timesteps_completed / args.timesteps:.1f}% | VecEnv failed: {vecenv_failed}"
         )
         if i < n_learn_iterations - 1:
             del model
@@ -273,4 +308,9 @@ def main(args):
 
 
 if __name__ == "__main__":
+    # import cProfile
+    # import pstats
+    # cProfile.run("main()", sort="cumulative", filename="sac_rlmpc.prof")
+    # p = pstats.Stats("sac_rlmpc.prof")
+    # p.sort_stats("cumulative").print_stats(50)
     main(sys.argv[1:])

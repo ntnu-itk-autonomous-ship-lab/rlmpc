@@ -4,23 +4,21 @@ import argparse
 import copy
 import pickle
 import sys
-import tracemalloc
 from pathlib import Path
 
 import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import numpy as np
+import yaml
+from stable_baselines3.common.monitor import Monitor
+
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
-import yaml
-from colav_simulator.gym.environment import COLAVEnvironment
-from memory_profiler import profile
 from rlmpc.common.callbacks import evaluate_policy
 from rlmpc.networks.feature_extractors import CombinedExtractor
 from rlmpc.scripts.train_drl_sac import train_sac
-from stable_baselines3.common.monitor import Monitor
 
 
 # @profile
@@ -31,7 +29,7 @@ def main(args):
     parser.add_argument(
         "--base_dir",
         type=str,
-        default=str(Path.home() / "Desktop/machine_learning/rlmpc/"),
+        default=str(Path.home() / "machine_learning/rlmpc/"),
     )
     parser.add_argument("--experiment_name", type=str, default="sac_drl1")
     parser.add_argument("--n_cpus", type=int, default=2)

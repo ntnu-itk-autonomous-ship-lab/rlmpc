@@ -1,11 +1,9 @@
-import sys
 from pathlib import Path
 
-import optuna
-import rlmpc.common.datasets as rl_ds
 import torch
+
+import rlmpc.common.datasets as rl_ds
 from rlmpc.policies import MPCParameterDNN
-from torch.utils.data import DataLoader
 
 
 def test_prediction_of_mpc_dnn() -> None:
@@ -50,7 +48,7 @@ def test_prediction_of_mpc_dnn() -> None:
     actfn = getattr(torch.nn, actfn_str)
     hidden_dims = [458, 242, 141]
 
-    base_dir = Path.home() / "Desktop/machine_learning/rlmpc/dnn_pp"
+    base_dir = Path.home() / "machine_learning/rlmpc/dnn_pp"
     model = MPCParameterDNN(
         param_list=mpc_param_list,
         hidden_sizes=hidden_dims,

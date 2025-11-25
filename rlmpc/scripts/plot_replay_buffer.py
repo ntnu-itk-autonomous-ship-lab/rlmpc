@@ -1,13 +1,12 @@
 from pathlib import Path
-from typing import List
 
 import matplotlib.pyplot as plt
-import numpy as np
-import rlmpc.buffers as buffers
 import stable_baselines3.common.save_util as sb3_sutils
 
+import rlmpc.buffers as buffers
+
 if __name__ == "__main__":
-    base_path: Path = Path.home() / "Desktop/machine_learning/rlmpc/sac_rlmpc/"
+    base_path: Path = Path.home() / "machine_learning/rlmpc/sac_rlmpc/"
     rb_file = base_path / "replay_buffer.pkl"
 
     replay_buffer = sb3_sutils.load_from_pkl(rb_file)

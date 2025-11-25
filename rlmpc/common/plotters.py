@@ -17,11 +17,12 @@ import cv2
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
+from matplotlib import gridspec
+
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.logger as rl_logger
 import rlmpc.common.logger as rlmpc_logger
-import seaborn as sns
-from matplotlib import gridspec
 
 SMALL_SIZE = 18
 MEDIUM_SIZE = 18
@@ -1012,7 +1013,7 @@ def plot_evaluation_results(
 
 if __name__ == "__main__":
     matplotlib.use("TkAgg")
-    base_dir: Path = Path.home() / "Desktop/machine_learning/rlmpc"
+    base_dir: Path = Path.home() / "machine_learning/rlmpc"
     experiment_names = [
         "tsac128net_ent001_tfreq16_170425_1e_4lr_0005tau_s1_jid21854737"
     ]

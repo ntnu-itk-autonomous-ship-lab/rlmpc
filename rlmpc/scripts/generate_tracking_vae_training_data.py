@@ -1,20 +1,17 @@
 import os
 from pathlib import Path
-from typing import Callable, Tuple
+from typing import Callable
 
-import colav_simulator.behavior_generator as cs_bg
-import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import matplotlib.pyplot as plt
 import numpy as np
-import rlmpc.common.paths as rl_dp
-import rlmpc.rewards as rewards
 import torch as th
-from colav_simulator.gym.environment import COLAVEnvironment
-from rlmpc.networks.tracking_vae.vae import VAE
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.vec_env import SubprocVecEnv
+
+import rlmpc.common.paths as rl_dp
+import rlmpc.rewards as rewards
 
 # For macOS users, you might need to set the environment variable
 os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
@@ -50,9 +47,7 @@ def make_env(env_id: str, env_config: dict, rank: int, seed: int = 0) -> Callabl
 
 
 if __name__ == "__main__":
-    TRACKINGOBS_DATADIR: Path = (
-        Path.home() / "Desktop/machine_learning/tracking_vae/data"
-    )
+    TRACKINGOBS_DATADIR: Path = Path.home() / "machine_learning/tracking_vae/data"
 
     scenario_names = [
         "rlmpc_scenario_ms_channel",
@@ -201,7 +196,7 @@ if __name__ == "__main__":
 
             # vae.load_state_dict(
             #     th.load(
-            #         str(Path.home() / "Desktop/machine_learning/data/tracking_vae/tracking_vae2_BS_32_LD_10_GRU/tracking_vae2_BS_32_LD_10_GRU_best.pth",
+            #         str(Path.home() / "machine_learning/data/tracking_vae/tracking_vae2_BS_32_LD_10_GRU/tracking_vae2_BS_32_LD_10_GRU_best.pth",
             #         map_location=th.device("cpu"),
             #     )
             # )

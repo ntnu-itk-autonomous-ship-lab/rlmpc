@@ -2,18 +2,16 @@ import sys
 from pathlib import Path
 
 import optuna
-import rlmpc.common.datasets as rl_ds
 import torch
-from rlmpc.networks.tracking_vae_attention.vae import VAE
-from rlmpc.scripts.train_tracking_vae_attention import train_vae
 from torch.optim.lr_scheduler import (
     CosineAnnealingLR,
-    CosineAnnealingWarmRestarts,
-    MultiStepLR,
-    ReduceLROnPlateau,
 )
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+
+import rlmpc.common.datasets as rl_ds
+from rlmpc.networks.tracking_vae_attention.vae import VAE
+from rlmpc.scripts.train_tracking_vae_attention import train_vae
 
 
 def objective(trial: optuna.Trial) -> float:
@@ -25,7 +23,7 @@ def objective(trial: optuna.Trial) -> float:
     Returns:
         float: The loss value to minimize
     """
-    BASE_PATH: Path = Path.home() / "Desktop/machine_learning/tracking_vae/"
+    BASE_PATH: Path = Path.home() / "machine_learning/tracking_vae/"
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     latent_dim = trial.suggest_categorical("latent_dim", [8, 10, 12])
@@ -54,7 +52,7 @@ def objective(trial: optuna.Trial) -> float:
     batch_size = 256
     num_epochs = 20
 
-    data_dir = Path.home() / "Desktop/machine_learning/tracking_vae/data"
+    data_dir = Path.home() / "machine_learning/tracking_vae/data"
     data_filename_list = []
     for i in range(1, 199):
         training_data_filename = f"tracking_vae_training_data_rogaland_new{i}.npy"

@@ -14,7 +14,7 @@
 
 
 CURRENT_DATE_TIME="`date +%H%M_%d%m%y`"
-BASE_DIR="/cluster/work/trymte/sac_rlmpc_dir"
+BASE_DIR="$HOME/sac_rlmpc_dir"
 NCPUS=4 # Equal to number of training environments
 MAX_NUM_EVAL_EPS=16 # Maximum number of loaded evaluation episodes
 N_EVAL_EPS=16
@@ -74,6 +74,3 @@ $job_info
 
 EOF
 )
-
-# sending the log file via email with the job information in the email body
-echo "$email_body" | mailx -s "SLURM Job ${SLURM_JOB_NAME} Completed" -a R-${SLURM_JOB_NAME}.${SLURM_JOB_ID}.out trym.tengesdal@ntnu.no
