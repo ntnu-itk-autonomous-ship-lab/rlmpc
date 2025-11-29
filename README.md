@@ -5,7 +5,7 @@ This repository contains
 - A trajectory tracking NMPC with anti-grounding functionality, described in <https://ieeexplore.ieee.org/abstract/document/10644772>.
 - A mid-level NMPC implementation for dynamic ship collision avoidance and grounding avoidance.
 - Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamc obstacle target tracks.
-- A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC (unpublished work) for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so care should be taken to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear, well-posed MPC.
+- A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC (unpublished work) for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so take great care in how the cost function and constraints are setup to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear MPC.
 
 Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>. Example training/nmpc run scripts found under `run_examples`. Developed mainly with Python 3.10 and 3.11.
 
@@ -18,25 +18,24 @@ Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/cola
     <em>Example run of an anti-grounding tracking NMPC controller in the simulator.</em>
 </p>
 
-[![platform](https://img.shields.io/badge/platform-linux-lightgrey)]()
+[![platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)]()
 [![python version](https://img.shields.io/badge/python-3.10-blue)]()
 
 ## Main Dependencies
-See `setup.cfg` file. Nonlisted dependencies here include
+Git dependencies here include
 
-- Acados for solving optimal control problems.
-- Casadi -''-, <=3.6.5
+- `Acados` for solving optimal control problems: <https://github.com/acados/acados>.
+- The `seacharts` package in <https://github.com/trymte/seacharts>.
 - The `colav-simulator` repo in <https://github.com/NTNU-TTO/colav-simulator>.
-- The `rrt-rs` library for Rapidly-exploring Random Trees at <https://github.com/ntnu-itk-autonomous-ship-lab/rrt-rs>.
+- The `rrt-star-lib` library for Rapidly-exploring Random Trees at <https://github.com/ntnu-itk-autonomous-ship-lab/rrt-rs>.
 
 ## Installation
 
-1. Create a Python virtual environment in a project folder where the code should recide with `python -m venv myvenv`.
-2. Install this project in editable mode: `pip install -e .`
-3. Install `colav-simulator` separately in its own repository root folder (same virtual environment).
-4. Install `rrt-rs` separately in its own repository root folder (same virtual environment).
-5. Install Casadi explicitly: `pip install casadi<=3.6.5` or by adding it to the setup.cfg.
-6. Install Acados (requires local compilation): follow the [Acados installation instructions](https://docs.acados.org/installation/index.html).
+Use the convenience script in `install_project.sh` to install everything:
+```bash
+chmod +x install_project.sh
+./install_project.sh
+```
 
 ## Citation
 If you are using code from this repository in your work, please use the following citation for the machine-learning related parts

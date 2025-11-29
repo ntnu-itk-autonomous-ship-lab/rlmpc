@@ -1,0 +1,77 @@
+[project]
+name = "rlmpc"
+version = "1.0.0"
+authors = [{name = "Trym Tengesdal", email = "tengesdal1994@gmail.com"}]
+description = "Software for anti-grounding MPCs, situation dependent MPC-tuning using Soft Actor Critic, feature extractors for DRL, and more."
+keywords = ["maritime collision avoidance", "python", "MPC", "RL", "SAC", "VAE", "feature extraction"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+license = {file = "LICENSE"}
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "matplotlib-scalebar",
+    "scipy",
+    "optuna",
+    "optuna-dashboard",
+    "cerberus",
+    "pandas",
+    "shapely",
+    "pytorch-warmup",
+    "pyyaml",
+    "seaborn",
+    "geopy",
+    "tensorflow",
+    "future-fstrings",
+    "memory_profiler",
+    "geopandas",
+    "rtree",
+    "maturin",
+    "cvxpy",
+    "opencv-python",
+    "pygame",
+    "scikit-image",
+    "einops",
+    "gymnasium>=0.28.1",
+    "torchvision",
+    "torch>=1.13",
+    "stable_baselines3",
+    "tqdm",
+    "rich",
+    "distributed",
+    "colav-simulator>=1.0.0",
+    "rrt-star-lib>=1.0.0",
+    "casadi==3.6.5",
+]
+
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["rlmpc"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"rlmpc" = "rlmpc"
+"config" = "rlmpc/config"
+"run_examples" = "rlmpc/run_examples"
+"scenarios" = "rlmpc/scenarios"
+"tests" = "rlmpc/tests"
+
+[tool.uv.sources]
+seacharts = { git = "https://github.com/trymte/seacharts.git", rev = "6818e8abf845cfa0dfc6038c11a670da988ad531" }
+rrt-star-lib = { git = "https://github.com/ntnu-itk-autonomous-ship-lab/rrt-rs.git", rev = "c212eeaa7479bc61f2aa9f25dc19719de04ade20" }
+colav-simulator = { git = "https://github.com/NTNU-TTO/colav-simulator.git", rev = "d40e0f05214edbf4b28e9bc4ce7c10181c375802" }
