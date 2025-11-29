@@ -9,15 +9,62 @@ Author: Trym Tengesdal
 
 import pathlib
 
-root = pathlib.Path(__file__).parents[2]
-config = root / "config"
-package = root / "rlmpc"
-data = root / "data"
-animations = root / "animations"
-figures = root / "figures"
-acados_code_gen = root / "acados_code_gen"
-casadi_code_gen = root / "casadi_code_gen"
-scenarios = root / "scenarios"
+
+def _get_package_root():
+    """Get the root directory of the colav_simulator package.
+
+    Returns:
+        Path: Package root directory (always the actual package, never project root)
+
+    Raises:
+        RuntimeError: If package root cannot be determined
+    """
+    package_file = pathlib.Path(__file__).absolute()
+    package_root = package_file.parents[1]
+
+    # If installed in site-packages, we're good
+    if "site-packages" in str(package_root) or "dist-packages" in str(package_root):
+        return package_root
+
+    # Otherwise, verify it's local development (project root should have config/scenarios)
+    project_root = package_root.parent
+    if not (
+        (project_root / "config").exists() or (project_root / "scenarios").exists()
+    ):
+        raise RuntimeError(
+            f"Could not determine package root. "
+            f"Package file: {package_file}, "
+            f"Package root: {package_root}, "
+            f"Project root: {project_root}"
+        )
+
+    return package_root
+
+
+package = _get_package_root()
+is_installed = "site-packages" in str(package) or "dist-packages" in str(package)
+schemas = package / "schemas"
+if is_installed:
+    # Installed: everything is in the package directory
+    config = package / "config"
+    scenarios = package / "scenarios"
+    output = package / "output"
+    data = package / "data"
+    animations = package / "animations"
+    figures = package / "figures"
+    acados_code_gen = package / "acados_code_gen"
+    casadi_code_gen = package / "casadi_code_gen"
+else:
+    # Local development: schemas are in package, config/scenarios are in project root
+    project_root = package.parent
+    config = project_root / "config"
+    scenarios = project_root / "scenarios"
+    output = project_root / "output"
+    data = project_root / "data"
+    animations = project_root / "animations"
+    figures = project_root / "figures"
+    acados_code_gen = project_root / "acados_code_gen"
+    casadi_code_gen = project_root / "casadi_code_gen"
 
 schemas = package / "schemas"
 rlmpc_schema = schemas / "rlmpc.yaml"
