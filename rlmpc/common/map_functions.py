@@ -14,11 +14,6 @@ import casadi as csd
 import geopandas as gpd
 import geopy.distance
 import numpy as np
-import rlmpc.common.gmm_em as gmm_em
-import rlmpc.common.helper_functions as hf
-import rlmpc.common.paths as dp
-import rlmpc.common.rbf_casadi as rbf_casadi
-import rlmpc.common.smallestenclosingcircle as smallestenclosingcircle
 import scipy.interpolate as scipyintp
 import scipy.spatial as scipy_spatial
 import seacharts.enc as senc
@@ -28,6 +23,11 @@ import shapely.geometry as geometry
 # import triangle as tr
 from osgeo import osr
 from shapely import ops, strtree
+
+import rlmpc.common.gmm_em as gmm_em
+import rlmpc.common.helper_functions as hf
+import rlmpc.common.rbf_casadi as rbf_casadi
+import rlmpc.common.smallestenclosingcircle as smallestenclosingcircle
 
 
 def local2latlon(
@@ -275,9 +275,9 @@ def fill_rtree_with_geometries(geometries: list) -> Tuple[strtree.STRtree, list]
     """
     poly_list = []
     for poly in geometries:
-        assert isinstance(poly, geometry.MultiPolygon), (
-            "Only MultiPolygon members are supported"
-        )
+        assert isinstance(
+            poly, geometry.MultiPolygon
+        ), "Only MultiPolygon members are supported"
         for sub_poly in poly.geoms:
             poly_list.append(sub_poly)
     return strtree.STRtree(poly_list), poly_list
@@ -1036,9 +1036,7 @@ def compute_surface_approximations_from_polygons(
     bbox_poly = bbox_to_polygon(tuple(rel_bbox))
     j = 0
     for d_safe in safety_margins:
-        d_safe = (
-            d_safe + 0.05
-        )  # buffer to account for function slope not being infinite
+        d_safe = d_safe + 0.1  # buffer to account for function slope not being infinite
         surfaces = []
         scipy_surfaces = []
         safety_margin_str = "safety_margin_" + str(int(d_safe))
@@ -1398,6 +1396,184 @@ def compute_surface_approximations_from_polygons(
         surfaces_list.append(surfaces)
         scipy_surfaces_list.append(scipy_surfaces)
     return surfaces_list, scipy_surfaces_list
+
+
+def compute_surface_approximations_from_polygons_old(
+    polygons: list,
+    enc: Optional[senc.ENC] = None,
+    safety_margins: list = [0.0],
+    map_origin: np.ndarray = np.array([0.0, 0.0]),
+) -> list:
+    """Computes smooth 2D surface approximations from the input polygon list. Old version of the function.
+
+    Args:
+        - polygons (list): List of shapely polygons
+        - enc (Optional[senc.ENC], optional): ENC object. Defaults to None.
+        - safety_margins (Optional[list], optional): List of safety margins to buffer the polygon. Defaults to None.
+        - map_origin (np.ndarray, optional): Map origin. Defaults to np.array([0.0, 0.0]).
+
+    Returns:
+        - list: List of surface approximations for each polygon.
+    """
+    surfaces_list = []
+    cap_style = 2
+    join_style = 2
+    j = 0
+    for d_safe in safety_margins:
+        d_safe = d_safe + 0.1  # buffer to account for function slope not being infinite
+        surfaces = []
+        safety_margin_str = "safety_margin_" + str(int(d_safe))
+        for polygons, original_poly in polygons:
+            original_polygon_boundary = geometry.LineString(
+                original_poly.exterior.coords
+            ).buffer(0.5, cap_style=cap_style, join_style=join_style)
+            original_polygon_boundary_d_safe = geometry.LineString(
+                original_poly.buffer(
+                    d_safe, cap_style=cap_style, join_style=join_style
+                ).exterior.coords
+            ).buffer(0.5, cap_style=cap_style, join_style=join_style)
+            for polygon in polygons:
+                # Extract the polygon coastline  and buffered polygon coastline
+                coastline_original = polygon.intersection(original_polygon_boundary)
+                n_orig_boundary_points = len(coastline_original.exterior.coords.xy[0])
+                coastline = polygon.buffer(
+                    d_safe, cap_style=cap_style, join_style=join_style
+                ).intersection(original_polygon_boundary_d_safe)
+                y_poly_unstructured_orig, x_poly_unstructured_orig = (
+                    coastline.exterior.coords.xy
+                )
+                y_poly_unstructured = list(y_poly_unstructured_orig).copy()
+                x_poly_unstructured = list(x_poly_unstructured_orig).copy()
+
+                n_coastline_points_orig = len(y_poly_unstructured_orig)
+                insert_count = 0
+                for i in range(n_coastline_points_orig - 1):
+                    pi = np.array(
+                        [x_poly_unstructured_orig[i], y_poly_unstructured_orig[i]]
+                    )
+                    pj = np.array(
+                        [
+                            x_poly_unstructured_orig[i + 1],
+                            y_poly_unstructured_orig[i + 1],
+                        ]
+                    )
+                    d2next = np.linalg.norm(pi - pj)
+                    if (
+                        d2next > 30.0
+                        or (
+                            j == 8 and d2next > 15.0
+                        )  # and i > int(0.7 * n_coastline_points_orig))
+                        or (j >= 3 and j < 8 and d2next > 10.0)
+                        or (j > 8 and d2next > 10.0)
+                    ):
+                        # insert a point in between the two points
+                        p_mid = (pi + pj) / 2.0
+                        x_poly_unstructured.insert(i + 1 + insert_count, p_mid[0])
+                        y_poly_unstructured.insert(i + 1 + insert_count, p_mid[1])
+                        insert_count += 1
+
+                n_coastline_points = len(y_poly_unstructured)
+                for i in range(n_coastline_points - 1):
+                    if j == 8:
+                        pi = np.array([x_poly_unstructured[i], y_poly_unstructured[i]])
+                        pj = np.array(
+                            [x_poly_unstructured[i + 1], y_poly_unstructured[i + 1]]
+                        )
+                        d2next = np.linalg.norm(pi - pj)
+                        # print(f"Distance between vertex {i} and {i+1} after: {d2next}")
+                        # enc.draw_circle((pi[1] + map_origin[1], pi[0] + map_origin[0]), radius=5.0, color="purple", fill=True)
+
+                polygon_d_safe = polygon.buffer(
+                    d_safe, cap_style=cap_style, join_style=join_style
+                )
+                x_poly_orig = x_poly_unstructured.copy()
+                y_poly_orig = y_poly_unstructured.copy()
+                mask_unstructured = [1.0] * len(y_poly_unstructured)
+                n_boundary_points = len(y_poly_unstructured)
+                # print(f"n_boundary_points before: {n_orig_boundary_points} | after: {n_boundary_points}")
+
+                # Add buffer points just outside the polygon coastline, where the mask is zero or negative (no collision)
+                step_buffer = 1000.0
+                n_levels = 1
+                for level in range(n_levels):
+                    buff_l = 0.1 + level * step_buffer
+                    try:
+                        y_poly, x_poly = polygon.buffer(
+                            d_safe + buff_l, cap_style=cap_style, join_style=join_style
+                        ).exterior.coords.xy
+                        for xcoord, ycoord in zip(x_poly, y_poly):
+                            if original_polygon_boundary_d_safe.buffer(
+                                buff_l, cap_style=cap_style, join_style=join_style
+                            ).contains(geometry.Point(ycoord, xcoord)):
+                                x_poly_unstructured.append(xcoord)
+                                y_poly_unstructured.append(ycoord)
+                                mask_unstructured.append(-1.0)
+                    except AttributeError:
+                        break
+
+                ## Add more buffer points further away from the polygon coastline, where the mask is zero or negative (no collision)
+                buff_l = 10.0
+                val_l = -10.0
+                if j > 5:
+                    buff_l = 1000.0
+                    val_l = -1000.0
+                relevant_boundary = polygon.buffer(d_safe + buff_l).intersection(
+                    geometry.LineString(
+                        original_poly.buffer(d_safe + buff_l).exterior.coords
+                    ).buffer(1.0)
+                )
+                y_boundary, x_boundary = relevant_boundary.exterior.coords.xy
+
+                y_poly, x_poly = polygon_d_safe.exterior.coords.xy
+                if len(y_poly) < 10:
+                    n_boundary_points = 10
+                else:
+                    n_boundary_points = 50
+
+                if len(y_boundary) < n_boundary_points:
+                    n_boundary_points = len(y_boundary)
+                elif len(y_boundary) > 300:
+                    n_boundary_points = 100
+                step = int(len(y_boundary) / n_boundary_points)
+                for i in range(0, len(y_boundary), step):
+                    x_poly_unstructured.append(x_boundary[i])
+                    y_poly_unstructured.append(y_boundary[i])
+                    mask_unstructured.append(val_l)
+
+                smoothing = 1.0
+                if j == 1:
+                    smoothing = 1.0
+                if j == 8:
+                    smoothing = 15.0
+
+                rbf = scipyintp.RBFInterpolator(
+                    np.array([x_poly_unstructured, y_poly_unstructured]).T,
+                    np.array(mask_unstructured),
+                    kernel="thin_plate_spline",
+                    epsilon=1.0,
+                    smoothing=smoothing,
+                )
+                rbf_csd = rbf_casadi.RBFInterpolator(
+                    np.array([x_poly_unstructured, y_poly_unstructured]).T,
+                    np.array(mask_unstructured),
+                    rbf._coeffs,
+                    rbf.powers,
+                    rbf._shift,
+                    rbf._scale,
+                    "thin_plate_spline",
+                    rbf.epsilon,
+                )
+                x = csd.MX.sym("x", 2)
+                intp = rbf_csd(x.reshape((1, 2)))
+                rbf_surface_func = csd.Function(
+                    "so_surface_func_" + str(j) + "_" + safety_margin_str,
+                    [x.reshape((1, 2))],
+                    [intp],
+                )
+                surfaces.append(rbf_surface_func)
+                j += 1
+        surfaces_list.append(surfaces)
+    return surfaces_list
 
 
 def point_is_within_distance_of_points_in_list(

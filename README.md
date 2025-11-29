@@ -1,7 +1,7 @@
 
 # rlmpc
 
-This repository contains
+This repository contains research code behind
 - A trajectory tracking NMPC with anti-grounding functionality, described in <https://ieeexplore.ieee.org/abstract/document/10644772>.
 - A mid-level NMPC implementation for dynamic ship collision avoidance and grounding avoidance.
 - Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamc obstacle target tracks.
@@ -35,6 +35,11 @@ Use the convenience script in `install_project.sh` to install everything:
 ```bash
 chmod +x install_project.sh
 ./install_project.sh
+```
+
+Check the installation by e.g. running the anti-grounding MPC script 
+```bash
+python3 run_examples/run_antigrounding_nmpc_near_land_tracking.py
 ```
 
 ## Citation

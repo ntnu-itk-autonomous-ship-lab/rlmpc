@@ -1,3 +1,5 @@
+"""Pretraining SAC critics with HPO. You need to have a replay buffer dataset for this to work."""
+
 import sys
 from pathlib import Path
 
@@ -142,6 +144,8 @@ def objective(trial: optuna.Trial) -> float:
         / "models"
         / (experiment_name + "_replay_buffer")
     )
+    if not data_path.exists():
+        raise ValueError(f"The replay buffer path {data_path} does not exist!")
 
     model = SAC(env=env, **model_kwargs)
     model.load_replay_buffer(path=data_path)

@@ -1,3 +1,5 @@
+"""Pretraining MPC parameter provider with HPO. You need to have a replay buffer dataset for this to work."""
+
 import sys
 from pathlib import Path
 

@@ -92,7 +92,15 @@ def validate(settings: dict, schema: dict) -> None:
     if not schema:
         raise ValueError("Empty schema!")
 
-    validator = Validator(schema)
+    try:
+        validator = Validator(schema)
+    except Exception as e:
+        raise ValueError(
+            f"Failed to create Cerberus validator from schema. "
+            f"This usually indicates a problem with the schema structure. "
+            f"Error: {e}\n\n"
+            f"Schema keys: {list(schema.keys()) if isinstance(schema, dict) else 'Not a dict'}"
+        ) from e
 
     if not validator.validate(settings):
         raise ValueError(f"Cerberus validation Error: {validator.errors}")

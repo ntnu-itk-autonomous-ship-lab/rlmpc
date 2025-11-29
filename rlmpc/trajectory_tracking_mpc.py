@@ -1,8 +1,5 @@
 """
-antigrounding_mpc.py
-
-Summary:
-    COLAV-simulator planner wrapper for the anti-grounding MPC.
+COLAV-simulator planner wrapper for the anti-grounding MPC.
 
 Author: Trym Tengesdal
 """
@@ -12,19 +9,21 @@ from pathlib import Path
 from typing import Optional
 
 import colav_simulator.common.map_functions as mapf
+import colav_simulator.common.plotters as plotters
 import colav_simulator.core.colav.colav_interface as ci
 import colav_simulator.core.guidances as guidances
 import colav_simulator.core.stochasticity as stochasticity
 import matplotlib.pyplot as plt
 import numpy as np
+import seacharts.enc as senc
+from shapely import strtree
+
 import rlmpc.common.config_parsing as cp
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as dp
 import rlmpc.common.set_generator as sg
 import rlmpc.mpc.parameters as mpc_params
 import rlmpc.mpc.trajectory_tracking.ttmpc as ttmpc
-import seacharts.enc as senc
-from shapely import strtree
 
 
 @dataclass
@@ -176,7 +175,7 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
             self._mpc_trajectory[:2, :] += self._map_origin.reshape((2, 1))
 
             if enc is not None and self._mpc.params.debug:
-                hf.plot_trajectory(
+                plotters.plot_trajectory(
                     nominal_trajectory
                     + np.array(
                         [self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]
@@ -184,11 +183,11 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
                     enc,
                     "yellow",
                 )
-                hf.plot_dynamic_obstacles(
-                    do_list, enc, self._mpc.params.T, self._mpc.params.dt, color="red"
+                plotters.plot_dynamic_obstacles(
+                    do_list, "red", enc, self._mpc.params.T, self._mpc.params.dt
                 )
-                hf.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
-                ship_poly = hf.create_ship_polygon(
+                plotters.plot_trajectory(self._mpc_trajectory, enc, color="cyan")
+                ship_poly = mapf.create_ship_polygon(
                     ownship_state[0],
                     ownship_state[1],
                     ownship_state[2],
@@ -198,11 +197,11 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
                     1.0,
                 )
                 enc.draw_polygon(ship_poly, color="pink")
-            self._mpc_trajectory, self._mpc_inputs = hf.interpolate_solution(
+            self._mpc_trajectory, self._mpc_inputs, _ = hf.interpolate_solution(
                 self._mpc_trajectory,
                 self._mpc_inputs,
-                t,
-                self._t_prev,
+                None,
+                t - self._t_prev,
                 self._mpc.params.T,
                 self._mpc.params.dt,
             )
@@ -227,7 +226,6 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
         # Alternative 2: Apply MPC inputs directly to the ownship
         self._references = np.zeros((9, len(self._mpc_inputs[0, :])))
         self._references[:2, :] = self._mpc_inputs
-
         return self._references
 
     def _setup_mpc_static_obstacle_input(
@@ -265,12 +263,12 @@ class TrajectoryTrackingMPC(ci.ICOLAV):
 
         if enc is not None and show_plots:
             enc.start_display()
-            # hf.plot_trajectory(waypoints, enc, color="green")
-            hf.plot_trajectory(self._nominal_trajectory, enc, color="yellow")
+            # plotters.plot_trajectory(waypoints, enc, color="green")
+            plotters.plot_trajectory(self._nominal_trajectory, enc, color="yellow")
             for hazard in self._rel_polygons:
                 enc.draw_polygon(hazard, color="red", fill=False)
 
-            ship_poly = hf.create_ship_polygon(
+            ship_poly = mapf.create_ship_polygon(
                 ownship_state[0],
                 ownship_state[1],
                 ownship_state[2],

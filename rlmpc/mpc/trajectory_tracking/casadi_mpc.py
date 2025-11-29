@@ -13,6 +13,8 @@ from typing import Optional, Tuple
 import casadi as csd
 import colav_simulator.common.map_functions as cs_mapf
 import numpy as np
+import seacharts.enc as senc
+
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.integrators as integrators
 import rlmpc.common.map_functions as mapf
@@ -21,7 +23,6 @@ import rlmpc.common.set_generator as sg
 import rlmpc.mpc.common as mpc_common
 import rlmpc.mpc.models as models
 import rlmpc.mpc.parameters as parameters
-import seacharts.enc as senc
 
 
 class CasadiMPC:
@@ -37,7 +38,6 @@ class CasadiMPC:
 
         self._solver_options: mpc_common.CasadiSolverOptions = solver_options
         self._initialized_v: bool = False
-        self._initialized_q: bool = False
         self._map_origin: np.ndarray = np.array([])
 
         self._opt_vars: csd.MX = csd.MX.sym("opt_vars", 0)
@@ -47,13 +47,7 @@ class CasadiMPC:
         self._current_warmstart_v: dict = {"x": [], "lam_x0": [], "lam_g": []}
         self._lbg_v: np.ndarray = np.array([])
         self._ubg_v: np.ndarray = np.array([])
-        self._qsolver: csd.Function = csd.Function("qsolver", [], [])
-        self._current_warmstart_q: dict = {"x": [], "lam_x0": [], "lam_g": []}
-        self._lbg_q: np.ndarray = np.array([])
-        self._ubg_q: np.ndarray = np.array([])
-
         self._dlag_v: csd.Function = csd.Function("dlag_v", [], [])
-        self._dlag_q: csd.Function = csd.Function("dlag_q", [], [])
 
         self._num_ocp_params: int = 0
         self._num_fixed_ocp_params: int = 0
@@ -149,6 +143,7 @@ class CasadiMPC:
             )
         )
         warm_start = {
+            "f": 0.0,
             "x": w.tolist(),
             "lam_x": np.zeros(w.shape[0]).tolist(),
             "lam_g": np.zeros(dim_g).tolist(),
@@ -223,7 +218,7 @@ class CasadiMPC:
         pos_past_N = states_past_N[:2, :] + self._map_origin.reshape(2, 1)
         pos_past_N[0, :] = states_past_N[1, :] + self._map_origin[1]
         pos_past_N[1, :] = states_past_N[0, :] + self._map_origin[0]
-        dist_vecs, _, _ = cs_mapf.compute_distance_vectors_to_grounding(
+        dist_vecs = cs_mapf.compute_distance_vectors_to_grounding(
             pos_past_N, self._min_depth, enc
         )
         min_dist = np.min(np.linalg.norm(dist_vecs, axis=0))
@@ -265,7 +260,7 @@ class CasadiMPC:
             )
             if success:
                 break
-        assert success, "Could not create warm start solution"
+        # assert success, "Could not create warm start solution"
         new_warm_start = prev_warm_start
         new_warm_start["x"] = w_warm_start.tolist()
         return new_warm_start
@@ -349,8 +344,8 @@ class CasadiMPC:
             g_ineq_vals = self._inequality_constraints(
                 soln["x"], parameter_values
             ).full()
-            if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
-                soln = self._current_warmstart_v
+            # if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
+            #     soln = self._current_warmstart_v
         elif stats["return_status"] == "Infeasible_Problem_Detected":
             raise RuntimeError("Infeasible solution found.")
 
@@ -553,7 +548,7 @@ class CasadiMPC:
             self._params.so_constr_type
             == parameters.StaticObstacleConstraint.PARAMETRICSURFACE
         ):
-            so_surfaces, _ = mapf.compute_surface_approximations_from_polygons(
+            so_surfaces = mapf.compute_surface_approximations_from_polygons_old(
                 so_list,
                 enc,
                 safety_margins=[self._params.d_safe_so],
@@ -596,10 +591,19 @@ class CasadiMPC:
 
         so_constr_list = []
 
+        # Create symbolic parameters for the integrator's stage cost
+        # These will be passed as parameters when calling the integrator
+        X_ref_k = csd.MX.sym("X_ref_k", dim_Q, 1)
+
         # Create symbolic integrator for the shooting gap constraints and discretized cost function
-        stage_cost = mpc_common.quadratic_cost(x_k[0:dim_Q], X_ref[:, 0], Qmtrx)
+        # Note: x is the integrator's state variable (from the model), not x_k (the NLP decision variable)
+        stage_cost = mpc_common.quadratic_cost(x[0:dim_Q], X_ref_k, Qmtrx)
         erk4 = integrators.ERK4(
-            x=x, p=csd.vertcat(u, p_mdl), ode=xdot, quad=stage_cost, h=dt
+            x=x,
+            p=csd.vertcat(u, p_mdl, X_ref_k, Q_vec),
+            ode=xdot,
+            quad=stage_cost,
+            h=dt,
         )
         for k in range(N):
             u_k = csd.MX.sym("u_" + str(k), nu, 1)
@@ -631,7 +635,9 @@ class CasadiMPC:
             g_ineq_list.extend(do_constr_k)
 
             # Shooting gap constraints
-            x_k_end, _, _, _, _, _, _, _ = erk4(x_k, csd.vertcat(u_k, p_mdl))
+            x_k_end, _, _, _, _, _, _, _ = erk4(
+                x_k, csd.vertcat(u_k, p_mdl, X_ref[:, k], Q_vec)
+            )
             x_k = csd.MX.sym("x_" + str(k + 1), nx, 1)
             X.append(x_k)
             g_eq_list.append(x_k_end - x_k)
@@ -697,7 +703,10 @@ class CasadiMPC:
             "g": csd.vertcat(g_eq, g_ineq),
         }
         self._vsolver = csd.nlpsol(
-            "vsolver", "ipopt", vnlp_prob, self._solver_options.to_opt_settings()
+            "vsolver",
+            self._solver_options.solver_type,
+            vnlp_prob,
+            self._solver_options.to_opt_settings(),
         )
 
         self._static_obstacle_constraints = csd.Function(
@@ -784,17 +793,6 @@ class CasadiMPC:
         self._lbg_q = np.concatenate((lbg_eq, lbg_ineq), axis=0)
         self._ubg_q = np.concatenate((ubg_eq, ubg_ineq), axis=0)
 
-        qnlp_prob = {
-            "f": J,
-            "x": self._opt_vars,
-            "p": self._p,
-            "g": csd.vertcat(g_eq, g_ineq),
-        }
-        self._qsolver = csd.nlpsol(
-            "qsolver", "ipopt", qnlp_prob, self._solver_options.to_opt_settings()
-        )
-        # self._dlag_q = self.build_sensitivity(J, g_eq, g_ineq)
-
     def _create_static_obstacle_constraint(
         self,
         x_k: csd.MX,
@@ -830,9 +828,9 @@ class CasadiMPC:
             self._params.so_constr_type
             == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET
         ):
-            assert A_so_constr is not None and b_so_constr is not None, (
-                "Convex safe set constraints must be provided for this constraint type."
-            )
+            assert (
+                A_so_constr is not None and b_so_constr is not None
+            ), "Convex safe set constraints must be provided for this constraint type."
             so_constr_list.append(
                 # A_so_constr @ x_k[0:2]
                 # - b_so_constr
@@ -849,9 +847,9 @@ class CasadiMPC:
                 self._params.so_constr_type
                 == parameters.StaticObstacleConstraint.CIRCULAR
             ):
-                assert so_pars.shape[0] == 3, (
-                    "Static obstacle parameters with dim 3 in first axis must be provided for this constraint type."
-                )
+                assert (
+                    so_pars.shape[0] == 3
+                ), "Static obstacle parameters with dim 3 in first axis must be provided for this constraint type."
                 for j in range(self._params.max_num_so_constr):
                     x_c, y_c, r_c = so_pars[0, j], so_pars[1, j], so_pars[2, j]
                     so_constr_list.append(
@@ -862,9 +860,9 @@ class CasadiMPC:
                 self._params.so_constr_type
                 == parameters.StaticObstacleConstraint.ELLIPSOIDAL
             ):
-                assert so_pars.shape[0] == 4, (
-                    "Static obstacle parameters with dim 4 in first axis must be provided for this constraint type."
-                )
+                assert (
+                    so_pars.shape[0] == 4
+                ), "Static obstacle parameters with dim 4 in first axis must be provided for this constraint type."
                 for j in range(self._params.max_num_so_constr):
                     x_e, y_e, A_e = so_pars[0, j], so_pars[1, j], so_pars[2:, j]
                     A_e = csd.reshape(A_e, 2, 2)
@@ -880,9 +878,9 @@ class CasadiMPC:
                 self._params.so_constr_type
                 == parameters.StaticObstacleConstraint.PARAMETRICSURFACE
             ):
-                assert so_surfaces is not None, (
-                    "Parametric surfaces must be provided for this constraint type."
-                )
+                assert (
+                    so_surfaces is not None
+                ), "Parametric surfaces must be provided for this constraint type."
                 n_so = len(so_surfaces)
                 for j in range(self._params.max_num_so_constr):
                     if j < n_so:
@@ -1076,258 +1074,9 @@ class CasadiMPC:
             self._params.so_constr_type
             == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET
         ):
-            assert len(so_list) == 2, (
-                "Approximate convex safe set constraint requires constraint variables A and b"
-            )
+            assert (
+                len(so_list) == 2
+            ), "Approximate convex safe set constraint requires constraint variables A and b"
             A, b = so_list[0], so_list[1]
             self._p_fixed_so_values = np.concatenate((A.flatten(), b.flatten()), axis=0)
         return self._p_fixed_so_values.tolist()
-
-    def build_sensitivity(self, cost: csd.MX, g_eq: csd.MX, g_ineq: csd.MX) -> dict:
-        """Builds the sensitivity of the Lagrangian (lag) defined by the inputs.
-
-        L = cost + lamb.T @ g_eq + mu.T @ g_ineq
-
-        Args:
-            cost (_type_): Cost function
-            g_eq (_type_): Equality constraints
-            g_ineq (_type_): Inequality constraints
-
-        Returns:
-            dict: Dictionary containing the lagrangian function and its derivative funcition + sensitivities wrt decision variables and parameters.
-        """
-        lamb = csd.MX.sym("lambda", g_eq.shape[0])
-        mu = csd.MX.sym("mu", g_ineq.shape[0])
-        mult = csd.vertcat(lamb, mu)
-
-        lag = cost + csd.transpose(lamb) @ g_eq + csd.transpose(mu) @ g_ineq
-        lag_func = csd.Function(
-            "lagrangian",
-            [self._opt_vars, mult, self._p_fixed, self._p_adjustable],
-            [lag],
-        )
-        dlag_func = lag_func.factory(
-            "lagrangian_derivative_func",
-            ["i0", "i1", "i2", "i3"],
-            ["jac:o0:i0", "jac:o0:i2", "jac:o0:i3"],
-        )
-
-        # Compute the lagrangian sensitivities wrt decision variables and parameters
-        dlag_dw, dlag_dp_fixed, dlag_dp_adjustable = dlag_func(
-            self._opt_vars, mult, self._p_fixed, self._p_adjustable
-        )
-
-        # # # Build KKT matrix
-        # R_kkt = csd.vertcat(
-        #     csd.transpose(dlag_dw),
-        #     g_eq,
-        #     mu * g_ineq + self._etau,
-        # )
-
-        # # z contains all variables of the lagrangian
-        # z = csd.vertcat(self._opt_vars, lamb, mu)
-
-        # # Generate sensitivity of the KKT matrix
-        # R_func = csd.Function("kkt_matrix_func", [z, self._p_fixed, self._p_adjustable], [R_kkt])
-        # dR_kkt_func = R_func.factory("kkt_matrix_derivative_func", ["i0", "i1", "i2"], ["jac:o0:i0", "jac:o0:i2"])
-        # [dR_kkt_dz, dR_kkt_dp] = dR_kkt_func(z, self._p_fixed, self._p_adjustable)
-
-        # # Generate sensitivity of the optimal solution
-        # dz_dp = -csd.inv(dR_kkt_dz) @ dR_kkt_dp
-        # dz_dp_func = csd.Function("dz_dp_func", [z, self._p_fixed, self._p_adjustable], [dz_dp])
-        # dR_kkt_dz_func = csd.Function("dR_kkt_dz_func", [z, self._p_fixed, self._p_adjustable], [dR_kkt_dz])
-        # dR_kkt_dp_func = csd.Function("dR_kkt_dp_func", [z, self._p_fixed, self._p_adjustable], [dR_kkt_dp])
-
-        output_dict = {
-            "lag": lag_func,
-            "dlag_func": dlag_func,
-            "dlag_dw": dlag_dw,
-            "dlag_dp_fixed": dlag_dp_fixed,
-            "dlag_dp_adjustable": dlag_dp_adjustable,
-        }
-        return output_dict
-
-    def policy_gradient_wrt_parameters(
-        self, state: np.ndarray, soln: dict, parameter_values: np.ndarray
-    ) -> np.ndarray:
-        """Computes the sensitivity of the policy output with respect to the learnable parameters.
-
-        This is basically the Jacobian/gradient of the policy output with respect to the learnable parameters.
-
-        Args:
-            state (np.ndarray): State vector
-            soln (dict): Solution dictionary
-            parameter_values (np.ndarray): Parameter vector
-
-        Returns:
-            np.ndarray: Sensitivity of the policy output with respect to the learnable parameters
-        """
-        nx, nu = self._model.dims()
-        w = soln["x"].full()
-        lamb_g = soln["lamb_g"].full()
-        z = np.concatenate((w, lamb_g), axis=0)
-
-        parameter_values[:nx] = state
-        jacob_act = self.dPi(z, self._p_fixed_values, self._p_adjustable_values).full()
-        return jacob_act[:nu, :]
-
-    def action_value(
-        self,
-        state: np.ndarray,
-        action: np.ndarray,
-        parameter_values: np.ndarray,
-        show_plots: bool = False,
-    ) -> Tuple[float, dict]:
-        """Computes the action value function Q(s, a) for a given state and action.
-
-        Args:
-            - state (np.ndarray): State vector
-            - action (np.ndarray): Action vector
-            - parameter_values (np.ndarray, optional): Adjustable parameter vector for the MPC NLP problem.
-            - show_plots (bool, optional): Whether to show plots or not. Defaults to False.
-
-        Returns:
-            Tuple[float, dict]: Action value function Q(s, a) and corresponding solution dictionary
-        """
-        if not self._initialized_q:
-            self._current_warmstart_q = self._create_initial_warm_start(
-                xs, nominal_trajectory, nominal_inputs, self._lbg_q.shape[0]
-            )
-            self._p_fixed_so_values = self._create_fixed_so_parameter_values(
-                so_list, xs, nominal_trajectory, enc, **kwargs
-            )
-            self._xs_prev = xs
-            self._initialized_q = True
-
-        psi = xs[2]
-        xs_unwrapped = xs.copy()
-        xs_unwrapped[2] = np.unwrap(np.array([self._xs_prev[2], psi]))[1]
-        self._xs_prev = xs_unwrapped
-        dt = t - self._t_prev
-        if dt > 0.0:
-            self._current_warmstart_q = self._shift_warm_start(
-                self._current_warmstart_q, xs_unwrapped, dt, enc
-            )
-
-        parameter_values = self.create_parameter_values(
-            xs_unwrapped,
-            action,
-            nominal_trajectory,
-            nominal_inputs,
-            do_list,
-            so_list,
-            enc,
-            **kwargs,
-        )
-        t_start = time.time()
-
-        soln = self._qsolver(
-            x0=self._current_warmstart_q["x"],
-            lam_x0=self._current_warmstart_q["lam_x"],
-            lam_g0=self._current_warmstart_q["lam_g"],
-            p=parameter_values,
-            lbx=self._lbw,
-            ubx=self._ubw,
-            lbg=self._lbg_q,
-            ubg=self._ubg_q,
-        )
-        t_solve = time.time() - t_start
-        stats = self._qsolver.stats()
-        if stats["return_status"] == "Maximum_Iterations_Exceeded":
-            # Use solution unless it is infeasible, then use previous solution.
-            g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
-            g_ineq_vals = self._inequality_constraints(
-                soln["x"], parameter_values
-            ).full()
-            if np.any(g_eq_vals > 1e-6) or np.any(g_ineq_vals > 1e-6):
-                soln = self._current_warmstart_q
-        elif stats["return_status"] == "Infeasible_Problem_Detected":
-            raise RuntimeError("Infeasible solution found.")
-
-        so_constr_vals = self._static_obstacle_constraints(
-            soln["x"], parameter_values
-        ).full()
-        g_eq_vals = self._equality_constraints(soln["x"], parameter_values).full()
-        g_ineq_vals = self._inequality_constraints(soln["x"], parameter_values).full()
-        X, U, Sigma = self._extract_trajectories(soln)
-        self._current_warmstart_q["x"] = self._decision_variables(X, U, Sigma)
-        self._current_warmstart_q["lam_x"] = soln["lam_x"].full()
-        self._current_warmstart_q["lam_g"] = soln["lam_g"].full()
-        cost_val = soln["f"].full()[0][0]
-        final_residuals = [
-            stats["iterations"]["inf_du"][-1],
-            stats["iterations"]["inf_pr"][-1],
-        ]
-        hf.plot_solver_stats(stats, show_plots)
-        print(
-            f"NMPC: | Runtime: {t_solve} | Cost: {cost_val} | sl (max, argmax): ({np.max(Sigma)}, {np.argmax(Sigma)}) | so_constr (max, argmax): ({np.max(so_constr_vals)}, {np.argmax(so_constr_vals)})"
-        )
-        self._t_prev = t
-        output = {
-            "trajectory": X,
-            "inputs": U,
-            "lower_slacks": [],
-            "upper_slacks": Sigma,
-            "so_constr_vals": so_constr_vals,
-            "do_constr_vals": [],
-            "t_solve": t_solve,
-            "cost_val": cost_val,
-            "n_iter": stats["iter_count"],
-            "final_residuals": final_residuals,
-        }
-        return output
-
-    def dQdP(self, state: np.ndarray, action: np.ndarray, soln: dict, parameter_values):
-        # Gradient of action-value fn Q wrt lernable param
-        # state, action, act_wt need to be from qsoln (garbage in garbage out)
-        x = soln["x"].full()
-        lam_g = soln["lam_g"].full()
-
-        nx, nu = self._model.dims()
-        self._p_fixed_values[:nx, :] = state
-        self._p_fixed_values[nx : nx + nu, :] = action
-
-        _, _, dlag_dp_adjustable = self._dlag_q(
-            x, lam_g, self._p_fixed_values, parameter_values
-        )
-        return dlag_dp_adjustable.full()
-
-    def parameter_update(self, lr, dJ, parameter_values):
-        # Param update scheme
-        if self._constrained_updates:
-            self._p_adjustable_values = self.constrained_param_update(
-                lr, dJ, parameter_values
-            )
-        else:
-            self._p_adjustable_values -= lr * dJ
-
-    def constrained_parameter_update(
-        self, learning_rate: float, dJ: np.ndarray, parameter_values: np.ndarray
-    ) -> np.ndarray:
-        """Constrained parameter update scheme to ensure stable MPC formulation
-
-        Args:
-            learning_rate (float): Learning rate for the parameter update
-            dJ (np.ndarray): Gradient of the cost function
-            parameter_values (np.ndarray): Adjustable parameter vector before the update
-
-        Returns:
-            np.ndarray: Updated parameter vector
-        """
-        # SDP for param update to ensure stable MPC formulation
-        nx, _ = self._model.dims()
-        dp = cvx.Variable((self._num_adjustable_ocp_params, 1))
-        J_up = 0.5 * cvx.sum_squares(dp) + learning_rate * dJ.T @ dp
-        p_next = parameter_values + dp
-        constraint = []
-        constraint += [
-            cvx.reshape(
-                p_next[0 : nx * nx],
-                (nx, nx),
-            )
-            >> 0.0
-        ]
-        prob = cvx.Problem(cvx.Minimize(J_up), constraint)
-        prob.solve(solver="CVXOPT")
-        P_up = parameter_values + dp.value
-        return P_up

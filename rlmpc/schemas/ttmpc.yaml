@@ -137,6 +137,12 @@ ttmpc:
               solver_tol:
                 required: True
                 type: float
+              constr_viol_tol:
+                required: True
+                type: float
+              compl_inf_tol:
+                required: True
+                type: float
               print_level:
                 required: True
                 type: integer
@@ -147,12 +153,6 @@ ttmpc:
                 required: True
                 type: float
               mu_init:
-                required: True
-                type: float
-              acceptable_tol:
-                required: True
-                type: float
-              acceptable_obj_change_tol:
                 required: True
                 type: float
               max_iter:
@@ -181,8 +181,6 @@ ttmpc:
               derivative_test:
                 required: True
                 type: string
-                oneof: ["none", "first-order", "second-order", "only-second-order"]
-
           acados:
             required: True
             type: dict

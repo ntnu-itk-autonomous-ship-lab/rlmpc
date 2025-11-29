@@ -12,6 +12,10 @@ from typing import Optional, Tuple
 import casadi as csd
 import colav_simulator.common.map_functions as cs_mapf
 import numpy as np
+import seacharts.enc as senc
+from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
+from acados_template.acados_ocp_solver import AcadosOcpSolver
+
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.map_functions as mapf
 import rlmpc.common.math_functions as mf
@@ -19,9 +23,6 @@ import rlmpc.common.paths as dp
 import rlmpc.mpc.common as mpc_common
 import rlmpc.mpc.models as models
 import rlmpc.mpc.parameters as parameters
-import seacharts.enc as senc
-from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
-from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 
 class AcadosMPC:
@@ -207,7 +208,7 @@ class AcadosMPC:
         if min_dist <= self._params.d_safe_so:
             return x_warm_start, u_warm_start, False
 
-        # hf.plot_trajectory(x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
+        # plotters.plot_trajectory(x_warm_start + np.array([self._map_origin[0], self._map_origin[1], 0.0, 0.0, 0.0, 0.0]).reshape(6, 1), enc, "black")
         return x_warm_start, u_warm_start, True
 
     def _shift_warm_start(self, xs: np.ndarray, dt: float, enc: senc.ENC) -> None:
@@ -863,9 +864,9 @@ class AcadosMPC:
             self._params.so_constr_type
             == parameters.StaticObstacleConstraint.APPROXCONVEXSAFESET
         ):
-            assert len(so_list) == 2, (
-                "Approximate convex safe set constraint requires constraint variables A and b"
-            )
+            assert (
+                len(so_list) == 2
+            ), "Approximate convex safe set constraint requires constraint variables A and b"
             A, b = so_list[0], so_list[1]
             self._p_fixed_so_values = np.concatenate((A.flatten(), b.flatten()), axis=0)
         return self._p_fixed_so_values.tolist()

@@ -9,9 +9,9 @@ Author: Trym Tengesdal
 """
 
 import platform
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple, Type
+from typing import Optional, Type
 
 import colav_simulator.core.models as cs_models
 import numpy as np
@@ -70,14 +70,14 @@ class TTMPC:
     def __init__(
         self,
         config: Optional[Config] = None,
-        config_file: Optional[Path] = dp.rl_rrt_mpc_config,
+        config_file: Optional[Path] = dp.ttmpc_config,
     ) -> None:
         if config:
             self._params = config.mpc
             self._solver_options: common.SolverConfig = config.solver_options
             self._acados_enabled: bool = config.enable_acados
         else:
-            default_config = cp.extract(Config, config_file, dp.rl_rrt_mpc_schema)
+            default_config = cp.extract(Config, config_file, dp.ttmpc_schema)
             self._params = default_config.mpc
             self._solver_options = default_config.solver_options
             self._acados_enabled = default_config.enable_acados
@@ -93,28 +93,6 @@ class TTMPC:
     @property
     def params(self) -> mpc_parameters.TTMPCParams:
         return self._params
-
-    def action_value(
-        self, state: np.ndarray, action: np.ndarray, parameters: np.ndarray
-    ) -> Tuple[float, dict]:
-        """Returns the Q(s, a) action-value function value for the given state and action.
-
-        Args:
-            state (np.ndarray): Current state of the ownship.
-            action (np.ndarray): Current action of the ownship.
-            parameters (np.ndarray): Current adjustable RL-agent parameters.
-
-        Returns:
-            Tuple[float, dict]: The Q(s, a) action-value function value and the corresponding mpc solution dictionary.
-        """
-        return self._casadi_mpc.action_value(state, action, parameters)
-
-    def value(self, state: np.ndarray) -> np.ndarray:
-        """Returns the V(s) value function value for the given state."""
-        return self._casadi_mpc.value(state)
-
-    def train(self, data) -> None:
-        """Trains the RL-MPC using data (s, a, s+, a+, r+)"""
 
     def construct_ocp(
         self,

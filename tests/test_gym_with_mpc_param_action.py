@@ -3,18 +3,18 @@
 Shows how to use the gym environment, and how to save a video + gif of the simulation.
 """
 
-import colav_simulator.common.image_helper_methods as ihm
-import colav_simulator.common.paths as dp
+import platform
+
 import colav_simulator.scenario_generator as cs_sg
 import colav_simulator.simulator as cs_sim
 import gymnasium as gym
 import numpy as np
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
 import rlmpc.action as mpc_action
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
-from colav_simulator.gym.environment import COLAVEnvironment
-from stable_baselines3.common.vec_env import SubprocVecEnv
 
 if __name__ == "__main__":
     # map_size: [4000.0, 4000.0]
@@ -34,7 +34,12 @@ if __name__ == "__main__":
     training_sim_config = cs_sim.Config.from_file(
         rl_dp.config / "training_simulator.yaml"
     )
-    training_sim_config.visualizer.matplotlib_backend = "TkAgg"  # to show the live viz
+    if platform.system() == "Darwin":
+        training_sim_config.visualizer.matplotlib_backend = "MacOSX"
+    else:
+        training_sim_config.visualizer.matplotlib_backend = (
+            "TkAgg"  # to show the live viz
+        )
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
     actor_noise_std_dev = np.array(

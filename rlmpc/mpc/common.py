@@ -12,16 +12,17 @@ import pathlib
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import casadi as csd
 import matplotlib.pyplot as plt
 import numpy as np
+from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
+from acados_template.acados_ocp_solver import AcadosOcpSolver
+
 import rlmpc.common.math_functions as mf
 import rlmpc.common.paths as dp
 import rlmpc.mpc.models as models
-from acados_template.acados_ocp import AcadosOcp, AcadosOcpOptions
-from acados_template.acados_ocp_solver import AcadosOcpSolver
 
 
 @dataclass
@@ -270,9 +271,9 @@ def path_following_cost(
     """
     # relevant states for the path following cost term is the position (x, y) and path timing derivative (s_dot)
     z = csd.vertcat(x[:2], x[5])  # [x, y, s_dot]
-    assert z.shape[0] == p_ref.shape[0], (
-        "Path reference and output vector must have the same dimension."
-    )
+    assert (
+        z.shape[0] == p_ref.shape[0]
+    ), "Path reference and output vector must have the same dimension."
     path_dev_cost = quadratic_cost(z[:2], p_ref[:2], csd.diag(Q_p[:2]))
     path_dot_dev_cost = quadratic_cost(z[2], p_ref[2], Q_p[2])
     return path_dev_cost + path_dot_dev_cost, path_dev_cost, path_dot_dev_cost
@@ -293,9 +294,9 @@ def path_following_cost_huber(
         Tuple[csd.MX, csd.MX, csd.MX]: Total cost, path deviation cost, path derivative dev cost and actual speed deviation cost.
     """
     z = csd.vertcat(x[:2], x[3], x[5])  # [x, y, U, s_dot]
-    assert z.shape[0] == x_ref.shape[0], (
-        "Path reference and output vector must have the same dimension."
-    )
+    assert (
+        z.shape[0] == x_ref.shape[0]
+    ), "Path reference and output vector must have the same dimension."
     path_dev_squared = (z[:2] - x_ref[:2]).T @ (z[:2] - x_ref[:2])
     path_dev_cost = Q_p[0] * huber_loss(path_dev_squared, delta=1.0)
     speed_dev_cost = Q_p[1] * (z[2] - x_ref[2]) ** 2

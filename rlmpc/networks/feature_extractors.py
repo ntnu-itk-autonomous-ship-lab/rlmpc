@@ -22,8 +22,8 @@ import rlmpc.networks.tracking_vae_attention.vae as tracking_vae
 
 # ENCVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "machine_learning/enc_vae/"
 # TRACKINGVAE_DATADIR: pathlib.Path = pathlib.Path.home() / "machine_learning/tracking_vae/chosen"
-ENCVAE_DATADIR: pathlib.Path = rl_dp.root / "rlmpc/networks/models"
-TRACKINGVAE_DATADIR: pathlib.Path = rl_dp.root / "rlmpc/networks/models"
+ENCVAE_DATADIR: pathlib.Path = rl_dp.package / "networks" / "models"
+TRACKINGVAE_DATADIR: pathlib.Path = rl_dp.package / "networks" / "models"
 
 
 class ENCVAE(BaseFeaturesExtractor):

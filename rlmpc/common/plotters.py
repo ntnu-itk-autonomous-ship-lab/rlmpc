@@ -27,7 +27,7 @@ import rlmpc.common.logger as rlmpc_logger
 SMALL_SIZE = 18
 MEDIUM_SIZE = 18
 BIGGER_SIZE = 18
-matplotlib.use("TkAgg")
+
 plt.rcParams.update(
     {
         "pgf.texsystem": "pdflatex",
