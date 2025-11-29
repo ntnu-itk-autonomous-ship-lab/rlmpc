@@ -86,7 +86,7 @@ ttmpc:
       schema:
         csog:
           type: dict
-          excludes: [telemetron]
+          excludes: [viknes]
           schema:
             draft:
               required: True
@@ -115,7 +115,7 @@ ttmpc:
             U_max:
               required: True
               type: float
-        telemetron:
+        viknes:
           type: string
           empty: True
           excludes: [csog]

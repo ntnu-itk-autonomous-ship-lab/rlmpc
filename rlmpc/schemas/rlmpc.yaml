@@ -279,7 +279,7 @@ mpc:
       schema:
         kinematic_csog_with_acceleration_and_path_timing:
           type: dict
-          excludes: [telemetron]
+          excludes: [viknes]
           schema:
             draft:
               required: True
@@ -314,7 +314,7 @@ mpc:
             s_dot_max:
               required: True
               type: float
-        telemetron:
+        viknes:
           type: string
           empty: True
           excludes: [augmented_csog_with_path_timing]

@@ -15,14 +15,14 @@ from typing import Optional, Tuple, Type
 
 import colav_simulator.core.models as cs_models
 import numpy as np
+import seacharts.enc as senc
+
 import rlmpc.common.config_parsing as cp
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as common
 import rlmpc.mpc.models as models
-import rlmpc.mpc.mpc_interface as mpc_interface
 import rlmpc.mpc.parameters as mpc_parameters
 import rlmpc.mpc.trajectory_tracking.casadi_mpc as casadi_mpc
-import seacharts.enc as senc
 
 uname_result = platform.uname()
 if uname_result.machine == "arm64" and uname_result.system == "Darwin":
@@ -42,7 +42,7 @@ class Config:
     solver_options: common.SolverConfig = field(
         default_factory=lambda: common.SolverConfig()
     )
-    model: Type[models.MPCModel] = field(default_factory=lambda: models.Telemetron())
+    model: Type[models.MPCModel] = field(default_factory=lambda: models.Viknes())
 
     @classmethod
     def from_dict(self, config_dict: dict):
@@ -50,10 +50,10 @@ class Config:
             model = models.KinematicCSOG(
                 cs_models.KinematicCSOGParams.from_dict(config_dict["model"]["csog"])
             )
-        elif "telemetron" in config_dict["model"]:
-            model = models.Telemetron()
+        elif "viknes" in config_dict["model"]:
+            model = models.Viknes()
         else:
-            model = models.Telemetron(cs_models.TelemetronParams())
+            model = models.Viknes(cs_models.ViknesParams())
 
         config = Config(
             enable_acados=config_dict["enable_acados"],

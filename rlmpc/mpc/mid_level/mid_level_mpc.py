@@ -13,14 +13,15 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Type
 
 import numpy as np
+import scipy.interpolate as interp
+import seacharts.enc as senc
+
 import rlmpc.common.config_parsing as cp
 import rlmpc.common.paths as dp
 import rlmpc.mpc.common as common
 import rlmpc.mpc.mid_level.casadi_mpc as casadi_mpc
 import rlmpc.mpc.models as models
 import rlmpc.mpc.parameters as mpc_parameters
-import scipy.interpolate as interp
-import seacharts.enc as senc
 
 uname_result = platform.uname()
 import rlmpc.mpc.mid_level.acados_mpc as acados_mpc
@@ -43,8 +44,8 @@ class Config:
 
     @classmethod
     def from_dict(self, config_dict: dict):
-        if "Telemetron" in config_dict["model"]:
-            model = models.Telemetron()
+        if "Viknes" in config_dict["model"]:
+            model = models.Viknes()
         else:
             model = models.KinematicCSOGWithAccelerationAndPathtiming(
                 models.KinematicCSOGWithAccelerationAndPathtimingParams.from_dict(
@@ -63,8 +64,8 @@ class Config:
         return config
 
     def to_dict(self):
-        if isinstance(self.model, models.Telemetron):
-            model_dict = {"telemetron": ""}
+        if isinstance(self.model, models.Viknes):
+            model_dict = {"viknes": ""}
         else:
             model_dict = {
                 "kinematic_csog_with_acceleration_and_path_timing": self.model.params().to_dict(),

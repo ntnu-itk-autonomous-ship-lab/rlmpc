@@ -14,8 +14,9 @@ from typing import Tuple
 import casadi as csd
 import colav_simulator.core.models as cs_models
 import numpy as np
-import rlmpc.common.math_functions as mf
 from acados_template import AcadosModel
+
+import rlmpc.common.math_functions as mf
 
 
 class MPCModel(ABC):
@@ -184,7 +185,7 @@ class AugmentedKinematicCSOG(MPCModel):
     def euler_n_step(
         self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
     ) -> np.ndarray:
-        """Simulate N Euler steps for the Telemetron vessel
+        """Simulate N Euler steps for the Viknes vessel
 
         Args:
             - xs (np.ndarray): State vector
@@ -496,10 +497,8 @@ class KinematicCSOGWithAccelerationAndPathtiming(MPCModel):
         return self._acados_model
 
 
-class Telemetron(MPCModel):
-    def __init__(
-        self, params: cs_models.TelemetronParams = cs_models.TelemetronParams()
-    ):
+class Viknes(MPCModel):
+    def __init__(self, params: cs_models.ViknesParams = cs_models.ViknesParams()):
         self._acados_model = AcadosModel()
         self._params = params
         self.f_impl, self.f_expl, self.xdot, self.x, self.u, self.p = (
@@ -535,7 +534,7 @@ class Telemetron(MPCModel):
             [approx_inf, approx_inf, approx_inf, max_speed, max_speed, max_turn_rate]
         )
 
-    def params(self) -> cs_models.TelemetronParams:
+    def params(self) -> cs_models.ViknesParams:
         return self._params
 
     def dims(self) -> Tuple[int, int]:
@@ -544,7 +543,7 @@ class Telemetron(MPCModel):
     def setup_equations_of_motion(
         self,
     ) -> Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]:
-        """Forms the equations of motion for the Telemetron vessel
+        """Forms the equations of motion for the Viknes vessel
 
         Returns:
             Tuple[csd.MX, csd.MX, csd.MX, csd.MX, csd.MX]: Returns the dynamics equation in implicit (xdot - f(x, u)) and explicit (f(x, u)) format, plus the state derivative, state, input and parameter symbolic vectors
@@ -579,7 +578,7 @@ class Telemetron(MPCModel):
     def euler_n_step(
         self, xs: np.ndarray, u: np.ndarray, p: np.ndarray, dt: float, N: int
     ) -> np.ndarray:
-        """Simulate N Euler steps for the Telemetron vessel
+        """Simulate N Euler steps for the Viknes vessel
 
         Args:
             - xs (np.ndarray): State vector
@@ -642,7 +641,7 @@ class Telemetron(MPCModel):
         self._acados_model.x = self.x
         self._acados_model.xdot = self.xdot
         self._acados_model.u = self.u
-        self._acados_model.name = "telemetron"
+        self._acados_model.name = "viknes"
         return self._acados_model
 
     @property

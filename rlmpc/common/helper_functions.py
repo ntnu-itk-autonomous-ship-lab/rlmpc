@@ -25,10 +25,6 @@ import gymnasium as gym
 import matplotlib.path as mpath
 import matplotlib.pyplot as plt
 import numpy as np
-import rlmpc.common.file_utils as fu
-import rlmpc.common.logger as rlmpc_logger
-import rlmpc.common.math_functions as mf
-import rlmpc.common.paths as dp
 import seacharts.enc as senc
 import shapely.affinity as affinity
 import shapely.geometry as geometry
@@ -42,6 +38,11 @@ from scipy.interpolate import interp1d
 from scipy.stats import chi2
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
+
+import rlmpc.common.file_utils as fu
+import rlmpc.common.logger as rlmpc_logger
+import rlmpc.common.math_functions as mf
+import rlmpc.common.paths as dp
 
 plt.rcParams.update(
     {
@@ -699,7 +700,7 @@ def create_los_based_trajectory(
     Returns:
         np.ndarray: Trajectory
     """
-    model = sim_models.Telemetron()
+    model = sim_models.Viknes()
     controller = controllers.FLSC(model.params)
     trajectory = []
     inputs = []
@@ -885,9 +886,9 @@ def ndarray_to_linestring(array: np.ndarray) -> geometry.LineString:
     Returns:
         LineString: Any LineString object
     """
-    assert array.shape[0] == 2 and array.shape[1] > 1, (
-        "Array must be 2 x n_samples with n_samples > 1"
-    )
+    assert (
+        array.shape[0] == 2 and array.shape[1] > 1
+    ), "Array must be 2 x n_samples with n_samples > 1"
     return geometry.LineString(list(zip(array[0, :], array[1, :])))
 
 

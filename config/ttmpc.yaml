@@ -24,7 +24,7 @@ ttmpc:
     path_following: False
     debug: True
   model:
-    telemetron: ""
+    viknes: ""
   enable_acados: False
   solver_options:
     casadi:
