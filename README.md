@@ -5,17 +5,17 @@ This repository contains research code behind
 - A trajectory tracking NMPC with anti-grounding functionality, described in <https://ieeexplore.ieee.org/abstract/document/10644772>.
 - A mid-level NMPC implementation for dynamic ship collision avoidance and grounding avoidance.
 - Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamc obstacle target tracks.
-- A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC (unpublished work) for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so take great care in how the cost function and constraints are setup to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear MPC.
+- A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Unpublished work in progress. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so take great care in how the cost function and constraints are setup to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear MPC.
 
 Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>. Example training/nmpc run scripts found under `run_examples`. Developed mainly with Python 3.10 and 3.11.
 
 <p align="center">
-    <img src="https://github.com/NTNU-TTO/colav-simulator/blob/main/gym_env_teaser.gif?raw=true" width="1000px"><br/>
-    <em>Example visualization of a DRL-based MPC algorithm run in multiple evaluation episodes using the COLAVEnvironment Gymnasium functionality.</em>
-</p>
-<p align="center">
     <img src="https://github.com/ntnu-itk-autonomous-ship-lab/rlmpc/blob/main/simple_planning_example_ep1.gif?raw=true" width="1000px"><br/>
     <em>Example run of an anti-grounding tracking NMPC controller in the simulator.</em>
+</p>
+<p align="center">
+    <img src="https://github.com/NTNU-TTO/colav-simulator/blob/main/gym_env_teaser.gif?raw=true" width="1000px"><br/>
+    <em>Example visualization of a DRL-based MPC algorithm run in multiple evaluation episodes using the COLAVEnvironment Gymnasium functionality.</em>
 </p>
 
 [![platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)]()
