@@ -3,7 +3,7 @@
 
 This repository contains research code behind
 - A trajectory tracking NMPC with anti-grounding functionality, described in <https://ieeexplore.ieee.org/abstract/document/10644772>.
-- A mid-level NMPC implementation for dynamic ship collision avoidance and grounding avoidance.
+- A mid-level path-following NMPC with speed profile consideration, that considers dynamic ship collision avoidance and grounding avoidance.
 - Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamc obstacle target tracks.
 - A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Unpublished work in progress. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so take great care in how the cost function and constraints are setup to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear MPC.
 

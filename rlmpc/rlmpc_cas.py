@@ -268,7 +268,7 @@ class RLMPC(ci.ICOLAV):
         if self._debug:
             if recompile:
                 enc.close_display()
-            self._enc.start_display(figname="RL-MPC Debug")
+            self._enc.start_display()
         ownship_csog_state = cs_mhm.convert_3dof_state_to_sog_cog_state(ownship_state)
         state_copy = ownship_csog_state.copy()
         ownship_csog_state[2] = state_copy[3]
@@ -616,7 +616,7 @@ class RLMPC(ci.ICOLAV):
         if not self._debug:
             return
 
-        self._enc.start_display(figname="RL-MPC Debug")
+        self._enc.start_display()
         do_cr_color = "orangered"
         do_ho_color = "yellow"
         do_ot_color = "red"
@@ -773,8 +773,8 @@ class RLMPC(ci.ICOLAV):
                 verbose=self._debug,
                 **kwargs,
             )
-            # Weird bug where the MPC sometimes fails to find a solution at t0 given the same initial state after resetting the solver => retry if this happens
-            if self._mpc_soln["qp_failure"] and t < 1.0:
+            # Weird acados bug where the MPC sometimes fails to find a solution at t0 given the same initial state after resetting the solver => retry if this happens
+            if  "qp_failure" in self._mpc_soln and self._mpc_soln["qp_failure"] and t < 1.0:
                 print(
                     f"[RLMPC {self.identifier.upper()}] Reconstructing MPC OCP and retrying MPC plan at t = {t} due to QP failure"
                 )

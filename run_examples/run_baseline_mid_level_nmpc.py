@@ -1,18 +1,15 @@
-import warnings
-
-import pytest
-
-import colav_simulator.simulator as cssim
-from colav_simulator.scenario_generator import ScenarioGenerator
+import os
+import pathlib
 
 import rlmpc.common.paths as dp
+import colav_simulator.simulator as cssim
+import colav_simulator.behavior_generator as cs_bg
+from colav_simulator.scenario_generator import ScenarioGenerator
+
 import rlmpc.rlmpc_cas as rlmpc_cas
 from rlmpc.scripts.generate_scenario_episodes import generate_scenario_episodes
-warnings.filterwarnings("ignore", module="pandas")
-
-
-@pytest.fixture
-def rlmpc_setup() -> tuple[rlmpc_cas.RLMPC, cssim.Simulator, ScenarioGenerator]:
+    
+if __name__ == "__main__":
     rlmpc_obj = rlmpc_cas.RLMPC()
     csconfig = cssim.Config.from_file(dp.config / "training_simulator.yaml")
     csconfig.visualizer.matplotlib_backend = "TkAgg"
@@ -21,17 +18,14 @@ def rlmpc_setup() -> tuple[rlmpc_cas.RLMPC, cssim.Simulator, ScenarioGenerator]:
     csconfig.visualizer.show_target_tracking_results = True
     simulator = cssim.Simulator(config=csconfig)
     scenario_generator = ScenarioGenerator(seed=7)
-    return rlmpc_obj, simulator, scenario_generator
-
-
-def test_rlmpc(rlmpc_setup: tuple[rlmpc_cas.RLMPC, cssim.Simulator, ScenarioGenerator]) -> None:
-    """Test RLMPC with MS channel scenario."""
-    rlmpc_obj, simulator, scenario_generator = rlmpc_setup
 
     scenario_name = "rlmpc_scenario_ms_channel"
     data_folder = dp.scenarios / "training_data" / scenario_name
-    if not any(file in data_folder.iterdir() for file in data_folder.iterdir()):
-        generate_scenario_episodes([scenario_name], new_load_of_map_data=True)
+    if not data_folder.exists() or not any(file in data_folder.iterdir() for file in data_folder.iterdir()):
+        generate_scenario_episodes(
+            scenario_names=[scenario_name], 
+            new_load_of_map_data=False, 
+            ownship_behavior_generation_method=cs_bg.BehaviorGenerationMethod.PQRRTStar)
     scenario_data = scenario_generator.load_scenario_from_folders(
         folder=dp.scenarios / "training_data" / scenario_name,
         scenario_name=scenario_name,
