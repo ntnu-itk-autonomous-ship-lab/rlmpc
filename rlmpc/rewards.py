@@ -1,12 +1,3 @@
-"""
-rewards.py
-
-Summary:
-    Reward functions for the RL agent.
-
-Author: Trym Tengesdal
-"""
-
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Tuple
@@ -20,12 +11,12 @@ import colav_simulator.gym.observation as csgym_obs
 import colav_simulator.gym.reward as cs_reward
 import matplotlib.pyplot as plt
 import numpy as np
-import rlmpc.action as mpc_action
+import yaml
+
 import rlmpc.colregs_handler as ch
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.map_functions as rl_mapf
 import rlmpc.mpc.common as mpc_common
-import yaml
 
 if TYPE_CHECKING:
     from colav_simulator.gym.environment import COLAVEnvironment

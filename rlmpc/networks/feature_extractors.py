@@ -1,8 +1,7 @@
-"""
-feature_extractors.py
+"""Contains feature extractors for neural networks (NNs) used in DRL.
 
-Summary:
-    Contains feature extractors for neural networks (NNs) used in DRL. Feature extractor inspired by stable-baselines3 (SB3) implementation, the CNN-work of Thomas Larsen, and variational autoencoders (VAEs).
+Feature extractor inspired by stable-baselines3 (SB3) implementation,
+he CNN-work of Thomas Larsen, and variational autoencoders (VAEs).
 
 Author: Trym Tengesdal
 """

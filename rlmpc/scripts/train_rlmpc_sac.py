@@ -1,23 +1,10 @@
-"""
-train_sac.py
-
-Summary:
-    This script trains the RL agent using the SAC algorithm.
-
-Author: Trym Tengesdal
-"""
-
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import gymnasium as gym
-from colav_simulator.gym.environment import COLAVEnvironment
 from stable_baselines3.common.callbacks import (
     CallbackList,
-    CheckpointCallback,
-    StopTrainingOnNoModelImprovement,
 )
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
@@ -26,7 +13,6 @@ import rlmpc.sac as rlmpc_sac
 from rlmpc.common.callbacks import (
     CollectStatisticsCallback,
     EvalCallback,
-    evaluate_policy,
 )
 
 

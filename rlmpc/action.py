@@ -1,15 +1,7 @@
-"""
-action.py
-
-Summary:
-    This file contains various action type definitions for setting the parameters of an MPC CAS agent in the colav-simulator.
-
-Author: Trym Tengesdal
-"""
-
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
+import colav_simulator.common.math_functions as mf
 import colav_simulator.core.stochasticity as stochasticity
 import colav_simulator.gym.action as csgym_action
 import gymnasium as gym
@@ -17,17 +9,15 @@ import numpy as np
 import torch as th
 from stable_baselines3.common.distributions import (
     DiagGaussianDistribution,
-    SquashedDiagGaussianDistribution,
 )
 from stable_baselines3.common.noise import OrnsteinUhlenbeckActionNoise
 
-import rlmpc.common.buffers as rlmpc_buffers
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rlmpc_cas as rlmpc_cas
 
 Action = Union[list, np.ndarray]
-import colav_simulator.common.math_functions as mf
+
 
 if TYPE_CHECKING:
     from colav_simulator.gym.environment import COLAVEnvironment
@@ -55,9 +45,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         debug: bool = False,
     ) -> None:
         super().__init__(env, sample_time)
-        assert self.env.ownship is not None, (
-            "Ownship must be set before using the action space"
-        )
+        assert (
+            self.env.ownship is not None
+        ), "Ownship must be set before using the action space"
         self.course_range = (-np.pi / 4.0, np.pi / 4.0)
         self.speed_range = (
             -self.env.ownship.max_speed / 4.0,
@@ -170,9 +160,9 @@ class MPCParameterSettingAction(csgym_action.ActionType):
         Returns:
             np.ndarray: The MPC sensitivities
         """
-        assert self.build_sensitivities, (
-            "Sensitivities must be built before computing them"
-        )
+        assert (
+            self.build_sensitivities
+        ), "Sensitivities must be built before computing them"
         da_dp_mpc = np.zeros((self.mpc_action_dim, self.num_adjustable_mpc_params))
         if info["optimal"]:
             soln = info["soln"]

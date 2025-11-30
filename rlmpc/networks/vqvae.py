@@ -1,10 +1,6 @@
-import os
-
 import torch
-import torch.distributed as dist_fn
 from torch import nn
 from torch.autograd import Function
-from torch.nn import functional as F
 
 
 class VectorQuantization(Function):

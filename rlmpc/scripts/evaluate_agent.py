@@ -1,12 +1,3 @@
-"""
-train_sac.py
-
-Summary:
-    This script trains the RL agent using the SAC algorithm.
-
-Author: Trym Tengesdal
-"""
-
 import argparse
 import pickle
 import sys

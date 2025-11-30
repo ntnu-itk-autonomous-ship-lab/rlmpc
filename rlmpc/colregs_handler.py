@@ -1,12 +1,3 @@
-"""
-colregs_handler.py
-
-Summary:
-    Class for a COLREGS handler.
-
-Author: Trym Tengesdal
-"""
-
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Tuple

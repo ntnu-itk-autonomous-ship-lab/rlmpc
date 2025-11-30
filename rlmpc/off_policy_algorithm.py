@@ -1,8 +1,4 @@
-"""
-off_policy_algorithm.py
-
-Summary:
-    Contains functionality for off-policy RL algorithms. Heavily inspired/boiled from stable-baselines3.
+"""Contains functionality for off-policy RL algorithms. Heavily inspired/boiled from stable-baselines3.
 
 
 Author: Trym Tengesdal
@@ -306,9 +302,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
             - path (Path): path where the replay buffer should be loaded from
         """
         self.replay_buffer = sb3_sutils.load_from_pkl(path)
-        assert isinstance(self.replay_buffer, rlmpc_buffers.ReplayBuffer), (
-            "The replay buffer must be a ReplayBuffer class"
-        )
+        assert isinstance(
+            self.replay_buffer, rlmpc_buffers.ReplayBuffer
+        ), "The replay buffer must be a ReplayBuffer class"
 
     def _setup_learn(
         self,
@@ -442,9 +438,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
         deterministic = True
         assert isinstance(env, VecEnv), "You must pass a VecEnv. "
         if isinstance(self.policy, rlmpc_policies.SACPolicyWithMPC):
-            assert env.num_envs == 1, (
-                "Only one environment is supported for SACPolicyWithMPC."
-            )
+            assert (
+                env.num_envs == 1
+            ), "Only one environment is supported for SACPolicyWithMPC."
         elif isinstance(self.policy, rlmpc_policies.SACPolicyWithMPCParameterProvider):
             deterministic = True  # exploration is done in the MPC action type class
         elif isinstance(
@@ -454,9 +450,9 @@ class OffPolicyAlgorithm(BaseAlgorithm):
                 False  # exploration is done in the parameter provider network
             )
 
-        assert self.train_freq.frequency > 0, (
-            "Should at least collect one step or episode."
-        )
+        assert (
+            self.train_freq.frequency > 0
+        ), "Should at least collect one step or episode."
 
         if self.use_sde:
             self.policy.actor.reset_noise(env.num_envs)
