@@ -19,13 +19,12 @@ Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/cola
 </p>
 
 [![platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)]()
-[![python version](https://img.shields.io/badge/python-3.10-blue)]()
+[![python version](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue)]()
 
 ## Main Dependencies
 Git dependencies here include
 
 - `Acados` for solving optimal control problems: <https://github.com/acados/acados>.
-- The `seacharts` package in <https://github.com/trymte/seacharts>.
 - The `colav-simulator` repo in <https://github.com/NTNU-TTO/colav-simulator>.
 - The `rrt-star-lib` library for Rapidly-exploring Random Trees at <https://github.com/ntnu-itk-autonomous-ship-lab/rrt-rs>.
 
