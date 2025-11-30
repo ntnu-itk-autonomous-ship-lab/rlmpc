@@ -1,3 +1,8 @@
+"""Training a standard SAC agent with NMPC parameter provider DNN policy and simpler feature extractor.
+
+Note, you need to generate the scenario episode data first,
+e.g. using the generate_scenario_episodes.py script.
+"""
 import argparse
 import copy
 import pickle

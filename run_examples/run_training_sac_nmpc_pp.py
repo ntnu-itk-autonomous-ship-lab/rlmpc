@@ -1,3 +1,8 @@
+"""Training a custom SAC-RLMPC agent with an NMPC parameter provider DNN policy.
+
+Note, you need to generate the scenario episode data first,
+e.g. using the generate_scenario_episodes.py script.
+"""
 import argparse
 import copy
 import pickle
@@ -206,7 +211,10 @@ def main(args):
         "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
-        "replay_buffer_kwargs": {"handle_timeout_termination": True},
+        "replay_buffer_kwargs": {
+            "handle_timeout_termination": True,
+            "disable_action_storage": False,
+        },
     }
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)

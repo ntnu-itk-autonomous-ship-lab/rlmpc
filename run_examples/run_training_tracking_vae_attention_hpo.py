@@ -1,3 +1,9 @@
+"""Hyperparameter optimization for the tracking VAE attention model.
+
+Note, you need to generate the training data first using the 
+this script.
+"""
+
 import sys
 from pathlib import Path
 

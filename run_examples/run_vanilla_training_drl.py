@@ -1,4 +1,8 @@
-"""Test a standard SAC DRL agent on the COLAV environment."""
+"""Test a standard SAC DRL agent on the COLAV environment.
+
+Note, you need to generate the scenario episode data first,
+e.g. using the generate_scenario_episodes.py script.
+"""
 
 import argparse
 import copy

@@ -7,7 +7,7 @@ This repository contains research code behind
 - Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamc obstacle target tracks.
 - A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Unpublished work in progress. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so take great care in how the cost function and constraints are setup to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear MPC.
 
-Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>. Example training/nmpc run scripts found under `run_examples`. Developed mainly with Python 3.10 and 3.11. Note that some modernization is needed to make the code fully compatible with never acados versions.
+Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>. Example training/nmpc run scripts found under `run_examples`. Developed mainly with Python 3.10 and 3.11. Note that some modernization/fixes is needed to make the code fully compatible with never acados versions following the latest porting to use `uv` and newer dependency versions.
 
 <p align="center">
     <img src="https://github.com/ntnu-itk-autonomous-ship-lab/rlmpc/blob/main/simple_planning_example_ep1.gif?raw=true" width="1000px"><br/>
@@ -41,6 +41,8 @@ Check the installation by e.g. running the anti-grounding MPC script
 ```bash
 python3 run_examples/run_antigrounding_nmpc_near_land_tracking.py
 ```
+
+Be warned that the `run_training_*` scripts are not fully cleaned up for ease of use yet, so use with care.
 
 ## Citation
 If you are using code from this repository in your work, please use the following citation for the machine-learning related parts

@@ -1,3 +1,8 @@
+"""Training a custom SAC-RLMPC agent with an NMPC actor policy.
+
+Note, you need to generate the scenario episode data first,
+e.g. using the generate_scenario_episodes.py script.
+"""
 import argparse
 import copy
 import pickle
@@ -24,41 +29,31 @@ from rlmpc.scripts.train_rlmpc_sac import train_rlmpc_sac
 # Supressing futurewarning to speed up execution time
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-# fix actor gradient being 0 all the time
-# update ENC-VAE with new data (128x128 images)
-# rerun data generation (this script) and pretrain the mpc param provider
-# pretrain critics with new data
-# run SAC with pretrained critics, mpc param provider and updated ENC-VAE
-
-
-# tuning:
-# horizon
-# tau/barrier param
-# edge case shit
-# constraint satisfaction highly dependent on tau/barrier
-# if ship gets too much off path/course it will just continue off course
 # @profile
 def main(args):
-    hf.set_memory_limit(28_000_000_000)
+    # hf.set_memory_limit(28_000_000_000)
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--base_dir",
         type=str,
         default=str(Path.home() / "machine_learning/rlmpc/"),
     )
-    parser.add_argument("--experiment_name", type=str, default="sac_rlmpc5")
-    parser.add_argument("--n_cpus", type=int, default=1)
-    parser.add_argument("--learning_rate", type=float, default=0.001)
-    parser.add_argument("--buffer_size", type=int, default=40000)
+    parser.add_argument("--experiment_name", type=str, default="snmpc_pp2")
+    parser.add_argument("--n_training_envs", type=int, default=1)
+    parser.add_argument("--learning_rate", type=float, default=0.00001)
+    parser.add_argument("--buffer_size", type=int, default=10000)
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--gradient_steps", type=int, default=1)
+    parser.add_argument("--gradient_steps", type=int, default=2)
     parser.add_argument("--train_freq", type=int, default=2)
-    parser.add_argument("--n_eval_episodes", type=int, default=5)
-    parser.add_argument("--eval_freq", type=int, default=2500)
-    parser.add_argument("--timesteps", type=int, default=40000)
-    parser.add_argument("--disable_parameter_provider", type=bool, default=True)
-    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=600)
-    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=50)
+    parser.add_argument("--n_eval_episodes", type=int, default=1)
+    parser.add_argument("--eval_freq", type=int, default=20000)
+    parser.add_argument("--n_eval_envs", type=int, default=1)
+    parser.add_argument("--timesteps", type=int, default=100000)
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--n_timesteps_per_learn", type=int, default=2000)
+    parser.add_argument("--disable_parameter_provider", type=bool, default=False)
+    parser.add_argument("--max_num_loaded_train_scen_episodes", type=int, default=1)
+    parser.add_argument("--max_num_loaded_eval_scen_episodes", type=int, default=1)
     args = parser.parse_args(args)
     args.base_dir = Path(args.base_dir)
     print("Provided args to SAC RLMPC training:")
@@ -166,6 +161,10 @@ def main(args):
         "ent_coef": "auto",
         "verbose": 1,
         "tensorboard_log": str(log_dir),
+        "replay_buffer_kwargs": {
+            "handle_timeout_termination": True,
+            "disable_action_storage": False,
+        },
     }
     with (base_dir / "model_kwargs.pkl").open(mode="wb") as fp:
         pickle.dump(model_kwargs, fp)
@@ -197,8 +196,9 @@ def main(args):
             n_timesteps=n_timesteps_per_learn,
             env_id=env_id,
             training_env_config=copy.deepcopy(training_env_config),
-            n_training_envs=args.n_cpus,
+            n_training_envs=args.n_training_envs,
             eval_env_config=copy.deepcopy(eval_env_config),
+            n_eval_envs=args.n_eval_envs,
             n_eval_episodes=args.n_eval_episodes,
             eval_freq=args.eval_freq,
             base_dir=base_dir,
