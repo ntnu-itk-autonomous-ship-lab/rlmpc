@@ -29,7 +29,7 @@ if __name__ == "__main__":
     scenario_data = scenario_generator.load_scenario_from_folders(
         folder=dp.scenarios / "training_data" / scenario_name,
         scenario_name=scenario_name,
-        reload_map=False,
+        reload_map=True,
         max_number_of_episodes=1,
     )
 

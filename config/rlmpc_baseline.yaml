@@ -93,17 +93,17 @@ mpc:
       s_min: 0.0
       s_max: 2000.0
       s_dot_max: 10.0
-  enable_acados: True
+  enable_acados: False
   solver_options:
     casadi:
       solver_type: "ipopt"
-      solver_tol: 0.00001
-      constr_viol_tol: 0.00001 # harder to "compute good gradient steps" for mpc-parameterizations
-      compl_inf_tol: 0.00001
+      solver_tol: 0.001
+      constr_viol_tol: 0.001 # harder to "compute good gradient steps" for mpc-parameterizations
+      compl_inf_tol: 0.001
       print_level: 3
       print_time: 0
-      mu_target: 0.00000001 # start higher
-      mu_init: 0.01
+      mu_target: 0.0001 # start higher
+      mu_init: 0.0001
       max_iter: 300
       warm_start_init_point: "yes"
       verbose: False
