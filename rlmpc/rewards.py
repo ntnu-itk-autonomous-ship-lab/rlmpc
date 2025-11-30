@@ -503,7 +503,7 @@ class CollisionAvoidanceRewarder(cs_reward.IReward):
 
         # Add extra cost if the ship collides with a dynamic obstacle
         # The above cost only gives a penalty if a dynamic obstacle is inside the set own-ship safety zone
-        collided, do_idx = self.env.simulator.determine_ship_collision(ship_idx=0)
+        collided = self.env.simulator.determine_ship_collision(ship_idx=0)
         if collided:
             colav_cost = self._config.rho_colav
 

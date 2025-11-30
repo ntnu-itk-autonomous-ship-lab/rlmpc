@@ -1,8 +1,3 @@
-"""Test module for gym.py
-
-Shows how to use the gym environment, and how to save a video + gif of the simulation.
-"""
-
 import platform
 
 import colav_simulator.scenario_generator as cs_sg
@@ -15,8 +10,10 @@ import rlmpc.action as mpc_action
 import rlmpc.common.helper_functions as hf
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
+from rlmpc.scripts.generate_scenario_episodes import generate_scenario_episodes
 
-if __name__ == "__main__":
+
+def test_gym_with_mpc_param_action() -> None:
     # map_size: [4000.0, 4000.0]
     # map_origin_enu: [-33524.0, 6572500.0]
     observation_type = {
@@ -37,9 +34,7 @@ if __name__ == "__main__":
     if platform.system() == "Darwin":
         training_sim_config.visualizer.matplotlib_backend = "MacOSX"
     else:
-        training_sim_config.visualizer.matplotlib_backend = (
-            "TkAgg"  # to show the live viz
-        )
+        training_sim_config.visualizer.matplotlib_backend = "TkAgg"
     scen_gen_config = cs_sg.Config.from_file(rl_dp.config / "scenario_generator.yaml")
     mpc_config_path = rl_dp.config / "rlmpc.yaml"
     actor_noise_std_dev = np.array(
@@ -62,6 +57,9 @@ if __name__ == "__main__":
     training_scenario_folders = [
         rl_dp.scenarios / "training_data" / name for name in scenario_names
     ]
+    if not any(folder.exists() for folder in training_scenario_folders):
+        generate_scenario_episodes(scenario_names, new_load_of_map_data=True)
+
     env_config = {
         "scenario_file_folder": [training_scenario_folders[0]],
         "scenario_generator_config": scen_gen_config,
@@ -92,7 +90,7 @@ if __name__ == "__main__":
 
     obs = env.reset()
     frames = []
-    for i in range(100):
+    for i in range(10):
         # actions = (
         #     np.zeros((env.num_envs, env.action_space.shape[0])) if use_vec_env else np.zeros(env.action_space.shape[0])
         # )
@@ -112,3 +110,7 @@ if __name__ == "__main__":
 
     env.close()
     print("done")
+
+
+if __name__ == "__main__":
+    test_gym_with_mpc_param_action()
