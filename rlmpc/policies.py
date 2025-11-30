@@ -1,8 +1,4 @@
-"""
-policies.py
-
-Summary:
-    Soft Actor-Critic (SAC) policies (and actors) implementation for the mid-level MPC.
+"""Soft Actor-Critic (SAC) policies (and actors) implementation for the mid-level MPC.
 
 
 Author: Trym Tengesdal
@@ -256,9 +252,9 @@ class MPCParameterDNN(th.nn.Module):
         Returns:
             th.Tensor: The Jacobian of the DNN output wrt its parameters, dim (batch_size, num_params)
         """
-        assert x.ndim == 2, (
-            f"Expected input tensor to have 2 dimensions, but got {x.ndim}"
-        )
+        assert (
+            x.ndim == 2
+        ), f"Expected input tensor to have 2 dimensions, but got {x.ndim}"
         params = dict(self.named_parameters())
         jacobians_dict = th.func.jacrev(th.func.functional_call, argnums=1)(
             self, params, (x,)
@@ -538,9 +534,9 @@ class SACMPCParameterProviderActorStandard(BasePolicy):
                 # )
             return preprocessed_obs  # type: ignore[return-value]
 
-        assert isinstance(obs, th.Tensor), (
-            f"Expecting a torch Tensor, but got {type(obs)}"
-        )
+        assert isinstance(
+            obs, th.Tensor
+        ), f"Expecting a torch Tensor, but got {type(obs)}"
 
         if isinstance(observation_space, spaces.Box):
             if normalize_images and is_image_space(observation_space):
@@ -659,9 +655,9 @@ class SACMPCParameterProviderActor(BasePolicy):
         # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
         #
         # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
-        assert infos is not None, (
-            "Infos must be provided when using ad hoc stochastic policy"
-        )
+        assert (
+            infos is not None
+        ), "Infos must be provided when using ad hoc stochastic policy"
         actor_str = "actor_info" if not is_next_action else "next_actor_info"
         if infos is not None:
             # Extract mean of the policy distribution = MPC action for the given observation
@@ -961,9 +957,9 @@ class SACMPCParameterProviderActor(BasePolicy):
                 # )
             return preprocessed_obs  # type: ignore[return-value]
 
-        assert isinstance(obs, th.Tensor), (
-            f"Expecting a torch Tensor, but got {type(obs)}"
-        )
+        assert isinstance(
+            obs, th.Tensor
+        ), f"Expecting a torch Tensor, but got {type(obs)}"
 
         if isinstance(observation_space, spaces.Box):
             if normalize_images and is_image_space(observation_space):
@@ -1138,9 +1134,9 @@ class SACMPCActor(BasePolicy):
         # log_prob = self.compute SPG machinery using the perturbed action, solution and mpc sensitivities
         #
         # If the ad hoc stochastic policy is used, we just add noise to the input (MPC) action
-        assert infos is not None, (
-            "Infos must be provided when using ad hoc stochastic policy"
-        )
+        assert (
+            infos is not None
+        ), "Infos must be provided when using ad hoc stochastic policy"
         actor_str = "actor_info" if not is_next_action else "next_actor_info"
         if infos is not None:
             # Extract mean of the policy distribution = MPC action for the given observation
@@ -1369,9 +1365,9 @@ class SACMPCActor(BasePolicy):
         Returns:
             np.ndarray: The MPC sensitivities
         """
-        assert self.mpc == self.training_mpc, (
-            "MPC sensitivities can only be computed for the training MPC"
-        )
+        assert (
+            self.mpc == self.training_mpc
+        ), "MPC sensitivities can only be computed for the training MPC"
         if self.mpc_sensitivities is None:
             self.mpc_sensitivities = self.mpc.build_sensitivities()
 
@@ -1477,9 +1473,9 @@ class SACMPCActor(BasePolicy):
                 # )
             return preprocessed_obs  # type: ignore[return-value]
 
-        assert isinstance(obs, th.Tensor), (
-            f"Expecting a torch Tensor, but got {type(obs)}"
-        )
+        assert isinstance(
+            obs, th.Tensor
+        ), f"Expecting a torch Tensor, but got {type(obs)}"
 
         if isinstance(observation_space, spaces.Box):
             if normalize_images and is_image_space(observation_space):

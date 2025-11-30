@@ -1,8 +1,4 @@
-"""
-rlmpc_cas.py
-
-Summary:
-    COLAV-simulator wrapper for the RL-MPC Collision Avoidance System (CAS).
+"""COLAV-simulator wrapper for the RL-MPC Collision Avoidance System (CAS).
 
 Author: Trym Tengesdal
 """
@@ -23,20 +19,20 @@ import colav_simulator.core.guidances as guidances
 import colav_simulator.core.stochasticity as stochasticity
 import matplotlib.pyplot as plt
 import numpy as np
-import rlmpc.colregs_handler as ch
-import rlmpc.common.config_parsing as cp
-import rlmpc.common.helper_functions as hf
-import rlmpc.common.paths as dp
-import rlmpc.common.set_generator as sg
-import rlmpc.mpc.common as mpc_common
-import rlmpc.mpc.mid_level.mid_level_mpc as mlmpc
-import rlmpc.mpc.parameters as mpc_params
 import rrt_star_lib
 import scipy.interpolate as interp
 import seacharts.enc as senc
 import shapely.geometry as sgeo
 import yaml
 from shapely import strtree
+
+import rlmpc.colregs_handler as ch
+import rlmpc.common.config_parsing as cp
+import rlmpc.common.helper_functions as hf
+import rlmpc.common.paths as dp
+import rlmpc.mpc.common as mpc_common
+import rlmpc.mpc.mid_level.mid_level_mpc as mlmpc
+import rlmpc.mpc.parameters as mpc_params
 
 
 @dataclass
@@ -711,9 +707,9 @@ class RLMPC(ci.ICOLAV):
         **kwargs,
     ) -> np.ndarray:
         assert enc is not None, "ENC must be provided to the RL-MPC"
-        assert waypoints.size > 2, (
-            "Waypoints and speed plan must be provided to the RLMPC"
-        )
+        assert (
+            waypoints.size > 2
+        ), "Waypoints and speed plan must be provided to the RLMPC"
         if not self._initialized:
             self.initialize(
                 t, waypoints, speed_plan, ownship_state, do_list, enc, **kwargs
@@ -774,7 +770,11 @@ class RLMPC(ci.ICOLAV):
                 **kwargs,
             )
             # Weird acados bug where the MPC sometimes fails to find a solution at t0 given the same initial state after resetting the solver => retry if this happens
-            if  "qp_failure" in self._mpc_soln and self._mpc_soln["qp_failure"] and t < 1.0:
+            if (
+                "qp_failure" in self._mpc_soln
+                and self._mpc_soln["qp_failure"]
+                and t < 1.0
+            ):
                 print(
                     f"[RLMPC {self.identifier.upper()}] Reconstructing MPC OCP and retrying MPC plan at t = {t} due to QP failure"
                 )

@@ -1,23 +1,15 @@
-"""
-train_mpc_param_provider.py
-
-Summary:
-    This script trains the MPC parameter provider.
-
-Author: Trym Tengesdal
-"""
-
 import time
 from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
-import rlmpc.networks.loss_functions as loss_functions
 import torch
-from rlmpc.common.running_loss import RunningLoss
-from rlmpc.policies import MPCParameterDNN
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+
+import rlmpc.networks.loss_functions as loss_functions
+from rlmpc.common.running_loss import RunningLoss
+from rlmpc.policies import MPCParameterDNN
 
 
 def train_mpc_param_dnn(

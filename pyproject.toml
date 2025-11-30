@@ -1,6 +1,6 @@
 [project]
 name = "rlmpc"
-version = "1.0.0"
+version = "2.0.0"
 authors = [{name = "Trym Tengesdal", email = "tengesdal1994@gmail.com"}]
 description = "Software for anti-grounding MPCs, situation dependent MPC-tuning using Soft Actor Critic, feature extractors for DRL, and more."
 keywords = ["maritime collision avoidance", "python", "MPC", "RL", "SAC", "VAE", "feature extraction"]

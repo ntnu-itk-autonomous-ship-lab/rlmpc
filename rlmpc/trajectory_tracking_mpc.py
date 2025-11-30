@@ -1,5 +1,5 @@
 """
-COLAV-simulator planner wrapper for the anti-grounding MPC.
+COLAV-simulator planner wrapper for the anti-grounding trajectory tracking NMPC.
 
 Author: Trym Tengesdal
 """

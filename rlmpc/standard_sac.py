@@ -1,9 +1,6 @@
-"""
-sac.py
+"""Standard Soft Actor-Critic (SAC) implementation using only neural networks.
 
-Summary:
-    Standard Soft Actor-Critic (SAC) implementation using only neural networks.
-
+Uses the stable-baselines3 SAC implementation as a base.
 
 Author: Trym Tengesdal
 """
@@ -14,9 +11,6 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import numpy as np
-import rlmpc.common.buffers as rlmpc_buffers
-import rlmpc.off_policy_algorithm as opa
-import rlmpc.policies as rlmpc_policies
 import stable_baselines3.common.noise as sb3_noise
 import torch as th
 from gymnasium import spaces
@@ -24,11 +18,13 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import (
     get_parameters_by_name,
     polyak_update,
-    set_random_seed,
-    update_learning_rate,
 )
 from stable_baselines3.sac.policies import ContinuousCritic
 from torch.nn import functional as F
+
+import rlmpc.common.buffers as rlmpc_buffers
+import rlmpc.off_policy_algorithm as opa
+import rlmpc.policies as rlmpc_policies
 
 SelfSAC = TypeVar("SelfSAC", bound="SAC")
 
@@ -216,9 +212,9 @@ class SAC(opa.OffPolicyAlgorithm):
             init_value = 0.1
             if "_" in self.ent_coef:
                 init_value = float(self.ent_coef.split("_")[1])
-                assert init_value > 0.0, (
-                    "The initial value of ent_coef must be greater than 0"
-                )
+                assert (
+                    init_value > 0.0
+                ), "The initial value of ent_coef must be greater than 0"
 
             # Note: we optimize the log of the entropy coeff which is slightly different from the paper
             # as discussed in https://github.com/rail-berkeley/softlearning/issues/37

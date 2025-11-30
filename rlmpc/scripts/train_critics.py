@@ -1,23 +1,15 @@
-"""
-train_soft_critics.py
-
-Summary:
-    This script trains the critic and the target critic softly using replayed interaction data.
-
-Author: Trym Tengesdal
-"""
-
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import optuna
+import torch
+from torch.utils.tensorboard import SummaryWriter
+
 import rlmpc.sac as rlmpc_sac
 import rlmpc.standard_sac as rlmpc_ssac
-import torch
 from rlmpc.common.running_loss import RunningLoss
-from torch.utils.tensorboard import SummaryWriter
 
 
 def train_critics(
