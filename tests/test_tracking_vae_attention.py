@@ -7,7 +7,6 @@ import torch
 
 import rlmpc.common.paths as rl_dp
 import rlmpc.rewards as rewards
-from rlmpc.networks.tracking_vae.vae import VAE
 from rlmpc.networks.tracking_vae_attention.vae import VAE
 
 
@@ -56,7 +55,7 @@ def test_tracking_vae_attention() -> None:
         "identifier": "training_env",
         "seed": 123124014,
     }
-    vae_dir = Path.home() / "machine_learning/tracking_vae/chosen"
+    vae_dir = Path.home() / "machine_learning" / "tracking_vae" / "chosen"
     name = "tracking_avae_mdnew_beta001_3_NL_1_nonbi_HD_64_LD_12_NH_8_ED_16"
     input_dim = 4
     model = VAE(

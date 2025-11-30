@@ -4,36 +4,38 @@ import colav_simulator.common.map_functions as mapf
 import colav_simulator.common.math_functions as mf
 import matplotlib.pyplot as plt
 import numpy as np
-import rlmpc.mpc.common as mpc_common
 from matplotlib import cm
 
-plt.rcParams.update(
-    {
-        "pgf.texsystem": "pdflatex",
-        "font.family": "serif",
-        "text.usetex": True,
-        "pgf.rcfonts": False,
-        "pgf.preamble": "\n".join(
-            [
-                r"\usepackage{bm}",
-                r"\usepackage{amsmath}",
-                r"\usepackage{amssymb}",
-            ]
-        ),
-        "font.serif": ["Computer Modern Roman"],
-        "text.latex.preamble": "\n".join(
-            [
-                r"\usepackage{bm}",
-                r"\usepackage{amsmath}",
-                r"\usepackage{amssymb}",
-            ]
-        ),
-        "pdf.fonttype": 42,
-        "ps.fonttype": 42,
-    }
-)
+import rlmpc.mpc.common as mpc_common
 
-if __name__ == "__main__":
+
+def plot_potential_functions() -> None:
+    plt.rcParams.update(
+        {
+            "pgf.texsystem": "pdflatex",
+            "font.family": "serif",
+            "text.usetex": True,
+            "pgf.rcfonts": False,
+            "pgf.preamble": "\n".join(
+                [
+                    r"\usepackage{bm}",
+                    r"\usepackage{amsmath}",
+                    r"\usepackage{amssymb}",
+                ]
+            ),
+            "font.serif": ["Computer Modern Roman"],
+            "text.latex.preamble": "\n".join(
+                [
+                    r"\usepackage{bm}",
+                    r"\usepackage{amsmath}",
+                    r"\usepackage{amssymb}",
+                ]
+            ),
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
+
     inf_val = mpc_common.potential_field_base_function(-np.inf)
 
     npy = 100
@@ -158,3 +160,7 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show(block=False)
     print("done")
+
+
+if __name__ == "__main__":
+    plot_potential_functions()

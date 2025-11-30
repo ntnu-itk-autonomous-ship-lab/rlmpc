@@ -3,20 +3,15 @@
 Shows how to use the gym environment, and how to save a video + gif of the simulation.
 """
 
-from pathlib import Path
-
-import colav_simulator.common.map_functions as mapf
-import colav_simulator.common.math_functions as mf
 import matplotlib.pyplot as plt
 import numpy as np
+
 import rlmpc.mpc.common as mpc_common
-from matplotlib import cm
 
 plt.rcParams.update(
     {
         "pgf.texsystem": "pdflatex",
         "font.family": "serif",
-        "text.usetex": True,
         "pgf.rcfonts": False,
         "pgf.preamble": "\n".join(
             [
@@ -26,6 +21,7 @@ plt.rcParams.update(
             ]
         ),
         "font.serif": ["Computer Modern Roman"],
+        "text.usetex": True,
         "text.latex.preamble": "\n".join(
             [
                 r"\usepackage{bm}",
@@ -40,10 +36,10 @@ plt.rcParams.update(
 
 
 def f(x: float) -> float:
-    return x / np.sqrt(x**2 + 1)
+    return float(x / np.sqrt(x**2 + 1))
 
 
-if __name__ == "__main__":
+def plot_rate_costs() -> None:
     n = 200
     a_max = 0.3
     r_max = np.deg2rad(8)
@@ -64,7 +60,6 @@ if __name__ == "__main__":
         r_costs[i] = r_cost
         a_costs[i] = a_cost
 
-    # Plot
     fig = plt.figure(figsize=(12, 8))
     axes = fig.subplot_mosaic(
         [
@@ -84,5 +79,9 @@ if __name__ == "__main__":
 
     fig.tight_layout()
     plt.show(block=False)
-    plt.savefig("test_rate_costs")
+    plt.savefig("plot_rate_costs")
     print("done")
+
+
+if __name__ == "__main__":
+    plot_rate_costs()
