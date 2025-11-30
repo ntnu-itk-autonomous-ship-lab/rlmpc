@@ -74,4 +74,4 @@ only-include = ["rlmpc"]
 [tool.uv.sources]
 seacharts = { git = "https://github.com/trymte/seacharts.git", rev = "6818e8abf845cfa0dfc6038c11a670da988ad531" }
 rrt-star-lib = { git = "https://github.com/ntnu-itk-autonomous-ship-lab/rrt-rs.git", rev = "c212eeaa7479bc61f2aa9f25dc19719de04ade20" }
-colav-simulator = { git = "https://github.com/NTNU-TTO/colav-simulator.git", rev = "d40e0f05214edbf4b28e9bc4ce7c10181c375802" }
+colav-simulator = { git = "https://github.com/NTNU-TTO/colav-simulator.git", rev = "b03b0f029706fba187b2824dd2bdbd2403c9a921" }

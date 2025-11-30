@@ -278,7 +278,7 @@ wheels = [
 [[package]]
 name = "colav-simulator"
 version = "1.0.0"
-source = { git = "https://github.com/NTNU-TTO/colav-simulator.git?rev=d40e0f05214edbf4b28e9bc4ce7c10181c375802#d40e0f05214edbf4b28e9bc4ce7c10181c375802" }
+source = { git = "https://github.com/NTNU-TTO/colav-simulator.git?rev=b03b0f029706fba187b2824dd2bdbd2403c9a921#b03b0f029706fba187b2824dd2bdbd2403c9a921" }
 dependencies = [
     { name = "cerberus" },
     { name = "dacite" },
@@ -2014,7 +2014,7 @@ dev = [
 requires-dist = [
     { name = "casadi", specifier = "==3.7.2" },
     { name = "cerberus" },
-    { name = "colav-simulator", git = "https://github.com/NTNU-TTO/colav-simulator.git?rev=d40e0f05214edbf4b28e9bc4ce7c10181c375802" },
+    { name = "colav-simulator", git = "https://github.com/NTNU-TTO/colav-simulator.git?rev=b03b0f029706fba187b2824dd2bdbd2403c9a921" },
     { name = "cvxpy" },
     { name = "distributed" },
     { name = "einops" },
