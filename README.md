@@ -9,6 +9,8 @@ This repository contains research code behind
 
 Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>. Example training/nmpc run scripts found under `run_examples`. Developed mainly with Python 3.10 and 3.11. Note that some modernization/fixes is needed to make the code fully compatible with never acados versions following the latest porting to use `uv` and newer dependency versions.
 
+A similar, more generic framework for the RLMPC part can be found in <https://github.com/leap-c/leap-c>.
+
 <p align="center">
     <img src="https://github.com/ntnu-itk-autonomous-ship-lab/rlmpc/blob/main/simple_planning_example_ep1.gif?raw=true" width="1000px"><br/>
     <em>Example run of an anti-grounding tracking NMPC controller in the simulator.</em>
