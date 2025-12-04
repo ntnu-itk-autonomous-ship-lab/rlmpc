@@ -30,7 +30,12 @@ Git dependencies here include
 
 ## Installation
 
-Use the convenience script in `install_project.sh` to install everything:
+Install `uv` (<https://docs.astral.sh/uv/getting-started/installation/>):
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Then, use the convenience script in `install_project.sh` to install the project with acados and everything:
 ```bash
 chmod +x install_project.sh
 ./install_project.sh
