@@ -4,10 +4,12 @@
 This repository contains research code behind
 - A trajectory tracking NMPC with anti-grounding functionality, described in <https://ieeexplore.ieee.org/abstract/document/10644772>.
 - A mid-level path-following NMPC with speed profile consideration, that considers dynamic ship collision avoidance and grounding avoidance.
-- Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamc obstacle target tracks.
-- A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Unpublished work in progress. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so take great care in how the cost function and constraints are setup to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear MPC.
+- Variational autoencoders for feature extraction from Electronic Navigational Charts (ENCs) and dynamic obstacle target tracks.
+- A Soft Actor Critic (SAC) implementation coupled with the mid-level NMPC for situation-dependent tuning of the NMPC, based on a modded version of stable baselines3 where the MPC Optimal Control Problem sensitivities are used in the SAC actor gradient calculations. Unpublished work in progress. Note that the NMPC formulation in Acados is highly sensitive to changes in the parameters, so take great care in how the cost function and constraints are setup to ensure the (S)QP-solvers do not fail too often. The most robust way to use this functionality would be by just formulating a linear MPC. 
 
-Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>. Example training/nmpc run scripts found under `run_examples`. Developed mainly with Python 3.10 and 3.11. Note that some modernization/fixes is needed to make the code fully compatible with never acados versions following the latest porting to use `uv` and newer dependency versions.
+Coupled with the colav-simulation framework in <https://github.com/NTNU-TTO/colav-simulator>. Example training/nmpc run scripts found under `run_examples`. Some figures and visualizations can be found under `docs`. 
+
+Developed mainly with Python 3.10 and 3.11. Note that some modernization/fixes is needed to make the code fully compatible with never acados versions following the latest porting to use `uv` and newer dependency versions.
 
 A similar, more generic framework for the RLMPC part can be found in <https://github.com/leap-c/leap-c>.
 
